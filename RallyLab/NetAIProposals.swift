@@ -107,10 +107,11 @@ enum NetAIPilot {
 
     /// Up to `count` recordings to propose on, in a stable order: not skipped (withheld,
     /// handheld, unidentified), the manifest's identity the file's, no label under the id
-    /// (a box-only label stays the person's), no proposal yet; one per alias group, taken
-    /// round-robin over surfaces so the pilot sees more than one kind of court.
+    /// (a box-only label stays the person's), no proposal yet; taken round-robin over surfaces
+    /// so a short run sees more than one kind of court. `onePerGroup` (the pilot) keeps one
+    /// recording per alias group; a full run takes every recording, since each needs its label.
     static func choose(_ candidates: [Candidate], labels: [String: NetLabel], proposals: [String: NetAIProposal],
-                       withheld: Set<String>, count: Int) -> [Candidate] {
+                       withheld: Set<String>, count: Int, onePerGroup: Bool = true) -> [Candidate] {
         let eligible = candidates.filter {
             NetLabels.skip(video: $0.video, camera: $0.camera, withheld: withheld, fingerprint: $0.fingerprint) == nil
                 && $0.fileFingerprint == $0.fingerprint && labels[$0.video] == nil && proposals[$0.video] == nil
@@ -119,7 +120,7 @@ enum NetAIPilot {
         var groups = Set<String>()
         for c in eligible.sorted(by: { $0.video < $1.video }) {
             let group = c.aliasGroup ?? c.video
-            guard groups.insert(group).inserted else { continue }
+            guard groups.insert(group).inserted || !onePerGroup else { continue }
             bySurface[c.surface ?? "", default: []].append(c)
         }
         var queues = bySurface.sorted { $0.key < $1.key }.map(\.value)
@@ -186,34 +187,42 @@ enum NetAIPilot {
 
     /// Decode each chosen recording's frame by the tab's rule (the first marked rally
     /// long enough, else the middle) at the tab's size, into `dir` (created; must not
-    /// exist), with the manifest. A recording whose file can't be read is left out and
-    /// named; nothing but the chosen recordings is touched.
+    /// exist), with the manifest — rewritten after every frame, so frames can be exposed and
+    /// inspected while the rest are still read. A recording whose file can't be read or
+    /// decoded is left out and named; nothing but the chosen recordings is touched.
     static func writeFrames(_ chosen: [Candidate], footage: any NetLabelFootage, project: String, run: String, model: String,
                             withheldCount: Int, eligibleCount: Int, to dir: URL, log: (String) -> Void = { _ in }) async throws -> Manifest {
         let fm = FileManager.default
         guard !fm.fileExists(atPath: dir.path) else { throw CocoaError(.fileWriteFileExists, userInfo: [NSFilePathErrorKey: dir.path]) }
         try fm.createDirectory(at: dir.appendingPathComponent("frames"), withIntermediateDirectories: true)
         var frames: [Frame] = []
+        func manifest() -> Manifest {
+            Manifest(project: project, run: run, model: model, createdAt: Date(), withheldCount: withheldCount,
+                     eligibleCount: eligibleCount, frames: frames,
+                     note: "Upright frames as the Net labels tab decodes them (its frame rule and size). Each frame is shown to \(model) only after `--net-ai-expose` has written its net_proposal ledger row (ref \(run)) and receipt. Proposals are not labels.")
+        }
         for c in chosen {
             guard let fingerprint = c.fingerprint else { continue }
             guard await footage.isReadable(c.url) else { log("⚠️ \(c.video): not readable here — left out."); continue }
             let duration = await footage.duration(of: c.url)
             guard duration > 0 else { log("⚠️ \(c.video): no duration — left out."); continue }
             let t = NetLabels.frameTime(duration: duration, rallies: await footage.rallyMarks(for: c.url))
-            let image = try await footage.frame(of: c.url, at: t)
+            let image: CGImage
+            do { image = try await footage.frame(of: c.url, at: t) } catch {
+                log("⚠️ \(c.video): no frame at \(NetLabelsModel.clock(t)) (\(error.localizedDescription)) — left out."); continue
+            }
             let file = "frames/\(c.video).jpg"
             let url = dir.appendingPathComponent(file)
             try NetLabels.writeJPEG(image, to: url)
             guard let digest = DatasetSplitManifest.sha256(of: url) else { throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: url.path]) }
             frames.append(Frame(video: c.video, clip: c.clip, camera: c.camera, surface: c.surface, time: t,
                                 width: image.width, height: image.height, fingerprint: fingerprint, image: file, imageSHA256: digest))
+            try encoder.encode(manifest()).write(to: dir.appendingPathComponent(manifestName), options: .atomic)
             log("  \(frames.count)/\(chosen.count) \(c.video) @ \(NetLabelsModel.clock(t)) \(image.width)×\(image.height)")
         }
-        let manifest = Manifest(project: project, run: run, model: model, createdAt: Date(), withheldCount: withheldCount,
-                                eligibleCount: eligibleCount, frames: frames,
-                                note: "Upright frames as the Net labels tab decodes them (its frame rule and size). Each frame is shown to \(model) only after `--net-ai-expose` has written its net_proposal ledger row (ref \(run)) and receipt. Proposals are not labels.")
-        try encoder.encode(manifest).write(to: dir.appendingPathComponent(manifestName), options: .atomic)
-        return manifest
+        let final = manifest()
+        try encoder.encode(final).write(to: dir.appendingPathComponent(manifestName), options: .atomic)
+        return final
     }
 
     /// Check that `video`'s frame may be shown to the model now: in the pilot, not withheld,

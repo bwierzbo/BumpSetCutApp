@@ -58,6 +58,10 @@ extension NetLabelsTests {
         let every = NetAIPilot.choose(all, labels: ["ind_lab": Self.label(), "ind_box": Self.label(boxOnly: true)],
                                       proposals: ["ind_ai": Self.aiProposal()], withheld: ["grs_held"], count: .max)
         XCTAssertEqual(Set(every.map(\.video)), ["bch_a", "bch_b", "bch_c", "grs_a", "ind_c"])
+        // A full run: every eligible recording, the alias group's other members too.
+        let all2 = NetAIPilot.choose(all, labels: ["ind_lab": Self.label(), "ind_box": Self.label(boxOnly: true)],
+                                     proposals: ["ind_ai": Self.aiProposal()], withheld: ["grs_held"], count: .max, onePerGroup: false)
+        XCTAssertEqual(Set(all2.map(\.video)), ["bch_a", "bch_a_v2", "bch_b", "bch_c", "grs_a", "ind_c"])
     }
 
     func testPilotFramesReadOnlyTheChosenByTheTabsRuleWithTheirHashes() async throws {

@@ -62,10 +62,11 @@
 //    RallyLab --project v3 --export-net-dataset <dir>    (the net labels (Net labels tab): one upright JPEG and one
 //             YOLO line per labeled recording, data.yaml and net-dataset.json, into <dir> (must not exist); withheld
 //             and handheld recordings refused; the use goes in the exposure ledger first, or nothing is put in place)
-//    RallyLab --project v3 --net-ai-frames <dir> --model <id> [--count 10]   (AI-assisted net corners, pilot: the
-//             frames of up to N eligible recordings — not withheld (manifest closure ∪ files'), not handheld, identified,
-//             no label, no proposal; one per alias group, round-robin over surfaces — by the Net labels tab's rule, with
-//             pilot-manifest.json (run, model, hashes). Writes no ledger row: nothing has seen the frames yet)
+//    RallyLab --project v3 --net-ai-frames <dir> --model <id> [--count 10] [--every-recording]   (AI-assisted net corners:
+//             the frames of up to N eligible recordings — not withheld (manifest closure ∪ files'), not handheld, identified,
+//             no label, no proposal; one per alias group unless --every-recording, round-robin over surfaces — by the Net
+//             labels tab's rule, with pilot-manifest.json (run, model, hashes), rewritten after every frame. Writes no
+//             ledger row: nothing has seen the frames yet)
 //    RallyLab --project v3 --net-ai-expose <dir> <video>   (the net_proposal ledger row, ref = the run, and a receipt,
 //             before the model is shown that frame; fails — and the frame must not be shown — when either can't be written)
 //    RallyLab --project v3 --import-net-ai-proposals <dir>   (<dir>/proposals.json → net-ai-proposals.json, all or
@@ -227,7 +228,8 @@ enum HeadlessProjects {
             if ok, let out = value(after: "--net-ai-frames", in: args) {
                 ok = await netAIFrames(projects, to: URL(fileURLWithPath: (out as NSString).expandingTildeInPath, isDirectory: true),
                                        model: value(after: "--model", in: args),
-                                       count: value(after: "--count", in: args).flatMap(Int.init) ?? 10)
+                                       count: value(after: "--count", in: args).flatMap(Int.init) ?? 10,
+                                       onePerGroup: !args.contains("--every-recording"))
             }
             if ok, let i = args.firstIndex(of: "--net-ai-expose"), args.indices.contains(i + 2) {
                 ok = netAIExpose(projects, dir: URL(fileURLWithPath: (args[i + 1] as NSString).expandingTildeInPath, isDirectory: true), video: args[i + 2])
@@ -1071,7 +1073,7 @@ enum HeadlessProjects {
 
     /// `--net-ai-frames <dir>`: the pilot's frames and manifest (NetAIProposals.swift).
     @MainActor
-    private static func netAIFrames(_ projects: ProjectsModel, to dir: URL, model: String?, count: Int) async -> Bool {
+    private static func netAIFrames(_ projects: ProjectsModel, to dir: URL, model: String?, count: Int, onePerGroup: Bool) async -> Bool {
         guard let root = projects.projectDir, let project = projects.project else { log("❌ No project folder."); return false }
         guard let model, !model.isEmpty else { log("❌ --model <id>: the vision model that will see the frames."); return false }
         guard let guards = netAIGuards(root) else { return false }
@@ -1094,8 +1096,8 @@ enum HeadlessProjects {
                                             fileFingerprint: ReservedVideos.effectiveFingerprint(source))
             }
         }
-        let eligible = NetAIPilot.choose(candidates, labels: labels, proposals: proposals, withheld: withheld, count: .max)
-        let chosen = NetAIPilot.choose(candidates, labels: labels, proposals: proposals, withheld: withheld, count: count)
+        let eligible = NetAIPilot.choose(candidates, labels: labels, proposals: proposals, withheld: withheld, count: .max, onePerGroup: onePerGroup)
+        let chosen = NetAIPilot.choose(candidates, labels: labels, proposals: proposals, withheld: withheld, count: count, onePerGroup: onePerGroup)
         log("Withheld: \(withheld.count) (manifest closure \(inventory.withheld.count), files' \(fileWithheld.count)\(inventory.withheld == fileWithheld ? ", identical" : ", union taken")). Eligible alias groups: \(eligible.count). Chosen: \(chosen.count).")
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX"); f.timeZone = TimeZone(identifier: "UTC"); f.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
