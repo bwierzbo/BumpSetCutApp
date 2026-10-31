@@ -559,7 +559,7 @@ final class MultiFramePackageResumeTests: XCTestCase {
             XCTAssertTrue(detail.contains("5 consecutive frames cannot be decoded"), detail)
             XCTAssertTrue(detail.contains("Cannot Decode"), "the decoder's own error is kept: \(detail)")
         }
-        let dir = root.appendingPathComponent("exports/Fixture-L2-multiframe-20261022-1400")
+        let dir = stoppedPackageDir
         XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("windows.jsonl").path), "nothing finished")
         XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("frames/lead5/933333.jpg").path))
         XCTAssertTrue(try journalLines(dir).allSatisfy { !$0.contains("\"type\":\"undecodable\"") }, "no omission is recorded for a frame that stopped the export")
@@ -581,7 +581,7 @@ final class MultiFramePackageResumeTests: XCTestCase {
             XCTAssertTrue((1_433_333...1_966_667).contains(key), "the first planned frame the damage reaches, in time order: \(frame)")
             XCTAssertTrue(detail.contains("the clip is avc1, not HEVC"), detail)
         }
-        let dir = root.appendingPathComponent("exports/Fixture-L2-multiframe-20261022-1400")
+        let dir = stoppedPackageDir
         XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("windows.jsonl").path))
         XCTAssertTrue(try journalLines(dir).allSatisfy { !$0.contains("\"type\":\"undecodable\"") })
     }
@@ -612,6 +612,15 @@ final class MultiFramePackageResumeTests: XCTestCase {
         guard case .fatal(let end) = U.verdict(run: 2, boundedBefore: true, boundedAfter: false, fresh: decode) else { return XCTFail("unbounded run accepted") }
         XCTAssertTrue(end.contains("reaches the clip's end"), end)
         XCTAssertEqual(U.fourCC(kCMVideoCodecType_HEVC), "hvc1")
+    }
+
+    /// Where an export that stopped before returning left its folder: the exporter stamps the
+    /// package with `now` in the Mac's own time zone, so the name is derived the same way here,
+    /// not written out (a Mac on Pacific time names the same instant an hour earlier).
+    private var stoppedPackageDir: URL {
+        let stamp = DateFormatter()
+        stamp.dateFormat = "yyyyMMdd-HHmm"
+        return root.appendingPathComponent("exports/Fixture-L2-multiframe-\(stamp.string(from: now))")
     }
 
     private func journalLines(_ dir: URL) throws -> [String] {
