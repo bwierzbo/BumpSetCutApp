@@ -48,6 +48,11 @@ def band_frame(w: int, h: int, box: tuple, seed: int) -> np.ndarray:
     return img
 
 
+def export_corners(corners: tuple) -> dict:
+    """Corners as the export writes them: by name, Vision-normalised (bottom-up)."""
+    return {name: {"x": x, "y": 1 - y} for name, (x, y) in zip(t.CORNER_NAMES, corners)}
+
+
 # Recordings: name → (surface, group key, box). Two clip cards share a card id → one group.
 RECORDINGS = {
     "bch_ele_sun_land_self_01":    ("beach",  "card-A", (0.50, 0.42, 0.70, 0.06)),
@@ -81,6 +86,7 @@ class Fixture:
             (self.export / "labels" / f"{video}.txt").write_text("0 %.6f %.6f %.6f %.6f\n" % box)
             fingerprint = f"fp-{video}"
             entries.append({"video": video, "clip": f"clip-{i}", "camera": "Elevated", "time": 1.0, "box": {},
+                            "corners": export_corners(t.rect_corners(box)),
                             "proposed": False, "adjusted": False, "reviewedAt": "2026-10-30T00:00:00Z",
                             "image": f"images/{video}.jpg", "imageSHA256": hashlib.sha256(path.read_bytes()).hexdigest(),
                             "width": img.shape[1], "height": img.shape[0], "fingerprint": fingerprint})
@@ -93,6 +99,20 @@ class Fixture:
         (self.export / "net-dataset.json").write_text(json.dumps({"createdAt": "2026-10-30T00:00:00Z", "project": "Fixture",
                                                                   "labeled": len(entries), "entries": entries, "skipped": [], "note": ""}))
         self.manifest.write_text(json.dumps({"createdAt": "2026-10-30T00:00:00Z", "videos": videos}))
+
+    def relabel(self, video: str, corners: tuple, box: tuple = None) -> None:
+        """Give one entry these corners (y down; None removes them) and, unless `box` is
+        given, the YOLO line of their bounds."""
+        record = json.loads((self.export / "net-dataset.json").read_text())
+        for e in record["entries"]:
+            if e["video"] == video:
+                if corners is None:
+                    e.pop("corners", None)
+                else:
+                    e["corners"] = export_corners(corners)
+        (self.export / "net-dataset.json").write_text(json.dumps(record))
+        if corners is not None or box is not None:
+            (self.export / "labels" / f"{video}.txt").write_text("0 %.6f %.6f %.6f %.6f\n" % (box or t.corners_box(corners)))
 
     def extra(self, name: str = "roboflow", provenance: bool = True, names: str = "['ball', 'net']") -> Path:
         folder = self.root / name
@@ -135,6 +155,54 @@ class DataTests(unittest.TestCase):
         self.assertEqual(by["grs_onl_sun_land_onl_01"].surface, "grass")
         self.assertEqual(len({s.group for s in samples}), 7)
         self.assertAlmostEqual(by["bch_gnd_ovc_land_self_01"].box[2], 0.80)
+        # The corners come back y-down, in label order, and span the YOLO box.
+        s = by["bch_gnd_ovc_land_self_01"]
+        for a, b in zip(s.corners, t.rect_corners(s.box)):
+            self.assertAlmostEqual(a[0], b[0], places=6); self.assertAlmostEqual(a[1], b[1], places=6)
+        self.assertLess(s.corners[0][1], s.corners[3][1], "top-left is above bottom-left")
+
+    def test_corners_are_the_label_and_the_box_must_be_their_bounds(self):
+        f = Fixture(self.tmp)
+        # A perspective net: the right tape end lower than the left, the right post further right.
+        tilted = ((0.12, 0.30), (0.92, 0.36), (0.93, 0.44), (0.11, 0.37))
+        f.relabel("grs_onl_sun_land_onl_01", tilted)
+        _, rows = t.load_manifest(f.manifest)
+        samples, _ = t.read_rallylab_export(f.export, rows)
+        s = {s.video: s for s in samples}["grs_onl_sun_land_onl_01"]
+        for a, b in zip(s.corners, tilted):
+            self.assertAlmostEqual(a[0], b[0], places=6); self.assertAlmostEqual(a[1], b[1], places=6)
+        for a, b in zip(s.box, (0.52, 0.37, 0.82, 0.14)):
+            self.assertAlmostEqual(a, b, places=5)
+        # The YOLO line disagreeing with the corners is an inconsistent export, not a label.
+        f.relabel("grs_onl_sun_land_onl_01", tilted, box=(0.47, 0.48, 0.62, 0.06))
+        with self.assertRaises(SystemExit) as cm:
+            t.read_rallylab_export(f.export, rows)
+        self.assertIn("grs_onl_sun_land_onl_01: the YOLO box", str(cm.exception))
+        # No corners (a box-only label from before) stops the run naming the recording.
+        f.relabel("grs_onl_sun_land_onl_01", None)
+        with self.assertRaises(SystemExit) as cm:
+            t.read_rallylab_export(f.export, rows)
+        self.assertIn("grs_onl_sun_land_onl_01: no corners", str(cm.exception))
+
+    def test_corners_flip_with_the_frame_and_stay_ordered_under_augmentation(self):
+        tilted = ((0.12, 0.30), (0.92, 0.36), (0.93, 0.44), (0.11, 0.37))
+        img = band_frame(160, 90, t.corners_box(tilted), 5)
+        flipped = mirrored = 0
+        for seed in range(30):
+            out, c = t.augment(img, tilted, random.Random(seed))
+            self.assertEqual(out.shape[2], 3)
+            tl, tr, br, bl = c
+            self.assertLess(tl[0], tr[0], "top-left stays left of top-right")
+            self.assertLess(bl[0], br[0])
+            self.assertLess(tl[1], bl[1], "top stays above bottom")
+            self.assertTrue(all(0 <= v <= 1 for p in c for v in p))
+            # Mirrored: the lower tape end is now on the left.
+            if tl[1] > tr[1]:
+                mirrored += 1
+            flipped += 1
+        self.assertGreater(mirrored, 0); self.assertLess(mirrored, flipped)
+        plain, c = t.augment(img, None, random.Random(1))
+        self.assertIsNone(c)
 
     def test_a_withheld_recording_in_the_export_stops_the_run(self):
         f = Fixture(self.tmp, withhold="grs_ele_shade_land_self_02")
@@ -220,6 +288,14 @@ class DataTests(unittest.TestCase):
             back = t.letterbox_back(canvas, w, h)
             for a, b in zip(box, back):
                 self.assertAlmostEqual(a, b, places=6)
+            corners = t.rect_corners(box)
+            canvas_corners = t.letterbox_corners(corners, w, h)
+            self.assertTrue(all(0 <= v <= 1 for p in canvas_corners for v in p))
+            for a, b in zip(t.letterbox_corners_back(canvas_corners, w, h), corners):
+                self.assertAlmostEqual(a[0], b[0], places=6); self.assertAlmostEqual(a[1], b[1], places=6)
+            for a, b in zip(t.corners_box(canvas_corners), canvas):
+                self.assertAlmostEqual(a, b, places=6, msg="the letterboxed corners span the letterboxed box")
+        self.assertEqual(t.unflat(t.flat(corners)), corners)
         img, (scale, ox, oy) = t.letterbox_image(np.zeros((1920, 1080, 3), dtype=np.uint8))
         self.assertEqual(img.shape, (t.HEIGHT, t.WIDTH, 3))
         self.assertEqual(int(img[0, 0, 0]), t.PAD_GREY, "portrait: grey at the sides")
@@ -227,15 +303,15 @@ class DataTests(unittest.TestCase):
 
     def test_scores_measure_the_edges_the_gates_read(self):
         truth = (0.5, 0.40, 0.70, 0.06)
+        tc = t.rect_corners(truth)
         rows = []
         for i, (group, dx, dtop) in enumerate((("g1", 0.0, 0.01), ("g1", 0.02, -0.02), ("g2", -0.01, 0.03), ("g3", 0.0, 0.0))):
-            cx, cy, w, h = truth
-            pred = (cx + dx, cy + dtop, w, h)   # a whole-box shift: top moves by dtop, sides by dx
+            pred = tuple((x + dx, y + dtop) for x, y in tc)   # a whole-net shift: the tape moves by dtop, the sides by dx
             rows.append({"video": f"v{i}", "group": group, "surface": "beach", "has_net": True, "presence": 0.9,
-                         "pred": t.letterbox_box(pred, 1920, 1080), "truth": t.letterbox_box(truth, 1920, 1080), "w": 1920, "h": 1080})
+                         "pred": t.letterbox_corners(pred, 1920, 1080), "truth": t.letterbox_corners(tc, 1920, 1080), "w": 1920, "h": 1080})
         rows.append({"video": "miss", "group": "g3", "surface": "grass", "has_net": True, "presence": 0.2,
-                     "pred": t.letterbox_box(truth, 1920, 1080), "truth": t.letterbox_box(truth, 1920, 1080), "w": 1920, "h": 1080})
-        rows.append({"video": "empty", "group": "x", "surface": "extra", "has_net": False, "presence": 0.1, "pred": (0, 0, 0, 0),
+                     "pred": t.letterbox_corners(tc, 1920, 1080), "truth": t.letterbox_corners(tc, 1920, 1080), "w": 1920, "h": 1080})
+        rows.append({"video": "empty", "group": "x", "surface": "extra", "has_net": False, "presence": 0.1, "pred": ((0, 0),) * 4,
                      "truth": None, "w": 1920, "h": 1080})
         m = t.summarize(rows, draws=50)
         self.assertEqual((m["frames"], m["detected"]), (5, 4))
@@ -243,6 +319,13 @@ class DataTests(unittest.TestCase):
         self.assertAlmostEqual(m["top_error"]["median"], 0.015, places=5)
         self.assertAlmostEqual(m["top_error"]["mean"], 0.015, places=5)
         self.assertAlmostEqual(m["left_error"]["median"], 0.005, places=5)
+        self.assertAlmostEqual(m["corner_error"]["median"], (0.01 + (0.02 ** 2 + 0.02 ** 2) ** 0.5) / 2, places=5)
+        # A tilted prediction over a flat truth: the top error is the tape ends' mean, not the box top.
+        tilt = tuple((x, y + (0.04 if i == 1 else 0.0)) for i, (x, y) in enumerate(tc))
+        one = t.summarize([{"video": "v", "group": "g", "surface": "beach", "has_net": True, "presence": 0.9,
+                            "pred": t.letterbox_corners(tilt, 1920, 1080), "truth": t.letterbox_corners(tc, 1920, 1080), "w": 1920, "h": 1080}], draws=5)
+        self.assertAlmostEqual(one["top_error"]["median"], 0.02, places=5)
+        self.assertAlmostEqual(one["corner_error"]["median"], 0.01, places=5)
         self.assertAlmostEqual(m["top_error_mean_with_misses"], (0.01 + 0.02 + 0.03 + 0.0 + 1.0) / 5, places=5)
         self.assertEqual(m["no_net_frames"], 1)
         self.assertAlmostEqual(m["no_net_correct"], 1.0)
@@ -296,6 +379,8 @@ class TrainingTests(unittest.TestCase):
         self.assertIn(m["best_epoch"], (1, 2, 3))
         self.assertEqual(m["best"]["frames"], m["val_frames"])
         self.assertEqual(len(m["best"]["per_frame"]), m["val_frames"])
+        self.assertEqual(len(m["best"]["per_frame"][0]["top"]), 2, "the two tape ends")
+        self.assertIsNotNone(m["best"]["corner_error"]["median"])
         self.assertEqual(sorted(m["val_groups"]), m["val_groups"])
         split = json.loads((run / "split.json").read_text())
         self.assertEqual(split["val_groups"], m["val_groups"])

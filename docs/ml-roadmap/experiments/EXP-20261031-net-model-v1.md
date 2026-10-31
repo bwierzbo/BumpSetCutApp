@@ -2,7 +2,7 @@
 id: EXP-20261031-net-model-v1
 status: planned — not approved, not run (the dataset is not labeled yet)
 created: 2026-10-31T03:44:39Z
-updated: 2026-10-31T03:44:39Z
+updated: 2026-10-31T15:55:47Z
 decision: owner direction 2026-10-30 (verbatim: ../../decisions/2026-10-30-net-model-direction.md); D-002, D-017, D-018 honoured; the decision that removes net.mlpackage is logged by the PR that removes it
 roadmap_phase: net model replacement (licensing, 2026-10-09; plan: ../NET_MODEL_PLAN.md)
 pr: feat/net-trainer (the trainer); the run's own PR carries the results
@@ -15,8 +15,8 @@ issue: n/a
 
 ## Hypothesis
 
-- **H1 (the gates' needs, our recordings).** On the grouped validation frames of our own recordings, the from-scratch model's **median top-edge error is at most 0.02 of the frame height** and its **median left- and right-edge errors at most 0.05 of the frame width** (the off-court gate's margin), with a **detect rate of at least 0.95** at presence 0.5. The top edge is what the above-net gate reads with no margin (`aboveNetMarginY` 0); 0.02 H is about 22 px at 1080p, the thickness of the tape band the labels are drawn to. If H1 fails on a surface, that surface's number is reported and the model is not a candidate for the gates until it passes.
-- **H2 (exploratory: does the Roboflow data help?).** Two runs on the **same** `split.json`, one on our frames alone, one with `--extra` (the Roboflow net boxes, provenance recorded), compared frame by frame on the same val frames: the difference in median top-edge error is reported with the per-group 90 % range from resampling. No direction is preregistered; an interval that includes zero means the two were not told apart on this many groups, not that they are equal.
+- **H1 (the gates' needs, our recordings).** On the grouped validation frames of our own recordings, the from-scratch model's **median top error — the two tape ends' vertical error, mean of the two — is at most 0.02 of the frame height** and the **median left- and right-edge errors of the box its corners span are at most 0.05 of the frame width** (the off-court gate's margin), with a **detect rate of at least 0.95** at presence 0.5. The label is the net's four corners (owner, 2026-10-31; plan §2) and the model predicts them; the top edge of the box they span is what the above-net gate reads with no margin (`aboveNetMarginY` 0); 0.02 H is about 22 px at 1080p, the thickness of the tape band the top corners are placed on. The corner error (mean distance of the four corners, frame fractions) is reported with no bar preregistered: the gates read only the box the corners span. If H1 fails on a surface, that surface's number is reported and the model is not a candidate for the gates until it passes.
+- **H2 (exploratory: does the Roboflow data help?).** Two runs on the **same** `split.json`, one on our frames alone, one with `--extra` (the Roboflow net boxes, provenance recorded), compared frame by frame on the same val frames: the difference in median top error is reported with the per-group 90 % range from resampling. No direction is preregistered; an interval that includes zero means the two were not told apart on this many groups, not that they are equal.
 - **Not a hypothesis here:** the comparison with the old `net.mlpackage` on the pipeline's gates. That is the replacement PR's diagnostic (the Swift side, both detectors on the same recordings, the gates' outcomes), and it decides whether `net.mlpackage` can leave; this record decides only whether the model is worth that diagnostic.
 
 ## Inputs (frozen)
@@ -55,11 +55,11 @@ Outputs: `runs/net/<name>/` (best.pt, best.onnx, metrics.json, log.csv, split.js
 
 not measured (nothing has run)
 
-| | detect rate | top-edge error median / p90 (H) | left / right median (W) | IoU | 90 % range of the median (groups) |
-|---|---|---|---|---|---|
-| net_v1, all val | not measured | not measured | not measured | not measured | not measured |
-| by surface (beach / grass / indoor) | not measured | not measured | not measured | not measured | not measured |
-| net_v1_extra, same frames (H2) | not measured | not measured | not measured | not measured | not measured |
+| | detect rate | top error median / p90 (H) | left / right median (W) | corner error median | IoU | 90 % range of the median (groups) |
+|---|---|---|---|---|---|---|
+| net_v1, all val | not measured | not measured | not measured | not measured | not measured | not measured |
+| by surface (beach / grass / indoor) | not measured | not measured | not measured | not measured | not measured | not measured |
+| net_v1_extra, same frames (H2) | not measured | not measured | not measured | not measured | not measured | not measured |
 
 ## Decision
 
@@ -67,4 +67,4 @@ none yet (planned). On results: keep (the model goes to the replacement PR's Swi
 
 ## Test results
 
-The trainer's own tests at the time of writing: `~/.venvs/heatconv/bin/python -m unittest scripts.tests.test_train_net_model` — **14 tests, 0 failures** (10 on the data rules: export checks, withheld refusal, fingerprint and image-hash refusal, YOLO lines, extra-folder provenance and net class, group split, letterbox, scores; 4 on training: a run's record and `--score-only` reproducing it, a withheld recording stopping the run before anything is written, a 30-epoch synthetic run whose kept epoch is the best seen, and the Core ML conversion matching PyTorch).
+The trainer's own tests at the time of writing: `~/.venvs/heatconv/bin/python -m unittest scripts.tests.test_train_net_model` — **17 tests, 0 failures** (12 on the data rules: export checks, the corners being the label and the YOLO box their bounds, withheld refusal, fingerprint and image-hash refusal, YOLO lines, extra-folder provenance and net class, group split, letterbox of boxes and corners, corners under flip and crop, scores, YAML names; 5 on training: a run's record and `--score-only` reproducing it, augmentation fresh each epoch and repeatable, a withheld recording stopping the run before anything is written, a 30-epoch synthetic run whose kept epoch is the best seen, and the Core ML conversion matching PyTorch).
