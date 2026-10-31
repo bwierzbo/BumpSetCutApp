@@ -381,12 +381,17 @@ final class NetLabelsModel {
 
     /// Turn the vision model's proposal down: it is marked rejected on file (never offered
     /// again) and the recording goes back to the ordinary path — the old model's box, with
-    /// its ledger row, or the person draws it.
+    /// its ledger row, or the person draws it. The file is read again first: proposals may
+    /// have been imported since the tab loaded, and they must not be written over.
     func rejectAIProposal() {
         guard let item = selectedItem, let ai = shownAI, let aiStore else { return }
-        var next = aiProposals
-        next[item.video]?.rejectedAt = Date()
-        do { try aiStore.save(next) } catch { status = "Not rejected: \(error.localizedDescription)"; return }
+        var next: [String: NetAIProposal]
+        do {
+            next = try aiStore.load()
+            guard next[item.video] != nil else { throw CocoaError(.fileReadCorruptFile) }
+            next[item.video]?.rejectedAt = Date()
+            try aiStore.save(next)
+        } catch { status = "Not rejected: \(error.localizedDescription)"; return }
         aiProposals = next
         shownAI = nil; quad = nil; proposed = false; adjusted = false
         status = "\(item.video): \(ai.model)'s proposal rejected."

@@ -245,7 +245,11 @@ extension NetLabelsTests {
         model.select("c_ok")
         await settle()
         XCTAssertNotNil(model.shownAI)
+        // A batch imported after the tab loaded must survive the reject's write.
+        var later = Self.aiProposal(); later.run = "run-2"
+        var onDisk = try aiStore.load(); onDisk["z_later"] = later; try aiStore.save(onDisk)
         model.rejectAIProposal()
+        XCTAssertEqual(try aiStore.load()["z_later"], later, "a proposal imported since the tab loaded is kept")
         XCTAssertNil(model.shownAI)
         XCTAssertNotNil(try aiStore.load()["c_ok"]?.rejectedAt, "kept on file, marked rejected")
         XCTAssertEqual(recorded, ["c_ok"]); XCTAssertEqual(footage.proposalCalls, 1, "the ordinary path: the old model's box, its row first")
