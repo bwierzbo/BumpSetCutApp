@@ -62,6 +62,16 @@
 //    RallyLab --project v3 --export-net-dataset <dir>    (the net labels (Net labels tab): one upright JPEG and one
 //             YOLO line per labeled recording, data.yaml and net-dataset.json, into <dir> (must not exist); withheld
 //             and handheld recordings refused; the use goes in the exposure ledger first, or nothing is put in place)
+//    RallyLab --project v3 --net-ai-frames <dir> --model <id> [--count 10] [--every-recording]   (AI-assisted net corners:
+//             the frames of up to N eligible recordings — not withheld (manifest closure ∪ files'), not handheld, identified,
+//             no label, no proposal; one per alias group unless --every-recording, round-robin over surfaces — by the Net
+//             labels tab's rule, with pilot-manifest.json (run, model, hashes), rewritten after every frame. Writes no
+//             ledger row: nothing has seen the frames yet)
+//    RallyLab --project v3 --net-ai-expose <dir> <video>   (the net_proposal ledger row, ref = the run, and a receipt,
+//             before the model is shown that frame; fails — and the frame must not be shown — when either can't be written)
+//    RallyLab --project v3 --import-net-ai-proposals <dir>   (<dir>/proposals.json → net-ai-proposals.json, all or
+//             nothing: each answer needs its ledger row and receipt, an unchanged frame, the same file, no label, not
+//             withheld; corners inside the frame, tape above the mesh. Proposals only — the tab's Confirm makes a label)
 //    RallyLab --project v3 --fit-boxes [--apply]          (tighten unreviewed balls' boxes; --apply pulls the
 //             phone's changes, saves, and sends them back)
 //    RallyLab --project v3 --pretrack [clip…] [--per-video 3] [--redo] [--val] [--heat M]   (self-training: the newest multi-frame
@@ -224,6 +234,18 @@ enum HeadlessProjects {
             }
             if ok, let out = value(after: "--export-net-dataset", in: args) {
                 ok = await exportNetDataset(projects, to: URL(fileURLWithPath: (out as NSString).expandingTildeInPath, isDirectory: true))
+            }
+            if ok, let out = value(after: "--net-ai-frames", in: args) {
+                ok = await netAIFrames(projects, to: URL(fileURLWithPath: (out as NSString).expandingTildeInPath, isDirectory: true),
+                                       model: value(after: "--model", in: args),
+                                       count: value(after: "--count", in: args).flatMap(Int.init) ?? 10,
+                                       onePerGroup: !args.contains("--every-recording"))
+            }
+            if ok, let i = args.firstIndex(of: "--net-ai-expose"), args.indices.contains(i + 2) {
+                ok = netAIExpose(projects, dir: URL(fileURLWithPath: (args[i + 1] as NSString).expandingTildeInPath, isDirectory: true), video: args[i + 2])
+            }
+            if ok, let dir = value(after: "--import-net-ai-proposals", in: args) {
+                ok = importNetAIProposals(projects, dir: URL(fileURLWithPath: (dir as NSString).expandingTildeInPath, isDirectory: true))
             }
             if ok, args.contains("--confirm-youtube-source-ids") {
                 ok = confirmYouTubeSourceIDs(projects, apply: args.contains("--apply"))
@@ -1043,6 +1065,8 @@ enum HeadlessProjects {
         do { withheld = try ReservedVideos.lineageWithheldNames(in: root) } catch { log("❌ \(error.localizedDescription)"); return false }
         let labels: [String: NetLabel]
         do { labels = try NetLabelStore(projectDir: root).load() } catch { log("❌ net-labels.json: \(error.localizedDescription)"); return false }
+        let exclusions: [String: NetExclusion]
+        do { exclusions = try NetExclusionStore(projectDir: root).load() } catch { log("❌ net-exclusions.json: \(error.localizedDescription)"); return false }
         let sources = project.clips.flatMap { clip in
             clip.videos.map { NetDatasetExport.Source(video: clip.videoId(of: $0), clip: clip.id, camera: clip.camera,
                                                       url: URL(fileURLWithPath: $0.clipFile), fingerprint: ReservedVideos.effectiveFingerprint($0)) }
@@ -1058,7 +1082,7 @@ enum HeadlessProjects {
         let partial = staging.appendingPathComponent(dir.lastPathComponent)
         let manifest: NetDatasetExport.Manifest
         do {
-            manifest = try await NetDatasetExport.write(labels: labels, sources: sources, withheld: withheld, project: project.name,
+            manifest = try await NetDatasetExport.write(labels: labels, sources: sources, withheld: withheld, exclusions: exclusions, project: project.name,
                                                         to: partial) { log("  \($0)") }
         } catch {
             log("❌ \(error.localizedDescription)")
@@ -1074,6 +1098,93 @@ enum HeadlessProjects {
         let byReason = Dictionary(grouping: manifest.skipped, by: \.reason).mapValues(\.count)
         log("✅ \(manifest.labeled) labeled recordings → \(dir.path) (skipped: \(byReason.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", ")))")
         return true
+    }
+
+    /// Who is withheld, by both readings: the split manifest's closure (NetInventory, which must be of
+    /// project.json and validation.json as they are now) and the files' (ReservedVideos). Either failing fails.
+    @MainActor
+    private static func netAIGuards(_ root: URL) -> (inventory: NetInventory, fileWithheld: Set<String>)? {
+        do {
+            let inventory = try NetInventory.load(projectDir: root)
+            let fileWithheld = try ReservedVideos.lineageWithheldNames(in: root)
+            return (inventory, fileWithheld)
+        } catch { log("❌ \(error.localizedDescription)"); return nil }
+    }
+
+    /// `--net-ai-frames <dir>`: the pilot's frames and manifest (NetAIProposals.swift).
+    @MainActor
+    private static func netAIFrames(_ projects: ProjectsModel, to dir: URL, model: String?, count: Int, onePerGroup: Bool) async -> Bool {
+        guard let root = projects.projectDir, let project = projects.project else { log("❌ No project folder."); return false }
+        guard let model, !model.isEmpty else { log("❌ --model <id>: the vision model that will see the frames."); return false }
+        guard let guards = netAIGuards(root) else { return false }
+        let (inventory, fileWithheld) = guards
+        let withheld = inventory.withheld.union(fileWithheld)
+        let labels: [String: NetLabel], proposals: [String: NetAIProposal], manifest: DatasetSplitManifest?, exclusions: [String: NetExclusion]
+        do {
+            labels = try NetLabelStore(projectDir: root).load()
+            proposals = try NetAIProposalStore(projectDir: root).load()
+            exclusions = try NetExclusionStore(projectDir: root).load()
+            manifest = try DatasetSplitManifest.readStrict(from: NetInventory.manifestURL(in: root))
+        } catch { log("❌ \(error.localizedDescription)"); return false }
+        let rows = Dictionary((manifest?.videos ?? []).map { ($0.video, $0) }, uniquingKeysWith: { a, _ in a })
+        let candidates = project.clips.flatMap { clip in
+            clip.videos.map { source -> NetAIPilot.Candidate in
+                let id = clip.videoId(of: source)
+                let row = rows[id] ?? rows[DatasetStore.safeName(id)]
+                return NetAIPilot.Candidate(video: id, clip: clip.id, camera: clip.camera, surface: row?.surface, aliasGroup: row?.aliasGroup,
+                                            url: URL(fileURLWithPath: source.clipFile),
+                                            fingerprint: inventory.fingerprint[id] ?? inventory.fingerprint[DatasetStore.safeName(id)],
+                                            fileFingerprint: ReservedVideos.effectiveFingerprint(source))
+            }
+        }
+        let excluded = NetExclusionStore.excluded(exclusions) { id in candidates.first { $0.video == id }?.fingerprint }
+        let eligible = NetAIPilot.choose(candidates, labels: labels, proposals: proposals, withheld: withheld, count: .max, onePerGroup: onePerGroup, excluded: excluded)
+        let chosen = NetAIPilot.choose(candidates, labels: labels, proposals: proposals, withheld: withheld, count: count, onePerGroup: onePerGroup, excluded: excluded)
+        log("Withheld: \(withheld.count) (manifest closure \(inventory.withheld.count), files' \(fileWithheld.count)\(inventory.withheld == fileWithheld ? ", identical" : ", union taken")). Eligible alias groups: \(eligible.count). Chosen: \(chosen.count).")
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX"); f.timeZone = TimeZone(identifier: "UTC"); f.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
+        let run = "net-ai-pilot-\(model)-\(f.string(from: Date()))"
+        do {
+            let m = try await NetAIPilot.writeFrames(chosen, footage: RealNetLabelFootage(), project: project.name, run: run, model: model,
+                                                     withheldCount: withheld.count, eligibleCount: eligible.count, to: dir, log: log)
+            log("✅ \(m.frames.count) frames → \(dir.path) (run \(run)). No ledger row yet: --net-ai-expose before each frame is shown.")
+            return true
+        } catch { log("❌ \(error.localizedDescription)"); return false }
+    }
+
+    /// `--net-ai-expose <dir> <video>`: the ledger row and receipt, before the model sees the frame.
+    @MainActor
+    private static func netAIExpose(_ projects: ProjectsModel, dir: URL, video: String) -> Bool {
+        guard let root = projects.projectDir else { log("❌ No project folder."); return false }
+        guard let guards = netAIGuards(root) else { return false }
+        let (inventory, fileWithheld) = guards
+        do {
+            let manifest = try NetAIPilot.readManifest(in: dir)
+            let r = try NetAIPilot.recordExposure(video, manifest: manifest, dir: dir, projectDir: root, inventory: inventory, fileWithheld: fileWithheld)
+            log("✅ \(video): net_proposal recorded (ref \(r.run), \(ISO8601DateFormatter().string(from: r.recordedAt))) — \(manifest.frames.first { $0.video == video }?.image ?? "") may be shown.")
+            return true
+        } catch { log("❌ \(error.localizedDescription) Do not show the frame."); return false }
+    }
+
+    /// `--import-net-ai-proposals <dir>`: the model's answers into net-ai-proposals.json.
+    @MainActor
+    private static func importNetAIProposals(_ projects: ProjectsModel, dir: URL) -> Bool {
+        guard let root = projects.projectDir else { log("❌ No project folder."); return false }
+        guard let guards = netAIGuards(root) else { return false }
+        let (inventory, fileWithheld) = guards
+        let store = NetAIProposalStore(projectDir: root)
+        do {
+            let manifest = try NetAIPilot.readManifest(in: dir)
+            let submissions = try NetAIPilot.decoder.decode([NetAIPilot.Submission].self,
+                                                            from: Data(contentsOf: dir.appendingPathComponent(NetAIPilot.submissionsName)))
+            let merged = try NetAIPilot.importSubmissions(submissions, manifest: manifest, dir: dir, inventory: inventory, fileWithheld: fileWithheld,
+                                                          ledger: try ExposureLog.readStrict(in: root),
+                                                          labels: try NetLabelStore(projectDir: root).load(), existing: try store.load())
+            try store.save(merged)
+            let by = Dictionary(grouping: submissions) { $0.outcome == .needsManualReview ? "needs manual review" : $0.confidence?.rawValue ?? "?" }.mapValues(\.count)
+            log("✅ \(submissions.count) proposals → \(store.url.path) (\(by.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", "))). net-labels.json untouched.")
+            return true
+        } catch { log("❌ \(error.localizedDescription) Nothing imported."); return false }
     }
 
     /// Record a use, or say why it couldn't be and report failure (the command then fails).

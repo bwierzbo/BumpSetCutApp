@@ -9,7 +9,11 @@
 //  old model. A label is saved only for the frame on screen, and carries the
 //  recording's fingerprint so it can't be inherited by a video that later
 //  takes the id. A label from before corners existed (a box) is still to
-//  label: its box seeds the corners, no proposal is made for it.
+//  label: its box seeds the corners, no proposal is made for it. A vision
+//  model's proposal (net-ai-proposals.json, NetAIProposals.swift) is offered
+//  on a recording with no label of its own, on the frame the model saw, in
+//  place of the old model's box (which then doesn't run); it stays a proposal
+//  until the person confirms it, and a rejected one is not offered again.
 //
 
 import CoreGraphics
@@ -85,6 +89,12 @@ final class NetLabelsModel {
         var stale: Bool
         /// This recording's label has a box but no corners (from before corners were marked): still to label.
         var boxOnly = false
+
+        func with(skip: NetLabels.Skip?) -> Item {
+            var it = Item(video: video, clip: clip, camera: camera, url: url, fingerprint: fingerprint, skip: skip, labeled: labeled, stale: stale)
+            it.boxOnly = boxOnly
+            return it
+        }
     }
 
     private let projects: ProjectsModel?
@@ -101,6 +111,16 @@ final class NetLabelsModel {
     private(set) var duration: Double = 0
     /// The old net model's box on this frame, if it found one.
     private(set) var proposal: CGRect?
+    /// The vision model's proposal whose corners were put on this frame.
+    private(set) var shownAI: NetAIProposal?
+    private(set) var aiProposals: [String: NetAIProposal] = [:]
+    /// The saved label's `proposalSource` when a labeled (or box-only) recording is reopened: a
+    /// reconfirm keeps where the corners started.
+    private var labelSource: String?
+    private var aiStore: NetAIProposalStore?
+    /// The owner's exclusions (side views): net-exclusions.json. An excluded recording is skipped.
+    private(set) var exclusions: [String: NetExclusion] = [:]
+    private var exclusionStore: NetExclusionStore?
     /// The net's corners as they stand: the proposal's, the saved label's, or what was drawn and dragged.
     private(set) var quad: NetQuad?
     /// The box the corners span.
@@ -142,12 +162,15 @@ final class NetLabelsModel {
 
     /// For tests: a fixed list and store, no project; `exposure` stands in for the ledger.
     init(items: [Item], labels: [String: NetLabel], store: NetLabelStore, footage: any NetLabelFootage, prefetchAhead: Int = 0,
+         aiProposals: [String: NetAIProposal] = [:], aiStore: NetAIProposalStore? = nil,
+         exclusions: [String: NetExclusion] = [:], exclusionStore: NetExclusionStore? = nil,
          exposure: @escaping NetProposalRecorder) {
         projects = nil
         self.footage = footage
         self.prefetchAhead = prefetchAhead
         recordProposal = exposure
-        install(items: items, labels: labels, store: store)
+        install(items: items, labels: labels, store: store, aiProposals: aiProposals, aiStore: aiStore,
+                exclusions: exclusions, exclusionStore: exclusionStore)
     }
 
     var labeledCount: Int { items.filter(\.labeled).count }
@@ -200,6 +223,16 @@ final class NetLabelsModel {
         do { labels = try store.load() } catch {
             blocked = "\(store.url.lastPathComponent) unreadable: \(error.localizedDescription)"; status = blocked!; return
         }
+        let aiStore = NetAIProposalStore(projectDir: dir)
+        let aiProposals: [String: NetAIProposal]
+        do { aiProposals = try aiStore.load() } catch {
+            blocked = "\(aiStore.url.lastPathComponent) unreadable: \(error.localizedDescription)"; status = blocked!; return
+        }
+        let exclusionStore = NetExclusionStore(projectDir: dir)
+        let exclusions: [String: NetExclusion]
+        do { exclusions = try exclusionStore.load() } catch {
+            blocked = "\(exclusionStore.url.lastPathComponent) unreadable: \(error.localizedDescription)"; status = blocked!; return
+        }
         let items = project.clips.flatMap { clip in
             clip.videos.map { video in
                 let id = clip.videoId(of: video)
@@ -209,7 +242,8 @@ final class NetLabelsModel {
                             labeled: false, stale: false)
             }
         }
-        install(items: items, labels: labels, store: store)
+        install(items: items, labels: labels, store: store, aiProposals: aiProposals, aiStore: aiStore,
+                exclusions: exclusions, exclusionStore: exclusionStore)
     }
 
     /// Nothing on screen, nothing in flight that can still land: a load or read-ahead started
@@ -220,18 +254,37 @@ final class NetLabelsModel {
         inventory += 1
         prefetched = [:]; prefetching = nil
         decodeSerial += 1
-        items = []; labels = [:]; selected = nil; frame = nil; frameTime = nil; quad = nil; proposal = nil; blocked = nil
+        items = []; labels = [:]; aiProposals = [:]; aiStore = nil; exclusions = [:]; exclusionStore = nil; selected = nil; frame = nil; frameTime = nil; quad = nil; proposal = nil; shownAI = nil; labelSource = nil; blocked = nil
     }
 
     /// A new inventory of recordings and their labels, replacing whatever was listed; reads
     /// in flight for the old one land nowhere, even for a recording of the same name.
-    func install(items: [Item], labels: [String: NetLabel], store: NetLabelStore) {
+    func install(items: [Item], labels: [String: NetLabel], store: NetLabelStore,
+                 aiProposals: [String: NetAIProposal] = [:], aiStore: NetAIProposalStore? = nil,
+                 exclusions: [String: NetExclusion] = [:], exclusionStore: NetExclusionStore? = nil) {
         clear()
         self.store = store
         self.labels = labels
-        self.items = items.map { Self.marked($0, labels: labels) }.sorted { $0.video < $1.video }
+        self.aiProposals = aiProposals
+        self.aiStore = aiStore
+        self.exclusions = exclusions
+        self.exclusionStore = exclusionStore
+        let fingerprints = Dictionary(items.map { ($0.video, $0.fingerprint) }, uniquingKeysWith: { a, _ in a })
+        let excluded = NetExclusionStore.excluded(exclusions) { fingerprints[$0] ?? nil }
+        self.items = items.map { item in
+            Self.marked(item.skip == nil && excluded.contains(item.video) ? item.with(skip: .sideView) : item, labels: labels)
+        }.sorted { $0.video < $1.video }
         status = summary
         prefetch()
+    }
+
+    /// The vision model's proposal to offer on this recording: only one with no label of its
+    /// own (never over a person's label, box-only included), not skipped, made on this file and
+    /// not rejected. A manual-review answer is offered too: it names why the net wasn't placed.
+    func offeredAI(_ item: Item) -> NetAIProposal? {
+        guard item.skip == nil, !item.labeled, !item.boxOnly, let fingerprint = item.fingerprint,
+              let ai = aiProposals[item.video], ai.fingerprint == fingerprint, ai.rejectedAt == nil else { return nil }
+        return ai
     }
 
     /// The recordings still to label after the selection (wrapping round), in list order.
@@ -273,9 +326,12 @@ final class NetLabelsModel {
             let dur = await footage.duration(of: item.url)
             guard dur > 0 else { continue }
             guard !Task.isCancelled else { return }
-            let marks = await footage.rallyMarks(for: item.url)
-            guard !Task.isCancelled else { return }
-            let t = NetLabels.frameTime(duration: dur, rallies: marks)
+            let t: Double
+            if let ai = offeredAI(item) { t = ai.time } else {   // the frame the vision model saw
+                let marks = await footage.rallyMarks(for: item.url)
+                guard !Task.isCancelled else { return }
+                t = NetLabels.frameTime(duration: dur, rallies: marks)
+            }
             guard let frame = try? await footage.frame(of: item.url, at: t) else { continue }
             // A frame that took seconds to read is kept even if the read-ahead was paused
             // meanwhile — only while it is still wanted: the selection may have moved on past it,
@@ -293,7 +349,7 @@ final class NetLabelsModel {
         loadTask?.cancel()
         decodeSerial += 1
         selected = video
-        frame = nil; frameTime = nil; proposal = nil; quad = nil; proposed = false; adjusted = false; duration = 0; time = 0
+        frame = nil; frameTime = nil; proposal = nil; shownAI = nil; labelSource = nil; quad = nil; proposed = false; adjusted = false; duration = 0; time = 0
         if let skip = item.skip {
             status = "\(item.video): skipped (\(skip.rawValue)) — not opened."
             prefetch()
@@ -314,13 +370,13 @@ final class NetLabelsModel {
             // load leaves that to the selection that superseded it.
             if !Task.isCancelled, selected == item.video { prefetch() }
         }
-        if !item.labeled, !item.boxOnly, let ready = prefetched[item.video] {
+        if !item.labeled, !item.boxOnly, let ready = prefetched[item.video], ready.time == offeredAI(item)?.time ?? ready.time {
             // Read ahead already: on screen at once, no file touched.
             time = ready.time
             duration = ready.duration
             frame = ready.frame
             frameTime = ready.time
-            status = propose(on: ready.frame, for: item)
+            status = present(on: ready.frame, for: item)
             if item.stale { status += " (The label on file is another recording's and is replaced when you confirm.)" }
             return
         }
@@ -339,6 +395,9 @@ final class NetLabelsModel {
             quad = label.corners ?? NetQuad(rect: label.box.rect)
             proposed = label.proposed
             adjusted = label.adjusted
+            labelSource = label.proposalSource
+        } else if let ai = offeredAI(item) {
+            time = ai.time   // the frame the model saw
         } else {
             let marks = await footage.rallyMarks(for: item.url)
             guard !Task.isCancelled, selected == item.video else { return }
@@ -351,9 +410,47 @@ final class NetLabelsModel {
         } else if item.boxOnly {
             status = "\(item.video): a box from before corners were marked — drag the four corners onto the net's corners and confirm."
         } else if let frame {
-            status = propose(on: frame, for: item)
+            status = present(on: frame, for: item)
             if item.stale { status += " (The label on file is another recording's and is replaced when you confirm.)" }
         }
+    }
+
+    /// The vision model's corners when it placed them on this very frame (same time, same size);
+    /// otherwise — no proposal, a manual-review answer, or a frame that isn't the one it saw —
+    /// the old model's box as usual.
+    private func present(on frame: CGImage, for item: Item) -> String {
+        guard let ai = offeredAI(item) else { return propose(on: frame, for: item) }
+        let note = "\(ai.model)" + (ai.uncertainty.map { ": \($0)" } ?? "")
+        guard ai.outcome == .proposed, let corners = ai.corners else {
+            return "\(item.video): \(ai.model) could not place the net (\(note)). " + propose(on: frame, for: item)
+        }
+        guard frameTime == ai.time, frame.width == ai.frameWidth, frame.height == ai.frameHeight else {
+            return "\(item.video): \(ai.model)'s proposal was made on another frame (\(ai.frameWidth)×\(ai.frameHeight) at \(Self.clock(ai.time))) and is not shown. " + propose(on: frame, for: item)
+        }
+        shownAI = ai
+        quad = corners
+        proposed = true
+        adjusted = false
+        return "\(item.video): \(ai.confidence?.rawValue ?? "unrated") proposal by \(note) — not a label until you confirm. Drag any corner, Return confirms, or Reject it."
+    }
+
+    /// Turn the vision model's proposal down: it is marked rejected on file (never offered
+    /// again) and the recording goes back to the ordinary path — the old model's box, with
+    /// its ledger row, or the person draws it. The file is read again first: proposals may
+    /// have been imported since the tab loaded, and they must not be written over.
+    func rejectAIProposal() {
+        guard let item = selectedItem, let ai = shownAI, let aiStore else { return }
+        var next: [String: NetAIProposal]
+        do {
+            next = try aiStore.load()
+            guard next[item.video] != nil else { throw CocoaError(.fileReadCorruptFile) }
+            next[item.video]?.rejectedAt = Date()
+            try aiStore.save(next)
+        } catch { status = "Not rejected: \(error.localizedDescription)"; return }
+        aiProposals = next
+        shownAI = nil; quad = nil; proposed = false; adjusted = false
+        status = "\(item.video): \(ai.model)'s proposal rejected."
+        if let frame, frameIsCurrent { status += " " + propose(on: frame, for: item) }
     }
 
     /// The old model's box as a proposal, with the use in the exposure ledger first: if the
@@ -412,9 +509,12 @@ final class NetLabelsModel {
         adjusted = true
     }
 
+    var canUseProposal: Bool { proposal != nil || shownAI?.corners != nil }
+
+    /// Back to the proposal's corners: the vision model's if one is shown, else the old model's box.
     func useProposal() {
-        guard let proposal else { return }
-        quad = NetQuad(rect: proposal); proposed = true; adjusted = false
+        if let corners = shownAI?.corners { quad = corners } else if let proposal { quad = NetQuad(rect: proposal) } else { return }
+        proposed = true; adjusted = false
     }
 
     func clearBox() {
@@ -429,13 +529,55 @@ final class NetLabelsModel {
         var next = labels
         next[item.video] = NetLabel(time: frameTime, box: TrackCandidate(rect: quad.bounds, confidence: 1), corners: quad,
                                     proposed: proposed, adjusted: adjusted,
-                                    reviewedAt: Date(), frameWidth: frame.width, frameHeight: frame.height, fingerprint: fingerprint)
+                                    reviewedAt: Date(), frameWidth: frame.width, frameHeight: frame.height, fingerprint: fingerprint,
+                                    proposalSource: proposed ? (shownAI?.source ?? labelSource ?? NetLabels.oldModelSource) : nil)
         do { try store.save(next) } catch { status = "Not saved: \(error.localizedDescription)"; return false }
         labels = next
         if let i = items.firstIndex(where: { $0.video == item.video }) { items[i] = Self.marked(items[i], labels: labels) }
         status = "\(item.video): saved · \(summary)"
         nextToLabel()
         return true
+    }
+
+    /// The owner leaves the recording on screen out of the net dataset as a side view (the camera
+    /// looks along the net). Written to net-exclusions.json, read again first so nothing written
+    /// since the tab loaded is lost; the recording is then skipped like a handheld one: no
+    /// proposal is offered, its frame isn't read again, and the export refuses it. A label it
+    /// carries stays in net-labels.json untouched.
+    func excludeSideView() {
+        guard let item = selectedItem, item.skip == nil, let fingerprint = item.fingerprint, let exclusionStore else { return }
+        var next: [String: NetExclusion]
+        do {
+            next = try exclusionStore.load()
+            next[item.video] = NetExclusion(reason: .sideView, fingerprint: fingerprint, decidedAt: Date(), decidedBy: "owner, Net labels tab")
+            try exclusionStore.save(next)
+        } catch { status = "Not excluded: \(error.localizedDescription)"; return }
+        exclusions = next
+        replace(item.with(skip: .sideView))
+        loadTask?.cancel()
+        decodeSerial += 1
+        frame = nil; frameTime = nil; proposal = nil; shownAI = nil; quad = nil; proposed = false; adjusted = false
+        prefetched[item.video] = nil
+        status = "\(item.video): excluded as a side view · \(summary). Include again to undo."
+        prefetch()
+    }
+
+    /// Take the owner's exclusion back: the recording is to label again.
+    func includeAgain() {
+        guard let item = selectedItem, item.skip == .sideView, let exclusionStore else { return }
+        var next: [String: NetExclusion]
+        do {
+            next = try exclusionStore.load()
+            next[item.video] = nil
+            try exclusionStore.save(next)
+        } catch { status = "Not included: \(error.localizedDescription)"; return }
+        exclusions = next
+        replace(item.with(skip: nil))
+        select(item.video)
+    }
+
+    private func replace(_ item: Item) {
+        if let i = items.firstIndex(where: { $0.video == item.video }) { items[i] = Self.marked(item, labels: labels) }
     }
 
     /// Remove the label under this id, this recording's or a stale one.
@@ -457,7 +599,7 @@ final class NetLabelsModel {
         select(todo[after].video)
     }
 
-    static func clock(_ t: Double) -> String {
+    nonisolated static func clock(_ t: Double) -> String {
         String(format: "%d:%05.2f", Int(t) / 60, t - Double(Int(t) / 60 * 60))
     }
 }

@@ -111,7 +111,7 @@ struct NetLabel: Codable, Equatable {
     /// The net's four corners; nil on a label from before corners were marked (box only),
     /// which the tab lists as still to label and the export refuses.
     var corners: NetQuad?
-    /// The box started as the old net model's proposal.
+    /// The corners started as a proposal (whose: `proposalSource`).
     var proposed: Bool
     /// A person moved a corner or the whole net (false: confirmed as proposed, or drawn by hand).
     var adjusted: Bool
@@ -122,6 +122,10 @@ struct NetLabel: Codable, Equatable {
     /// The recording's file identity (ReservedVideos.effectiveFingerprint) when labeled:
     /// a video that later takes the same id does not inherit the label.
     var fingerprint: String
+    /// Where a proposed label started: `NetLabels.oldModelSource`, or a vision model and its
+    /// run (NetAIProposal.source). nil on a label drawn by hand, and on a proposed label from
+    /// before this was recorded (those were all the old model's).
+    var proposalSource: String? = nil
 }
 
 /// `<project>/net-labels.json`: video id → label. Read whole, written atomically;
@@ -146,16 +150,59 @@ struct NetLabelStore {
     }
 }
 
+/// A recording the owner left out of the net dataset, decided in the Net labels tab (owner rule
+/// 2026-10-31: a side view, where the camera looks along the net, is never used for net labels).
+/// Bound to the file it was decided on: another video under the same id is not excluded by it.
+struct NetExclusion: Codable, Equatable {
+    enum Reason: String, Codable { case sideView = "side_view" }
+    var reason: Reason
+    var fingerprint: String
+    var decidedAt: Date
+    var decidedBy: String
+}
+
+/// `<project>/net-exclusions.json`: video id → exclusion. Read whole, written atomically; a file
+/// that exists but can't be read is an error, never an empty list.
+struct NetExclusionStore {
+    let url: URL
+
+    init(projectDir: URL) { url = projectDir.appendingPathComponent("net-exclusions.json") }
+
+    func load() throws -> [String: NetExclusion] {
+        guard FileManager.default.fileExists(atPath: url.path) else { return [:] }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode([String: NetExclusion].self, from: Data(contentsOf: url))
+    }
+
+    func save(_ exclusions: [String: NetExclusion]) throws {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
+        try encoder.encode(exclusions).write(to: url, options: .atomic)
+    }
+
+    /// The ids excluded for the file each one now is (`fingerprint` of a video id → its identity).
+    static func excluded(_ exclusions: [String: NetExclusion], fingerprint: (String) -> String?) -> Set<String> {
+        Set(exclusions.filter { fingerprint($0.key) == $0.value.fingerprint }.keys)
+    }
+}
+
 enum NetLabels {
-    enum Skip: String, Codable { case withheld, handheld, unidentified }
+    enum Skip: String, Codable { case withheld, handheld, unidentified, sideView = "side_view" }
+
+    /// `NetLabel.proposalSource` of a label that started as the old net model's box.
+    static let oldModelSource = "old net model"
 
     /// Why a recording gets no net label, or nil when it should have one. A
     /// recording without a file identity can't carry a label that is checked
-    /// against the file later, so it is skipped too.
-    static func skip(video: String, camera: String, withheld: Set<String>, fingerprint: String?) -> Skip? {
+    /// against the file later, so it is skipped too. `excluded`: the owner's side views
+    /// (NetExclusionStore.excluded — already matched to the file).
+    static func skip(video: String, camera: String, withheld: Set<String>, fingerprint: String?, excluded: Set<String> = []) -> Skip? {
         if withheld.contains(video) { return .withheld }
         if camera.lowercased().hasPrefix("handheld") { return .handheld }
         if fingerprint == nil { return .unidentified }
+        if excluded.contains(video) { return .sideView }
         return nil
     }
 
@@ -217,6 +264,8 @@ enum NetDatasetExport {
         var corners: NetQuad
         var proposed: Bool
         var adjusted: Bool
+        /// NetLabel.proposalSource: whose proposal a proposed label started from.
+        var proposalSource: String?
         var reviewedAt: Date
         var image: String
         var imageSHA256: String
@@ -254,13 +303,16 @@ enum NetDatasetExport {
     /// recording is refused even if someone labeled it; a label whose
     /// fingerprint is not this file's is another recording's and is refused;
     /// a label without corners (from before they existed) is not a label yet;
-    /// a recording without a label is listed as skipped so the count is explained.
-    static func plan(labels: [String: NetLabel], sources: [Source], withheld: Set<String>)
+    /// a recording without a label is listed as skipped so the count is explained. An excluded
+    /// recording (the owner's side views) is refused even if it carries a label.
+    static func plan(labels: [String: NetLabel], sources: [Source], withheld: Set<String>, exclusions: [String: NetExclusion] = [:])
         -> (export: [Source], skipped: [Skipped]) {
         var export: [Source] = []
         var skipped: [Skipped] = []
+        let fingerprints = Dictionary(sources.map { ($0.video, $0.fingerprint) }, uniquingKeysWith: { a, _ in a })
+        let excluded = NetExclusionStore.excluded(exclusions) { fingerprints[$0] ?? nil }
         for s in sources.sorted(by: { $0.video < $1.video }) {
-            if let why = NetLabels.skip(video: s.video, camera: s.camera, withheld: withheld, fingerprint: s.fingerprint) {
+            if let why = NetLabels.skip(video: s.video, camera: s.camera, withheld: withheld, fingerprint: s.fingerprint, excluded: excluded) {
                 skipped.append(Skipped(video: s.video, reason: why.rawValue))
             } else if let label = labels[s.video] {
                 if label.fingerprint != s.fingerprint { skipped.append(Skipped(video: s.video, reason: "label is another recording's (fingerprint differs)")) }
@@ -276,13 +328,13 @@ enum NetDatasetExport {
     /// Write the dataset into `dir` (created; must not exist). Every frame is
     /// decoded again from the video at the label's time and must come back at
     /// the size the label was drawn on, or the export stops.
-    static func write(labels: [String: NetLabel], sources: [Source], withheld: Set<String>,
+    static func write(labels: [String: NetLabel], sources: [Source], withheld: Set<String>, exclusions: [String: NetExclusion] = [:],
                       project: String, to dir: URL, progress: (String) -> Void = { _ in }) async throws -> Manifest {
         let fm = FileManager.default
         guard !fm.fileExists(atPath: dir.path) else {
             throw CocoaError(.fileWriteFileExists, userInfo: [NSFilePathErrorKey: dir.path])
         }
-        let (export, skipped) = plan(labels: labels, sources: sources, withheld: withheld)
+        let (export, skipped) = plan(labels: labels, sources: sources, withheld: withheld, exclusions: exclusions)
         try fm.createDirectory(at: dir.appendingPathComponent("images"), withIntermediateDirectories: true)
         try fm.createDirectory(at: dir.appendingPathComponent("labels"), withIntermediateDirectories: true)
         var entries: [Entry] = []
@@ -305,7 +357,8 @@ enum NetDatasetExport {
             }
             entries.append(Entry(video: s.video, clip: s.clip, camera: s.camera, time: label.time,
                                  box: TrackCandidate(rect: corners.bounds, confidence: 1), corners: corners,
-                                 proposed: label.proposed, adjusted: label.adjusted, reviewedAt: label.reviewedAt,
+                                 proposed: label.proposed, adjusted: label.adjusted, proposalSource: label.proposalSource,
+                                 reviewedAt: label.reviewedAt,
                                  image: imageFile, imageSHA256: digest, width: image.width, height: image.height,
                                  fingerprint: label.fingerprint))
         }
