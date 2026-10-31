@@ -279,6 +279,8 @@ final class NetLabelsModel {
     }
 
     private func load(_ item: Item) async {
+        // Superseded before it began (another recording picked, or a skipped one, which starts no load).
+        guard !Task.isCancelled, selected == item.video else { return }
         loading = true
         defer { loading = false }
         if !item.labeled, !item.boxOnly, let ready = prefetched[item.video] {
