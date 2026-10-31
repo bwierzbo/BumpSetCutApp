@@ -310,6 +310,22 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual([r["video"] for r in s["scored"]["per_frame"]], [r["video"] for r in m["best"]["per_frame"]])
         self.assertFalse((scored / "best.pt").exists(), "nothing is trained")
 
+    def test_augmentation_is_fresh_each_epoch_and_repeatable(self):
+        f = Fixture(self.tmp)
+        _, rows = t.load_manifest(f.manifest)
+        samples, _ = t.read_rallylab_export(f.export, rows)
+        frames = t.Frames(samples, True, seed=1)
+        frames.epoch = 1
+        x1, t1, _, _ = frames[0]
+        x1_again, t1_again, _, _ = frames[0]
+        frames.epoch = 2
+        x2, t2, _, _ = frames[0]
+        self.assertTrue((x1 == x1_again).all() and (t1 == t1_again).all(), "the same seed, epoch and index: the same augmentation")
+        self.assertFalse((x1 == x2).all() and (t1 == t2).all(), "another epoch: another augmentation of the same frame")
+        plain = t.Frames(samples, False, seed=1)
+        self.assertTrue((plain[0][0] == plain[0][0]).all())
+        self.assertFalse((plain[0][0] == x1).all(), "validation frames are not augmented")
+
     def test_a_withheld_recording_stops_the_run_before_anything_is_written(self):
         f = Fixture(self.tmp, withhold="bch_onl_ovc_land_onl_02")
         with self.assertRaises(SystemExit) as cm:

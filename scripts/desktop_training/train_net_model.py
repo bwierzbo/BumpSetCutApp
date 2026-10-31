@@ -518,10 +518,15 @@ def build_model():
 class Frames:
     """A torch Dataset over samples: letterboxed RGB 0–1 tensors and targets
     (presence, cx, cy, w, h in canvas fractions). Training augments: a flip,
-    a crop that keeps the box whole, brightness and contrast, a little noise."""
+    a crop that keeps the box whole, brightness and contrast, a little noise —
+    drawn from (seed, epoch, index), so a frame gets a fresh augmentation every
+    epoch and the same one when the run is repeated. The training loop sets
+    `epoch` before each pass; the loader's workers are not persistent, so they
+    pick the dataset up again, epoch included."""
 
     def __init__(self, samples: list[Sample], train: bool, seed: int):
         self.samples, self.train, self.seed = samples, train, seed
+        self.epoch = 0
 
     def __len__(self):
         return len(self.samples)
@@ -537,8 +542,7 @@ class Frames:
         box = s.box
         size = torch.tensor(img.shape[1::-1])   # (w, h) of the frame as read
         if self.train:
-            # The loader's generator seeds each worker and epoch (torch.initial_seed); with the index that is the draw.
-            rng = random.Random((self.seed, i, torch.initial_seed()).__hash__())
+            rng = random.Random(f"{self.seed}/{self.epoch}/{i}")
             img, box = augment(img, box, rng)
         h, w = img.shape[:2]
         canvas, _ = letterbox_image(img)
@@ -736,15 +740,17 @@ def main(argv: Optional[list[str]] = None) -> None:
 
     g = torch.Generator()
     g.manual_seed(args.seed)
-    loader = torch.utils.data.DataLoader(Frames(train_s, True, args.seed), batch_size=args.batch, shuffle=True,
-                                         num_workers=args.workers, drop_last=len(train_s) > args.batch, generator=g,
-                                         persistent_workers=args.workers > 0)
+    train_frames = Frames(train_s, True, args.seed)
+    # Not persistent: each epoch's workers are started with the dataset as it is then (its epoch set below).
+    loader = torch.utils.data.DataLoader(train_frames, batch_size=args.batch, shuffle=True, num_workers=args.workers,
+                                         drop_last=len(train_s) > args.batch, generator=g, persistent_workers=False)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.lr, total_steps=max(1, args.epochs * len(loader)))
     best_key = None
     log = [["epoch", "loss", "presence_loss", "box_loss", "detect_rate", "top_median", "top_mean_with_misses", "seconds"]]
     started = time.time()
     for epoch in range(1, args.epochs + 1):
+        train_frames.epoch = epoch
         model.train()
         sums = np.zeros(3)
         n = 0
