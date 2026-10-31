@@ -13,9 +13,11 @@ import Foundation
 
 enum EvidenceReplayer {
 
-    /// A decided rally and the serve it started on, when one did.
+    /// A decided rally — its delivered (padded, joined) range and the raw decided span inside it (a joined
+    /// clip's raw span is the union of the spans it joined) — and the serve it started on, when one did.
     struct Rally {
         let range: Interval
+        let raw: Interval
         let serve: ServeDetector.Serve?
     }
 
@@ -111,6 +113,6 @@ enum EvidenceReplayer {
                                                         arcProminence: cfg.aboveNetArcProminence)
             }
         }
-        return segs.map { Rally(range: $0.padded, serve: $0.serve) }
+        return segs.map { Rally(range: $0.padded, raw: $0.raw, serve: $0.serve) }
     }
 }

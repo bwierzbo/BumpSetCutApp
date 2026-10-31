@@ -71,6 +71,8 @@
 //             start for the test set — every frame goes to review and only checked frames score)
 //    RallyLab --project v3 --tune-pipeline [--replay-only] [--rounds 2]   (search the pipeline's settings for the cuts
 //             closest to the marked rallies of pipeline_tuning/validation.json's videos; reports, applies nothing)
+//    RallyLab --project v3 --retune-decider <plan.json> --out <dir> [--passes-only]   (bounded decider retune for one
+//             detector from a frozen plan: passes cached, candidates replayed, chosen on the tune pool, replayed on eval)
 //    RallyLab --project v3 --serve-report [--verbose]    (the serve found in each marked rally of the validation
 //             videos, how far from the mark, and what starting clips at the serve would score)
 //    RallyLab --project v3 --pretrack-check [--heat M]     (how right "sure" frames are, against val rallies people tracked)
@@ -272,6 +274,17 @@ enum HeadlessProjects {
             if ok, args.contains("--tune-pipeline") {
                 ok = await PipelineTuner.run(sampler: projects.sampler, replayOnly: args.contains("--replay-only"),
                                              rounds: value(after: "--rounds", in: args).flatMap(Int.init) ?? 2, log: log)
+            }
+            if ok, let i = args.firstIndex(of: "--retune-decider") {
+                guard args.indices.contains(i + 1), let out = value(after: "--out", in: args) else {
+                    log("usage: --retune-decider <plan.json> --out <new folder> [--passes-only]")
+                    exit(2)
+                }
+                library.heatmaps.reload()
+                ok = await DeciderRetune.run(plan: URL(fileURLWithPath: (args[i + 1] as NSString).expandingTildeInPath),
+                                             out: URL(fileURLWithPath: (out as NSString).expandingTildeInPath, isDirectory: true),
+                                             passesOnly: args.contains("--passes-only"), projects: projects,
+                                             models: { key in library.heatmaps.models.first { $0.name == key || $0.url.path == key }?.url }, log: log)
             }
             if ok, args.contains("--serve-report") {
                 ok = await ServeReport.run(sampler: projects.sampler, verbose: args.contains("--verbose"), log: log)
