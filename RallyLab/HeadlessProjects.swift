@@ -337,9 +337,12 @@ enum HeadlessProjects {
                 for clip in args[(i + 1)...].prefix(while: { !$0.hasPrefix("--") }) {
                     if let why = ScoringExposure.refusal(clip, reserved: reserved, withheld: withheld) { log(why); continue }
                     guard let session = projects.sampler.sessions.first(where: { $0.name == clip }) else { log("❌ No clip \(clip)"); continue }
-                    guard let ref = scoringRef("--diagnose-rallies", config), recorded([session.name], .rallyScoring, ref: ref, note: ScoringExposure.note(config: config), in: projectRoot) else { ok = false; break }
+                    // The config this recording is processed with — its camera position applied — is the one recorded.
+                    let effective = config.withCamera(of: session)
+                    guard let ref = scoringRef("--diagnose-rallies", effective),
+                          recorded([session.name], .rallyScoring, ref: ref, note: ScoringExposure.note(config: effective), in: projectRoot) else { ok = false; break }
                     log("\(clip):")
-                    guard let v = await RallyCutScore.process(session, config: config.withCamera(of: session)) else { log("   no rally times or couldn't process"); continue }
+                    guard let v = await RallyCutScore.process(session, config: effective) else { log("   no rally times or couldn't process"); continue }
                     var t = RallyCutScore.Tally()
                     t.add(clips: v.clips, truth: v.truth)
                     log("   " + t.line)
@@ -368,21 +371,26 @@ enum HeadlessProjects {
                     log("ball finder: YOLO only")
                 }
                 // Exposure is recorded before the first pipeline runs, so an interrupted run is still on record (D-002);
-                // the row names the model and the settings, so another model's pass is another row.
-                if let ref = scoringRef("--score-rallies", config) {
-                    log("ledger ref: \(ref)")
-                    if !recorded(Set(sessions.map(\.name)), .rallyScoring, ref: ref, note: ScoringExposure.note(config: config), in: projectRoot) {
+                // each row names the model and the settings the recording is actually processed with (its camera
+                // position applied), so another model's pass, or another camera reading, is another row.
+                var effective: [String: ProcessorConfig] = [:]
+                var refs = Set<String>()
+                for session in sessions {
+                    let c = config.withCamera(of: session)
+                    guard let ref = scoringRef("--score-rallies", c),
+                          recorded([session.name], .rallyScoring, ref: ref, note: ScoringExposure.note(config: c), in: projectRoot) else {
                         ok = false
-                        sessions = []
+                        break
                     }
-                } else {
-                    ok = false
-                    sessions = []
+                    effective[session.name] = c
+                    refs.insert(ref)
                 }
+                if !ok { sessions = [] }
+                for ref in refs.sorted() { log("ledger ref: \(ref)") }
                 var videos: [RallyCutScore.Video] = []
                 for session in sessions {
                     log("\(session.name) (\(session.split))…")
-                    if let v = await RallyCutScore.process(session, config: config.withCamera(of: session)) { videos.append(v) }
+                    if let v = await RallyCutScore.process(session, config: effective[session.name]!) { videos.append(v) }
                     else { log("   no rally times or couldn't process") }
                 }
                 if videos.isEmpty { log("❌ No fully marked videos (Track tab → Rally times → Whole video marked).") }
@@ -407,9 +415,10 @@ enum HeadlessProjects {
                     finder = config.heatmapOnly ? "multi-frame only" : "YOLO + multi-frame"
                 }
                 log("\(session.name): pipeline (\(finder))…")
-                guard let ref = scoringRef("--render-pipeline", config),
-                      recorded([session.name], .rallyScoring, ref: ref, note: ScoringExposure.note(config: config), in: projectRoot) else { ok = false; exit(1) }
-                if let v = await RallyCutScore.process(session, config: config.withCamera(of: session)) {
+                let effective = config.withCamera(of: session)
+                guard let ref = scoringRef("--render-pipeline", effective),
+                      recorded([session.name], .rallyScoring, ref: ref, note: ScoringExposure.note(config: effective), in: projectRoot) else { ok = false; exit(1) }
+                if let v = await RallyCutScore.process(session, config: effective) {
                     let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/RallyLab/Renders", isDirectory: true)
                     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
                     for (start, length) in stretches {

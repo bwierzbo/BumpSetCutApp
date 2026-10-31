@@ -89,6 +89,9 @@ final class ScoringExposureTests: XCTestCase {
         var carried = base; carried.vetoCarriedMovement = false
         var net = base; net.netDetectionConfidence = 0.4
         var camera = base; camera.applyCamera(CameraSetup(clipID: "bch_sid_test"))
+        // The commands record the config a recording is actually processed with — its camera position applied
+        // (`withCamera(of:)`) — so a sideline or corner recording's row differs from an end-line one's.
+        XCTAssertNotEqual(camera.enableOffCourtRejection, base.enableOffCourtRejection, "the camera changes what is processed")
         let refs = try [base, confidence, stride, smoothed, carried, net, camera].map { try ScoringExposure.ref(command: "--score-rallies", config: $0) }
         XCTAssertEqual(Set(refs).count, refs.count, "\(refs)")
         let fields = ScoringExposure.fingerprintFields(base)
