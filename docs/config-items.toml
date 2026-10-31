@@ -548,6 +548,17 @@ triggers = []
 notes = "Living while planned or running; frozen once its frontmatter status is done or abandoned."
 
 [[family]]
+id = "CF-BSC-009"
+name = "Experiment plan files (the frozen inputs an experiment command reads)"
+type = "experiment-record"
+patterns = ["docs/ml-roadmap/experiments/EXP-*.plan.json"]
+lifecycle = "active"
+change_class = "frozen"
+approval = "owner"
+maintainer = "implementer"
+notes = "Frozen from the moment it merges: the plan's sha256 is in its record and in every run's report.json. A changed plan is a new file (…-v2.plan.json) with its own record section, never an edit."
+
+[[family]]
 id = "CF-BSC-003"
 name = "Dated dataset records (validation snapshots, source-ID reports, L2 plans, owner answers, exposure seed)"
 type = "validation-record"

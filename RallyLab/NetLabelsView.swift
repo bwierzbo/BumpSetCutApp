@@ -107,7 +107,10 @@ struct NetLabelsView: View {
             Button { model.step(seconds: 1) } label: { Image(systemName: "goforward") }.help("A second later (→)")
             if model.loading { ProgressView().controlSize(.small) }
             if let ahead = model.prefetching {
-                Text("reading ahead: \(ahead) · \(model.prefetched.count) ready").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                // While this recording loads, the read-ahead finishes the file it is on and then waits.
+                Text(model.loading ? "read-ahead waits after \(ahead) · \(model.prefetched.count) ready"
+                                   : "reading ahead: \(ahead) · \(model.prefetched.count) ready")
+                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             } else if !model.prefetched.isEmpty {
                 Text("\(model.prefetched.count) ready").font(.caption2).foregroundStyle(.secondary)
             }

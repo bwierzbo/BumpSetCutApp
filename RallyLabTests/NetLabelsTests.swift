@@ -259,7 +259,8 @@ final class NetLabelsTests: XCTestCase {
         /// Every call in order, so a test can see the ledger row land before the model runs.
         private(set) var events: [String] = []
         var modelAvailable = true
-        var gate: CheckedContinuation<Void, Never>?
+        /// Held reads, oldest first; `release()` lets them all go, `releaseFirst()` the oldest.
+        var gates: [CheckedContinuation<Void, Never>] = []
         var holdFrames = false
         /// Hold the readability check (the share's stat) until `release()`: the tab must stay responsive meanwhile.
         var holdReadable = false
@@ -268,7 +269,7 @@ final class NetLabelsTests: XCTestCase {
         func isReadable(_ url: URL) async -> Bool {
             lock.withLock { readableCalls.append(url.lastPathComponent) }
             if holdReadable {
-                await withCheckedContinuation { c in lock.withLock { gate = c }; waiting?() }
+                await withCheckedContinuation { c in lock.withLock { gates.append(c) }; waiting?() }
             }
             return true
         }
@@ -283,7 +284,7 @@ final class NetLabelsTests: XCTestCase {
         func frame(of url: URL, at time: Double) async throws -> CGImage {
             lock.withLock { frameCalls.append((url.lastPathComponent, time)) }
             if holdFrames {
-                await withCheckedContinuation { c in lock.withLock { gate = c }; waiting?() }
+                await withCheckedContinuation { c in lock.withLock { gates.append(c) }; waiting?() }
             }
             return try Self.image()
         }
@@ -295,7 +296,8 @@ final class NetLabelsTests: XCTestCase {
 
         func noteExposure(_ video: String) { lock.withLock { events.append("exposure \(video)") } }
 
-        func release() { lock.withLock { gate?.resume(); gate = nil } }
+        func release() { lock.withLock { gates.forEach { $0.resume() }; gates = [] } }
+        func releaseFirst() { lock.withLock { if !gates.isEmpty { gates.removeFirst().resume() } } }
 
         static func image() throws -> CGImage {
             let ctx = try XCTUnwrap(CGContext(data: nil, width: 64, height: 36, bitsPerComponent: 8, bytesPerRow: 0,
@@ -500,6 +502,82 @@ final class NetLabelsTests: XCTestCase {
         XCTAssertNotNil(model.frame, "read ahead: on screen without a decode")
         XCTAssertEqual(footage.frameCalls.map(\.0), ["c_ok.mp4", "d_next.mp4", "g_later.mp4"])
         XCTAssertNil(model.prefetched["c_ok"], "labeled: no longer kept")
+    }
+
+    /// The share is slow, so the recording on screen reads first: picking one that was not
+    /// read ahead stops the read-ahead after the file it is on (that frame is kept), its own
+    /// reads run alone, and the read-ahead goes on once its frame is up.
+    @MainActor
+    func testTheSelectionReadsBeforeTheReadAhead() async throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let footage = ScriptedFootage()
+        footage.holdFrames = true
+        let model = NetLabelsModel(items: [try item("c_ok", in: dir), try item("d_next", in: dir), try item("g_later", in: dir)],
+                                   labels: [:], store: NetLabelStore(projectDir: dir), footage: footage, prefetchAhead: 2) { _, _ in }
+        await settle()
+        XCTAssertEqual(footage.frameCalls.map(\.0), ["c_ok.mp4"], "the read-ahead is on the first recording's frame")
+        XCTAssertEqual(model.prefetching, "c_ok")
+        model.select("g_later")   // not read ahead: its own reads come first
+        await settle()
+        XCTAssertTrue(model.loading)
+        XCTAssertEqual(footage.durationCalls, ["c_ok.mp4", "g_later.mp4"])
+        XCTAssertEqual(footage.frameCalls.map(\.0), ["c_ok.mp4", "g_later.mp4"], "no further read-ahead while the selection reads")
+        footage.releaseFirst()   // c_ok's frame lands
+        await settle()
+        XCTAssertNotNil(model.prefetched["c_ok"], "a frame that was already being read is kept")
+        XCTAssertNil(model.prefetching)
+        XCTAssertTrue(model.loading)
+        XCTAssertEqual(footage.frameCalls.map(\.0), ["c_ok.mp4", "g_later.mp4"], "d_next waits for the selection's frame")
+        footage.releaseFirst()   // g_later's frame lands
+        await settle()
+        XCTAssertFalse(model.loading)
+        XCTAssertEqual(model.frameTime, 50)
+        XCTAssertEqual(footage.frameCalls.map(\.0), ["c_ok.mp4", "g_later.mp4", "d_next.mp4"], "then the read-ahead goes on")
+        XCTAssertEqual(model.prefetching, "d_next")
+        // Stepping a frame is a read of the selection too: the read-ahead waits for it.
+        model.step(seconds: 1)
+        await settle()
+        XCTAssertEqual(footage.frameCalls.map(\.0), ["c_ok.mp4", "g_later.mp4", "d_next.mp4", "g_later.mp4"])
+        footage.release()   // d_next's frame, then the step's
+        await settle()
+        XCTAssertEqual(model.frameTime, 51)
+        XCTAssertEqual(Set(model.prefetched.keys), ["c_ok", "d_next"])
+        XCTAssertEqual(footage.frameCalls.count, 4, "nothing read twice")
+    }
+
+    /// The project is switched while a read-ahead frame is decoding, and the new project has a
+    /// recording of the same name (another file, another fingerprint): the old frame lands
+    /// nowhere, and the new recording is read for itself (Codex finding on #118).
+    @MainActor
+    func testAFrameReadForTheOldProjectNeverReachesTheNewOne() async throws {
+        let dir = try Self.tempDir()
+        let dir2 = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir); try? FileManager.default.removeItem(at: dir2) }
+        let footage = ScriptedFootage()
+        footage.holdFrames = true
+        let model = NetLabelsModel(items: [try item("c_ok", in: dir)], labels: [:], store: NetLabelStore(projectDir: dir),
+                                   footage: footage, prefetchAhead: 1) { _, _ in }
+        await settle()
+        XCTAssertEqual(footage.frameCalls.map(\.0), ["c_ok.mp4"], "the old project's read-ahead is on its frame")
+        model.install(items: [try item("c_ok", fingerprint: "fp-b", in: dir2)], labels: [:], store: NetLabelStore(projectDir: dir2))
+        await settle()
+        XCTAssertTrue(model.prefetched.isEmpty)
+        XCTAssertEqual(footage.frameCalls.count, 1, "one read at a time: the new read-ahead waits for the old file")
+        footage.releaseFirst()   // the old project's frame lands
+        await settle()
+        XCTAssertTrue(model.prefetched.isEmpty, "a frame of the old project is not kept under the new recording's name")
+        XCTAssertEqual(footage.frameCalls.count, 2, "the new project's recording is read for itself")
+        XCTAssertEqual(model.prefetching, "c_ok")
+        footage.releaseFirst()
+        await settle()
+        XCTAssertNotNil(model.prefetched["c_ok"])
+        model.select("c_ok")
+        await settle()
+        XCTAssertEqual(footage.frameCalls.count, 2, "read ahead: opens from memory")
+        XCTAssertTrue(model.confirm())
+        XCTAssertEqual(try NetLabelStore(projectDir: dir2).load()["c_ok"]?.fingerprint, "fp-b")
+        XCTAssertEqual(try NetLabelStore(projectDir: dir).load(), [:], "nothing written to the old project")
     }
 
     /// A recording read ahead, picked and then superseded before its load ran — by a skipped

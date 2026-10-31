@@ -16,7 +16,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import numpy as np
+try:
+    import numpy as np
+except ImportError:   # the trainer is numpy throughout; the checker's CI runner has no numpy
+    raise unittest.SkipTest("numpy is not installed: the net trainer's tests run where it is (desktop, Mac)")
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "desktop_training"))
 import train_net_model as t  # noqa: E402
