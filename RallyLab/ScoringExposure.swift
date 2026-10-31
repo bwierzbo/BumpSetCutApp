@@ -4,8 +4,9 @@
 //
 //  The identity of one pipeline scoring run, for the exposure ledger (owner,
 //  2026-10-31): the command, the ball finder with its model's name and digest,
-//  the detection settings that change what the pipeline sees, and a digest of
-//  the decision settings that change what it cuts. The ledger drops a row that
+//  the detection settings a person reads most, and a fingerprint of every
+//  other setting in the processor's config (by reflection, so a field added
+//  later is in it without anyone remembering). The ledger drops a row that
 //  repeats an earlier one's (video, kind, ref), so two runs that differ in any
 //  of these are two uses and the same run again is one — before this, every
 //  `--score-rallies` run shared one ref and a second model's pass left no row.
@@ -30,12 +31,13 @@ enum ScoringExposure {
         }
     }
 
-    /// The ledger ref: `<command> <finder> <detection> decision=<digest>`.
+    /// The ledger ref: `<command> <finder> <detection> config=<fingerprint>`.
     static func ref(command: String, config: ProcessorConfig) throws -> String {
-        "\(command) \(try finder(config)) \(detection(config)) decision=\(decisionDigest(config))"
+        "\(command) \(try finder(config)) \(detection(config)) config=\(fingerprint(config))"
     }
 
-    /// The readable note beside the ref: what the finder was and the decision settings the digest stands for.
+    /// The readable note beside the ref: what the finder was and the decision settings a reader asks about first
+    /// (the fingerprint in the ref covers every setting).
     static func note(config: ProcessorConfig) -> String {
         let finder: String
         if let model = config.heatmapModel {
@@ -44,6 +46,21 @@ enum ScoringExposure {
             finder = "YOLO \(config.ballModel.rawValue) only"
         }
         return "\(finder); " + decisionFields(config).map { "\($0.0)=\($0.1)" }.joined(separator: " ")
+    }
+
+    /// Every stored property of the config but the model's URL (the finder names the model by its digest, so
+    /// the same model at another path is the same run), as `name=value` lines in declaration order. Reflection,
+    /// so a setting added to `ProcessorConfig` is in the identity from then on.
+    static func fingerprintFields(_ config: ProcessorConfig) -> [String] {
+        Mirror(reflecting: config).children.compactMap { child in
+            guard let label = child.label, label != "heatmapModel" else { return nil }
+            return "\(label)=\(String(describing: child.value))"
+        }
+    }
+
+    /// Eight hex of SHA-256 over `fingerprintFields`.
+    static func fingerprint(_ config: ProcessorConfig) -> String {
+        SHA256.hash(data: Data(fingerprintFields(config).joined(separator: "\n").utf8)).prefix(4).map { String(format: "%02x", $0) }.joined()
     }
 
     /// The multi-frame model by file name and the first 16 hex of its canonical digest (every file in
@@ -90,12 +107,6 @@ enum ScoringExposure {
         out.append(("minProjectileSpanY", num(Double(config.minProjectileSpanY))))
         out.append(("minCurvatureMagnitude", num(Double(config.minCurvatureMagnitude))))
         return out
-    }
-
-    /// Eight hex of SHA-256 over `decisionFields`.
-    static func decisionDigest(_ config: ProcessorConfig) -> String {
-        let text = decisionFields(config).map { "\($0.0)=\($0.1)" }.joined(separator: ";")
-        return SHA256.hash(data: Data(text.utf8)).prefix(4).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Why `name` may not be scored, or nil when it may. `reserved` is the final-test closure

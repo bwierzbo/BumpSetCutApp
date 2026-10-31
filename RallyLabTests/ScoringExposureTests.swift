@@ -78,6 +78,31 @@ final class ScoringExposureTests: XCTestCase {
         XCTAssertTrue(note.contains("preroll=1 "), note)
     }
 
+    /// Settings outside the decider — detection, tracking, the projectile gate — change what the pipeline
+    /// does, so they change the ref too (Codex finding on #120); the fingerprint covers every stored field.
+    func testEveryStoredSettingIsInTheIdentity() throws {
+        let m = try model("m", bytes: "w")
+        let base = heatConfig(m)
+        var confidence = base; confidence.detectionConfidence = 0.5
+        var stride = base; stride.activeTrackingStride = 1
+        var smoothed = base; smoothed.useSmoothedTrack = false
+        var carried = base; carried.vetoCarriedMovement = false
+        var net = base; net.netDetectionConfidence = 0.4
+        var camera = base; camera.applyCamera(CameraSetup(clipID: "bch_sid_test"))
+        let refs = try [base, confidence, stride, smoothed, carried, net, camera].map { try ScoringExposure.ref(command: "--score-rallies", config: $0) }
+        XCTAssertEqual(Set(refs).count, refs.count, "\(refs)")
+        let fields = ScoringExposure.fingerprintFields(base)
+        let stored = Mirror(reflecting: base).children.compactMap(\.label)
+        XCTAssertEqual(fields.count, stored.count - 1, "every stored property but heatmapModel")
+        XCTAssertFalse(fields.contains { $0.hasPrefix("heatmapModel=") })
+        XCTAssertTrue(fields.contains("detectionConfidence=0.6021"), "\(fields.prefix(12))")
+        // The same model at another path is the same run: the finder names it by digest.
+        let copy = root.appendingPathComponent("elsewhere/m.mlpackage", isDirectory: true)
+        try FileManager.default.createDirectory(at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: m, to: copy)
+        XCTAssertEqual(refs[0], try ScoringExposure.ref(command: "--score-rallies", config: heatConfig(copy)))
+    }
+
     func testYOLOOnlyNamesTheBallModel() throws {
         var c = ProcessorConfig()
         c.heatmapModel = nil
