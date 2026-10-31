@@ -546,6 +546,40 @@ final class NetLabelsTests: XCTestCase {
         XCTAssertEqual(footage.frameCalls.count, 4, "nothing read twice")
     }
 
+    /// The project is switched while a read-ahead frame is decoding, and the new project has a
+    /// recording of the same name (another file, another fingerprint): the old frame lands
+    /// nowhere, and the new recording is read for itself (Codex finding on #118).
+    @MainActor
+    func testAFrameReadForTheOldProjectNeverReachesTheNewOne() async throws {
+        let dir = try Self.tempDir()
+        let dir2 = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir); try? FileManager.default.removeItem(at: dir2) }
+        let footage = ScriptedFootage()
+        footage.holdFrames = true
+        let model = NetLabelsModel(items: [try item("c_ok", in: dir)], labels: [:], store: NetLabelStore(projectDir: dir),
+                                   footage: footage, prefetchAhead: 1) { _, _ in }
+        await settle()
+        XCTAssertEqual(footage.frameCalls.map(\.0), ["c_ok.mp4"], "the old project's read-ahead is on its frame")
+        model.install(items: [try item("c_ok", fingerprint: "fp-b", in: dir2)], labels: [:], store: NetLabelStore(projectDir: dir2))
+        await settle()
+        XCTAssertTrue(model.prefetched.isEmpty)
+        XCTAssertEqual(footage.frameCalls.count, 1, "one read at a time: the new read-ahead waits for the old file")
+        footage.releaseFirst()   // the old project's frame lands
+        await settle()
+        XCTAssertTrue(model.prefetched.isEmpty, "a frame of the old project is not kept under the new recording's name")
+        XCTAssertEqual(footage.frameCalls.count, 2, "the new project's recording is read for itself")
+        XCTAssertEqual(model.prefetching, "c_ok")
+        footage.releaseFirst()
+        await settle()
+        XCTAssertNotNil(model.prefetched["c_ok"])
+        model.select("c_ok")
+        await settle()
+        XCTAssertEqual(footage.frameCalls.count, 2, "read ahead: opens from memory")
+        XCTAssertTrue(model.confirm())
+        XCTAssertEqual(try NetLabelStore(projectDir: dir2).load()["c_ok"]?.fingerprint, "fp-b")
+        XCTAssertEqual(try NetLabelStore(projectDir: dir).load(), [:], "nothing written to the old project")
+    }
+
     /// A recording read ahead, picked and then superseded before its load ran — by a skipped
     /// recording, which starts no load of its own — shows nothing and makes no proposal.
     @MainActor

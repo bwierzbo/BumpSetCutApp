@@ -115,6 +115,8 @@ final class NetLabelsModel {
     private var loadTask: Task<Void, Never>?
     /// Counts decode requests; a decode publishes its frame only while it is the latest.
     private var decodeSerial = 0
+    /// Counts inventories (`reload`/`install`); a read-ahead keeps its frame only for the one it began in.
+    private var inventory = 0
 
     /// Frames read ahead of the selection, so the next recordings open at once: the
     /// share takes seconds per frame. Only recordings still to label are read, never a
@@ -143,13 +145,9 @@ final class NetLabelsModel {
          exposure: @escaping NetProposalRecorder) {
         projects = nil
         self.footage = footage
-        self.store = store
         self.prefetchAhead = prefetchAhead
         recordProposal = exposure
-        self.labels = labels
-        self.items = items.map { Self.marked($0, labels: labels) }.sorted { $0.video < $1.video }
-        status = summary
-        prefetch()
+        install(items: items, labels: labels, store: store)
     }
 
     var labeledCount: Int { items.filter(\.labeled).count }
@@ -190,33 +188,48 @@ final class NetLabelsModel {
     /// net-labels.json. A manifest that is missing or not of this project, or
     /// a labels file that can't be read, blocks the tab.
     func reload() {
-        loadTask?.cancel()
-        prefetchTask?.cancel()
-        prefetched = [:]; prefetching = nil
-        decodeSerial += 1
-        items = []; labels = [:]; selected = nil; frame = nil; frameTime = nil; quad = nil; proposal = nil; blocked = nil
+        clear()
         guard let projects, let project = projects.project, let dir = projects.projectDir else { status = "Open a project."; return }
         let inventory: NetInventory
         do { inventory = try NetInventory.load(projectDir: dir) } catch {
             blocked = "Nothing can be labeled: \(error.localizedDescription)"; status = blocked!; return
         }
         let store = NetLabelStore(projectDir: dir)
-        self.store = store
         recordProposal = NetProposalExposure.recorder(projectDir: dir)
+        let labels: [String: NetLabel]
         do { labels = try store.load() } catch {
             blocked = "\(store.url.lastPathComponent) unreadable: \(error.localizedDescription)"; status = blocked!; return
         }
-        items = project.clips.flatMap { clip in
+        let items = project.clips.flatMap { clip in
             clip.videos.map { video in
                 let id = clip.videoId(of: video)
                 let fingerprint = inventory.fingerprint[id] ?? inventory.fingerprint[DatasetStore.safeName(id)]
-                return Self.marked(Item(video: id, clip: clip.id, camera: clip.camera, url: URL(fileURLWithPath: video.clipFile),
-                                        fingerprint: fingerprint,
-                                        skip: NetLabels.skip(video: id, camera: clip.camera, withheld: inventory.withheld, fingerprint: fingerprint),
-                                        labeled: false, stale: false), labels: labels)
+                return Item(video: id, clip: clip.id, camera: clip.camera, url: URL(fileURLWithPath: video.clipFile), fingerprint: fingerprint,
+                            skip: NetLabels.skip(video: id, camera: clip.camera, withheld: inventory.withheld, fingerprint: fingerprint),
+                            labeled: false, stale: false)
             }
         }
-        .sorted { $0.video < $1.video }
+        install(items: items, labels: labels, store: store)
+    }
+
+    /// Nothing on screen, nothing in flight that can still land: a load or read-ahead started
+    /// before this finds its inventory gone.
+    private func clear() {
+        loadTask?.cancel()
+        prefetchTask?.cancel()
+        inventory += 1
+        prefetched = [:]; prefetching = nil
+        decodeSerial += 1
+        items = []; labels = [:]; selected = nil; frame = nil; frameTime = nil; quad = nil; proposal = nil; blocked = nil
+    }
+
+    /// A new inventory of recordings and their labels, replacing whatever was listed; reads
+    /// in flight for the old one land nowhere, even for a recording of the same name.
+    func install(items: [Item], labels: [String: NetLabel], store: NetLabelStore) {
+        clear()
+        self.store = store
+        self.labels = labels
+        self.items = items.map { Self.marked($0, labels: labels) }.sorted { $0.video < $1.video }
         status = summary
         prefetch()
     }
@@ -249,6 +262,7 @@ final class NetLabelsModel {
     }
 
     private func prefetch(_ queue: [Item]) async {
+        let inventory = inventory
         defer { prefetching = nil }
         for item in queue {
             guard !Task.isCancelled else { return }   // paused: the selection is reading, or the window moved
@@ -264,7 +278,9 @@ final class NetLabelsModel {
             let t = NetLabels.frameTime(duration: dur, rallies: marks)
             guard let frame = try? await footage.frame(of: item.url, at: t) else { continue }
             // A frame that took seconds to read is kept even if the read-ahead was paused
-            // meanwhile — only while it is still wanted: the selection may have moved on past it.
+            // meanwhile — only while it is still wanted: the selection may have moved on past it,
+            // or the project changed (another recording may carry the same name there).
+            guard inventory == self.inventory else { return }
             if items.contains(where: { $0.video == item.video && $0.skip == nil && !$0.labeled && !$0.boxOnly }) {
                 prefetched[item.video] = Prefetched(time: t, duration: dur, frame: frame)
             }
