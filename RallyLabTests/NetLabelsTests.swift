@@ -87,6 +87,7 @@ final class NetLabelsTests: XCTestCase {
     /// decode waits until the test lets it through.
     private final class ScriptedFootage: NetLabelFootage, @unchecked Sendable {
         let lock = NSLock()
+        private(set) var readableCalls: [String] = []
         private(set) var durationCalls: [String] = []
         private(set) var frameCalls: [(String, Double)] = []
         private(set) var proposalCalls = 0
@@ -95,7 +96,21 @@ final class NetLabelsTests: XCTestCase {
         var modelAvailable = true
         var gate: CheckedContinuation<Void, Never>?
         var holdFrames = false
+        /// Hold the readability check (the share's stat) until `release()`: the tab must stay responsive meanwhile.
+        var holdReadable = false
         var waiting: (() -> Void)?
+
+        func identity(of video: ClipSource) async -> String? { "fp-\(video.clipFile)" }
+
+        func isReadable(_ url: URL) async -> Bool {
+            lock.withLock { readableCalls.append(url.lastPathComponent) }
+            if holdReadable {
+                await withCheckedContinuation { c in lock.withLock { gate = c }; waiting?() }
+            }
+            return true
+        }
+
+        func rallyMarks(for url: URL) async -> [(start: Double, end: Double)] { [] }
 
         func duration(of url: URL) async -> Double {
             lock.withLock { durationCalls.append(url.lastPathComponent) }
@@ -181,6 +196,38 @@ final class NetLabelsTests: XCTestCase {
         XCTAssertEqual(recorded, ["c_ok"])
         XCTAssertNotNil(model.frame)
         XCTAssertTrue(model.canConfirm)
+    }
+
+    /// The share can take seconds per file, or block for the SMB timeout when it has
+    /// dropped: the readability check runs off the main actor, and while it is pending
+    /// the tab still answers — another recording can be picked and the first load is dropped.
+    @MainActor
+    func testTheTabStaysResponsiveWhileTheFileIsChecked() async throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let footage = ScriptedFootage()
+        footage.holdReadable = true
+        let model = NetLabelsModel(items: [try item("c_ok", in: dir), try item("d_next", in: dir)],
+                                   labels: [:], store: NetLabelStore(projectDir: dir), footage: footage) { _, _ in }
+        model.select("c_ok")
+        await settle()
+        XCTAssertEqual(footage.readableCalls, ["c_ok.mp4"])
+        XCTAssertTrue(model.loading, "the check is pending")
+        XCTAssertTrue(footage.durationCalls.isEmpty, "nothing further is read until the file is known readable")
+        // The main actor is free: the model answers and another recording can be picked.
+        XCTAssertEqual(model.selected, "c_ok")
+        footage.holdReadable = false
+        model.select("d_next")
+        await settle()
+        XCTAssertEqual(model.selected, "d_next")
+        XCTAssertEqual(footage.readableCalls, ["c_ok.mp4", "d_next.mp4"])
+        XCTAssertEqual(footage.durationCalls, ["d_next.mp4"])
+        footage.release()   // c_ok's check comes back late: it was superseded and changes nothing
+        await settle()
+        XCTAssertEqual(footage.durationCalls, ["d_next.mp4"])
+        XCTAssertEqual(footage.frameCalls.map(\.0), ["d_next.mp4"])
+        XCTAssertEqual(model.selected, "d_next")
+        XCTAssertNotNil(model.frame)
     }
 
     @MainActor
