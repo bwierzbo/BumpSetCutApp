@@ -138,6 +138,14 @@ enum HeadlessProjects {
                 exit(1)
             }
             if !reserved.isEmpty { log("Reserved final-test videos (never packaged, scored, tuned or pre-tracked): \(reserved.sorted().joined(separator: ", "))") }
+            // The lineage-withheld closure (D-017: lineage and legacy holdouts and every alias), read once, fail
+            // closed, honoured by every single-recording scoring command below (owner, 2026-10-31).
+            let withheld: Set<String>
+            do { withheld = try ReservedVideos.lineageWithheldNames(in: projectRoot) } catch {
+                log("❌ \(error.localizedDescription)")
+                exit(1)
+            }
+            if !withheld.isEmpty { log("Withheld from scoring (lineage/legacy holdout and aliases, D-017): \(withheld.count) recordings") }
 
             var ok = true
             if let i = args.firstIndex(of: "--get") {
@@ -327,11 +335,14 @@ enum HeadlessProjects {
                 if let name = value(after: "--ball-model", in: args), let model = BallModel(rawValue: name) { config.ballModel = model }
                 log("ball model \(config.ballModel.rawValue) · rotation \(config.applyVideoRotation ? "applied" : "not applied")")
                 for clip in args[(i + 1)...].prefix(while: { !$0.hasPrefix("--") }) {
-                    guard !reserved.contains(clip) else { log("⛔ \(clip) is reserved as final_test (D-002) — not scored."); continue }
+                    if let why = ScoringExposure.refusal(clip, reserved: reserved, withheld: withheld) { log(why); continue }
                     guard let session = projects.sampler.sessions.first(where: { $0.name == clip }) else { log("❌ No clip \(clip)"); continue }
-                    guard recorded([session.name], .rallyScoring, ref: "--diagnose-rallies", note: "ball model \(config.ballModel.rawValue)", in: projectRoot) else { ok = false; break }
+                    // The config this recording is processed with — its camera position applied — is the one recorded.
+                    let effective = config.withCamera(of: session)
+                    guard let ref = scoringRef("--diagnose-rallies", effective),
+                          recorded([session.name], .rallyScoring, ref: ref, note: ScoringExposure.note(config: effective), in: projectRoot) else { ok = false; break }
                     log("\(clip):")
-                    guard let v = await RallyCutScore.process(session, config: config.withCamera(of: session)) else { log("   no rally times or couldn't process"); continue }
+                    guard let v = await RallyCutScore.process(session, config: effective) else { log("   no rally times or couldn't process"); continue }
                     var t = RallyCutScore.Tally()
                     t.add(clips: v.clips, truth: v.truth)
                     log("   " + t.line)
@@ -340,9 +351,10 @@ enum HeadlessProjects {
             }
             if ok, let i = args.firstIndex(of: "--score-rallies") {
                 let named = args[(i + 1)...].prefix { !$0.hasPrefix("--") }
-                for n in named where reserved.contains(n) { log("⛔ \(n) is reserved as final_test (D-002) — not scored.") }
+                for n in named { if let why = ScoringExposure.refusal(n, reserved: reserved, withheld: withheld) { log(why) } }
                 var sessions = projects.sampler.sessions.filter {
-                    (named.isEmpty ? ($0.ralliesMarked ?? false) : named.contains($0.name)) && !reserved.contains($0.name)
+                    (named.isEmpty ? ($0.ralliesMarked ?? false) : named.contains($0.name))
+                        && ScoringExposure.refusal($0.name, reserved: reserved, withheld: withheld) == nil
                 }
                 var config = ProcessorConfig()
                 config.applyVideoRotation = args.contains("--rotate")
@@ -358,16 +370,27 @@ enum HeadlessProjects {
                     config.heatmapOnly = false
                     log("ball finder: YOLO only")
                 }
-                // Exposure is recorded before the first pipeline runs, so an interrupted run is still on record (D-002).
-                if !recorded(Set(sessions.map(\.name)), .rallyScoring, ref: "--score-rallies",
-                             note: "ball model \(config.ballModel.rawValue)\(config.heatmapModel == nil ? "" : " + multi-frame")", in: projectRoot) {
-                    ok = false
-                    sessions = []
+                // Exposure is recorded before the first pipeline runs, so an interrupted run is still on record (D-002);
+                // each row names the model and the settings the recording is actually processed with (its camera
+                // position applied), so another model's pass, or another camera reading, is another row.
+                var effective: [String: ProcessorConfig] = [:]
+                var refs = Set<String>()
+                for session in sessions {
+                    let c = config.withCamera(of: session)
+                    guard let ref = scoringRef("--score-rallies", c),
+                          recorded([session.name], .rallyScoring, ref: ref, note: ScoringExposure.note(config: c), in: projectRoot) else {
+                        ok = false
+                        break
+                    }
+                    effective[session.name] = c
+                    refs.insert(ref)
                 }
+                if !ok { sessions = [] }
+                for ref in refs.sorted() { log("ledger ref: \(ref)") }
                 var videos: [RallyCutScore.Video] = []
                 for session in sessions {
                     log("\(session.name) (\(session.split))…")
-                    if let v = await RallyCutScore.process(session, config: config.withCamera(of: session)) { videos.append(v) }
+                    if let v = await RallyCutScore.process(session, config: effective[session.name]!) { videos.append(v) }
                     else { log("   no rally times or couldn't process") }
                 }
                 if videos.isEmpty { log("❌ No fully marked videos (Track tab → Rally times → Whole video marked).") }
@@ -381,7 +404,7 @@ enum HeadlessProjects {
                     log("usage: --render-pipeline <clip> <start s> <length s> [<start s> <length s>…] [--heat <model> [--heat-only]] [--rotate]")
                     exit(2)
                 }
-                guard !reserved.contains(session.name) else { log("⛔ \(session.name) is reserved as final_test (D-002) — not rendered."); exit(1) }
+                if let why = ScoringExposure.refusal(session.name, reserved: reserved, withheld: withheld) { log(why); exit(1) }
                 var config = ProcessorConfig()
                 config.applyVideoRotation = args.contains("--rotate")
                 var finder = "YOLO"
@@ -392,8 +415,10 @@ enum HeadlessProjects {
                     finder = config.heatmapOnly ? "multi-frame only" : "YOLO + multi-frame"
                 }
                 log("\(session.name): pipeline (\(finder))…")
-                guard recorded([session.name], .rallyScoring, ref: "--render-pipeline", note: finder, in: projectRoot) else { ok = false; exit(1) }
-                if let v = await RallyCutScore.process(session, config: config.withCamera(of: session)) {
+                let effective = config.withCamera(of: session)
+                guard let ref = scoringRef("--render-pipeline", effective),
+                      recorded([session.name], .rallyScoring, ref: ref, note: ScoringExposure.note(config: effective), in: projectRoot) else { ok = false; exit(1) }
+                if let v = await RallyCutScore.process(session, config: effective) {
                     let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/RallyLab/Renders", isDirectory: true)
                     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
                     for (start, length) in stretches {
@@ -412,7 +437,7 @@ enum HeadlessProjects {
             }
             if ok, let i = args.firstIndex(of: "--compare-color") {
                 for clip in args[(i + 1)...] where !clip.hasPrefix("--") {
-                    guard !reserved.contains(clip) else { log("⛔ \(clip) is reserved as final_test (D-002) — not compared."); continue }
+                    if let why = ScoringExposure.refusal(clip, reserved: reserved, withheld: withheld) { log(why); continue }
                     guard let session = projects.sampler.sessions.first(where: { $0.name == clip }) else { log("❌ No clip \(clip)"); continue }
                     var sdr = ProcessorConfig()
                     sdr.standardColorFrames = true
@@ -426,7 +451,7 @@ enum HeadlessProjects {
             if ok, let i = args.firstIndex(of: "--pipeline-compare"), args.indices.contains(i + 2) {
                 let model = heatModel(args[i + 1], in: library)
                 for clip in args[(i + 2)...] where !clip.hasPrefix("--") {
-                    guard !reserved.contains(clip) else { log("⛔ \(clip) is reserved as final_test (D-002) — not compared."); continue }
+                    if let why = ScoringExposure.refusal(clip, reserved: reserved, withheld: withheld) { log(why); continue }
                     guard let session = projects.sampler.sessions.first(where: { $0.name == clip }) else { log("❌ No clip \(clip)"); continue }
                     log("\(clip) (\(session.split), \((session.tracks ?? []).filter(\.done).count) done tracked rallies)…")
                     guard recorded([session.name], .rallyScoring, ref: "--pipeline-compare " + model.deletingPathExtension().lastPathComponent, note: nil, in: projectRoot) else { ok = false; break }
@@ -1039,6 +1064,14 @@ enum HeadlessProjects {
     }
 
     /// Record a use, or say why it couldn't be and report failure (the command then fails).
+    /// The run's ledger ref, or nil (logged) when its identity can't be established — then nothing is scored.
+    private static func scoringRef(_ command: String, _ config: ProcessorConfig) -> String? {
+        do { return try ScoringExposure.ref(command: command, config: config) } catch {
+            log("❌ \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     private static func recorded(_ videos: Set<String>, _ kind: ExposureRecord.Kind, ref: String, note: String?, in root: URL) -> Bool {
         do { try ExposureLog.record(videos: videos, kind: kind, ref: ref, note: note, in: root); return true } catch {
             log("❌ \(error.localizedDescription)")
