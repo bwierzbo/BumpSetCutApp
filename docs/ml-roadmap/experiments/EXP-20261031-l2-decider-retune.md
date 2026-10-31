@@ -52,7 +52,7 @@ Beach 110 → 107 found, grass 55 → 50, indoor 81 → 78 (misses 12 → 9 indo
 | Input | Value |
 |---|---|
 | Code SHA | the head of `feat/l2-decider-retune` that holds `RallyLab/DeciderRetune.swift` and this record — recorded in §7 when the passes run; the binary is built from it |
-| Plan | `EXP-20261031-l2-decider-retune.plan.json`, sha256 `c0f9d3bac865dc422fcf2cbf7c551d13eca02e44396c7d33ed6a1d37851ce2ec` |
+| Plan | `EXP-20261031-l2-decider-retune.plan.json` (configuration-item family CF-BSC-009, frozen), sha256 `c0f9d3bac865dc422fcf2cbf7c551d13eca02e44396c7d33ed6a1d37851ce2ec` |
 | Dataset manifest SHA-256 | `manifests/manifest.json` `05b8bc4feb279a37812e0609bf81c8c7f462c20de475f6b57944f2ba32ac53de` (written 2026-10-25); `project.json` `65243bca59895a7e…`; `validation.json` `6d160a1ac00254a0…` (9 tune, 5 holdout, 16 lineageHoldout, 0 finalTest) |
 | Tune pool (settings chosen here) | the 9 `tune` recordings of validation.json, 4 recording groups: `bch_onl_ovc_land_onl_02` card (3, one uploader), Grace Qian's 3 grass recordings (incl. the handheld `grs_hnd_shade_port_self_02`), `ind_ele_bright_land_self_01`, the `ind_ele_dim_land_self_02` card (2) — 141 marked rallies |
 | Evaluation pool (not used to choose) | the other 17 diagnostic recordings — 12 `train`, 1 `dev_val` (`bch_ele_sun_port_self_03`), and `bch_ele_ovc_land_self_02_v4`, `ind_gnd_bright_land_self_01_v2` (marked after the manifest was written; `train`) — 11 recording groups, 308 marked rallies |
@@ -70,7 +70,7 @@ Beach 110 → 107 found, grass 55 → 50, indoor 81 → 78 (misses 12 → 9 indo
 
 1. Footage: the 26 SHA-256-verified local copies of the diagnostic (`~/Movies/RallyLab/Cache/diag-20261030/`, hashes in `diag-files.txt`), the project's footage links pointed at them for the run and restored afterwards, as `l1l2-diag2.zsh` did (the share over Wi-Fi is too slow and drops).
 2. Passes, recorded first: `RallyLab --project Scratch --retune-decider <plan.json> --out <report>/passes --passes-only` — one `rally_scoring` row per recording per model with the model-named ref (`--retune-decider EXP-20261031-l2-decider-retune heat=<model>@<digest> … config=<fingerprint>`, PR #120), then the detector over the 26 for L2 and for L1. The replay at the committed settings is checked against each pass's own clips (0.2 s); any mismatch is listed in the report.
-3. The search: `RallyLab --project Scratch --retune-decider <plan.json> --out <report>/search` on the cached passes (no detector run): every candidate replayed on the tune pool only, ranked by the objective; the best is then replayed on the evaluation pool, beside L1 committed and L2 committed.
+3. The search: `RallyLab --project Scratch --retune-decider <plan.json> --out <report>/search` on the cached passes (no detector run): every candidate replayed on the tune pool only, ranked by the objective; the best is then replayed on the evaluation pool, beside L1 committed and L2 committed. One replay per candidate and recording (`EvidenceReplayer.decidedRallies`): the delivered (padded, joined) clips and, for each, its raw decided span from the same segmentation (a joined clip's is the union of what it joined) — never a second replay with the padding zeroed, which joins and filters differently.
 4. Report: `report.json` (every recording × condition account, the full grid on the tune pool, groups, splits, refs, digests, plan hash) and `report.md`; both hashed into §7.
 
 ## 5. Acceptance criteria (set before the search)
@@ -88,7 +88,7 @@ All five bars met → *keep as a candidate*: the owner decides whether this deve
 
 ## 6. What is reported (owner §2)
 
-Per pool, per surface, per recording group and per recording, for each condition: rallies, preserved, clipped, merged, split, partial (a clip touches it, none matches), missed, delivered clips, false clips, dead time per rally, padded start/end median offsets, raw (unpadded decision) start/end median offsets, both-ends-within-1-s — every one of the 449 marked rallies in exactly one class. The tune-pool grid in full (`report.json`), top 40 in `report.md`.
+Per pool, per surface, per recording group and per recording, for each condition: rallies, preserved, clipped, merged, split, partial (a clip touches it, none matches), missed, delivered clips, false clips, dead time per rally, padded start/end median offsets, raw start/end median offsets (each delivered clip's raw decided span, from the same replay), both-ends-within-1-s — every one of the 449 marked rallies in exactly one class. The tune-pool grid in full (`report.json`), top 40 in `report.md`.
 
 ## 7. Results
 

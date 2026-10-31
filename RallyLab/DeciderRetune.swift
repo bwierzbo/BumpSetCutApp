@@ -22,7 +22,9 @@
 //  more clips each covering more than half a second of it), partial (a clip
 //  touches it, none matches), missed (no clip touches it). Clips that touch
 //  no rally are false clips; clip time outside every rally is dead time. Raw
-//  boundaries (the decision with no padding) are reported beside the padded.
+//  boundaries — each delivered clip's raw decided span, from the same replay
+//  (a joined clip's is the union of what it joined) — are reported beside the
+//  padded ones; a second replay with no padding would segment differently.
 //
 //  Headless: RallyLab --project <name> --retune-decider <plan.json> --out <dir> [--passes-only]
 //
@@ -122,7 +124,7 @@ enum DeciderRetune {
         var rallyTime = 0.0, covered = 0.0, deadTime = 0.0
         /// Delivered clip − marked rally, over one-to-one matches (IoU ≥ 0.3).
         var startErrors: [Double] = [], endErrors: [Double] = []
-        /// The same for the raw decision (no padding, no joining by padding).
+        /// The same for the clips' raw decided spans (the same segments, before padding).
         var rawStartErrors: [Double] = [], rawEndErrors: [Double] = []
 
         static func + (a: Account, b: Account) -> Account {
@@ -208,6 +210,13 @@ enum DeciderRetune {
     }
 
     static func overlap(_ a: Interval, _ b: Interval) -> Double { max(0, min(a.end, b.end) - max(a.start, b.start)) }
+
+    /// One replay: the delivered clips and, for each, its raw decided span — the same segments, so joining and
+    /// the minimum length (which act on padded ranges) apply to both alike.
+    static func replay(evidence: [VideoProcessor.FrameEvidence], duration: Double, config: ProcessorConfig, minRallySec: Double) -> (clips: [Interval], raw: [Interval]) {
+        let rallies = EvidenceReplayer.decidedRallies(evidence: evidence, duration: duration, config: config, minRallySec: minRallySec, padded: true)
+        return (rallies.map(\.range), rallies.map(\.raw))
+    }
 
     static func union(_ intervals: [Interval]) -> [Interval] {
         var out: [Interval] = []
@@ -385,7 +394,7 @@ enum DeciderRetune {
                 log(String(format: "  %@ %@ %.0f s · %d clips", n, took > 2 ? "ran" : "cached", took, p.clips.count))
                 passes[name, default: [:]][n] = p
                 // The replay at the committed settings must cut what the pass cut, or candidates measure something else.
-                let replayed = EvidenceReplayer.decidedRanges(evidence: p.evidence, duration: p.duration, config: config, minRallySec: plan.minRallySec, padded: true)
+                let replayed = replay(evidence: p.evidence, duration: p.duration, config: config, minRallySec: plan.minRallySec).clips
                 if replayed.count != p.clips.count || zip(replayed, p.clips).contains(where: { abs($0.start - $1.start) > 0.2 || abs($0.end - $1.end) > 0.2 }) {
                     mismatches.append("\(name) \(n)")
                     log("  ⚠️ replay at the committed settings differs from the pass on \(n)")
@@ -396,8 +405,7 @@ enum DeciderRetune {
         func account(_ model: String, _ video: String, _ candidate: Candidate) -> Account {
             let p = passes[model]![video]!
             let config = candidate.apply(to: configs[model]!)
-            let clips = EvidenceReplayer.decidedRanges(evidence: p.evidence, duration: p.duration, config: config, minRallySec: plan.minRallySec, padded: true)
-            let raw = EvidenceReplayer.decidedRanges(evidence: p.evidence, duration: p.duration, config: config, minRallySec: plan.minRallySec, padded: false)
+            let (clips, raw) = replay(evidence: p.evidence, duration: p.duration, config: config, minRallySec: plan.minRallySec)
             return Self.account(clips: clips, raw: raw, truth: p.video.truth, preservedShare: plan.preservedShare)
         }
         func condition(_ label: String, _ model: String, _ candidate: Candidate) -> Condition {

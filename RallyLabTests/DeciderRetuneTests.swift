@@ -109,6 +109,38 @@ final class DeciderRetuneTests: XCTestCase {
         XCTAssertTrue(DeciderRetune.planRefusal(plan(tune: [], eval: ["grs_b"]), reserved: [], withheld: [], groups: groups)!.contains("both a tune"))
     }
 
+    /// Two rallies 3 s apart: the committed padding (2 s + 0.5 s) brings their clips within the join gap, so they
+    /// are joined into one delivered clip whose raw span is the union of both; a replay with the padding zeroed
+    /// keeps them apart (gap 3 s > 1.35 s) and describes another segmentation (Codex finding on #121).
+    func testRawSpansComeFromTheSameJoinedSegmentation() {
+        var evidence: [VideoProcessor.FrameEvidence] = []
+        var t = 0.0
+        while t < 30 {
+            let inPlay = (t >= 10 && t <= 13) || (t >= 16 && t <= 19)
+            evidence.append(VideoProcessor.FrameEvidence(time: t, hasBall: inPlay, isProjectile: inPlay, detections: [],
+                                                         trackPoint: inPlay ? CGPoint(x: 0.5, y: 0.5) : nil, rSquared: nil, gravitySignature: nil,
+                                                         movementType: nil, rejectionReason: nil, candidates: [], detectedNet: nil))
+            t += 0.1
+        }
+        let config = ProcessorConfig()
+        let same = DeciderRetune.replay(evidence: evidence, duration: 30, config: config, minRallySec: 1.1653)
+        XCTAssertEqual(same.clips.count, 1, "joined by the padding: \(same.clips)")
+        XCTAssertEqual(same.raw.count, same.clips.count, "one raw span per delivered clip")
+        guard same.clips.count == 1, same.raw.count == 1 else { return }
+        XCTAssertEqual(same.raw[0].start, 10, accuracy: 0.5)
+        XCTAssertEqual(same.raw[0].end, 19, accuracy: 1.5, "the decider ends a rally some time after the ball was last seen")
+        XCTAssertLessThan(same.clips[0].start, same.raw[0].start, "the clip starts before its raw span (preroll)")
+        XCTAssertGreaterThan(same.clips[0].end, same.raw[0].end, "and ends after it (postroll)")
+        let apart = EvidenceReplayer.decidedRanges(evidence: evidence, duration: 30, config: config, minRallySec: 1.1653, padded: false)
+        XCTAssertEqual(apart.count, 2, "the zero-padding replay segments differently — which is why it is not used")
+        // With the join gap at 0 the two clips still overlap through their padding; with preroll 0.5 / postroll 0.25 they don't.
+        var short = config; short.preroll = 0.5; short.postroll = 0.25; short.minGapToMerge = 0
+        let two = DeciderRetune.replay(evidence: evidence, duration: 30, config: short, minRallySec: 1.1653)
+        XCTAssertEqual(two.clips.count, 2)
+        XCTAssertEqual(two.raw.count, 2)
+        if two.raw.count == 2 { XCTAssertEqual(two.raw[1].start, 16, accuracy: 0.5) }
+    }
+
     func testPlanRoundTrips() throws {
         let json = """
         {"id":"EXP-20261031-l2-decider-retune","baselineModel":"l1","candidateModel":"l2","tune":["a"],"eval":["b"],
