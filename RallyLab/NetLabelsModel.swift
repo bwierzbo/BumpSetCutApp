@@ -230,7 +230,9 @@ final class NetLabelsModel {
     }
 
     /// Read the next `prefetchAhead` recordings' frames in the background, one at a
-    /// time; drop frames that have fallen out of the window.
+    /// time, after whatever read-ahead is already in flight; drop frames that have fallen
+    /// out of the window. The recording on screen reads first: `select` and `step` cancel
+    /// the read-ahead before their own reads and start it again once the frame is up.
     private func prefetch() {
         guard prefetchAhead > 0 else { return }
         let window = Array(upcoming().prefix(prefetchAhead))
@@ -238,25 +240,31 @@ final class NetLabelsModel {
         prefetched = prefetched.filter { keep.contains($0.key) }
         let todo = window.filter { prefetched[$0.video] == nil }
         guard !todo.isEmpty else { return }
-        if let prefetching, todo.first?.video == prefetching { return }   // already on it, in this order
         prefetchTask?.cancel()
-        prefetchTask = Task { await prefetch(todo) }
+        let previous = prefetchTask
+        prefetchTask = Task {
+            await previous?.value   // one read-ahead at a time: the last one finishes its file first
+            await prefetch(todo)
+        }
     }
 
     private func prefetch(_ queue: [Item]) async {
         defer { prefetching = nil }
         for item in queue {
-            guard !Task.isCancelled, prefetched[item.video] == nil else { continue }
-            if selected == item.video { continue }   // the selection reads its own frame
+            guard !Task.isCancelled else { return }   // paused: the selection is reading, or the window moved
+            guard prefetched[item.video] == nil, selected != item.video else { continue }   // the selection reads its own frame
             prefetching = item.video
-            guard await footage.isReadable(item.url), !Task.isCancelled else { continue }
+            guard await footage.isReadable(item.url) else { continue }
+            guard !Task.isCancelled else { return }
             let dur = await footage.duration(of: item.url)
-            guard dur > 0, !Task.isCancelled else { continue }
+            guard dur > 0 else { continue }
+            guard !Task.isCancelled else { return }
             let marks = await footage.rallyMarks(for: item.url)
             guard !Task.isCancelled else { return }
             let t = NetLabels.frameTime(duration: dur, rallies: marks)
-            guard let frame = try? await footage.frame(of: item.url, at: t), !Task.isCancelled else { continue }
-            // Only while it is still wanted: the selection may have moved on past it.
+            guard let frame = try? await footage.frame(of: item.url, at: t) else { continue }
+            // A frame that took seconds to read is kept even if the read-ahead was paused
+            // meanwhile — only while it is still wanted: the selection may have moved on past it.
             if items.contains(where: { $0.video == item.video && $0.skip == nil && !$0.labeled && !$0.boxOnly }) {
                 prefetched[item.video] = Prefetched(time: t, duration: dur, frame: frame)
             }
@@ -272,17 +280,24 @@ final class NetLabelsModel {
         frame = nil; frameTime = nil; proposal = nil; quad = nil; proposed = false; adjusted = false; duration = 0; time = 0
         if let skip = item.skip {
             status = "\(item.video): skipped (\(skip.rawValue)) — not opened."
+            prefetch()
             return
         }
+        // Its own reads come first: a read-ahead on the share would slow them down.
+        if item.labeled || item.boxOnly || prefetched[video] == nil { prefetchTask?.cancel() }
         loadTask = Task { await load(item) }
-        prefetch()
     }
 
     private func load(_ item: Item) async {
         // Superseded before it began (another recording picked, or a skipped one, which starts no load).
         guard !Task.isCancelled, selected == item.video else { return }
         loading = true
-        defer { loading = false }
+        defer {
+            loading = false
+            // The frame is up (or this recording can't be read): the read-ahead goes on. A superseded
+            // load leaves that to the selection that superseded it.
+            if !Task.isCancelled, selected == item.video { prefetch() }
+        }
         if !item.labeled, !item.boxOnly, let ready = prefetched[item.video] {
             // Read ahead already: on screen at once, no file touched.
             time = ready.time
@@ -361,8 +376,12 @@ final class NetLabelsModel {
         guard let item = selectedItem, item.skip == nil, duration > 0 else { return }
         time = min(max(0, time + seconds), max(0, duration - 0.1))
         loadTask?.cancel()
+        prefetchTask?.cancel()   // this frame first
         let t = time
-        loadTask = Task { await decode(item, at: t) }
+        loadTask = Task {
+            await decode(item, at: t)
+            if !Task.isCancelled, selected == item.video { prefetch() }
+        }
     }
 
     /// A new rectangle drawn by hand: its corners replace whatever was there.
