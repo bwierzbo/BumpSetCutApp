@@ -64,6 +64,106 @@ final class NetLabelsTests: XCTestCase {
         XCTAssertThrowsError(try store.load())
     }
 
+    /// The tab's identities and withheld set come from the split manifest, not from the video
+    /// files; the manifest counts only while its hashes are the project's files'.
+    func testInventoryComesFromTheSplitManifestAndRefusesAStaleOne() throws {
+        func row(_ video: String, split: String, reservedAs: String? = nil, noFingerprint: Bool = false, aliasGroup: String? = nil) -> String {
+            let fingerprint: String? = noFingerprint ? nil : "fp-\(video)"
+            return """
+            {"video":"\(video)","sourceId":{"origin":"unknown"},"sessionId":{"origin":"unknown"},"venueId":{"origin":"unknown"},
+             "datasetSplit":"train","split":"\(split)",\(reservedAs.map { "\"reservedAs\":\"\($0)\"," } ?? "")
+             \(aliasGroup.map { "\"aliasGroup\":\"\($0)\"," } ?? "")
+             \(fingerprint.map { "\"fingerprint\":\"\($0)\"," } ?? "")"ralliesMarked":true,"frames":1,"reviewedFrames":1,
+             "addedAt":"2026-10-30T00:00:00Z","exposure":[]}
+            """
+        }
+        func manifest(projectJson: String, validationJson: String?) throws -> DatasetSplitManifest {
+            // `w_legacy` is a legacy holdout by name only (the manifest sets no reservedAs for its aliases);
+            // `legacy_alias` shares its alias group and is withheld through it; `ok` has a group of its own.
+            let rows = [row("ok", split: "train", aliasGroup: "ok"), row("tuned", split: "tune"),
+                        row("w_listed", split: "lineage_holdout", reservedAs: "listed"), row("w_alias", split: "train", reservedAs: "alias"),
+                        row("w_legacy", split: "legacy_holdout", aliasGroup: "legacy_alias"),
+                        row("legacy_alias", split: "train", aliasGroup: "legacy_alias"),
+                        row("w_final", split: "final_test"), row("w_candidate", split: "final_test_candidate"),
+                        row("nofp", split: "train", noFingerprint: true)]
+            let json = """
+            {"schemaVersion":1,"project":"Fixture","createdAt":"2026-10-30T00:00:00Z","generator":"test",
+             "hashes":{"projectJson":"\(projectJson)"\(validationJson.map { ",\"validationJson\":\"\($0)\"" } ?? "")},
+             "splitDefinitions":{},"videos":[\(rows.joined(separator: ","))]}
+            """
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            return try decoder.decode(DatasetSplitManifest.self, from: Data(json.utf8))
+        }
+        let m = try manifest(projectJson: "p1", validationJson: "v1")
+        let listed: Set<String> = ["w_listed", "w_legacy", "w_final", "w_candidate"]
+        let inventory = try NetInventory.inventory(m, projectJSONHash: "p1", validationJSONHash: "v1", listed: listed)
+        XCTAssertEqual(inventory.withheld, ["w_listed", "w_alias", "w_legacy", "legacy_alias", "w_final", "w_candidate"],
+                       "the legacy holdout's unlisted alias is withheld through its alias group, as lineageWithheldNames withholds it")
+        XCTAssertEqual(inventory.fingerprint, ["ok": "fp-ok", "tuned": "fp-tuned", "w_listed": "fp-w_listed", "w_alias": "fp-w_alias",
+                                               "w_legacy": "fp-w_legacy", "legacy_alias": "fp-legacy_alias", "w_final": "fp-w_final",
+                                               "w_candidate": "fp-w_candidate"])
+        XCTAssertNil(inventory.fingerprint["nofp"], "no fingerprint on record: unidentified")
+        XCTAssertThrowsError(try NetInventory.inventory(m, projectJSONHash: "p2", validationJSONHash: "v1", listed: listed)) {
+            XCTAssertEqual($0 as? NetInventoryError, .stale("project.json"))
+        }
+        XCTAssertThrowsError(try NetInventory.inventory(m, projectJSONHash: "p1", validationJSONHash: "v2", listed: listed)) {
+            XCTAssertEqual($0 as? NetInventoryError, .stale("pipeline_tuning/validation.json"))
+        }
+        XCTAssertThrowsError(try NetInventory.inventory(m, projectJSONHash: nil, validationJSONHash: "v1", listed: listed))
+        // A withheld name with no manifest row (a legacy holdout without a dataset session): nothing
+        // could seed its alias group, so the tab is blocked rather than labeling its aliases.
+        XCTAssertThrowsError(try NetInventory.inventory(m, projectJSONHash: "p1", validationJSONHash: "v1", listed: listed.union(["ghost"]))) {
+            XCTAssertEqual($0 as? NetInventoryError, .noRow("ghost"))
+        }
+        XCTAssertEqual(try NetInventory.inventory(try manifest(projectJson: "p1", validationJson: nil), projectJSONHash: "p1", validationJSONHash: nil, listed: []).withheld.count, 6,
+                       "no validation.json then and none now: the manifest still counts")
+
+        // From a project folder: the hashes are of the files as they are now.
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("manifests"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("pipeline_tuning"), withIntermediateDirectories: true)
+        let project = dir.appendingPathComponent("project.json"), validation = dir.appendingPathComponent("pipeline_tuning/validation.json")
+        try Data("project".utf8).write(to: project)
+        let validationJSON = """
+        {"tune":["tuned"],"holdout":["w_legacy"],"lineageHoldout":["w_listed"],"finalTest":["w_final"],"finalTestCandidates":["w_candidate"]}
+        """
+        try Data(validationJSON.utf8).write(to: validation)
+        XCTAssertThrowsError(try NetInventory.load(projectDir: dir)) { XCTAssertEqual($0 as? NetInventoryError, .noManifest(NetInventory.manifestURL(in: dir))) }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let current = try manifest(projectJson: try XCTUnwrap(DatasetSplitManifest.sha256(of: project)),
+                                   validationJson: try XCTUnwrap(DatasetSplitManifest.sha256(of: validation)))
+        try encoder.encode(current).write(to: NetInventory.manifestURL(in: dir))
+        XCTAssertEqual(try NetInventory.load(projectDir: dir).withheld.count, 6)
+        // validation.json names a holdout the manifest has no row for → blocked (the hash is of the file as written).
+        let withGhost = validationJSON.replacingOccurrences(of: "\"holdout\":[\"w_legacy\"]", with: "\"holdout\":[\"w_legacy\",\"ghost\"]")
+        try Data(withGhost.utf8).write(to: validation)
+        try encoder.encode(try manifest(projectJson: try XCTUnwrap(DatasetSplitManifest.sha256(of: project)),
+                                        validationJson: try XCTUnwrap(DatasetSplitManifest.sha256(of: validation)))).write(to: NetInventory.manifestURL(in: dir))
+        XCTAssertThrowsError(try NetInventory.load(projectDir: dir)) { XCTAssertEqual($0 as? NetInventoryError, .noRow("ghost")) }
+        try Data(validationJSON.utf8).write(to: validation)
+        try encoder.encode(current).write(to: NetInventory.manifestURL(in: dir))
+        try Data("project changed".utf8).write(to: project)
+        XCTAssertThrowsError(try NetInventory.load(projectDir: dir)) { XCTAssertEqual($0 as? NetInventoryError, .stale("project.json")) }
+        try Data("project".utf8).write(to: project)
+        // A validation.json that is there but can't be read (here: a folder at its path) is not "none",
+        // even against a manifest written when there was none: the reservations are unknown.
+        let noValidation = try manifest(projectJson: try XCTUnwrap(DatasetSplitManifest.sha256(of: project)), validationJson: nil)
+        try encoder.encode(noValidation).write(to: NetInventory.manifestURL(in: dir))
+        try FileManager.default.removeItem(at: validation)
+        XCTAssertEqual(try NetInventory.load(projectDir: dir).withheld.count, 6, "no validation.json then and none now")
+        try FileManager.default.createDirectory(at: validation, withIntermediateDirectories: false)
+        func unreadable(_ error: Error) -> String? {
+            if case .unreadable(let url)? = error as? NetInventoryError { return url.path }
+            return nil
+        }
+        XCTAssertThrowsError(try NetInventory.load(projectDir: dir)) { XCTAssertEqual(unreadable($0), validation.path) }
+        try FileManager.default.removeItem(at: project)
+        XCTAssertThrowsError(try NetInventory.load(projectDir: dir)) { XCTAssertEqual(unreadable($0), project.path) }
+    }
+
     func testExportPlanRefusesWithheldOtherRecordingsLabelsAndSkipsUnlabeled() {
         func src(_ v: String, _ camera: String = "Tripod / corner", fp: String? = "fp-a") -> NetDatasetExport.Source {
             NetDatasetExport.Source(video: v, clip: v, camera: camera, url: URL(fileURLWithPath: "/nonexistent/\(v).mp4"), fingerprint: fp)
@@ -99,8 +199,6 @@ final class NetLabelsTests: XCTestCase {
         /// Hold the readability check (the share's stat) until `release()`: the tab must stay responsive meanwhile.
         var holdReadable = false
         var waiting: (() -> Void)?
-
-        func identity(of video: ClipSource) async -> String? { "fp-\(video.clipFile)" }
 
         func isReadable(_ url: URL) async -> Bool {
             lock.withLock { readableCalls.append(url.lastPathComponent) }

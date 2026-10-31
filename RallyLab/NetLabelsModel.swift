@@ -19,8 +19,6 @@ import Observation
 /// (or block for the SMB timeout when the share has dropped): none runs on
 /// the main actor.
 protocol NetLabelFootage: Sendable {
-    /// The recording's file identity (`ReservedVideos.effectiveFingerprint`): the file's size, head and tail.
-    func identity(of video: ClipSource) async -> String?
     /// Whether the file can be read here (a stat on the share).
     func isReadable(_ url: URL) async -> Bool
     /// The rallies a person marked, from the labels file beside the video.
@@ -35,9 +33,6 @@ protocol NetLabelFootage: Sendable {
 }
 
 struct RealNetLabelFootage: NetLabelFootage {
-    func identity(of video: ClipSource) async -> String? {
-        await Task.detached(priority: .userInitiated) { ReservedVideos.effectiveFingerprint(video) }.value
-    }
     func isReadable(_ url: URL) async -> Bool {
         await Task.detached(priority: .userInitiated) { FileManager.default.isReadableFile(atPath: url.path) }.value
     }
@@ -79,7 +74,7 @@ final class NetLabelsModel {
         let clip: String
         let camera: String
         let url: URL
-        /// The file's identity (ReservedVideos.effectiveFingerprint); nil → skipped as unidentified.
+        /// The file's identity as the split manifest recorded it (NetInventory); nil → skipped as unidentified.
         let fingerprint: String?
         let skip: NetLabels.Skip?
         /// A label with this recording's fingerprint exists.
@@ -107,14 +102,11 @@ final class NetLabelsModel {
     private(set) var proposed = false
     private(set) var adjusted = false
     private(set) var loading = false
-    /// The recordings' identities are being read (one file read each, over the share); the list is empty until then.
-    private(set) var reloading = false
     private(set) var status = "Open a project."
     /// Why the recordings can't be listed (withheld names or labels unreadable): nothing is labeled then.
     private(set) var blocked: String?
     private var store: NetLabelStore?
     private var loadTask: Task<Void, Never>?
-    private var reloadTask: Task<Void, Never>?
     /// Counts decode requests; a decode publishes its frame only while it is the latest.
     private var decodeSerial = 0
 
@@ -164,20 +156,18 @@ final class NetLabelsModel {
         return it
     }
 
-    /// The project's recordings, fresh from project.json and net-labels.json.
-    /// A withheld list or a labels file that can't be read blocks the tab. The
-    /// list appears once every recording's identity has been read from its file
-    /// (off the main actor: the files are on the share).
+    /// The project's recordings, fresh from project.json, the split manifest
+    /// (identities and the withheld set — no video file is read) and
+    /// net-labels.json. A manifest that is missing or not of this project, or
+    /// a labels file that can't be read, blocks the tab.
     func reload() {
         loadTask?.cancel()
-        reloadTask?.cancel()
-        reloading = false
         decodeSerial += 1
         items = []; labels = [:]; selected = nil; frame = nil; frameTime = nil; box = nil; proposal = nil; blocked = nil
         guard let projects, let project = projects.project, let dir = projects.projectDir else { status = "Open a project."; return }
-        let withheld: Set<String>
-        do { withheld = try ReservedVideos.lineageWithheldNames(in: dir) } catch {
-            blocked = "Withheld recordings unreadable: \(error.localizedDescription)"; status = blocked!; return
+        let inventory: NetInventory
+        do { inventory = try NetInventory.load(projectDir: dir) } catch {
+            blocked = "Nothing can be labeled: \(error.localizedDescription)"; status = blocked!; return
         }
         let store = NetLabelStore(projectDir: dir)
         self.store = store
@@ -185,24 +175,18 @@ final class NetLabelsModel {
         do { labels = try store.load() } catch {
             blocked = "\(store.url.lastPathComponent) unreadable: \(error.localizedDescription)"; status = blocked!; return
         }
-        let recordings = project.clips.flatMap { clip in clip.videos.map { (clip: clip, video: $0) } }
-        reloading = true
-        status = "Reading the identities of \(recordings.count) recordings…"
-        reloadTask = Task { [footage, labels] in
-            var built: [Item] = []
-            for (clip, video) in recordings {
-                let fingerprint = await footage.identity(of: video)
-                if Task.isCancelled { return }
+        items = project.clips.flatMap { clip in
+            clip.videos.map { video in
                 let id = clip.videoId(of: video)
-                built.append(Self.marked(Item(video: id, clip: clip.id, camera: clip.camera, url: URL(fileURLWithPath: video.clipFile),
-                                              fingerprint: fingerprint,
-                                              skip: NetLabels.skip(video: id, camera: clip.camera, withheld: withheld, fingerprint: fingerprint),
-                                              labeled: false, stale: false), labels: labels))
+                let fingerprint = inventory.fingerprint[id] ?? inventory.fingerprint[DatasetStore.safeName(id)]
+                return Self.marked(Item(video: id, clip: clip.id, camera: clip.camera, url: URL(fileURLWithPath: video.clipFile),
+                                        fingerprint: fingerprint,
+                                        skip: NetLabels.skip(video: id, camera: clip.camera, withheld: inventory.withheld, fingerprint: fingerprint),
+                                        labeled: false, stale: false), labels: labels)
             }
-            items = built.sorted { $0.video < $1.video }
-            reloading = false
-            status = summary
         }
+        .sorted { $0.video < $1.video }
+        status = summary
     }
 
     /// Show a recording. A skipped one is named and nothing of it is opened.

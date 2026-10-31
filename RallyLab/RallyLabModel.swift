@@ -438,8 +438,14 @@ final class RallyLabModel {
     /// a video is already loaded.
     func restoreLastSession() {
         guard videoURL == nil else { return }
-        guard let url = recentVideos.first(where: { FileManager.default.fileExists(atPath: $0.path) }) else { return }
-        loadVideo(url)
+        // The recent videos may be on the footage share: a stat there can block for the SMB
+        // timeout when the share has dropped, so it is not done on the main actor.
+        let recent = recentVideos
+        Task { [weak self] in
+            let present = await Task.detached(priority: .userInitiated) { recent.first { FileManager.default.fileExists(atPath: $0.path) } }.value
+            guard let self, let present, self.videoURL == nil else { return }
+            self.loadVideo(present)
+        }
     }
 
     private func pushRecent(_ url: URL) {
