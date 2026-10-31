@@ -130,6 +130,21 @@ final class NetLabelsTests: XCTestCase {
         XCTAssertEqual(try NetInventory.load(projectDir: dir).withheld.count, 6)
         try Data("project changed".utf8).write(to: project)
         XCTAssertThrowsError(try NetInventory.load(projectDir: dir)) { XCTAssertEqual($0 as? NetInventoryError, .stale("project.json")) }
+        try Data("project".utf8).write(to: project)
+        // A validation.json that is there but can't be read (here: a folder at its path) is not "none",
+        // even against a manifest written when there was none: the reservations are unknown.
+        let noValidation = try manifest(projectJson: try XCTUnwrap(DatasetSplitManifest.sha256(of: project)), validationJson: nil)
+        try encoder.encode(noValidation).write(to: NetInventory.manifestURL(in: dir))
+        try FileManager.default.removeItem(at: validation)
+        XCTAssertEqual(try NetInventory.load(projectDir: dir).withheld.count, 6, "no validation.json then and none now")
+        try FileManager.default.createDirectory(at: validation, withIntermediateDirectories: false)
+        func unreadable(_ error: Error) -> String? {
+            if case .unreadable(let url)? = error as? NetInventoryError { return url.path }
+            return nil
+        }
+        XCTAssertThrowsError(try NetInventory.load(projectDir: dir)) { XCTAssertEqual(unreadable($0), validation.path) }
+        try FileManager.default.removeItem(at: project)
+        XCTAssertThrowsError(try NetInventory.load(projectDir: dir)) { XCTAssertEqual(unreadable($0), project.path) }
     }
 
     func testExportPlanRefusesWithheldOtherRecordingsLabelsAndSkipsUnlabeled() {

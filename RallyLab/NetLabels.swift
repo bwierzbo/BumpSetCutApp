@@ -262,13 +262,20 @@ struct NetInventory: Equatable {
     static func manifestURL(in projectDir: URL) -> URL { projectDir.appendingPathComponent("manifests/manifest.json") }
 
     /// Read and check the project's manifest. Throws when it is missing, unreadable, or not of
-    /// the project.json and validation.json as they are now.
+    /// the project.json and validation.json as they are now. A validation.json that is there but
+    /// can't be read is not "none": the reservations are unknown then, and the tab is blocked.
     static func load(projectDir: URL) throws -> NetInventory {
         let url = manifestURL(in: projectDir)
         guard let manifest = try DatasetSplitManifest.readStrict(from: url) else { throw NetInventoryError.noManifest(url) }
+        let project = projectDir.appendingPathComponent("project.json")
+        guard let projectHash = DatasetSplitManifest.sha256(of: project) else { throw NetInventoryError.unreadable(project) }
         let validation = projectDir.appendingPathComponent("pipeline_tuning/validation.json")
-        return try inventory(manifest, projectJSONHash: DatasetSplitManifest.sha256(of: projectDir.appendingPathComponent("project.json")),
-                             validationJSONHash: FileManager.default.fileExists(atPath: validation.path) ? DatasetSplitManifest.sha256(of: validation) : nil)
+        var validationHash: String?
+        if FileManager.default.fileExists(atPath: validation.path) {
+            guard let hash = DatasetSplitManifest.sha256(of: validation) else { throw NetInventoryError.unreadable(validation) }
+            validationHash = hash
+        }
+        return try inventory(manifest, projectJSONHash: projectHash, validationJSONHash: validationHash)
     }
 
     /// The manifest's answer, if its hashes are the files' (`validationJSONHash` nil = no file, which
@@ -290,12 +297,15 @@ struct NetInventory: Equatable {
 
 enum NetInventoryError: LocalizedError, Equatable {
     case noManifest(URL)
+    case unreadable(URL)
     case stale(String)
 
     var errorDescription: String? {
         switch self {
         case .noManifest(let url):
             return "no split manifest at \(url.path) — write it with `RallyLab --project <name> --manifest`."
+        case .unreadable(let url):
+            return "\(url.path) is there but can't be read — nothing is labeled until it can be."
         case .stale(let file):
             return "the split manifest is not of this project's \(file) — write it again with `RallyLab --project <name> --manifest`."
         }
