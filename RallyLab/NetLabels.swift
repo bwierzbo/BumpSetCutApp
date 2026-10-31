@@ -111,7 +111,7 @@ struct NetLabel: Codable, Equatable {
     /// The net's four corners; nil on a label from before corners were marked (box only),
     /// which the tab lists as still to label and the export refuses.
     var corners: NetQuad?
-    /// The box started as the old net model's proposal.
+    /// The corners started as a proposal (whose: `proposalSource`).
     var proposed: Bool
     /// A person moved a corner or the whole net (false: confirmed as proposed, or drawn by hand).
     var adjusted: Bool
@@ -122,6 +122,10 @@ struct NetLabel: Codable, Equatable {
     /// The recording's file identity (ReservedVideos.effectiveFingerprint) when labeled:
     /// a video that later takes the same id does not inherit the label.
     var fingerprint: String
+    /// Where a proposed label started: `NetLabels.oldModelSource`, or a vision model and its
+    /// run (NetAIProposal.source). nil on a label drawn by hand, and on a proposed label from
+    /// before this was recorded (those were all the old model's).
+    var proposalSource: String? = nil
 }
 
 /// `<project>/net-labels.json`: video id → label. Read whole, written atomically;
@@ -148,6 +152,9 @@ struct NetLabelStore {
 
 enum NetLabels {
     enum Skip: String, Codable { case withheld, handheld, unidentified }
+
+    /// `NetLabel.proposalSource` of a label that started as the old net model's box.
+    static let oldModelSource = "old net model"
 
     /// Why a recording gets no net label, or nil when it should have one. A
     /// recording without a file identity can't carry a label that is checked
@@ -217,6 +224,8 @@ enum NetDatasetExport {
         var corners: NetQuad
         var proposed: Bool
         var adjusted: Bool
+        /// NetLabel.proposalSource: whose proposal a proposed label started from.
+        var proposalSource: String?
         var reviewedAt: Date
         var image: String
         var imageSHA256: String
@@ -305,7 +314,8 @@ enum NetDatasetExport {
             }
             entries.append(Entry(video: s.video, clip: s.clip, camera: s.camera, time: label.time,
                                  box: TrackCandidate(rect: corners.bounds, confidence: 1), corners: corners,
-                                 proposed: label.proposed, adjusted: label.adjusted, reviewedAt: label.reviewedAt,
+                                 proposed: label.proposed, adjusted: label.adjusted, proposalSource: label.proposalSource,
+                                 reviewedAt: label.reviewedAt,
                                  image: imageFile, imageSHA256: digest, width: image.width, height: image.height,
                                  fingerprint: label.fingerprint))
         }

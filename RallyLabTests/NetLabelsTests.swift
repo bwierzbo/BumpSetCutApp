@@ -15,10 +15,10 @@ import XCTest
 
 final class NetLabelsTests: XCTestCase {
 
-    private static let box = TrackCandidate(rect: CGRect(x: 0.2, y: 0.4, width: 0.6, height: 0.1), confidence: 1)
+    static let box = TrackCandidate(rect: CGRect(x: 0.2, y: 0.4, width: 0.6, height: 0.1), confidence: 1)
 
     /// A label with corners spanning `box`; `boxOnly` makes one from before corners existed.
-    private static func label(fingerprint: String = "fp-a", time: Double = 1, boxOnly: Bool = false) -> NetLabel {
+    static func label(fingerprint: String = "fp-a", time: Double = 1, boxOnly: Bool = false) -> NetLabel {
         NetLabel(time: time, box: box, corners: boxOnly ? nil : NetQuad(rect: box.rect), proposed: false, adjusted: false,
                  reviewedAt: Date(timeIntervalSince1970: 1_800_000_000), frameWidth: 1920, frameHeight: 1080, fingerprint: fingerprint)
     }
@@ -250,7 +250,7 @@ final class NetLabelsTests: XCTestCase {
 
     /// Footage that answers from a script and records every call; a frame
     /// decode waits until the test lets it through.
-    private final class ScriptedFootage: NetLabelFootage, @unchecked Sendable {
+    final class ScriptedFootage: NetLabelFootage, @unchecked Sendable {
         let lock = NSLock()
         private(set) var readableCalls: [String] = []
         private(set) var durationCalls: [String] = []
@@ -304,14 +304,14 @@ final class NetLabelsTests: XCTestCase {
         }
     }
 
-    private static func tempDir() throws -> URL {
+    static func tempDir() throws -> URL {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("netlabels-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
 
     @MainActor
-    private func item(_ video: String, skip: NetLabels.Skip? = nil, fingerprint: String? = "fp-a", in dir: URL) throws -> NetLabelsModel.Item {
+    func item(_ video: String, skip: NetLabels.Skip? = nil, fingerprint: String? = "fp-a", in dir: URL) throws -> NetLabelsModel.Item {
         // A readable file stands in for the video; the scripted footage never reads it.
         let url = dir.appendingPathComponent("\(video).mp4")
         try Data("x".utf8).write(to: url)
@@ -320,7 +320,7 @@ final class NetLabelsTests: XCTestCase {
     }
 
     @MainActor
-    private func settle() async {
+    func settle() async {
         for _ in 0..<50 { await Task.yield() }
     }
 

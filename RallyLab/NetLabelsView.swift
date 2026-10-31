@@ -5,7 +5,8 @@
 //  The Net labels tab: the project's recordings on the left, the chosen frame
 //  on the right with the net's four corners to place: drag a corner, drag the
 //  whole net, or draw a new box outside it. Return confirms and moves to the
-//  next recording to label.
+//  next recording to label. A vision model's proposal (sparkles in the list)
+//  is placed as the corners to check; Reject turns it down.
 //
 
 import SwiftUI
@@ -43,12 +44,14 @@ struct NetLabelsView: View {
             Toggle("Hide skipped", isOn: $hideSkipped).toggleStyle(.checkbox).font(.caption).padding(.horizontal, 10)
             List(selection: Binding(get: { model.selected }, set: { if let v = $0 { model.select(v) } })) {
                 ForEach(model.items.filter { !hideSkipped || $0.skip == nil }) { item in
+                    let ai = model.offeredAI(item)
                     HStack(spacing: 6) {
-                        Image(systemName: item.labeled ? "checkmark.circle.fill" : item.stale ? "exclamationmark.triangle" : item.boxOnly ? "square.dashed" : item.skip == nil ? "circle" : "minus.circle")
-                            .foregroundStyle(item.labeled ? .green : item.stale ? .red : item.boxOnly ? .yellow : item.skip == nil ? .secondary : .orange)
+                        Image(systemName: item.labeled ? "checkmark.circle.fill" : item.stale ? "exclamationmark.triangle" : item.boxOnly ? "square.dashed" : ai != nil ? "sparkles" : item.skip == nil ? "circle" : "minus.circle")
+                            .foregroundStyle(item.labeled ? .green : item.stale ? .red : item.boxOnly ? .yellow : ai != nil ? .purple : item.skip == nil ? .secondary : .orange)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(item.video).font(.system(.body, design: .monospaced)).lineLimit(1)
-                            Text(item.skip.map { "skipped: \($0.rawValue)" } ?? (item.stale ? "label on file is another recording's" : item.boxOnly ? "box only — mark the corners" : item.camera))
+                            Text(item.skip.map { "skipped: \($0.rawValue)" } ?? (item.stale ? "label on file is another recording's" : item.boxOnly ? "box only — mark the corners"
+                                 : ai.map { $0.outcome == .proposed ? "\($0.model) proposal (\($0.confidence?.rawValue ?? "unrated")) to review" : "\($0.model): needs manual review" } ?? item.camera))
                                 .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                         }
                     }
@@ -109,7 +112,11 @@ struct NetLabelsView: View {
                 Text("\(model.prefetched.count) ready").font(.caption2).foregroundStyle(.secondary)
             }
             Divider().frame(height: 18)
-            Button("Use proposal") { model.useProposal() }.disabled(model.proposal == nil)
+            Button("Use proposal") { model.useProposal() }.disabled(!model.canUseProposal)
+            if model.shownAI != nil {
+                Button("Reject proposal") { model.rejectAIProposal() }
+                    .help("Turn the vision model's proposal down; it is not offered again and the old model's box is proposed instead")
+            }
             Button("Clear") { model.clearBox() }.disabled(model.quad == nil)
             Spacer()
             if let item = model.selectedItem, let skip = item.skip {
@@ -130,7 +137,7 @@ struct NetLabelsView: View {
         Group {
             if let q = model.quad {
                 Text(String(format: "tape y L %.3f R %.3f · x %.3f–%.3f", q.topLeft.y, q.topRight.y, q.bounds.minX, q.bounds.maxX)
-                     + (model.proposed && !model.adjusted ? " · proposal" : model.adjusted ? " · adjusted" : ""))
+                     + (model.proposed && !model.adjusted ? (model.shownAI.map { " · \($0.model) proposal" } ?? " · proposal") : model.adjusted ? " · adjusted" : ""))
                     .font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
             }
         }
