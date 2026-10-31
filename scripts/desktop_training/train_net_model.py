@@ -5,12 +5,15 @@ code, weights or licence anywhere in it (decision of 2026-10-30,
 docs/decisions/2026-10-30-net-model-direction.md).
 
 The model sees one upright RGB frame, letterboxed to 384×216, and answers
-five numbers: is a net there (0–1) and its box — centre x, centre y, width,
-height, each a fraction of the frame, y downwards. The pipeline reads three
-things off that box: its top edge (the above-net gate, no margin) and its
-left and right edges (the off-court gate, ±0.05 of the frame width), so the
-numbers that matter are the top-edge error in frame heights and the side
-errors in frame widths, not a mAP.
+nine numbers: is a net there (0–1) and the net's four corners — top-left,
+top-right, bottom-right, bottom-left, each as x, y fractions of the frame,
+y downwards (owner, 2026-10-31: the label is the four corners, since a
+perspective net is a quadrilateral). The box a consumer reads is the
+rectangle that just contains the corners. The pipeline reads three things
+off that box: its top edge (the above-net gate, no margin) and its left and
+right edges (the off-court gate, ±0.05 of the frame width), so the numbers
+that matter are the top corners' error in frame heights, the side errors in
+frame widths and the corner error, not a mAP.
 
 Data:
     python train_net_model.py <RallyLab net dataset> --manifest <manifests/manifest.json>
@@ -19,7 +22,10 @@ Data:
     python train_net_model.py <dataset> --manifest <m> --score-only <best.pt> --name <run>
 
   <RallyLab net dataset>  a folder written by `RallyLab --project P --export-net-dataset`:
-      images/<video>.jpg, labels/<video>.txt (YOLO, class 0 = net), net-dataset.json.
+      images/<video>.jpg, labels/<video>.txt (YOLO, class 0 = net: the corners'
+      bounding box), net-dataset.json (every entry's four `corners`, Vision-
+      normalised bottom-up, which are the label; an entry without them stops
+      the run, and so does a YOLO box that is not the corners' bounds).
       Every entry is checked against the split manifest before it is used: the
       recording must be in the manifest, not withheld (lineage or legacy holdout,
       final test or candidate, or reserved as an alias of one), and the entry's
@@ -33,7 +39,9 @@ Data:
       folder must carry a provenance.json (`source`, `license`, `obtained`,
       `note`), recorded in metrics.json; without it the folder is refused.
       Extra images have no recording identity, so they only ever train: the
-      validation set is our own recordings, split by recording group.
+      validation set is our own recordings, split by recording group. They have
+      boxes, not corners, so they supervise only the box the predicted corners
+      span, never the corners themselves.
 
 Validation: whole recording groups (videos of one clip card, alias group,
 confirmed session or venue, or uploader, from the manifest, as
@@ -43,10 +51,12 @@ written to runs/net/<name>/split.json; pass that file as --split to another
 run to validate on the same frames (and to compare two runs fairly).
 
 Scores on the val frames: detect rate at 0.5; over the detected ones the
-absolute top-edge error (median, mean, 90th percentile, in frame heights),
-the left/right edge errors (frame widths), IoU; by surface and by group;
-and a 90% range of the median top error from resampling whole groups. The
-checkpoint kept is the one with the lowest mean top-edge error counting an
+top error (the two top corners' vertical error, mean of the two, in frame
+heights: median, mean, 90th percentile), the left/right edge errors of the
+corners' box (frame widths), the corner error (mean distance of the four
+corners, frame fractions), IoU of the boxes; by surface and by group; and
+a 90% range of the median top error from resampling whole groups. The
+checkpoint kept is the one with the lowest mean top error counting an
 undetected net as an error of 1 (a miss is worse than any mislocation).
 
 Results:
@@ -54,9 +64,11 @@ Results:
     bring_back/<name>/ the same  ← copy this folder back; net_to_coreml.py converts it
 
 The ONNX/Core ML model takes "frame" [1, 3, 216, 384] RGB 0–1 (letterboxed:
-scaled to fit, centred, grey borders) and gives "net" [1, 5]: presence,
-cx, cy, w, h in the letterboxed frame (all 0–1, y downwards). The caller
-maps the box back through the same letterbox (`letterbox_back`).
+scaled to fit, centred, grey borders) and gives "net" [1, 9]: presence, then
+x, y of the top-left, top-right, bottom-right and bottom-left corners in the
+letterboxed frame (all 0–1, y downwards). The caller maps the corners back
+through the same letterbox (`letterbox_corners_back`) and takes their
+bounds (`corners_box`) where it needs a box.
 
 Needs: torch (CUDA on the desktop; CPU works for the tests), opencv-python,
 numpy, onnx. No other package.
@@ -113,14 +125,51 @@ def sha256_file(path: Path) -> str:
 # Samples and labels
 
 
+CORNER_NAMES = ("topLeft", "topRight", "bottomRight", "bottomLeft")
+BOX_TOLERANCE = 1e-4
+
+
 @dataclass
 class Sample:
     image: Path
-    video: str            # the recording (or the extra image's stem)
-    group: str            # recording group; "extra:<folder>" for an extra image
-    surface: str          # beach / grass / indoor / extra
-    source: str           # "rallylab" or the extra folder's name
-    box: Optional[tuple]  # (cx, cy, w, h), fractions of the frame, y down; None = no net
+    video: str                # the recording (or the extra image's stem)
+    group: str                # recording group; "extra:<folder>" for an extra image
+    surface: str              # beach / grass / indoor / extra
+    source: str               # "rallylab" or the extra folder's name
+    box: Optional[tuple]      # (cx, cy, w, h), fractions of the frame, y down; None = no net
+    corners: Optional[tuple] = None   # ((x, y) × 4: TL, TR, BR, BL), frame fractions, y down; None = box only (extra)
+
+
+def rect_corners(box: tuple) -> tuple:
+    """A box's corners in label order (top-left, top-right, bottom-right, bottom-left), y down."""
+    l, t, r, b = edges(box)
+    return ((l, t), (r, t), (r, b), (l, b))
+
+
+def corners_box(corners: tuple) -> tuple:
+    """The (cx, cy, w, h) box that just contains four corners."""
+    xs, ys = [p[0] for p in corners], [p[1] for p in corners]
+    l, r, t, b = min(xs), max(xs), min(ys), max(ys)
+    return ((l + r) / 2, (t + b) / 2, r - l, b - t)
+
+
+def read_corners(entry: dict, video: str) -> tuple:
+    """The export's four corners, Vision-normalised (bottom-up) by name, as y-down frame fractions."""
+    raw = entry.get("corners")
+    if not isinstance(raw, dict) or any(k not in raw for k in CORNER_NAMES):
+        fail(f"{video}: no corners in net-dataset.json — a box-only label from before corners were marked; "
+             "mark the corners in the Net labels tab and export again")
+    out = []
+    for k in CORNER_NAMES:
+        p = raw[k]
+        try:
+            x, y = float(p["x"]), float(p["y"])
+        except (KeyError, TypeError, ValueError):
+            fail(f"{video}: corner {k} is not an x, y point: {p!r}")
+        if not (0 <= x <= 1 and 0 <= y <= 1):
+            fail(f"{video}: corner {k} is outside the frame: {p!r}")
+        out.append((x, 1 - y))
+    return tuple(out)
 
 
 def parse_yolo(text: str, net_index: int) -> tuple[Optional[tuple], int]:
@@ -197,9 +246,12 @@ def read_rallylab_export(root: Path, manifest_rows: dict[str, dict]) -> tuple[li
             fail(f"{label}: {e}")
         if box is None:
             fail(f"{video}: the label file has no net line — an exported recording always has a net box")
+        corners = read_corners(entry, video)
+        if max(abs(a - b) for a, b in zip(box, corners_box(corners))) > BOX_TOLERANCE:
+            fail(f"{video}: the YOLO box {box} is not the corners' bounds {corners_box(corners)} — the export is inconsistent")
         multi += count > 1
         samples.append(Sample(image=image, video=video, group=video, surface=surface_of(video, row),
-                              source="rallylab", box=box))
+                              source="rallylab", box=box, corners=corners))
     info = {"folder": str(root), "project": record.get("project"), "createdAt": record.get("createdAt"),
             "entries": len(samples), "skipped_by_export": len(record.get("skipped", [])), "multi_net_images": multi,
             "record_sha256": sha256_file(record_path)}
@@ -329,7 +381,7 @@ def dataset_digest(samples: list[Sample]) -> str:
     """SHA-256 over every sample's image bytes and box, in a fixed order."""
     h = hashlib.sha256()
     for s in sorted(samples, key=lambda s: (s.source, s.video)):
-        h.update(f"{s.source}\t{s.video}\t{s.box}\n".encode())
+        h.update(f"{s.source}\t{s.video}\t{s.box}\t{s.corners}\n".encode())
         h.update(bytes.fromhex(sha256_file(s.image)))
     return h.hexdigest()
 
@@ -370,6 +422,27 @@ def letterbox_back(box: tuple, w: int, h: int) -> tuple:
     return ((cx * WIDTH - ox) / (w * scale), (cy * HEIGHT - oy) / (h * scale), bw * WIDTH / (w * scale), bh * HEIGHT / (h * scale))
 
 
+def letterbox_corners(corners: tuple, w: int, h: int) -> tuple:
+    """Frame-fraction points as fractions of the letterboxed canvas."""
+    scale, ox, oy = letterbox_params(w, h)
+    return tuple(((x * w * scale + ox) / WIDTH, (y * h * scale + oy) / HEIGHT) for x, y in corners)
+
+
+def letterbox_corners_back(corners: tuple, w: int, h: int) -> tuple:
+    """The inverse: canvas-fraction points back to fractions of the w×h frame."""
+    scale, ox, oy = letterbox_params(w, h)
+    return tuple(((x * WIDTH - ox) / (w * scale), (y * HEIGHT - oy) / (h * scale)) for x, y in corners)
+
+
+def flat(corners: tuple) -> tuple:
+    return tuple(v for p in corners for v in p)
+
+
+def unflat(values) -> tuple:
+    v = [float(x) for x in values]
+    return tuple((v[i], v[i + 1]) for i in range(0, 8, 2))
+
+
 def edges(box: tuple) -> tuple[float, float, float, float]:
     """(left, top, right, bottom) of a (cx, cy, w, h) box."""
     cx, cy, w, h = box
@@ -391,16 +464,20 @@ def iou(a: tuple, b: tuple) -> float:
 
 def summarize(rows: list[dict], rng_seed: int = DRAW_SEED, draws: int = DRAWS) -> dict:
     """`rows`: one per val sample with keys video, group, surface, has_net, presence,
-    pred (canvas box or None), truth (canvas box or None), w, h (frame size)."""
+    pred (canvas corners, 4 × (x, y), or None), truth (the same or None), w, h (frame size)."""
     positives = [r for r in rows if r["has_net"]]
     negatives = [r for r in rows if not r["has_net"]]
     detected = [r for r in positives if r["presence"] >= PRESENCE_THRESHOLD]
 
     def errors(r: dict) -> dict:
-        p, t = letterbox_back(r["pred"], r["w"], r["h"]), letterbox_back(r["truth"], r["w"], r["h"])
-        pl, pt, pr, _ = edges(p)
-        tl, tt, tr, _ = edges(t)
-        return {"top": abs(pt - tt), "left": abs(pl - tl), "right": abs(pr - tr), "iou": iou(p, t)}
+        p, t = letterbox_corners_back(r["pred"], r["w"], r["h"]), letterbox_corners_back(r["truth"], r["w"], r["h"])
+        pb, tb = corners_box(p), corners_box(t)
+        pl, _, pr, _ = edges(pb)
+        tl, _, tr, _ = edges(tb)
+        # The top error is the two tape ends' vertical error (what the above-net gate reads along the tape).
+        top = (abs(p[0][1] - t[0][1]) + abs(p[1][1] - t[1][1])) / 2
+        corner = float(np.mean([((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5 for a, b in zip(p, t)]))
+        return {"top": top, "left": abs(pl - tl), "right": abs(pr - tr), "corner": corner, "iou": iou(pb, tb)}
 
     errs = [errors(r) for r in detected]
 
@@ -415,7 +492,7 @@ def summarize(rows: list[dict], rng_seed: int = DRAW_SEED, draws: int = DRAWS) -
         with_misses = ([e["top"] for e in det_errs] + [1.0] * misses)
         return {"frames": len(pos), "detected": len(det), "detect_rate": (len(det) / len(pos)) if pos else None,
                 "top_error": stats([e["top"] for e in det_errs]), "left_error": stats([e["left"] for e in det_errs]),
-                "right_error": stats([e["right"] for e in det_errs]),
+                "right_error": stats([e["right"] for e in det_errs]), "corner_error": stats([e["corner"] for e in det_errs]),
                 "iou_mean": float(np.mean([e["iou"] for e in det_errs])) if det_errs else None,
                 "iou_at_50": (sum(e["iou"] >= 0.5 for e in det_errs) / len(det_errs)) if det_errs else None,
                 "top_error_mean_with_misses": float(np.mean(with_misses)) if with_misses else None}
@@ -459,6 +536,7 @@ def describe(m: dict) -> str:
     return (f"detect {m['detect_rate']:.1%} ({m['detected']}/{m['frames']})  "
             + (f"top err median {t['median']:.4f} mean {t['mean']:.4f} p90 {t['p90']:.4f} H  " if t["median"] is not None else "top err —  ")
             + (f"sides median L {m['left_error']['median']:.4f} R {m['right_error']['median']:.4f} W  " if m["left_error"]["median"] is not None else "")
+            + (f"corners median {m['corner_error']['median']:.4f}  " if m["corner_error"]["median"] is not None else "")
             + (f"IoU {m['iou_mean']:.3f}  " if m["iou_mean"] is not None else "")
             + (f"[90% median {rng['low']:.4f}–{rng['high']:.4f} over {rng['groups']} groups]  " if rng else "")
             + (f"no-net right {m['no_net_correct']:.1%}  " if m["no_net_correct"] is not None else "")
@@ -480,9 +558,9 @@ def torch_modules():
 
 def build_model():
     """A small CNN from scratch: 6 stride-2 blocks over the letterboxed frame with two
-    coordinate channels (where in the frame each pixel is — a box regressor needs
-    position), then the 4×6 map flattened into the five outputs (logits; sigmoid
-    makes them presence, cx, cy, w, h)."""
+    coordinate channels (where in the frame each pixel is — a corner regressor needs
+    position), then the 4×6 map flattened into the nine outputs (logits; sigmoid
+    makes them presence and the four corners' x, y)."""
     torch, nn = torch_modules()
 
     class NetBoxNet(nn.Module):
@@ -494,7 +572,7 @@ def build_model():
                 layers += [nn.Conv2d(cin, cout, 3, stride=2, padding=1, bias=False), nn.BatchNorm2d(cout), nn.ReLU(inplace=True),
                            nn.Conv2d(cout, cout, 3, padding=1, bias=False), nn.BatchNorm2d(cout), nn.ReLU(inplace=True)]
             self.features = nn.Sequential(*layers)
-            self.head = nn.Sequential(nn.Flatten(), nn.Linear(160 * 4 * 6, 256), nn.ReLU(inplace=True), nn.Dropout(0.2), nn.Linear(256, 5))
+            self.head = nn.Sequential(nn.Flatten(), nn.Linear(160 * 4 * 6, 256), nn.ReLU(inplace=True), nn.Dropout(0.2), nn.Linear(256, 9))
             ys = torch.linspace(-1, 1, HEIGHT).view(1, 1, HEIGHT, 1).expand(1, 1, HEIGHT, WIDTH)
             xs = torch.linspace(-1, 1, WIDTH).view(1, 1, 1, WIDTH).expand(1, 1, HEIGHT, WIDTH)
             self.register_buffer("coords", torch.cat([xs, ys], dim=1))
@@ -504,7 +582,7 @@ def build_model():
             return self.head(self.features(x))
 
     class Deploy(nn.Module):
-        """What is exported: sigmoid on all five, so the consumer reads presence and the box directly."""
+        """What is exported: sigmoid on all nine, so the consumer reads presence and the corners directly."""
         def __init__(self, net):
             super().__init__()
             self.net = net
@@ -517,8 +595,10 @@ def build_model():
 
 class Frames:
     """A torch Dataset over samples: letterboxed RGB 0–1 tensors and targets
-    (presence, cx, cy, w, h in canvas fractions). Training augments: a flip,
-    a crop that keeps the box whole, brightness and contrast, a little noise —
+    (presence; the four corners' x, y in canvas fractions; whether the corners
+    are known — an extra image has only a box, whose corners stand in so the
+    box the prediction spans can be supervised). Training augments: a flip,
+    a crop that keeps the net whole, brightness and contrast, a little noise —
     drawn from (seed, epoch, index), so a frame gets a fresh augmentation every
     epoch and the same one when the run is repeated. The training loop sets
     `epoch` before each pass; the loader's workers are not persistent, so they
@@ -539,70 +619,87 @@ class Frames:
         if img is None:
             raise RuntimeError(f"{s.image}: cannot be read")
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        box = s.box
+        corners = s.corners if s.corners is not None else (rect_corners(s.box) if s.box is not None else None)
+        known = s.corners is not None
         size = torch.tensor(img.shape[1::-1])   # (w, h) of the frame as read
         if self.train:
             rng = random.Random(f"{self.seed}/{self.epoch}/{i}")
-            img, box = augment(img, box, rng)
+            img, corners = augment(img, corners, rng)
         h, w = img.shape[:2]
         canvas, _ = letterbox_image(img)
-        target = np.zeros(5, dtype=np.float32)
-        if box is not None:
+        target = np.zeros(10, dtype=np.float32)
+        if corners is not None:
             target[0] = 1.0
-            target[1:] = letterbox_box(box, w, h)
+            target[1:9] = flat(letterbox_corners(corners, w, h))
+            target[9] = 1.0 if known else 0.0
         x = torch.from_numpy(np.ascontiguousarray(canvas.transpose(2, 0, 1))).float() / 255.0
         return x, torch.from_numpy(target), i, size
 
 
-def augment(img: np.ndarray, box: Optional[tuple], rng: random.Random) -> tuple[np.ndarray, Optional[tuple]]:
+def augment(img: np.ndarray, corners: Optional[tuple], rng: random.Random) -> tuple[np.ndarray, Optional[tuple]]:
     h, w = img.shape[:2]
     if rng.random() < 0.5:
         img = img[:, ::-1]
-        if box is not None:
-            box = (1 - box[0], box[1], box[2], box[3])
-    # A crop of 80–100% that keeps the whole box (no crop when the box doesn't fit).
+        if corners is not None:
+            # Mirrored: the left corners become the right ones and vice versa.
+            tl, tr, br, bl = ((1 - x, y) for x, y in corners)
+            corners = (tr, tl, bl, br)
+    # A crop of 80–100% that keeps the whole net (no crop when it doesn't fit).
     frac = rng.uniform(0.8, 1.0)
     cw, ch = int(w * frac), int(h * frac)
     if cw < w or ch < h:
-        if box is None:
+        if corners is None:
             x0, y0 = rng.randint(0, w - cw), rng.randint(0, h - ch)
         else:
-            l, t, r, b = edges(box)
-            lo_x, hi_x = max(0, int(r * w) - cw), min(w - cw, int(l * w))
-            lo_y, hi_y = max(0, int(b * h) - ch), min(h - ch, int(t * h))
+            # The crop starts no later than the net's left edge and ends no earlier than its
+            # right one (whole pixels, rounded outwards), so every corner stays inside it.
+            l, t, r, b = edges(corners_box(corners))
+            lo_x, hi_x = max(0, int(np.ceil(r * w)) - cw), min(w - cw, int(np.floor(l * w)))
+            lo_y, hi_y = max(0, int(np.ceil(b * h)) - ch), min(h - ch, int(np.floor(t * h)))
             if lo_x > hi_x or lo_y > hi_y:
                 cw, ch, x0, y0 = w, h, 0, 0
             else:
                 x0, y0 = rng.randint(lo_x, hi_x), rng.randint(lo_y, hi_y)
         if (cw, ch) != (w, h):
             img = img[y0:y0 + ch, x0:x0 + cw]
-            if box is not None:
-                cx, cy, bw, bh = box
-                box = ((cx * w - x0) / cw, (cy * h - y0) / ch, bw * w / cw, bh * h / ch)
+            if corners is not None:
+                corners = tuple(((x * w - x0) / cw, (y * h - y0) / ch) for x, y in corners)
     img = np.ascontiguousarray(img).astype(np.float32)
     img = (img - 128) * rng.uniform(0.8, 1.2) + 128 + rng.uniform(-30, 30)
     if rng.random() < 0.3:
         img += np.random.default_rng(rng.getrandbits(32)).normal(0, 4, img.shape).astype(np.float32)
-    return np.clip(img, 0, 255).astype(np.uint8), box
+    return np.clip(img, 0, 255).astype(np.uint8), corners
+
+
+def box_of(corners):
+    """Edges (left, top, right, bottom) of the box that spans a [N, 4, 2] tensor of corners."""
+    xs, ys = corners[..., 0], corners[..., 1]
+    return xs.min(dim=1).values, ys.min(dim=1).values, xs.max(dim=1).values, ys.max(dim=1).values
 
 
 def loss_fn(logits, target):
-    """Presence: BCE on every frame. Box: on frames with a net, L1 on the four numbers
-    plus the top edge twice and the two sides once more — the edges the gates read."""
+    """Presence: BCE on every frame. On frames with a net: L1 on the four corners where
+    they are known (our labels; the top corners' y counted twice, the tape being what
+    the above-net gate reads), and on every frame with a net the box the predicted
+    corners span against the label's box — its top edge twice, the two sides once —
+    which is all an extra image's box can teach."""
     torch, nn = torch_modules()
     presence = nn.functional.binary_cross_entropy_with_logits(logits[:, 0], target[:, 0])
     has = target[:, 0] > 0.5
     if not has.any():
         return presence, presence.detach(), torch.zeros((), device=logits.device)
-    p = torch.sigmoid(logits[has, 1:])
-    t = target[has, 1:]
-    box = nn.functional.l1_loss(p, t)
-    p_top, t_top = p[:, 1] - p[:, 3] / 2, t[:, 1] - t[:, 3] / 2
-    p_l, t_l = p[:, 0] - p[:, 2] / 2, t[:, 0] - t[:, 2] / 2
-    p_r, t_r = p[:, 0] + p[:, 2] / 2, t[:, 0] + t[:, 2] / 2
-    edge = 2 * (p_top - t_top).abs().mean() + (p_l - t_l).abs().mean() + (p_r - t_r).abs().mean()
-    total = presence + 5 * (box + edge)
-    return total, presence.detach(), (box + edge).detach()
+    p = torch.sigmoid(logits[has, 1:9]).view(-1, 4, 2)
+    t = target[has, 1:9].view(-1, 4, 2)
+    known = target[has, 9] > 0.5
+    corner = torch.zeros((), device=logits.device)
+    if known.any():
+        pk, tk = p[known], t[known]
+        corner = (pk - tk).abs().mean() + (pk[:, :2, 1] - tk[:, :2, 1]).abs().mean()
+    pl, pt, pr, pb = box_of(p)
+    tl, tt, tr, tb = box_of(t)
+    box = ((pl - tl).abs() + 2 * (pt - tt).abs() + (pr - tr).abs() + (pb - tb).abs()).mean()
+    total = presence + 5 * (corner + box)
+    return total, presence.detach(), (corner + box).detach()
 
 
 def evaluate(model, samples: list[Sample], device, batch: int, workers: int) -> dict:
@@ -618,11 +715,15 @@ def evaluate(model, samples: list[Sample], device, batch: int, workers: int) -> 
             for o, t, i, (w, h) in zip(out, target.numpy(), idx.numpy(), size.numpy().tolist()):
                 s = samples[int(i)]
                 rows.append({"video": s.video, "group": s.group, "surface": s.surface, "has_net": bool(t[0] > 0.5),
-                             "presence": float(o[0]), "pred": tuple(float(v) for v in o[1:]),
-                             "truth": tuple(float(v) for v in t[1:]) if t[0] > 0.5 else None, "w": w, "h": h})
+                             "presence": float(o[0]), "pred": unflat(o[1:9]),
+                             "truth": unflat(t[1:9]) if t[0] > 0.5 else None, "w": w, "h": h})
     m = summarize(rows)
-    m["per_frame"] = [{"video": r["video"], "presence": round(r["presence"], 4),
-                       "top": (round(edges(letterbox_back(r["pred"], r["w"], r["h"]))[1], 4))} for r in rows]
+
+    def tape(r: dict) -> list[float]:
+        back = letterbox_corners_back(r["pred"], r["w"], r["h"])
+        return [round(back[0][1], 4), round(back[1][1], 4)]
+
+    m["per_frame"] = [{"video": r["video"], "presence": round(r["presence"], 4), "top": tape(r)} for r in rows]
     return m
 
 

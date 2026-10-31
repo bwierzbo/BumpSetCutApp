@@ -7,10 +7,11 @@ Runs on the Mac, in the same .venv as heatmap_to_coreml.py.
 
 Input "frame": an RGB image of 384×216, the frame letterboxed (scaled to fit,
 centred, grey 114 borders) — pixels 0–255, scaled to 0–1 inside the model.
-Output "net": [1, 5] — presence (0–1), then the box's centre x, centre y,
-width and height as fractions of the letterboxed image, y downwards. The
-caller maps the box back through the same letterbox (train_net_model.py
-`letterbox_back`). FP16, as Apple's Neural Engine runs it.
+Output "net": [1, 9] — presence (0–1), then x, y of the net's top-left,
+top-right, bottom-right and bottom-left corners as fractions of the
+letterboxed image, y downwards. The caller maps the corners back through
+the same letterbox (train_net_model.py `letterbox_corners_back`) and takes
+their bounds where it needs a box. FP16, as Apple's Neural Engine runs it.
 
 The trainer's metrics.json beside best.pt (scores, data digests, code SHA)
 is kept in the model's metadata. The conversion is checked against the
@@ -58,18 +59,18 @@ def convert(checkpoint: Path, out: Path) -> float:
     )
     best = metrics.get("best") or metrics.get("scored") or {}
     mlmodel.author = "BumpSetCut — train_net_model.py (from scratch, no third-party weights)"
-    mlmodel.short_description = ("Net detector: presence and box (cx, cy, w, h; fractions of the 384×216 letterboxed frame, y down) "
-                                 "from one upright RGB frame.")
+    mlmodel.short_description = ("Net detector: presence and the net's four corners (top-left, top-right, bottom-right, bottom-left; "
+                                 "x, y fractions of the 384×216 letterboxed frame, y down) from one upright RGB frame.")
     mlmodel.version = f"epoch {saved.get('epoch')}"
     mlmodel.user_defined_metadata["trainer"] = "train_net_model.py"
     mlmodel.user_defined_metadata["letterbox"] = f"fit in {t.WIDTH}x{t.HEIGHT}, centred, pad {t.PAD_GREY}"
-    mlmodel.user_defined_metadata["output"] = "net[1,5]: presence, cx, cy, w, h"
+    mlmodel.user_defined_metadata["output"] = "net[1,9]: presence, then x, y of top-left, top-right, bottom-right, bottom-left"
     for key in ("code_sha", "val_digest", "train_digest", "manifest_sha256", "seed", "best_epoch", "best_sha256"):
         if metrics.get(key) is not None:
             mlmodel.user_defined_metadata[key] = str(metrics[key])
     if best:
         mlmodel.user_defined_metadata["val"] = json.dumps({k: best.get(k) for k in ("frames", "detect_rate", "top_error", "left_error",
-                                                                                 "right_error", "iou_mean", "top_median_range90")})
+                                                                                 "right_error", "corner_error", "iou_mean", "top_median_range90")})
     # Check against PyTorch on a random frame before anything is written.
     from PIL import Image
     pixels = (np.random.default_rng(0).random((t.HEIGHT, t.WIDTH, 3)) * 255).astype(np.uint8)
