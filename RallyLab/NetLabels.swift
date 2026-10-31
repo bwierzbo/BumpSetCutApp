@@ -271,18 +271,26 @@ struct NetInventory: Equatable {
         guard let projectHash = DatasetSplitManifest.sha256(of: project) else { throw NetInventoryError.unreadable(project) }
         let validation = projectDir.appendingPathComponent("pipeline_tuning/validation.json")
         var validationHash: String?
+        var listed = Set<String>()
         if FileManager.default.fileExists(atPath: validation.path) {
-            guard let hash = DatasetSplitManifest.sha256(of: validation) else { throw NetInventoryError.unreadable(validation) }
+            guard let hash = DatasetSplitManifest.sha256(of: validation),
+                  let set = try? PipelineTuner.ValidationSet.loadStrict(from: projectDir) else { throw NetInventoryError.unreadable(validation) }
             validationHash = hash
+            listed = set.reservedAsListed.union(set.holdout)
         }
-        return try inventory(manifest, projectJSONHash: projectHash, validationJSONHash: validationHash)
+        return try inventory(manifest, projectJSONHash: projectHash, validationJSONHash: validationHash, listed: listed)
     }
 
     /// The manifest's answer, if its hashes are the files' (`validationJSONHash` nil = no file, which
-    /// matches a manifest written when there was none).
-    static func inventory(_ manifest: DatasetSplitManifest, projectJSONHash: String?, validationJSONHash: String?) throws -> NetInventory {
+    /// matches a manifest written when there was none). `listed` is every name validation.json
+    /// withholds (final test, candidates, lineage holdout, legacy holdout): each must have a manifest
+    /// row, because a listed recording without a dataset session has no row and nothing would seed
+    /// its alias group — the manifest cannot vouch for its aliases, so the tab is blocked.
+    static func inventory(_ manifest: DatasetSplitManifest, projectJSONHash: String?, validationJSONHash: String?, listed: Set<String>) throws -> NetInventory {
         guard let projectJSONHash, manifest.hashes.projectJson == projectJSONHash else { throw NetInventoryError.stale("project.json") }
         guard manifest.hashes.validationJson == validationJSONHash else { throw NetInventoryError.stale("pipeline_tuning/validation.json") }
+        let rows = Set(manifest.videos.map(\.video))
+        if let missing = listed.subtracting(rows).sorted().first { throw NetInventoryError.noRow(missing) }
         let direct = manifest.videos.filter { withheldSplits.contains($0.split) || $0.reservedAs != nil }
         let groups = Set(direct.compactMap(\.aliasGroup))
         var withheld = Set(direct.map(\.video))
@@ -299,6 +307,8 @@ enum NetInventoryError: LocalizedError, Equatable {
     case noManifest(URL)
     case unreadable(URL)
     case stale(String)
+    /// A name validation.json withholds that has no manifest row (no dataset session).
+    case noRow(String)
 
     var errorDescription: String? {
         switch self {
@@ -308,6 +318,8 @@ enum NetInventoryError: LocalizedError, Equatable {
             return "\(url.path) is there but can't be read — nothing is labeled until it can be."
         case .stale(let file):
             return "the split manifest is not of this project's \(file) — write it again with `RallyLab --project <name> --manifest`."
+        case .noRow(let name):
+            return "validation.json withholds \(name), which has no row in the split manifest (no dataset session), so the manifest can't vouch for its aliases — give it a session and write the manifest again, or take it out of validation.json."
         }
     }
 }

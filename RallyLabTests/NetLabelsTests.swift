@@ -96,21 +96,27 @@ final class NetLabelsTests: XCTestCase {
             return try decoder.decode(DatasetSplitManifest.self, from: Data(json.utf8))
         }
         let m = try manifest(projectJson: "p1", validationJson: "v1")
-        let inventory = try NetInventory.inventory(m, projectJSONHash: "p1", validationJSONHash: "v1")
+        let listed: Set<String> = ["w_listed", "w_legacy", "w_final", "w_candidate"]
+        let inventory = try NetInventory.inventory(m, projectJSONHash: "p1", validationJSONHash: "v1", listed: listed)
         XCTAssertEqual(inventory.withheld, ["w_listed", "w_alias", "w_legacy", "legacy_alias", "w_final", "w_candidate"],
                        "the legacy holdout's unlisted alias is withheld through its alias group, as lineageWithheldNames withholds it")
         XCTAssertEqual(inventory.fingerprint, ["ok": "fp-ok", "tuned": "fp-tuned", "w_listed": "fp-w_listed", "w_alias": "fp-w_alias",
                                                "w_legacy": "fp-w_legacy", "legacy_alias": "fp-legacy_alias", "w_final": "fp-w_final",
                                                "w_candidate": "fp-w_candidate"])
         XCTAssertNil(inventory.fingerprint["nofp"], "no fingerprint on record: unidentified")
-        XCTAssertThrowsError(try NetInventory.inventory(m, projectJSONHash: "p2", validationJSONHash: "v1")) {
+        XCTAssertThrowsError(try NetInventory.inventory(m, projectJSONHash: "p2", validationJSONHash: "v1", listed: listed)) {
             XCTAssertEqual($0 as? NetInventoryError, .stale("project.json"))
         }
-        XCTAssertThrowsError(try NetInventory.inventory(m, projectJSONHash: "p1", validationJSONHash: "v2")) {
+        XCTAssertThrowsError(try NetInventory.inventory(m, projectJSONHash: "p1", validationJSONHash: "v2", listed: listed)) {
             XCTAssertEqual($0 as? NetInventoryError, .stale("pipeline_tuning/validation.json"))
         }
-        XCTAssertThrowsError(try NetInventory.inventory(m, projectJSONHash: nil, validationJSONHash: "v1"))
-        XCTAssertEqual(try NetInventory.inventory(try manifest(projectJson: "p1", validationJson: nil), projectJSONHash: "p1", validationJSONHash: nil).withheld.count, 6,
+        XCTAssertThrowsError(try NetInventory.inventory(m, projectJSONHash: nil, validationJSONHash: "v1", listed: listed))
+        // A withheld name with no manifest row (a legacy holdout without a dataset session): nothing
+        // could seed its alias group, so the tab is blocked rather than labeling its aliases.
+        XCTAssertThrowsError(try NetInventory.inventory(m, projectJSONHash: "p1", validationJSONHash: "v1", listed: listed.union(["ghost"]))) {
+            XCTAssertEqual($0 as? NetInventoryError, .noRow("ghost"))
+        }
+        XCTAssertEqual(try NetInventory.inventory(try manifest(projectJson: "p1", validationJson: nil), projectJSONHash: "p1", validationJSONHash: nil, listed: []).withheld.count, 6,
                        "no validation.json then and none now: the manifest still counts")
 
         // From a project folder: the hashes are of the files as they are now.
@@ -120,7 +126,10 @@ final class NetLabelsTests: XCTestCase {
         try FileManager.default.createDirectory(at: dir.appendingPathComponent("pipeline_tuning"), withIntermediateDirectories: true)
         let project = dir.appendingPathComponent("project.json"), validation = dir.appendingPathComponent("pipeline_tuning/validation.json")
         try Data("project".utf8).write(to: project)
-        try Data("validation".utf8).write(to: validation)
+        let validationJSON = """
+        {"tune":["tuned"],"holdout":["w_legacy"],"lineageHoldout":["w_listed"],"finalTest":["w_final"],"finalTestCandidates":["w_candidate"]}
+        """
+        try Data(validationJSON.utf8).write(to: validation)
         XCTAssertThrowsError(try NetInventory.load(projectDir: dir)) { XCTAssertEqual($0 as? NetInventoryError, .noManifest(NetInventory.manifestURL(in: dir))) }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -128,6 +137,14 @@ final class NetLabelsTests: XCTestCase {
                                    validationJson: try XCTUnwrap(DatasetSplitManifest.sha256(of: validation)))
         try encoder.encode(current).write(to: NetInventory.manifestURL(in: dir))
         XCTAssertEqual(try NetInventory.load(projectDir: dir).withheld.count, 6)
+        // validation.json names a holdout the manifest has no row for → blocked (the hash is of the file as written).
+        let withGhost = validationJSON.replacingOccurrences(of: "\"holdout\":[\"w_legacy\"]", with: "\"holdout\":[\"w_legacy\",\"ghost\"]")
+        try Data(withGhost.utf8).write(to: validation)
+        try encoder.encode(try manifest(projectJson: try XCTUnwrap(DatasetSplitManifest.sha256(of: project)),
+                                        validationJson: try XCTUnwrap(DatasetSplitManifest.sha256(of: validation)))).write(to: NetInventory.manifestURL(in: dir))
+        XCTAssertThrowsError(try NetInventory.load(projectDir: dir)) { XCTAssertEqual($0 as? NetInventoryError, .noRow("ghost")) }
+        try Data(validationJSON.utf8).write(to: validation)
+        try encoder.encode(current).write(to: NetInventory.manifestURL(in: dir))
         try Data("project changed".utf8).write(to: project)
         XCTAssertThrowsError(try NetInventory.load(projectDir: dir)) { XCTAssertEqual($0 as? NetInventoryError, .stale("project.json")) }
         try Data("project".utf8).write(to: project)
