@@ -152,6 +152,10 @@ extension NetLabelsTests {
         var outside = Self.aiCorners; outside.topRight.x = 1.2
         XCTAssertThrowsError(try run([NetAIPilot.Submission(video: "bch_a", outcome: .proposed, corners: outside, confidence: .confident, uncertainty: nil)]))
 
+        // Rejected by the person: re-importing the same run is refused, the rejection stands.
+        var rejected = Self.aiProposal(); rejected.run = "run-1"; rejected.rejectedAt = Date(timeIntervalSince1970: 1_800_000_200)
+        XCTAssertThrowsError(try run([good], existing: ["bch_a": rejected])) { XCTAssertEqual($0 as? NetAIPilot.PilotError, .rejected("bch_a")) }
+
         let merged = try run([good])
         let p = try XCTUnwrap(merged["bch_a"])
         XCTAssertEqual(p.corners, Self.aiCorners)
@@ -206,6 +210,14 @@ extension NetLabelsTests {
         XCTAssertEqual(saved.proposalSource, "claude-test · run-1")
         XCTAssertEqual(saved.fingerprint, "fp-a")
         XCTAssertNil(model.offeredAI(try XCTUnwrap(model.items.first)), "labeled: no longer offered")
+
+        // Reopened and confirmed again, unchanged: where the corners started is kept.
+        model.select("c_ok")
+        await settle()
+        XCTAssertNil(model.shownAI)
+        XCTAssertTrue(model.confirm())
+        XCTAssertEqual(try store.load()["c_ok"]?.proposalSource, "claude-test · run-1", "a reconfirm keeps the vision model's provenance")
+        XCTAssertEqual(try store.load()["c_ok"]?.corners, moved)
 
         // The next one has no vision proposal: the old model's, as before, and its source says so.
         await settle()

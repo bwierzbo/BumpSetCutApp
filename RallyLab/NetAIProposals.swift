@@ -260,7 +260,11 @@ enum NetAIPilot {
                 throw PilotError.noExposure(s.video)
             }
             guard labels[s.video] == nil else { throw PilotError.labeled(s.video) }
-            if let old = existing[s.video], old.run != manifest.run { throw PilotError.otherRun(s.video, old.run) }
+            if let old = existing[s.video] {
+                guard old.run == manifest.run else { throw PilotError.otherRun(s.video, old.run) }
+                // A person's Reject stands: a re-import must not offer the proposal again.
+                guard old.rejectedAt == nil else { throw PilotError.rejected(s.video) }
+            }
             switch s.outcome {
             case .proposed:
                 guard let q = s.corners, q.isUsable, q.points.allSatisfy({ (0...1).contains($0.x) && (0...1).contains($0.y) }),
@@ -287,6 +291,7 @@ enum NetAIPilot {
         case otherRun(String, String)
         case badCorners(String)
         case duplicate(String)
+        case rejected(String)
 
         var errorDescription: String? {
             switch self {
@@ -299,6 +304,7 @@ enum NetAIPilot {
             case .otherRun(let v, let run): return "\(v): already has a proposal from run \(run)."
             case .badCorners(let v): return "\(v): corners missing, outside the frame, collapsed or upside down (or a manual-review answer with corners or no reason)."
             case .duplicate(let v): return "\(v): answered twice."
+            case .rejected(let v): return "\(v): its proposal was rejected in the Net labels tab — a re-import never offers it again."
             }
         }
     }

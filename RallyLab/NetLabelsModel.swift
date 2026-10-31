@@ -108,6 +108,9 @@ final class NetLabelsModel {
     /// The vision model's proposal whose corners were put on this frame.
     private(set) var shownAI: NetAIProposal?
     private(set) var aiProposals: [String: NetAIProposal] = [:]
+    /// The saved label's `proposalSource` when a labeled (or box-only) recording is reopened: a
+    /// reconfirm keeps where the corners started.
+    private var labelSource: String?
     private var aiStore: NetAIProposalStore?
     /// The net's corners as they stand: the proposal's, the saved label's, or what was drawn and dragged.
     private(set) var quad: NetQuad?
@@ -298,7 +301,7 @@ final class NetLabelsModel {
         loadTask?.cancel()
         decodeSerial += 1
         selected = video
-        frame = nil; frameTime = nil; proposal = nil; shownAI = nil; quad = nil; proposed = false; adjusted = false; duration = 0; time = 0
+        frame = nil; frameTime = nil; proposal = nil; shownAI = nil; labelSource = nil; quad = nil; proposed = false; adjusted = false; duration = 0; time = 0
         if let skip = item.skip {
             status = "\(item.video): skipped (\(skip.rawValue)) — not opened."
             return
@@ -337,6 +340,7 @@ final class NetLabelsModel {
             quad = label.corners ?? NetQuad(rect: label.box.rect)
             proposed = label.proposed
             adjusted = label.adjusted
+            labelSource = label.proposalSource
         } else if let ai = offeredAI(item) {
             time = ai.time   // the frame the model saw
         } else {
@@ -462,7 +466,7 @@ final class NetLabelsModel {
         next[item.video] = NetLabel(time: frameTime, box: TrackCandidate(rect: quad.bounds, confidence: 1), corners: quad,
                                     proposed: proposed, adjusted: adjusted,
                                     reviewedAt: Date(), frameWidth: frame.width, frameHeight: frame.height, fingerprint: fingerprint,
-                                    proposalSource: proposed ? (shownAI?.source ?? NetLabels.oldModelSource) : nil)
+                                    proposalSource: proposed ? (shownAI?.source ?? labelSource ?? NetLabels.oldModelSource) : nil)
         do { try store.save(next) } catch { status = "Not saved: \(error.localizedDescription)"; return false }
         labels = next
         if let i = items.firstIndex(where: { $0.video == item.video }) { items[i] = Self.marked(items[i], labels: labels) }
