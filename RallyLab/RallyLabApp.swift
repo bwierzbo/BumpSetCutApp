@@ -21,6 +21,7 @@ struct RallyLabApp: App {
     @State private var phone: LabelingSync
     /// Stage 1 rally-boundary review (D-024).
     @State private var boundaries: RallyBoundariesModel
+    @State private var netLabels: NetLabelsModel
 
     init() {
         // `RallyLab --export-training-data [path]` batch-exports classifier
@@ -45,6 +46,7 @@ struct RallyLabApp: App {
         _marker = State(initialValue: marker)
         let boundaries = RallyBoundariesModel(sampler: sampler)
         _boundaries = State(initialValue: boundaries)
+        _netLabels = State(initialValue: NetLabelsModel(projects: projects))
         let phone = LabelingSync(projects: projects)
         phone.onTracksChanged = { tracker.reloadRallies(session: $0) }
         phone.onTimesChanged = { marker.reloadMarks(session: $0) }
@@ -59,7 +61,7 @@ struct RallyLabApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView(model: model, sampler: sampler, projects: projects, library: library, tracker: tracker, marker: marker, boundaries: boundaries, phone: phone)
+            ContentView(model: model, sampler: sampler, projects: projects, library: library, tracker: tracker, marker: marker, boundaries: boundaries, netLabels: netLabels, phone: phone)
         }
         .commands {
             CommandGroup(replacing: .newItem) {

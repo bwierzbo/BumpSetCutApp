@@ -524,6 +524,22 @@ class Warnings(Base):
         r = self.check({"src/train.py": "print('changed')\n"}, "CI-T-004: no update needed —\nNext paragraph.\n")
         self.assertCode(r, "warning", "WATCH-STALE")
 
+    def test_a_placeholder_reason_is_not_a_waiver(self):
+        r = self.check({"src/train.py": "print('changed')\n"}, "CI-T-004: no update needed — <reason>\n")
+        self.assertCode(r, "warning", "WATCH-STALE")
+
+    def test_the_checkers_own_quoted_output_is_not_a_waiver(self):
+        # A PR body embeds the checker's output in a fenced block; the hint line in it must not count.
+        quoted = ("Waivers, one per line, with a reason: none.\n\n```\n## Configuration-item impact: PASS\n"
+                  "- `WATCH-STALE` CI-T-004 may need an update: src/train.py changed. Update it, or add "
+                  "'CI-T-004: no update needed — <reason>' to the PR body\n```\n")
+        r = self.check({"src/train.py": "print('changed')\n"}, quoted)
+        self.assertCode(r, "warning", "WATCH-STALE")
+        # The same hint quoted with a real reason outside the fence is a waiver.
+        r = self.check({"src/train.py": "print('again')\n"}, quoted + "\nCI-T-004: no update needed — behaviour unchanged, comments only\n")
+        self.assertNotIn("WATCH-STALE", r.codes())
+        self.assertCode(r, "note", "WATCH-WAIVED")
+
     def test_watched_path_with_update_is_quiet(self):
         r = self.check({"src/train.py": "print('changed')\n", "docs/LINEAGES.md": "# Lineages\n\nupdated\n"},
                        "### Owner approval requested\n- CI-T-004\n")
