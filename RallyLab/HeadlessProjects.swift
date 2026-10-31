@@ -1065,6 +1065,8 @@ enum HeadlessProjects {
         do { withheld = try ReservedVideos.lineageWithheldNames(in: root) } catch { log("❌ \(error.localizedDescription)"); return false }
         let labels: [String: NetLabel]
         do { labels = try NetLabelStore(projectDir: root).load() } catch { log("❌ net-labels.json: \(error.localizedDescription)"); return false }
+        let exclusions: [String: NetExclusion]
+        do { exclusions = try NetExclusionStore(projectDir: root).load() } catch { log("❌ net-exclusions.json: \(error.localizedDescription)"); return false }
         let sources = project.clips.flatMap { clip in
             clip.videos.map { NetDatasetExport.Source(video: clip.videoId(of: $0), clip: clip.id, camera: clip.camera,
                                                       url: URL(fileURLWithPath: $0.clipFile), fingerprint: ReservedVideos.effectiveFingerprint($0)) }
@@ -1080,7 +1082,7 @@ enum HeadlessProjects {
         let partial = staging.appendingPathComponent(dir.lastPathComponent)
         let manifest: NetDatasetExport.Manifest
         do {
-            manifest = try await NetDatasetExport.write(labels: labels, sources: sources, withheld: withheld, project: project.name,
+            manifest = try await NetDatasetExport.write(labels: labels, sources: sources, withheld: withheld, exclusions: exclusions, project: project.name,
                                                         to: partial) { log("  \($0)") }
         } catch {
             log("❌ \(error.localizedDescription)")
@@ -1117,10 +1119,11 @@ enum HeadlessProjects {
         guard let guards = netAIGuards(root) else { return false }
         let (inventory, fileWithheld) = guards
         let withheld = inventory.withheld.union(fileWithheld)
-        let labels: [String: NetLabel], proposals: [String: NetAIProposal], manifest: DatasetSplitManifest?
+        let labels: [String: NetLabel], proposals: [String: NetAIProposal], manifest: DatasetSplitManifest?, exclusions: [String: NetExclusion]
         do {
             labels = try NetLabelStore(projectDir: root).load()
             proposals = try NetAIProposalStore(projectDir: root).load()
+            exclusions = try NetExclusionStore(projectDir: root).load()
             manifest = try DatasetSplitManifest.readStrict(from: NetInventory.manifestURL(in: root))
         } catch { log("❌ \(error.localizedDescription)"); return false }
         let rows = Dictionary((manifest?.videos ?? []).map { ($0.video, $0) }, uniquingKeysWith: { a, _ in a })
@@ -1134,8 +1137,9 @@ enum HeadlessProjects {
                                             fileFingerprint: ReservedVideos.effectiveFingerprint(source))
             }
         }
-        let eligible = NetAIPilot.choose(candidates, labels: labels, proposals: proposals, withheld: withheld, count: .max, onePerGroup: onePerGroup)
-        let chosen = NetAIPilot.choose(candidates, labels: labels, proposals: proposals, withheld: withheld, count: count, onePerGroup: onePerGroup)
+        let excluded = NetExclusionStore.excluded(exclusions) { id in candidates.first { $0.video == id }?.fingerprint }
+        let eligible = NetAIPilot.choose(candidates, labels: labels, proposals: proposals, withheld: withheld, count: .max, onePerGroup: onePerGroup, excluded: excluded)
+        let chosen = NetAIPilot.choose(candidates, labels: labels, proposals: proposals, withheld: withheld, count: count, onePerGroup: onePerGroup, excluded: excluded)
         log("Withheld: \(withheld.count) (manifest closure \(inventory.withheld.count), files' \(fileWithheld.count)\(inventory.withheld == fileWithheld ? ", identical" : ", union taken")). Eligible alias groups: \(eligible.count). Chosen: \(chosen.count).")
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX"); f.timeZone = TimeZone(identifier: "UTC"); f.dateFormat = "yyyyMMdd'T'HHmmss'Z'"

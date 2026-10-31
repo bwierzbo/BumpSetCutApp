@@ -82,7 +82,8 @@ struct NetLabelsView: View {
                     ContentUnavailableView("Nothing can be labeled", systemImage: "lock.fill", description: Text(model.blocked ?? ""))
                 } else if let item = model.selectedItem, let skip = item.skip {
                     ContentUnavailableView("Skipped: \(skip.rawValue)", systemImage: "minus.circle",
-                                           description: Text(skip == .withheld ? "A withheld recording is never opened here." : skip == .handheld ? "Handheld: the net doesn't hold still." : "No file identity for this recording."))
+                                           description: Text(skip == .withheld ? "A withheld recording is never opened here." : skip == .handheld ? "Handheld: the net doesn't hold still."
+                                                             : skip == .sideView ? "You excluded it as a side view: it is not used for net labels. Include again to undo." : "No file identity for this recording."))
                 } else if model.selected == nil {
                     ContentUnavailableView("Pick a recording", systemImage: "rectangle.split.3x1",
                                            description: Text("\(model.toLabelCount) to label. Drag the four corners onto the net's corners; Return confirms and goes to the next one."))
@@ -126,6 +127,13 @@ struct NetLabelsView: View {
                 Text("Skipped: \(skip.rawValue)").font(.caption).foregroundStyle(.orange)
             } else {
                 boxReadout
+            }
+            if let item = model.selectedItem, item.skip == .sideView {
+                Button("Include again") { model.includeAgain() }.help("Take back the side-view exclusion; the recording is to label again")
+            } else {
+                Button("Exclude: side view") { model.excludeSideView() }
+                    .disabled(model.selectedItem.map { $0.skip != nil || $0.fingerprint == nil } ?? true)
+                    .help("The camera looks along the net: leave this recording out of the net dataset (net-exclusions.json)")
             }
             Button("Remove label", role: .destructive) { model.removeLabel() }.disabled(model.selectedItem.map { $0.labeled || $0.stale || $0.boxOnly } != true)
             Button("Next to label") { model.nextToLabel() }.disabled(model.toLabelCount == 0)

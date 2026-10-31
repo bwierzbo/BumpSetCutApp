@@ -111,9 +111,9 @@ enum NetAIPilot {
     /// so a short run sees more than one kind of court. `onePerGroup` (the pilot) keeps one
     /// recording per alias group; a full run takes every recording, since each needs its label.
     static func choose(_ candidates: [Candidate], labels: [String: NetLabel], proposals: [String: NetAIProposal],
-                       withheld: Set<String>, count: Int, onePerGroup: Bool = true) -> [Candidate] {
+                       withheld: Set<String>, count: Int, onePerGroup: Bool = true, excluded: Set<String> = []) -> [Candidate] {
         let eligible = candidates.filter {
-            NetLabels.skip(video: $0.video, camera: $0.camera, withheld: withheld, fingerprint: $0.fingerprint) == nil
+            NetLabels.skip(video: $0.video, camera: $0.camera, withheld: withheld, fingerprint: $0.fingerprint, excluded: excluded) == nil
                 && $0.fileFingerprint == $0.fingerprint && labels[$0.video] == nil && proposals[$0.video] == nil
         }
         var bySurface: [String: [Candidate]] = [:]

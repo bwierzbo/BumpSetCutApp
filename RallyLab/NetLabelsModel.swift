@@ -89,6 +89,12 @@ final class NetLabelsModel {
         var stale: Bool
         /// This recording's label has a box but no corners (from before corners were marked): still to label.
         var boxOnly = false
+
+        func with(skip: NetLabels.Skip?) -> Item {
+            var it = Item(video: video, clip: clip, camera: camera, url: url, fingerprint: fingerprint, skip: skip, labeled: labeled, stale: stale)
+            it.boxOnly = boxOnly
+            return it
+        }
     }
 
     private let projects: ProjectsModel?
@@ -112,6 +118,9 @@ final class NetLabelsModel {
     /// reconfirm keeps where the corners started.
     private var labelSource: String?
     private var aiStore: NetAIProposalStore?
+    /// The owner's exclusions (side views): net-exclusions.json. An excluded recording is skipped.
+    private(set) var exclusions: [String: NetExclusion] = [:]
+    private var exclusionStore: NetExclusionStore?
     /// The net's corners as they stand: the proposal's, the saved label's, or what was drawn and dragged.
     private(set) var quad: NetQuad?
     /// The box the corners span.
@@ -154,12 +163,14 @@ final class NetLabelsModel {
     /// For tests: a fixed list and store, no project; `exposure` stands in for the ledger.
     init(items: [Item], labels: [String: NetLabel], store: NetLabelStore, footage: any NetLabelFootage, prefetchAhead: Int = 0,
          aiProposals: [String: NetAIProposal] = [:], aiStore: NetAIProposalStore? = nil,
+         exclusions: [String: NetExclusion] = [:], exclusionStore: NetExclusionStore? = nil,
          exposure: @escaping NetProposalRecorder) {
         projects = nil
         self.footage = footage
         self.prefetchAhead = prefetchAhead
         recordProposal = exposure
-        install(items: items, labels: labels, store: store, aiProposals: aiProposals, aiStore: aiStore)
+        install(items: items, labels: labels, store: store, aiProposals: aiProposals, aiStore: aiStore,
+                exclusions: exclusions, exclusionStore: exclusionStore)
     }
 
     var labeledCount: Int { items.filter(\.labeled).count }
@@ -217,6 +228,11 @@ final class NetLabelsModel {
         do { aiProposals = try aiStore.load() } catch {
             blocked = "\(aiStore.url.lastPathComponent) unreadable: \(error.localizedDescription)"; status = blocked!; return
         }
+        let exclusionStore = NetExclusionStore(projectDir: dir)
+        let exclusions: [String: NetExclusion]
+        do { exclusions = try exclusionStore.load() } catch {
+            blocked = "\(exclusionStore.url.lastPathComponent) unreadable: \(error.localizedDescription)"; status = blocked!; return
+        }
         let items = project.clips.flatMap { clip in
             clip.videos.map { video in
                 let id = clip.videoId(of: video)
@@ -226,7 +242,8 @@ final class NetLabelsModel {
                             labeled: false, stale: false)
             }
         }
-        install(items: items, labels: labels, store: store, aiProposals: aiProposals, aiStore: aiStore)
+        install(items: items, labels: labels, store: store, aiProposals: aiProposals, aiStore: aiStore,
+                exclusions: exclusions, exclusionStore: exclusionStore)
     }
 
     /// Nothing on screen, nothing in flight that can still land: a load or read-ahead started
@@ -237,19 +254,26 @@ final class NetLabelsModel {
         inventory += 1
         prefetched = [:]; prefetching = nil
         decodeSerial += 1
-        items = []; labels = [:]; aiProposals = [:]; aiStore = nil; selected = nil; frame = nil; frameTime = nil; quad = nil; proposal = nil; shownAI = nil; labelSource = nil; blocked = nil
+        items = []; labels = [:]; aiProposals = [:]; aiStore = nil; exclusions = [:]; exclusionStore = nil; selected = nil; frame = nil; frameTime = nil; quad = nil; proposal = nil; shownAI = nil; labelSource = nil; blocked = nil
     }
 
     /// A new inventory of recordings and their labels, replacing whatever was listed; reads
     /// in flight for the old one land nowhere, even for a recording of the same name.
     func install(items: [Item], labels: [String: NetLabel], store: NetLabelStore,
-                 aiProposals: [String: NetAIProposal] = [:], aiStore: NetAIProposalStore? = nil) {
+                 aiProposals: [String: NetAIProposal] = [:], aiStore: NetAIProposalStore? = nil,
+                 exclusions: [String: NetExclusion] = [:], exclusionStore: NetExclusionStore? = nil) {
         clear()
         self.store = store
         self.labels = labels
         self.aiProposals = aiProposals
         self.aiStore = aiStore
-        self.items = items.map { Self.marked($0, labels: labels) }.sorted { $0.video < $1.video }
+        self.exclusions = exclusions
+        self.exclusionStore = exclusionStore
+        let fingerprints = Dictionary(items.map { ($0.video, $0.fingerprint) }, uniquingKeysWith: { a, _ in a })
+        let excluded = NetExclusionStore.excluded(exclusions) { fingerprints[$0] ?? nil }
+        self.items = items.map { item in
+            Self.marked(item.skip == nil && excluded.contains(item.video) ? item.with(skip: .sideView) : item, labels: labels)
+        }.sorted { $0.video < $1.video }
         status = summary
         prefetch()
     }
@@ -513,6 +537,47 @@ final class NetLabelsModel {
         status = "\(item.video): saved · \(summary)"
         nextToLabel()
         return true
+    }
+
+    /// The owner leaves the recording on screen out of the net dataset as a side view (the camera
+    /// looks along the net). Written to net-exclusions.json, read again first so nothing written
+    /// since the tab loaded is lost; the recording is then skipped like a handheld one: no
+    /// proposal is offered, its frame isn't read again, and the export refuses it. A label it
+    /// carries stays in net-labels.json untouched.
+    func excludeSideView() {
+        guard let item = selectedItem, item.skip == nil, let fingerprint = item.fingerprint, let exclusionStore else { return }
+        var next: [String: NetExclusion]
+        do {
+            next = try exclusionStore.load()
+            next[item.video] = NetExclusion(reason: .sideView, fingerprint: fingerprint, decidedAt: Date(), decidedBy: "owner, Net labels tab")
+            try exclusionStore.save(next)
+        } catch { status = "Not excluded: \(error.localizedDescription)"; return }
+        exclusions = next
+        replace(item.with(skip: .sideView))
+        loadTask?.cancel()
+        decodeSerial += 1
+        frame = nil; frameTime = nil; proposal = nil; shownAI = nil; quad = nil; proposed = false; adjusted = false
+        prefetched[item.video] = nil
+        status = "\(item.video): excluded as a side view · \(summary). Include again to undo."
+        prefetch()
+    }
+
+    /// Take the owner's exclusion back: the recording is to label again.
+    func includeAgain() {
+        guard let item = selectedItem, item.skip == .sideView, let exclusionStore else { return }
+        var next: [String: NetExclusion]
+        do {
+            next = try exclusionStore.load()
+            next[item.video] = nil
+            try exclusionStore.save(next)
+        } catch { status = "Not included: \(error.localizedDescription)"; return }
+        exclusions = next
+        replace(item.with(skip: nil))
+        select(item.video)
+    }
+
+    private func replace(_ item: Item) {
+        if let i = items.firstIndex(where: { $0.video == item.video }) { items[i] = Self.marked(item, labels: labels) }
     }
 
     /// Remove the label under this id, this recording's or a stale one.
