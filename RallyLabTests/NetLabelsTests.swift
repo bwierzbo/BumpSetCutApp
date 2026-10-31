@@ -50,6 +50,15 @@ final class NetLabelsTests: XCTestCase {
         XCTAssertEqual(tilted.offset(dx: 0.5, dy: 0).bounds.maxX, 1, accuracy: 1e-9)
         XCTAssertEqual(tilted.offset(dx: 0.5, dy: 0).topLeft.x, 0.35, accuracy: 1e-9)
         XCTAssertFalse(NetQuad(rect: CGRect(x: 0.2, y: 0.4, width: 0.6, height: 0)).isUsable)
+        // Collapsed onto a diagonal: a bounding box with width and height, but no area.
+        let diagonal = NetQuad(topLeft: .init(x: 0.2, y: 0.2), topRight: .init(x: 0.8, y: 0.8), bottomRight: .init(x: 0.7, y: 0.7), bottomLeft: .init(x: 0.3, y: 0.3))
+        XCTAssertEqual(diagonal.area, 0, accuracy: 1e-12)
+        XCTAssertFalse(diagonal.isUsable)
+        XCTAssertEqual(q.area, 0.06, accuracy: 1e-12, "a rectangle's area")
+        XCTAssertGreaterThan(tilted.area, 0.05)
+        // Winding does not matter: the same corners the other way round have the same area.
+        let reversed = NetQuad(topLeft: q.topRight, topRight: q.topLeft, bottomRight: q.bottomLeft, bottomLeft: q.bottomRight)
+        XCTAssertEqual(reversed.area, q.area, accuracy: 1e-12)
     }
 
     /// A label written before corners existed (a box) still decodes, with no corners;
@@ -491,6 +500,29 @@ final class NetLabelsTests: XCTestCase {
         XCTAssertNotNil(model.frame, "read ahead: on screen without a decode")
         XCTAssertEqual(footage.frameCalls.map(\.0), ["c_ok.mp4", "d_next.mp4", "g_later.mp4"])
         XCTAssertNil(model.prefetched["c_ok"], "labeled: no longer kept")
+    }
+
+    /// A recording read ahead, picked and then superseded before its load ran — by a skipped
+    /// recording, which starts no load of its own — shows nothing and makes no proposal.
+    @MainActor
+    func testAPrefetchedLoadSupersededBeforeItRunsChangesNothing() async throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let footage = ScriptedFootage()
+        var recorded: [String] = []
+        let model = NetLabelsModel(items: [try item("c_ok", in: dir), try item("e_withheld", skip: .withheld, in: dir)],
+                                   labels: [:], store: NetLabelStore(projectDir: dir), footage: footage, prefetchAhead: 1) { v, _ in recorded.append(v) }
+        await settle()
+        XCTAssertNotNil(model.prefetched["c_ok"])
+        model.select("c_ok")
+        model.select("e_withheld")   // before c_ok's load task has run
+        await settle()
+        XCTAssertEqual(model.selected, "e_withheld")
+        XCTAssertNil(model.frame, "the superseded load published nothing")
+        XCTAssertNil(model.quad)
+        XCTAssertEqual(footage.proposalCalls, 0)
+        XCTAssertTrue(recorded.isEmpty, "no ledger row for a recording that was never shown")
+        XCTAssertFalse(model.canConfirm)
     }
 
     @MainActor

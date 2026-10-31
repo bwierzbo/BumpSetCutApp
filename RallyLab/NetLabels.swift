@@ -65,8 +65,20 @@ struct NetQuad: Codable, Equatable {
         return CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
     }
 
-    /// Big enough to be a net and not collapsed onto a line.
-    var isUsable: Bool { bounds.width > 0.005 && bounds.height > 0.005 }
+    /// The quadrilateral's area (shoelace, frame fractions squared), whatever its winding.
+    var area: Double {
+        let p = points
+        var twice = 0.0
+        for i in 0..<4 {
+            let a = p[i], b = p[(i + 1) % 4]
+            twice += Double(a.x * b.y - b.x * a.y)
+        }
+        return abs(twice) / 2
+    }
+
+    /// Big enough to be a net and not collapsed onto a line — including a diagonal, whose
+    /// bounding box has width and height but whose area is nothing.
+    var isUsable: Bool { bounds.width > 0.005 && bounds.height > 0.005 && area > 0.0005 }
 
     /// Corner `i` (in `points` order) moved to `p`, kept inside the frame.
     func moving(corner i: Int, to p: CGPoint) -> NetQuad {
