@@ -248,7 +248,11 @@ enum NetDatasetExport {
 /// is now: its recorded hashes of project.json and validation.json must be the
 /// files' — otherwise the tab is blocked until the manifest is written again.
 struct NetInventory: Equatable {
-    /// Withheld in the manifest: lineage or legacy holdout, final test or candidate, or reserved as an alias of one.
+    /// Withheld in the manifest — lineage or legacy holdout, final test or candidate, or reserved as an
+    /// alias of one — and every video in a withheld video's alias group (the manifest's `aliasGroup`:
+    /// shared file fingerprint or confirmed source, session or venue, transitively — the identities
+    /// `ReservedVideos.closure` uses), so a legacy holdout's unlisted aliases are withheld here as
+    /// `ReservedVideos.lineageWithheldNames` withholds them.
     var withheld: Set<String>
     /// Each video's file fingerprint as the manifest recorded it; a video without one is unidentified.
     var fingerprint: [String: String]
@@ -272,10 +276,12 @@ struct NetInventory: Equatable {
     static func inventory(_ manifest: DatasetSplitManifest, projectJSONHash: String?, validationJSONHash: String?) throws -> NetInventory {
         guard let projectJSONHash, manifest.hashes.projectJson == projectJSONHash else { throw NetInventoryError.stale("project.json") }
         guard manifest.hashes.validationJson == validationJSONHash else { throw NetInventoryError.stale("pipeline_tuning/validation.json") }
-        var withheld = Set<String>()
+        let direct = manifest.videos.filter { withheldSplits.contains($0.split) || $0.reservedAs != nil }
+        let groups = Set(direct.compactMap(\.aliasGroup))
+        var withheld = Set(direct.map(\.video))
         var fingerprint: [String: String] = [:]
         for row in manifest.videos {
-            if withheldSplits.contains(row.split) || row.reservedAs != nil { withheld.insert(row.video) }
+            if let group = row.aliasGroup, groups.contains(group) { withheld.insert(row.video) }
             if let print = row.fingerprint, !print.isEmpty { fingerprint[row.video] = print }
         }
         return NetInventory(withheld: withheld, fingerprint: fingerprint)
