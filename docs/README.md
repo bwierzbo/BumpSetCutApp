@@ -61,6 +61,7 @@ Plain Markdown with relative links, so this folder opens as an Obsidian vault (p
 - [L2 source verification proposal](ml-roadmap/L2_SOURCE_VERIFICATION_PROPOSAL.md) — proposed strict full-file SHA-256 of every packaged and withheld source video in the preflight (fail closed, identities and ledgers untouched); reconciliation of the protected-content inventory (closure 21, 452 files, 54 dangling).
 - [Dataset hygiene](ml-roadmap/DATASET_HYGIENE.md) — known session/dataset inconsistencies (H-1: 54 dangling frame records in a legacy-holdout session) and the proposed, not yet approved, cleanup procedure with backup and verification.
 - [Lineage preregistration template](templates/PREREGISTRATION_L2.md) — the ten sections every L2 training run fills and the owner approves before training (D-018).
+- [EXP-20261031-net-model-v1](ml-roadmap/experiments/EXP-20261031-net-model-v1.md) — planned (not approved, not run): the first from-scratch net detector; hypotheses in the gates' units (top edge in frame heights, sides in frame widths), inputs to be frozen on approval; trainer `scripts/desktop_training/train_net_model.py`.
 - [EXP-20261021-l2-scratch-prereg](ml-roadmap/experiments/EXP-20261021-l2-scratch-prereg.md) — proposed first L2 run (not approved): recipe, data counts, holdout rules.
 - `ml-roadmap/manifests/<project>/l2/` — lineage package plans and records (`RallyLab --package-l2`): what is eligible, what is withheld, preflight results and file hashes.
 - `ml-roadmap/experiments/` — one record per experiment, written before it runs.
