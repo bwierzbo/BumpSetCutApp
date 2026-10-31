@@ -14,8 +14,17 @@ import CoreGraphics
 import Foundation
 import Observation
 
-/// What the tab asks of a recording's file; a test substitutes its own.
+/// What the tab asks of a recording's file; a test substitutes its own. The
+/// files sit on the footage share, so every one of these may take seconds
+/// (or block for the SMB timeout when the share has dropped): none runs on
+/// the main actor.
 protocol NetLabelFootage: Sendable {
+    /// The recording's file identity (`ReservedVideos.effectiveFingerprint`): the file's size, head and tail.
+    func identity(of video: ClipSource) async -> String?
+    /// Whether the file can be read here (a stat on the share).
+    func isReadable(_ url: URL) async -> Bool
+    /// The rallies a person marked, from the labels file beside the video.
+    func rallyMarks(for url: URL) async -> [(start: Double, end: Double)]
     func duration(of url: URL) async -> Double
     func frame(of url: URL, at time: Double) async throws -> CGImage
     /// Whether the old net model is there to propose boxes: asked before any exposure is recorded.
@@ -26,6 +35,17 @@ protocol NetLabelFootage: Sendable {
 }
 
 struct RealNetLabelFootage: NetLabelFootage {
+    func identity(of video: ClipSource) async -> String? {
+        await Task.detached(priority: .userInitiated) { ReservedVideos.effectiveFingerprint(video) }.value
+    }
+    func isReadable(_ url: URL) async -> Bool {
+        await Task.detached(priority: .userInitiated) { FileManager.default.isReadableFile(atPath: url.path) }.value
+    }
+    func rallyMarks(for url: URL) async -> [(start: Double, end: Double)] {
+        await Task.detached(priority: .userInitiated) {
+            RallyMarkModel.load(RallyMarkModel.labelsURL(for: url)).map { (start: $0.start, end: $0.end) }
+        }.value
+    }
     func duration(of url: URL) async -> Double { await NetLabels.duration(of: url) }
     func frame(of url: URL, at time: Double) async throws -> CGImage { try await NetLabels.frame(of: url, at: time) }
     var modelAvailable: Bool { NetDetector().isLoaded }
@@ -87,11 +107,14 @@ final class NetLabelsModel {
     private(set) var proposed = false
     private(set) var adjusted = false
     private(set) var loading = false
+    /// The recordings' identities are being read (one file read each, over the share); the list is empty until then.
+    private(set) var reloading = false
     private(set) var status = "Open a project."
     /// Why the recordings can't be listed (withheld names or labels unreadable): nothing is labeled then.
     private(set) var blocked: String?
     private var store: NetLabelStore?
     private var loadTask: Task<Void, Never>?
+    private var reloadTask: Task<Void, Never>?
     /// Counts decode requests; a decode publishes its frame only while it is the latest.
     private var decodeSerial = 0
 
@@ -142,9 +165,13 @@ final class NetLabelsModel {
     }
 
     /// The project's recordings, fresh from project.json and net-labels.json.
-    /// A withheld list or a labels file that can't be read blocks the tab.
+    /// A withheld list or a labels file that can't be read blocks the tab. The
+    /// list appears once every recording's identity has been read from its file
+    /// (off the main actor: the files are on the share).
     func reload() {
         loadTask?.cancel()
+        reloadTask?.cancel()
+        reloading = false
         decodeSerial += 1
         items = []; labels = [:]; selected = nil; frame = nil; frameTime = nil; box = nil; proposal = nil; blocked = nil
         guard let projects, let project = projects.project, let dir = projects.projectDir else { status = "Open a project."; return }
@@ -158,18 +185,24 @@ final class NetLabelsModel {
         do { labels = try store.load() } catch {
             blocked = "\(store.url.lastPathComponent) unreadable: \(error.localizedDescription)"; status = blocked!; return
         }
-        items = project.clips.flatMap { clip in
-            clip.videos.map { video in
+        let recordings = project.clips.flatMap { clip in clip.videos.map { (clip: clip, video: $0) } }
+        reloading = true
+        status = "Reading the identities of \(recordings.count) recordings…"
+        reloadTask = Task { [footage, labels] in
+            var built: [Item] = []
+            for (clip, video) in recordings {
+                let fingerprint = await footage.identity(of: video)
+                if Task.isCancelled { return }
                 let id = clip.videoId(of: video)
-                let fingerprint = ReservedVideos.effectiveFingerprint(video)
-                return Self.marked(Item(video: id, clip: clip.id, camera: clip.camera, url: URL(fileURLWithPath: video.clipFile),
-                                        fingerprint: fingerprint,
-                                        skip: NetLabels.skip(video: id, camera: clip.camera, withheld: withheld, fingerprint: fingerprint),
-                                        labeled: false, stale: false), labels: labels)
+                built.append(Self.marked(Item(video: id, clip: clip.id, camera: clip.camera, url: URL(fileURLWithPath: video.clipFile),
+                                              fingerprint: fingerprint,
+                                              skip: NetLabels.skip(video: id, camera: clip.camera, withheld: withheld, fingerprint: fingerprint),
+                                              labeled: false, stale: false), labels: labels))
             }
+            items = built.sorted { $0.video < $1.video }
+            reloading = false
+            status = summary
         }
-        .sorted { $0.video < $1.video }
-        status = summary
     }
 
     /// Show a recording. A skipped one is named and nothing of it is opened.
@@ -189,7 +222,9 @@ final class NetLabelsModel {
     private func load(_ item: Item) async {
         loading = true
         defer { loading = false }
-        guard FileManager.default.isReadableFile(atPath: item.url.path) else {
+        let readable = await footage.isReadable(item.url)
+        guard !Task.isCancelled, selected == item.video else { return }
+        guard readable else {
             status = "\(item.video): the video isn't readable here (is the footage share mounted?)"; return
         }
         let dur = await footage.duration(of: item.url)
@@ -202,7 +237,8 @@ final class NetLabelsModel {
             proposed = label.proposed
             adjusted = label.adjusted
         } else {
-            let marks = RallyMarkModel.load(RallyMarkModel.labelsURL(for: item.url)).map { (start: $0.start, end: $0.end) }
+            let marks = await footage.rallyMarks(for: item.url)
+            guard !Task.isCancelled, selected == item.video else { return }
             time = NetLabels.frameTime(duration: duration, rallies: marks)
         }
         await decode(item, at: time)
