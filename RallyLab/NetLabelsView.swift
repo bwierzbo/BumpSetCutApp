@@ -76,8 +76,6 @@ struct NetLabelsView: View {
                     ProgressView()
                 } else if model.blocked != nil {
                     ContentUnavailableView("Nothing can be labeled", systemImage: "lock.fill", description: Text(model.blocked ?? ""))
-                } else if model.reloading {
-                    ProgressView(model.status)
                 } else if let item = model.selectedItem, let skip = item.skip {
                     ContentUnavailableView("Skipped: \(skip.rawValue)", systemImage: "minus.circle",
                                            description: Text(skip == .withheld ? "A withheld recording is never opened here." : skip == .handheld ? "Handheld: the net doesn't hold still." : "No file identity for this recording."))
