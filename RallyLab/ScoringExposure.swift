@@ -48,6 +48,17 @@ enum ScoringExposure {
         return "\(finder); " + decisionFields(config).map { "\($0.0)=\($0.1)" }.joined(separator: " ")
     }
 
+    /// The note on a row added after its pass (owner, 2026-10-31 §3: a pass the ledger dropped as a duplicate before
+    /// rows named the model is recorded afterwards, never as if it had been recorded at the time): when the pass ran,
+    /// why the row is late, the day it was added, then the settings note the row would have carried.
+    static func retrospectiveNote(ran: String, why: String, config: ProcessorConfig, now: Date = Date()) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.dateFormat = "yyyy-MM-dd"
+        return "retrospective: the pass ran \(ran); \(why); row added \(f.string(from: now)); " + note(config: config)
+    }
+
     /// Every stored property of the config but the model's URL (the finder names the model by its digest, so
     /// the same model at another path is the same run), as `name=value` lines in declaration order. Reflection,
     /// so a setting added to `ProcessorConfig` is in the identity from then on.
