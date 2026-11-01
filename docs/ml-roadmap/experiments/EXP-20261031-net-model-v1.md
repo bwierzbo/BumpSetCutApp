@@ -1,8 +1,8 @@
 ---
 id: EXP-20261031-net-model-v1
-status: planned — not approved, not run (the dataset is not labeled yet)
+status: approved — not run (owner, 2026-11-01; waiting for the export on the home network)
 created: 2026-10-31T03:44:39Z
-updated: 2026-10-31T15:55:47Z
+updated: 2026-11-01T19:05:39Z
 decision: owner direction 2026-10-30 (verbatim: ../../decisions/2026-10-30-net-model-direction.md); D-002, D-017, D-018 honoured; the decision that removes net.mlpackage is logged by the PR that removes it
 roadmap_phase: net model replacement (licensing, 2026-10-09; plan: ../NET_MODEL_PLAN.md)
 pr: feat/net-trainer (the trainer); the run's own PR carries the results
@@ -11,7 +11,7 @@ issue: n/a
 
 # EXP-20261031-net-model-v1 — first net detector from scratch, no Ultralytics
 
-**Status: planned.** Written before any run, as the template asks. Nothing here has been trained. The run needs, in order: PR #111 merged and the 138 eligible recordings labeled in RallyLab's Net labels tab; the export (`RallyLab --project Scratch --export-net-dataset <staging>/Scratch-net-<stamp>`) and its ledger rows; the Roboflow version exported with a `provenance.json`; the owner's approval of this record with the frozen inputs filled in. The frozen-input rows below are `to be filled on approval` until then — never a value that was not measured.
+**Status: approved, not run.** The owner approved this record on 2026-11-01 ("approve start that up and yes approve the roboflow export its public images we can wait until im back on the home network"). Written before any run, as the template asks; the hypotheses and bars below are unchanged by the approval. Nothing has been trained. The export waits for the home network: it decodes every labeled frame again from the footage share, which read under 0.2 MB/s remotely that day. The run needs, in order: PR #111 merged and the 138 eligible recordings labeled in RallyLab's Net labels tab; the export (`RallyLab --project Scratch --export-net-dataset <staging>/Scratch-net-<stamp>`) and its ledger rows; the Roboflow version exported with a `provenance.json`; the owner's approval of this record with the frozen inputs filled in. The frozen-input rows below are `to be filled on approval` until then — never a value that was not measured.
 
 ## Hypothesis
 
@@ -27,9 +27,9 @@ issue: n/a
 | Dataset | the `--export-net-dataset` folder: name, `net-dataset.json` SHA-256, labeled count, skipped (withheld / handheld / unidentified / unlabeled) counts — to be filled on approval |
 | Dataset manifest SHA-256 | `manifests/manifest.json` of Scratch at export time — to be filled on approval (the trainer records it in `metrics.json` as `manifest_sha256`) |
 | Split ID / version | the manifest's split definitions at export time; validation = whole recording groups per surface, `--val-fraction 0.25`, drawn with `--seed 0`, written to `runs/net/net_v1/split.json` and reused by every later run with `--split` |
-| Label set version(s) | net boxes: one person-confirmed box per recording (`net-labels.json`; proposals from the old model are marked `proposed`, never a label without confirmation) — no versioned ID yet (D-009 work) |
+| Label set version(s) | four corners per recording, each confirmed by the owner in the Net labels tab (`net-labels.json`). Where the corners started is recorded per label (`proposalSource`): on 2026-11-01, of 129 corner labels, 93 started from a Claude (`claude-opus-5-5`) proposal the owner confirmed or fixed (AI-assisted pilot, PR #122), 27 from the old model's box, 9 drawn by hand; 2 box-only labels have no corners and are not exported. A proposal is never a label without the owner's Confirm. No versioned label-set ID yet (D-009 work); the count at export is filled below |
 | Withheld | the 21 withheld recordings (lineage holdout 16 + legacy holdout 5) and every alias: refused by the export and refused again by the trainer against the manifest (`split`, `reservedAs`, fingerprint); handheld (8) not labeled (plan §3) |
-| Extra data (H2 only) | Roboflow `bumpsetcut/volleyball-ykkmn-grgwy`, the version exported in YOLO format, with `provenance.json` (source, licence, obtained, note) — version, image count, net-box count and licence to be filled on approval; train only, never val |
+| Extra data (H2 only) | Roboflow `bumpsetcut/volleyball-ykkmn-grgwy` **version 1** (generated 2026-11-01, auto-orient only, no resize or augmentation: the trainer letterboxes and augments), 547 images, 586 net boxes (+481 ball boxes, dropped by the trainer), exported as YOLOv8 (zip SHA-256 `7c9851639f7944839fe3bed2355a414f3e23ee117d67808c9bd0dc1e1f569ecc`) to `~/Movies/RallyLab/Datasets/roboflow-net-v1/`. Licence **CC BY 4.0** (Roboflow's project licence; the owner: public images): attribution to the Roboflow project is required wherever a model trained with it is described. Almost every label is a polygon (580 of 586 net, 472 of 481 ball), which the trainer refuses, so `--extra` is the derived copy `roboflow-net-v1-boxes/` — each polygon replaced by its bounding box, recorded in its `provenance.json`; the trainer reads it as 547 images, 21 without a net, 47 with more than one. Train only, never val |
 | Control model | none in H1 (a from-scratch model against the gates' thresholds); in H2 the run without `--extra` |
 | Treatment model(s) | `net_v1` (our frames); `net_v1_extra` (our frames + Roboflow) — `best.pt` and `best.onnx` SHA-256s recorded by the trainer |
 | Pipeline config SHA-256 | n/a (no pipeline run in this record) |
