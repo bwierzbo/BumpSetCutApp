@@ -145,8 +145,8 @@ final class DeciderRetuneTests: XCTestCase {
     }
 
     /// The replayer feeds the decider the height the pipeline fed it, as near as the evidence allows: the
-    /// selected candidate's raw point when a detection was associated, else the trail point, else the
-    /// highest on-court detection — never nothing while a ball is seen (sky-ball grace reads it).
+    /// selected candidate's raw point while there is an active track (a trail point), else the trail point,
+    /// else — no active track, a retained lock included — the highest on-court detection.
     func testBallHeightFollowsThePipelinesOrder() {
         func frame(selected: CGFloat?, trail: CGFloat?, detections: [(CGFloat, Bool)]) -> VideoProcessor.FrameEvidence {
             VideoProcessor.FrameEvidence(
@@ -162,6 +162,10 @@ final class DeciderRetuneTests: XCTestCase {
         XCTAssertEqual(EvidenceReplayer.ballHeight(frame(selected: nil, trail: 0.7, detections: [(0.3, false)])), 0.7, "then the trail point")
         XCTAssertEqual(EvidenceReplayer.ballHeight(frame(selected: nil, trail: nil, detections: [(0.3, false), (0.88, false), (0.95, true)]))!, 0.88, accuracy: 1e-9, "then the highest on-court detection")
         XCTAssertNil(EvidenceReplayer.ballHeight(frame(selected: nil, trail: nil, detections: [(0.95, true)])), "an off-court detection is not the ball")
+        // A retained lock: the candidate is still marked selected but the pipeline had no active track (no trail
+        // point) and read the highest on-court detection — the selected height must not be used (Codex finding).
+        XCTAssertEqual(EvidenceReplayer.ballHeight(frame(selected: 0.9, trail: nil, detections: [(0.3, false), (0.6, false)]))!, 0.6, accuracy: 1e-9)
+        XCTAssertNil(EvidenceReplayer.ballHeight(frame(selected: 0.9, trail: nil, detections: [])), "retained lock, no detection: nothing, as the pipeline had")
     }
 
     func testPlanRoundTrips() throws {

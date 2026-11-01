@@ -40,13 +40,17 @@ enum EvidenceReplayer {
 
     /// The ball height the pipeline gives the decider (sky-ball grace) and the above-net rule, as near as
     /// the evidence allows: VideoProcessor uses the active track's last RAW position, else the highest
-    /// on-court detection. The evidence keeps the selected candidate's raw point when a detection was
-    /// associated this frame, the (smoothed) trail point otherwise, and every detection — so: the
-    /// selected point, else the trail point, else the highest on-court detection. Vision y, 1.0 = top.
+    /// on-court detection. The evidence's trail point is the active track's position, so it is set exactly
+    /// when the pipeline had an active track; then the selected candidate's raw point is that position
+    /// (the trail point itself when no candidate is marked). A candidate stays marked selected while a
+    /// lock is only retained through the drop grace — gate-invalid, no active track, trail point nil —
+    /// and then the pipeline read the highest on-court detection, so this does too. Vision y, 1.0 = top.
     static func ballHeight(_ frame: VideoProcessor.FrameEvidence) -> CGFloat? {
+        guard let track = frame.trackPoint else {
+            return frame.detections.filter { !$0.isOffCourt }.map { $0.bbox.midY }.max()
+        }
         if let selected = frame.candidates.first(where: { $0.isSelected }) { return selected.point.y }
-        if let track = frame.trackPoint { return track.y }
-        return frame.detections.filter { !$0.isOffCourt }.map { $0.bbox.midY }.max()
+        return track.y
     }
 
     /// `decidedRanges`, with the serve each rally started on.
