@@ -121,6 +121,10 @@ enum DeciderRetune {
     struct Account: Codable, Equatable {
         var rallies = 0, preserved = 0, clipped = 0, merged = 0, split = 0, partial = 0, missed = 0
         var clips = 0, falseClips = 0
+        /// Marks closed with N (a serve nothing followed: into the net, long, wide): in the classes above like
+        /// every mark, and counted here on their own — a one-second flight is under the decider's shortest rally
+        /// and the shortest clip, so the pipeline misses most by design.
+        var missedServeMarks = 0, missedServeMarksMissed = 0
         var rallyTime = 0.0, covered = 0.0, deadTime = 0.0
         /// Delivered clip − marked rally, over one-to-one matches (IoU ≥ 0.3).
         var startErrors: [Double] = [], endErrors: [Double] = []
@@ -131,6 +135,7 @@ enum DeciderRetune {
             Account(rallies: a.rallies + b.rallies, preserved: a.preserved + b.preserved, clipped: a.clipped + b.clipped,
                     merged: a.merged + b.merged, split: a.split + b.split, partial: a.partial + b.partial, missed: a.missed + b.missed,
                     clips: a.clips + b.clips, falseClips: a.falseClips + b.falseClips,
+                    missedServeMarks: a.missedServeMarks + b.missedServeMarks, missedServeMarksMissed: a.missedServeMarksMissed + b.missedServeMarksMissed,
                     rallyTime: a.rallyTime + b.rallyTime, covered: a.covered + b.covered, deadTime: a.deadTime + b.deadTime,
                     startErrors: a.startErrors + b.startErrors, endErrors: a.endErrors + b.endErrors,
                     rawStartErrors: a.rawStartErrors + b.rawStartErrors, rawEndErrors: a.rawEndErrors + b.rawEndErrors)
@@ -151,8 +156,9 @@ enum DeciderRetune {
         }
     }
 
-    /// The accounting of one video: `clips` delivered (padded, joined), `raw` the unpadded decision, `truth` the marks.
-    static func account(clips: [Interval], raw: [Interval], truth: [Interval], preservedShare: Double) -> Account {
+    /// The accounting of one video: `clips` delivered (padded, joined), `raw` their raw decided spans, `truth` the
+    /// marks, `kinds` each mark's kind in the same order (nil when the mark has none).
+    static func account(clips: [Interval], raw: [Interval], truth: [Interval], kinds: [RallyKind?], preservedShare: Double) -> Account {
         var a = Account()
         a.rallies = truth.count
         a.clips = clips.count
@@ -167,9 +173,11 @@ enum DeciderRetune {
             for t in truth where coversMostOf(c, t) { covered += 1 }
             return covered >= 2
         }
-        for t in truth {
+        for (index, t) in truth.enumerated() {
             let length = max(0, t.end - t.start)
             a.rallyTime += length
+            let missedServeMark = index < kinds.count && kinds[index] == .missedServe
+            if missedServeMark { a.missedServeMarks += 1 }
             var inside = 0.0
             for c in clipUnion { inside += overlap(c, t) }
             a.covered += inside
@@ -180,6 +188,7 @@ enum DeciderRetune {
             }
             if touching == 0 {
                 a.missed += 1
+                if missedServeMark { a.missedServeMarksMissed += 1 }
             } else if mergingClips.contains(where: { coversMostOf($0, t) }) {
                 a.merged += 1
             } else if overHalfSecond >= 2 {
@@ -295,6 +304,14 @@ enum DeciderRetune {
         var groups: [String: String]            // video → group
         var splits: [String: String]            // video → manifest split
         var parityMismatches: [String]          // "<model> <video>" where the replay at committed settings differs from the pass
+        /// For each mismatch: the pass's own clips and the replay's, and the largest boundary difference (s).
+        var parityDetails: [ParityDetail]
+
+        struct ParityDetail: Codable {
+            var model: String, video: String
+            var pass: [[Double]], replay: [[Double]]
+            var maxBoundaryDifference: Double
+        }
         var gridRows: [GridRow]
         var chosen: Candidate?
         var conditions: [Condition]
@@ -304,7 +321,7 @@ enum DeciderRetune {
         struct GridRow: Codable { var candidate: Candidate; var tune: Account; var objective: Double }
 
         enum CodingKeys: String, CodingKey {
-            case plan, planSHA256, models, ledgerRefs, groups, splits, parityMismatches, gridRows, chosen, conditions, passesOnly, startedAt, finishedAt
+            case plan, planSHA256, models, ledgerRefs, groups, splits, parityMismatches, parityDetails, gridRows, chosen, conditions, passesOnly, startedAt, finishedAt
         }
     }
 
@@ -341,6 +358,14 @@ enum DeciderRetune {
         for n in pool where groups[n] == nil { log("❌ \(n) is not in the split manifest."); return false }
         var videos: [String: PipelineTuner.Video] = [:]
         for v in PipelineTuner.videos(pool, sampler: projects.sampler, log: log) { videos[v.session.name] = v }
+        // Each mark's kind, in the marks' order (the same file and order PipelineTuner.videos read the times from).
+        var kinds: [String: [RallyKind?]] = [:]
+        for v in videos.values {
+            let file = RallyMarkModel.labelsURL(for: URL(fileURLWithPath: v.session.sourcePath))
+            guard let data = try? Data(contentsOf: file), let marks = try? JSONDecoder().decode([RallyMarkRecord].self, from: data),
+                  marks.count == v.truth.count else { log("❌ \(v.session.name): the marks' kinds can't be read beside their times."); return false }
+            kinds[v.session.name] = marks.map(\.kind)
+        }
         let unmarked = pool.filter { videos[$0] == nil }
         guard unmarked.isEmpty else { log("❌ Not every rally is marked (or not in the project): \(unmarked.joined(separator: ", "))"); return false }
         log("Plan \(plan.id) (sha256 \(planSHA.prefix(16))): tune \(plan.tune.count) recordings in \(Set(plan.tune.compactMap { groups[$0] }).count) groups · eval \(plan.eval.count) in \(Set(plan.eval.compactMap { groups[$0] }).count) groups · \(candidates(plan.grid).count) candidates")
@@ -381,6 +406,7 @@ enum DeciderRetune {
         try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
         var passes: [String: [String: PipelineTuner.Pass]] = [:]   // model → video → pass
         var mismatches: [String] = []
+        var details: [Report.ParityDetail] = []
         for name in [plan.candidateModel, plan.baselineModel] {
             let config = configs[name]!
             let threshold = HeatmapBallDetector(modelURL: config.heatmapModel!).map { Double($0.threshold) } ?? 0.5
@@ -395,9 +421,15 @@ enum DeciderRetune {
                 passes[name, default: [:]][n] = p
                 // The replay at the committed settings must cut what the pass cut, or candidates measure something else.
                 let replayed = replay(evidence: p.evidence, duration: p.duration, config: config, minRallySec: plan.minRallySec).clips
-                if replayed.count != p.clips.count || zip(replayed, p.clips).contains(where: { abs($0.start - $1.start) > 0.2 || abs($0.end - $1.end) > 0.2 }) {
+                let largest = zip(replayed, p.clips).map { max(abs($0.start - $1.start), abs($0.end - $1.end)) }.max() ?? 0
+                if replayed.count != p.clips.count || largest > 0.2 {
                     mismatches.append("\(name) \(n)")
-                    log("  ⚠️ replay at the committed settings differs from the pass on \(n)")
+                    details.append(Report.ParityDetail(model: name, video: n, pass: p.clips.map { [$0.start, $0.end] },
+                                                       replay: replayed.map { [$0.start, $0.end] }, maxBoundaryDifference: largest))
+                    func list(_ c: [Interval]) -> String { c.map { String(format: "%.1f–%.1f", $0.start, $0.end) }.joined(separator: " ") }
+                    log("  ⚠️ replay at the committed settings differs from the pass on \(n): \(p.clips.count) vs \(replayed.count) clips, largest boundary difference \(String(format: "%.1f", largest)) s")
+                    log("     pipeline: \(list(p.clips))")
+                    log("     replay:   \(list(replayed))")
                 }
             }
         }
@@ -406,7 +438,7 @@ enum DeciderRetune {
             let p = passes[model]![video]!
             let config = candidate.apply(to: configs[model]!)
             let (clips, raw) = replay(evidence: p.evidence, duration: p.duration, config: config, minRallySec: plan.minRallySec)
-            return Self.account(clips: clips, raw: raw, truth: p.video.truth, preservedShare: plan.preservedShare)
+            return Self.account(clips: clips, raw: raw, truth: p.video.truth, kinds: kinds[video] ?? [], preservedShare: plan.preservedShare)
         }
         func condition(_ label: String, _ model: String, _ candidate: Candidate) -> Condition {
             Condition(label: label, model: model, candidate: candidate,
@@ -430,7 +462,7 @@ enum DeciderRetune {
         }
 
         let report = Report(plan: plan, planSHA256: planSHA, models: digests, ledgerRefs: refs, groups: groups.filter { pool.contains($0.key) },
-                            splits: splits.filter { pool.contains($0.key) }, parityMismatches: mismatches, gridRows: gridRows, chosen: chosen,
+                            splits: splits.filter { pool.contains($0.key) }, parityMismatches: mismatches, parityDetails: details, gridRows: gridRows, chosen: chosen,
                             conditions: conditions, passesOnly: passesOnly, startedAt: started, finishedAt: iso(Date()))
         do {
             try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
@@ -455,10 +487,10 @@ enum DeciderRetune {
     static func line(_ a: Account) -> String {
         func med(_ v: [Double]) -> String { Account.median(v).map { String(format: "%+.1f", $0) } ?? "—" }
         return "\(a.rallies) | \(a.preserved) | \(a.clipped) | \(a.merged) | \(a.split) | \(a.partial) | \(a.missed) | \(a.clips) | \(a.falseClips) | "
-            + String(format: "%.1f", a.rallies > 0 ? a.deadTime / Double(a.rallies) : 0) + " | \(med(a.startErrors)) / \(med(a.endErrors)) | \(med(a.rawStartErrors)) / \(med(a.rawEndErrors)) | \(a.within1s)"
+            + String(format: "%.1f", a.rallies > 0 ? a.deadTime / Double(a.rallies) : 0) + " | \(med(a.startErrors)) / \(med(a.endErrors)) | \(med(a.rawStartErrors)) / \(med(a.rawEndErrors)) | \(a.within1s) | \(a.missedServeMarks) (\(a.missedServeMarksMissed))"
     }
 
-    static let header = "| condition | rallies | preserved | clipped | merged | split | partial | missed | clips | false | dead s/rally | start/end (padded) | start/end (raw) | both within 1 s |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
+    static let header = "| condition | rallies | preserved | clipped | merged | split | partial | missed | clips | false | dead s/rally | start/end (padded) | start/end (raw) | both within 1 s | missed-serve marks (of them missed) |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
 
     static func markdown(_ r: Report, pool: [String]) -> String {
         var md: [String] = ["# Decider retune — \(r.plan.id)", "",
@@ -466,7 +498,14 @@ enum DeciderRetune {
         md.append("Models: " + r.models.map { "`\($0.key)` digest `\($0.value.prefix(16))…`" }.sorted().joined(separator: "; "))
         md.append("Ledger refs: " + r.ledgerRefs.sorted { $0.key < $1.key }.map { "\($0.key): " + $0.value.map { "`\($0)`" }.joined(separator: ", ") }.joined(separator: "; "))
         md.append("Tune: \(r.plan.tune.joined(separator: ", ")) · Eval: \(r.plan.eval.joined(separator: ", "))")
-        md.append("Replay parity at the committed settings: " + (r.parityMismatches.isEmpty ? "every pass matches its replay within 0.2 s" : "**mismatch on** \(r.parityMismatches.joined(separator: ", "))"))
+        md.append("Replay parity at the committed settings: " + (r.parityMismatches.isEmpty ? "every pass matches its replay within 0.2 s" : "**mismatch on \(r.parityMismatches.count) of \(r.conditions.first.map { $0.perVideo.count * 2 } ?? 0) passes** (details below)"))
+        if !r.parityDetails.isEmpty {
+            md.append(""); md.append("| model | recording | pipeline clips | replay clips | largest boundary difference |"); md.append("|---|---|---|---|---|")
+            func list(_ c: [[Double]]) -> String { c.map { String(format: "%.1f–%.1f", $0[0], $0[1]) }.joined(separator: " ") }
+            for d in r.parityDetails {
+                md.append("| \(d.model) | \(d.video) | \(list(d.pass)) | \(list(d.replay)) | \(String(format: "%.1f", d.maxBoundaryDifference)) s |")
+            }
+        }
         md.append("")
         md.append("Objective per rally = (preserved − \(r.plan.objective.mergedRallyCost) × merged − \(r.plan.objective.falseClipCost) × false clips) / rallies − \(r.plan.objective.deadTimeCost) × dead time / rally time; preserved = matched one-to-one with ≥ \(Int(r.plan.preservedShare * 100)) % inside the clips.")
         md.append("")

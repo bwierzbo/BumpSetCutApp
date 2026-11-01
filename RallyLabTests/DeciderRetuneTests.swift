@@ -20,7 +20,8 @@ final class DeciderRetuneTests: XCTestCase {
         // rally 5 split in two, rally 6 missed, plus a false clip and a clip that only grazes rally 1's tail.
         let truth = [iv(10, 20), iv(30, 40), iv(50, 60), iv(62, 72), iv(80, 90), iv(100, 110)]
         let clips = [iv(9, 21), iv(35, 40), iv(49, 73), iv(80, 84), iv(86, 90), iv(120, 125)]
-        let a = DeciderRetune.account(clips: clips, raw: [iv(11, 19)], truth: truth, preservedShare: 0.95)
+        // Rally 6 is a missed-serve mark (S then N): in the classes like any mark, and counted on its own.
+        let a = DeciderRetune.account(clips: clips, raw: [iv(11, 19)], truth: truth, kinds: [.rally, .rally, nil, .rally, .rally, .missedServe], preservedShare: 0.95)
         XCTAssertEqual(a.rallies, 6)
         XCTAssertEqual(a.preserved, 1)
         XCTAssertEqual(a.clipped, 1)
@@ -29,6 +30,7 @@ final class DeciderRetuneTests: XCTestCase {
         XCTAssertEqual(a.partial, 0)
         XCTAssertEqual(a.missed, 1)
         XCTAssertEqual(a.preserved + a.clipped + a.merged + a.split + a.partial + a.missed, a.rallies, "one class each")
+        XCTAssertEqual(a.missedServeMarks, 1); XCTAssertEqual(a.missedServeMarksMissed, 1)
         XCTAssertEqual(a.clips, 6)
         XCTAssertEqual(a.falseClips, 1)
         XCTAssertEqual(a.rallyTime, 60)
@@ -41,7 +43,8 @@ final class DeciderRetuneTests: XCTestCase {
         XCTAssertEqual(a.rawStartErrors, [1])
         XCTAssertEqual(a.rawEndErrors, [-1])
         // Partial: a clip touches a rally but matches nothing and merges nothing.
-        let b = DeciderRetune.account(clips: [iv(19, 23)], raw: [], truth: [iv(10, 20)], preservedShare: 0.95)
+        let b = DeciderRetune.account(clips: [iv(19, 23)], raw: [], truth: [iv(10, 20)], kinds: [.missedServe], preservedShare: 0.95)
+        XCTAssertEqual(b.missedServeMarks, 1); XCTAssertEqual(b.missedServeMarksMissed, 0, "touched, so not missed")
         XCTAssertEqual(b.partial, 1)
         XCTAssertEqual(b.falseClips, 0)
     }
@@ -139,6 +142,30 @@ final class DeciderRetuneTests: XCTestCase {
         XCTAssertEqual(two.clips.count, 2)
         XCTAssertEqual(two.raw.count, 2)
         if two.raw.count == 2 { XCTAssertEqual(two.raw[1].start, 16, accuracy: 0.5) }
+    }
+
+    /// The replayer feeds the decider the height the pipeline fed it, as near as the evidence allows: the
+    /// selected candidate's raw point while there is an active track (a trail point), else the trail point,
+    /// else — no active track, a retained lock included — the highest on-court detection.
+    func testBallHeightFollowsThePipelinesOrder() {
+        func frame(selected: CGFloat?, trail: CGFloat?, detections: [(CGFloat, Bool)]) -> VideoProcessor.FrameEvidence {
+            VideoProcessor.FrameEvidence(
+                time: 1, hasBall: true, isProjectile: true,
+                detections: detections.map { VideoProcessor.BallDetection(bbox: CGRect(x: 0.4, y: $0.0 - 0.02, width: 0.04, height: 0.04), confidence: 0.9, isOffCourt: $0.1) },
+                trackPoint: trail.map { CGPoint(x: 0.5, y: $0) }, rSquared: nil, gravitySignature: nil, movementType: nil, rejectionReason: nil,
+                candidates: selected.map { [VideoProcessor.TrackCandidate(id: UUID(), point: CGPoint(x: 0.5, y: $0), score: 1, isProjectile: true, isSelected: true,
+                                                                            isCourtExcluded: false, ballSize: 0.04, roiRadius: 0, rSquared: nil, gravitySignature: nil,
+                                                                            movementType: nil, rejectionReason: nil)] } ?? [],
+                detectedNet: nil)
+        }
+        XCTAssertEqual(EvidenceReplayer.ballHeight(frame(selected: 0.9, trail: 0.7, detections: [(0.3, false)])), 0.9, "the raw selected point first")
+        XCTAssertEqual(EvidenceReplayer.ballHeight(frame(selected: nil, trail: 0.7, detections: [(0.3, false)])), 0.7, "then the trail point")
+        XCTAssertEqual(EvidenceReplayer.ballHeight(frame(selected: nil, trail: nil, detections: [(0.3, false), (0.88, false), (0.95, true)]))!, 0.88, accuracy: 1e-9, "then the highest on-court detection")
+        XCTAssertNil(EvidenceReplayer.ballHeight(frame(selected: nil, trail: nil, detections: [(0.95, true)])), "an off-court detection is not the ball")
+        // A retained lock: the candidate is still marked selected but the pipeline had no active track (no trail
+        // point) and read the highest on-court detection — the selected height must not be used (Codex finding).
+        XCTAssertEqual(EvidenceReplayer.ballHeight(frame(selected: 0.9, trail: nil, detections: [(0.3, false), (0.6, false)]))!, 0.6, accuracy: 1e-9)
+        XCTAssertNil(EvidenceReplayer.ballHeight(frame(selected: 0.9, trail: nil, detections: [])), "retained lock, no detection: nothing, as the pipeline had")
     }
 
     func testPlanRoundTrips() throws {
