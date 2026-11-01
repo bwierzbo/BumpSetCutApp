@@ -19,10 +19,12 @@
 //  it (false clips are all dead time). Padding is the app's choice, not
 //  searched.
 //
-//  The videos are split (pipeline_tuning/validation.json): settings are
-//  searched on "tune" only, and "holdout" says whether they're better on
-//  footage they weren't chosen on. Only videos with every rally marked
-//  count. Nothing is applied: the report says what to change.
+//  The videos are pipeline_tuning/validation.json's "tune" list less any
+//  withheld recording (D-017; the file's "holdout" list is the legacy
+//  holdout — withheld, not a held-out set: owner, 2026-10-31). Settings are
+//  searched and reported on them; a held-out evaluation is --retune-decider's,
+//  from a plan. Only videos with every rally marked count. Nothing is
+//  applied: the report says what to change.
 //
 //  Headless: RallyLab --project <name> --tune-pipeline [--replay-only] [--rounds n]
 //
@@ -180,7 +182,6 @@ enum PipelineTuner {
     struct Video {
         let session: VideoSession
         let truth: [Interval]
-        var surface: String { String(session.name.prefix(3)) }
     }
 
     /// A video run with one detection setting: what the replay needs.
@@ -363,6 +364,24 @@ enum PipelineTuner {
         }
     }
 
+    /// The recordings --tune-pipeline and --serve-report may use: validation.json's `tune` list, in its order (owner,
+    /// 2026-10-31 §2). A listed name that is reserved (final test, D-002) stops the run — fix the file; a name in the
+    /// withheld closure (the lineage holdout, the legacy `holdout` list and every alias, D-017) is left out with a line
+    /// saying so. The file's `holdout` list is not read as a pool: it is the legacy holdout's definition, which the
+    /// closure withholds, and its name in the file is history, not a role.
+    static func eligible(_ set: ValidationSet, reserved: Set<String>, withheld: Set<String>, log: (String) -> Void) -> [String]? {
+        let clash = (set.tune + set.holdout).filter { reserved.contains($0) }   // listed names and their aliases
+        guard clash.isEmpty else {
+            log("❌ Reserved final-test videos are also listed as tune/holdout: \(clash.joined(separator: ", ")). Fix validation.json (D-002).")
+            return nil
+        }
+        return set.tune.filter { name in
+            guard let why = ScoringExposure.refusal(name, reserved: reserved, withheld: withheld) else { return true }
+            log(why)
+            return false
+        }
+    }
+
     // MARK: - Run
 
     @MainActor
@@ -371,7 +390,7 @@ enum PipelineTuner {
         let cache = dir.appendingPathComponent("evidence", isDirectory: true)
         try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
         guard let set = ValidationSet.load(from: sampler.datasetRoot) else {
-            log("❌ No \(dir.lastPathComponent)/validation.json (lists the tune and holdout videos).")
+            log("❌ No \(dir.lastPathComponent)/validation.json (lists the tune videos).")
             return false
         }
         let reserved: Set<String>
@@ -379,13 +398,14 @@ enum PipelineTuner {
             log("❌ \(error.localizedDescription)")
             return false
         }
-        let clash = (set.tune + set.holdout).filter { reserved.contains($0) }   // listed names and their aliases
-        guard clash.isEmpty else {
-            log("❌ Reserved final-test videos are also listed as tune/holdout: \(clash.joined(separator: ", ")). Fix validation.json (D-002).")
+        let withheld: Set<String>
+        do { withheld = try ReservedVideos.lineageWithheldNames(in: sampler.datasetRoot) } catch {
+            log("❌ \(error.localizedDescription)")
             return false
         }
-        let tune = videos(set.tune, sampler: sampler, log: log), holdout = videos(set.holdout, sampler: sampler, log: log)
-        log("Tune: \(tune.count) of \(set.tune.count) videos · holdout: \(holdout.count) of \(set.holdout.count)")
+        guard let names = eligible(set, reserved: reserved, withheld: withheld, log: log) else { return false }
+        let tune = videos(names, sampler: sampler, log: log)
+        log("Tune: \(tune.count) of \(names.count) eligible videos — searched on and reported on; nothing is held out here (a held-out evaluation is --retune-decider's, from a plan)")
         guard tune.count >= 2 else { log("❌ Mark every rally in at least 2 tune videos first."); return false }
         // Logged before the first pass, so a run that is quit or crashes is still on record (D-002).
         let formatter = DateFormatter()
@@ -394,7 +414,6 @@ enum PipelineTuner {
         let reportName = "report-\(stamp).md"
         do {
             try ExposureLog.record(videos: Set(tune.map(\.session.name)), kind: .pipelineTune, ref: reportName, note: "settings searched on", in: sampler.datasetRoot)
-            try ExposureLog.record(videos: Set(holdout.map(\.session.name)), kind: .pipelineHoldout, ref: reportName, note: "reported, not searched on", in: sampler.datasetRoot)
         } catch {
             log("❌ \(error.localizedDescription)")
             return false
@@ -465,37 +484,15 @@ enum PipelineTuner {
             }
         }
 
-        // Holdout: the settings found, against today's, on videos they weren't chosen on.
-        log("Holdout…")
-        var holdoutNow = Score(), holdoutBest = Score()
-        var bySurface: [String: (now: Score, best: Score)] = [:]
-        let keyNow = detectionKey(base, knobs: detection), keyBest = detectionKey(best.best, knobs: detection)
-        for v in holdout {
-            guard let pNow = await pass(v, base, key: keyNow, cache: cache),
-                  let pBest = await pass(v, best.best, key: keyBest, cache: cache) else { log("  ⚠️ \(v.session.name): couldn't process"); continue }
-            let a = score([pNow], base), b = score([pBest], best.best)
-            holdoutNow = holdoutNow + a
-            holdoutBest = holdoutBest + b
-            let s = bySurface[v.surface] ?? (Score(), Score())
-            bySurface[v.surface] = (s.now + a, s.best + b)
-        }
-
         var report: [String] = ["# Pipeline tuning — \(sampler.datasetRoot.lastPathComponent), \(Date().formatted(date: .abbreviated, time: .shortened))", ""]
         report.append("Score = share of rally time inside clips − \(deadTimeCost) × dead time ÷ rally time (padded clips, as users get them).")
         report.append("Tune videos: \(tune.map(\.session.name).joined(separator: ", "))")
-        report.append("Holdout videos: \(holdout.map(\.session.name).joined(separator: ", "))")
+        report.append("Held out: none — validation.json's holdout list is the legacy holdout, withheld (D-017; owner, 2026-10-31); a held-out evaluation is --retune-decider's, from a plan")
         report.append("Detection passes run: \(passCount)")
         report.append("")
         report.append("## Tune")
         report.append("- today's settings: \(currentScore.line)")
         report.append("- found: \(best.score.line)")
-        report.append("")
-        report.append("## Holdout (not searched on)")
-        report.append("- today's settings: \(holdoutNow.line)")
-        report.append("- found: \(holdoutBest.line)")
-        for (surface, s) in bySurface.sorted(by: { $0.key < $1.key }) {
-            report.append("  - \(surface): today \(String(format: "%.3f", s.now.value)) → found \(String(format: "%.3f", s.best.value)) (\(s.best.rallies) rallies)")
-        }
         report.append("")
         report.append("## Changes (nothing applied)")
         var changes = 0
