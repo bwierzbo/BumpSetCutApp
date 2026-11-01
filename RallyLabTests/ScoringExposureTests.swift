@@ -115,6 +115,22 @@ final class ScoringExposureTests: XCTestCase {
         XCTAssertFalse(ref.contains("heat="))
     }
 
+    func testARetrospectiveRowCarriesTheLiveRefAndALateNoteOnce() throws {
+        let config = heatConfig(try model("m", bytes: "w"))
+        let ref = try ScoringExposure.ref(command: "--score-rallies", config: config)
+        let note = ScoringExposure.retrospectiveNote(ran: "2026-10-31T03:19:01Z–06:17:01Z", why: "dropped as a duplicate of the 2026-10-30 row",
+                                                     config: config, now: Date(timeIntervalSince1970: 1_793_494_800))   // 2026-11-01T01:00Z
+        XCTAssertTrue(note.hasPrefix("retrospective: the pass ran 2026-10-31T03:19:01Z–06:17:01Z; dropped as a duplicate of the 2026-10-30 row; "
+                                     + "row added 2026-11-01; multi-frame m only; "), note)
+        XCTAssertTrue(note.hasSuffix(ScoringExposure.note(config: config)), "the settings note the row would have carried")
+        // Written twice, one row; the live pass later carries the same identity — one use, not two.
+        try ExposureLog.record(videos: ["bch_a"], kind: .rallyScoring, ref: ref, note: note, in: root)
+        try ExposureLog.record(videos: ["bch_a"], kind: .rallyScoring, ref: ref, note: note, in: root)
+        try ExposureLog.record(videos: ["bch_a"], kind: .rallyScoring, ref: ref, note: ScoringExposure.note(config: config), in: root)
+        let rows = try ExposureLog.readStrict(in: root)
+        XCTAssertEqual(rows.map(\.note), [note])
+    }
+
     func testAModelThatCannotBeDigestedStopsTheRun() {
         let missing = root.appendingPathComponent("gone.mlpackage")
         XCTAssertThrowsError(try ScoringExposure.ref(command: "--score-rallies", config: heatConfig(missing))) { error in

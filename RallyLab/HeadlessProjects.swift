@@ -97,6 +97,10 @@
 //    RallyLab --project v3 --score-rallies [clip…] [--rotate] [--heat <multi-frame model> [--heat-only]]
 //             (rally cutting vs your rally times; default: every fully marked video, YOLO only)
 //             [--heat-hop n]   (multi-frame model runs every n frames; default 5)
+//    RallyLab --project v3 --backfill-scoring-exposure <clip>… --ran <when> --why <text> [--rotate] [--heat <model> [--heat-only]] [--heat-hop n]
+//             (the rally_scoring row for a --score-rallies pass that ran before rows named the model and was dropped as a
+//             duplicate: the ref the command computes today for the same settings, a note saying when the pass ran and
+//             that the row came later; nothing processed, nothing refused — a row can only make a recording less unseen)
 //    RallyLab --project v3 --render-pipeline <clip> <start s> <length s> [<start s> <length s>…] [--heat <model> [--heat-only]] [--rotate]
 //             (those stretches with the pipeline's overlay → ~/Movies/RallyLab/Renders)
 //    RallyLab --project v3 --diagnose-rallies <clip>… [--rotate] [--ball-model <name>]   (what the pipeline saw in each marked rally)
@@ -384,6 +388,35 @@ enum HeadlessProjects {
                     RallyCutScore.diagnose(v, log: log)
                 }
             }
+            if ok, let i = args.firstIndex(of: "--backfill-scoring-exposure") {
+                // A --score-rallies pass the ledger dropped as a duplicate before rows named the model (owner,
+                // 2026-10-31 §3) gets its row afterwards: the ref the command computes today for the same settings,
+                // and a note that says when the pass ran and that the row came later. Nothing is processed. A
+                // recording withheld or reserved now is not refused — the pass already happened, and a row can only
+                // make a recording less unseen, never more — but it is said.
+                let named = Array(args[(i + 1)...].prefix { !$0.hasPrefix("--") })
+                guard !named.isEmpty, let ran = value(after: "--ran", in: args), let why = value(after: "--why", in: args) else {
+                    log("usage: --backfill-scoring-exposure <clip>… --ran <when the pass ran> --why <why the row is late> [--rotate] [--heat <model> [--heat-only]] [--heat-hop n]")
+                    exit(2)
+                }
+                let config = scoringConfig(args: args, library: library)
+                let before: Int
+                do { before = try ExposureLog.readStrict(in: projectRoot).count } catch { log("❌ \(error.localizedDescription)"); exit(1) }
+                for clip in named {
+                    guard let session = projects.sampler.sessions.first(where: { $0.name == clip }) else { log("❌ No clip \(clip)"); ok = false; break }
+                    if ScoringExposure.refusal(clip, reserved: reserved, withheld: withheld) != nil {
+                        log("⚠️ \(clip) is reserved or withheld now; the pass still ran, so its row is written.")
+                    }
+                    let effective = config.withCamera(of: session)
+                    guard let ref = scoringRef("--score-rallies", effective),
+                          recorded([session.name], .rallyScoring, ref: ref,
+                                   note: ScoringExposure.retrospectiveNote(ran: ran, why: why, config: effective), in: projectRoot) else { ok = false; break }
+                    log("\(session.name): \(ref)")
+                }
+                if ok, let after = try? ExposureLog.readStrict(in: projectRoot).count {
+                    log("\(after - before) row(s) added for \(named.count) recording(s); \(named.count - (after - before)) already had this identity.")
+                }
+            }
             if ok, let i = args.firstIndex(of: "--score-rallies") {
                 let named = args[(i + 1)...].prefix { !$0.hasPrefix("--") }
                 for n in named { if let why = ScoringExposure.refusal(n, reserved: reserved, withheld: withheld) { log(why) } }
@@ -391,20 +424,7 @@ enum HeadlessProjects {
                     (named.isEmpty ? ($0.ralliesMarked ?? false) : named.contains($0.name))
                         && ScoringExposure.refusal($0.name, reserved: reserved, withheld: withheld) == nil
                 }
-                var config = ProcessorConfig()
-                config.applyVideoRotation = args.contains("--rotate")
-                log("rotation \(config.applyVideoRotation ? "applied" : "not applied")")
-                if let key = value(after: "--heat", in: args) {
-                    config.heatmapModel = heatModel(key, in: library)
-                    config.heatmapOnly = args.contains("--heat-only")
-                    if let hop = value(after: "--heat-hop", in: args).flatMap(Int.init) { config.heatmapHop = hop }
-                    log("ball finder: \(config.heatmapOnly ? "multi-frame only" : "YOLO + multi-frame") (\(key), window every \(config.heatmapHop) frames)")
-                } else {
-                    // ProcessorConfig's default is the app's (multi-frame only); say YOLO outright.
-                    config.heatmapModel = nil
-                    config.heatmapOnly = false
-                    log("ball finder: YOLO only")
-                }
+                let config = scoringConfig(args: args, library: library)
                 // Exposure is recorded before the first pipeline runs, so an interrupted run is still on record (D-002);
                 // each row names the model and the settings the recording is actually processed with (its camera
                 // position applied), so another model's pass, or another camera reading, is another row.
@@ -1222,6 +1242,28 @@ enum HeadlessProjects {
     }
 
     /// A multi-frame model by name or path; exits when there's none.
+    /// --score-rallies' settings from its arguments (--rotate; --heat <model> [--heat-only] [--heat-hop n], else YOLO
+    /// only), said aloud. --backfill-scoring-exposure reads the same ones, so a row added later names the run as the
+    /// command would have.
+    @MainActor
+    private static func scoringConfig(args: [String], library: ModelLibrary) -> ProcessorConfig {
+        var config = ProcessorConfig()
+        config.applyVideoRotation = args.contains("--rotate")
+        log("rotation \(config.applyVideoRotation ? "applied" : "not applied")")
+        if let key = value(after: "--heat", in: args) {
+            config.heatmapModel = heatModel(key, in: library)
+            config.heatmapOnly = args.contains("--heat-only")
+            if let hop = value(after: "--heat-hop", in: args).flatMap(Int.init) { config.heatmapHop = hop }
+            log("ball finder: \(config.heatmapOnly ? "multi-frame only" : "YOLO + multi-frame") (\(key), window every \(config.heatmapHop) frames)")
+        } else {
+            // ProcessorConfig's default is the app's (multi-frame only); say YOLO outright.
+            config.heatmapModel = nil
+            config.heatmapOnly = false
+            log("ball finder: YOLO only")
+        }
+        return config
+    }
+
     @MainActor
     private static func heatModel(_ key: String, in library: ModelLibrary) -> URL {
         library.heatmaps.reload()
