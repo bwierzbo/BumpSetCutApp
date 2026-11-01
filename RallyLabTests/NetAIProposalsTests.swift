@@ -20,10 +20,10 @@ extension NetLabelsTests {
                                            bottomRight: .init(x: 0.88, y: 0.41), bottomLeft: .init(x: 0.14, y: 0.44))
 
     private static func aiProposal(_ outcome: NetAIProposal.Outcome = .proposed, fingerprint: String = "fp-a", time: Double = 42,
-                                   width: Int = 64, height: Int = 36) -> NetAIProposal {
+                                   width: Int = 64, height: Int = 36, sha: String = "sha") -> NetAIProposal {
         NetAIProposal(outcome: outcome, corners: outcome == .proposed ? aiCorners : nil, confidence: outcome == .proposed ? .uncertain : nil,
                       uncertainty: outcome == .proposed ? "right post behind a player" : "net out of frame",
-                      time: time, frameWidth: width, frameHeight: height, imageSHA256: "sha", fingerprint: fingerprint,
+                      time: time, frameWidth: width, frameHeight: height, imageSHA256: sha, fingerprint: fingerprint,
                       model: "claude-test", run: "run-1", exposureRecordedAt: Date(timeIntervalSince1970: 1_800_000_000),
                       importedAt: Date(timeIntervalSince1970: 1_800_000_100))
     }
@@ -230,6 +230,65 @@ extension NetLabelsTests {
         XCTAssertEqual(recorded, ["d_next"])
         XCTAssertTrue(model.confirm())
         XCTAssertEqual(try store.load()["d_next"]?.proposalSource, NetLabels.oldModelSource)
+    }
+
+    /// The share can take minutes per frame, and every proposal's frame is already on this Mac in
+    /// its run's folder: the tab shows it from there (its hash checked), never decodes it again, and
+    /// the read-ahead spends the share on the recordings that have no such frame. A frame that is not
+    /// the proposal's (another run, another hash, or changed on disk) is read from the video as before.
+    @MainActor
+    func testAProposalsOwnFrameOpensFromThisMacAndAChangedOneIsReadFromTheVideo() async throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let run = dir.appendingPathComponent("net-ai/run-a", isDirectory: true)
+        try FileManager.default.createDirectory(at: run.appendingPathComponent("frames"), withIntermediateDirectories: true)
+        var frames: [NetAIPilot.Frame] = []
+        var proposals: [String: NetAIProposal] = [:]
+        for video in ["a_saved", "b_changed", "c_otherrun"] {
+            let url = run.appendingPathComponent("frames/\(video).jpg")
+            try NetLabels.writeJPEG(try ScriptedFootage.image(), to: url)
+            let sha = try XCTUnwrap(DatasetSplitManifest.sha256(of: url))
+            frames.append(NetAIPilot.Frame(video: video, clip: video, camera: "Tripod / corner", surface: "beach", time: 42,
+                                           width: 64, height: 36, fingerprint: "fp-a", image: "frames/\(video).jpg", imageSHA256: sha))
+            proposals[video] = Self.aiProposal(sha: sha)
+        }
+        proposals["c_otherrun"]?.run = "run-2"
+        let manifest = NetAIPilot.Manifest(project: "P", run: "run-1", model: "claude-test", createdAt: Date(), withheldCount: 0,
+                                           eligibleCount: 3, frames: frames, note: "")
+        try NetAIPilot.encoder.encode(manifest).write(to: run.appendingPathComponent(NetAIPilot.manifestName))
+
+        let index = NetAIPilot.proposalFrames(projectDir: dir, proposals: proposals)
+        XCTAssertEqual(Set(index.keys), ["a_saved", "b_changed"], "only frames the proposal itself was made on")
+        try Data("not the frame".utf8).write(to: run.appendingPathComponent("frames/b_changed.jpg"))
+
+        let footage = ScriptedFootage()
+        let model = NetLabelsModel(items: try ["a_saved", "b_changed", "c_otherrun", "d_none"].map { try item($0, in: dir) },
+                                   labels: [:], store: NetLabelStore(projectDir: dir), footage: footage, prefetchAhead: 8,
+                                   aiProposals: proposals, proposalFrames: index) { _, _ in }
+        await settle()
+        XCTAssertEqual(footage.frameCalls.map(\.0), ["c_otherrun.mp4", "d_none.mp4"],
+                       "the read-ahead leaves the frames on this Mac alone")
+
+        model.select("a_saved")
+        await settle()
+        XCTAssertEqual(footage.frameCalls.count, 2, "shown from this Mac: the video is not decoded")
+        XCTAssertEqual(model.frameTime, 42)
+        XCTAssertEqual(model.frame?.width, 64)
+        XCTAssertEqual(model.quad, Self.aiCorners)
+        XCTAssertEqual(model.duration, 100, "the length still comes from the video, for stepping")
+        XCTAssertTrue(model.canConfirm)
+        XCTAssertTrue(model.confirm())
+        let saved = try XCTUnwrap(try NetLabelStore(projectDir: dir).load()["a_saved"])
+        XCTAssertEqual(saved.time, 42); XCTAssertEqual(saved.frameWidth, 64); XCTAssertEqual(saved.frameHeight, 36)
+        XCTAssertEqual(saved.proposalSource, "claude-test · run-1")
+
+        // Changed on disk since the run wrote it: read from the video, the proposal still shown on that frame.
+        XCTAssertNil(NetAIPilot.savedFrame(at: run.appendingPathComponent("frames/b_changed.jpg"), for: try XCTUnwrap(proposals["b_changed"])))
+        model.select("b_changed")
+        await settle()
+        XCTAssertEqual(footage.frameCalls.filter { $0.0 == "b_changed.mp4" }.count, 1, "its hash no longer matches: decoded from the video")
+        XCTAssertEqual(model.frameTime, 42)
+        XCTAssertEqual(model.quad, Self.aiCorners)
     }
 
     @MainActor
