@@ -38,6 +38,17 @@ enum EvidenceReplayer {
         decidedRallies(evidence: evidence, duration: duration, config: config, minRallySec: minRallySec, padded: padded).map(\.range)
     }
 
+    /// The ball height the pipeline gives the decider (sky-ball grace) and the above-net rule, as near as
+    /// the evidence allows: VideoProcessor uses the active track's last RAW position, else the highest
+    /// on-court detection. The evidence keeps the selected candidate's raw point when a detection was
+    /// associated this frame, the (smoothed) trail point otherwise, and every detection — so: the
+    /// selected point, else the trail point, else the highest on-court detection. Vision y, 1.0 = top.
+    static func ballHeight(_ frame: VideoProcessor.FrameEvidence) -> CGFloat? {
+        if let selected = frame.candidates.first(where: { $0.isSelected }) { return selected.point.y }
+        if let track = frame.trackPoint { return track.y }
+        return frame.detections.filter { !$0.isOffCourt }.map { $0.bbox.midY }.max()
+    }
+
     /// `decidedRanges`, with the serve each rally started on.
     static func decidedRallies(
         evidence: [VideoProcessor.FrameEvidence],
@@ -62,9 +73,8 @@ enum EvidenceReplayer {
             for serve in serves.add(.init(t: frame.time, balls: frame.detections.filter { !$0.isOffCourt }.map(\.bbox))) {
                 decider.noteServe(serve)
             }
-            // trackPoint is the ball's position (Vision y, 1.0 = top); drives sky-ball grace.
             let isActive = decider.update(hasBall: frame.hasBall, isProjectile: frame.isProjectile,
-                                          timestamp: t, ballY: frame.trackPoint?.y)
+                                          timestamp: t, ballY: ballHeight(frame))
             builder.observe(isActive: isActive, at: t, rallyStart: decider.rallyStart)
             if let serve = decider.rallyServe, startedServes.last?.contact != serve.contact { startedServes.append(serve) }
         }
@@ -105,10 +115,7 @@ enum EvidenceReplayer {
             let netTopY = net.box.maxY - cfg.aboveNetMarginY
             segs = segs.filter { seg in
                 let inRange = evidence.filter { $0.time >= seg.raw.start && $0.time <= seg.raw.end }
-                let ys: [CGFloat] = inRange.compactMap { (f) -> CGFloat? in
-                    if let y = f.trackPoint?.y { return y }
-                    return f.detections.filter { !$0.isOffCourt }.map { $0.bbox.midY }.max()
-                }
+                let ys: [CGFloat] = inRange.compactMap { ballHeight($0) }
                 return NetClearanceRule.rallyClearsNetTop(ySamples: ys, netTopY: netTopY,
                                                         arcProminence: cfg.aboveNetArcProminence)
             }
