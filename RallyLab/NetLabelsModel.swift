@@ -118,6 +118,9 @@ final class NetLabelsModel {
     /// reconfirm keeps where the corners started.
     private var labelSource: String?
     private var aiStore: NetAIProposalStore?
+    /// Each offered proposal's own frame on this Mac (`NetAIPilot.proposalFrames`): shown from
+    /// there at once, its hash checked, instead of decoded again from the share.
+    private var proposalFrames: [String: URL] = [:]
     /// The owner's exclusions (side views): net-exclusions.json. An excluded recording is skipped.
     private(set) var exclusions: [String: NetExclusion] = [:]
     private var exclusionStore: NetExclusionStore?
@@ -162,14 +165,14 @@ final class NetLabelsModel {
 
     /// For tests: a fixed list and store, no project; `exposure` stands in for the ledger.
     init(items: [Item], labels: [String: NetLabel], store: NetLabelStore, footage: any NetLabelFootage, prefetchAhead: Int = 0,
-         aiProposals: [String: NetAIProposal] = [:], aiStore: NetAIProposalStore? = nil,
+         aiProposals: [String: NetAIProposal] = [:], aiStore: NetAIProposalStore? = nil, proposalFrames: [String: URL] = [:],
          exclusions: [String: NetExclusion] = [:], exclusionStore: NetExclusionStore? = nil,
          exposure: @escaping NetProposalRecorder) {
         projects = nil
         self.footage = footage
         self.prefetchAhead = prefetchAhead
         recordProposal = exposure
-        install(items: items, labels: labels, store: store, aiProposals: aiProposals, aiStore: aiStore,
+        install(items: items, labels: labels, store: store, aiProposals: aiProposals, aiStore: aiStore, proposalFrames: proposalFrames,
                 exclusions: exclusions, exclusionStore: exclusionStore)
     }
 
@@ -243,6 +246,7 @@ final class NetLabelsModel {
             }
         }
         install(items: items, labels: labels, store: store, aiProposals: aiProposals, aiStore: aiStore,
+                proposalFrames: NetAIPilot.proposalFrames(projectDir: dir, proposals: aiProposals),
                 exclusions: exclusions, exclusionStore: exclusionStore)
     }
 
@@ -254,19 +258,20 @@ final class NetLabelsModel {
         inventory += 1
         prefetched = [:]; prefetching = nil
         decodeSerial += 1
-        items = []; labels = [:]; aiProposals = [:]; aiStore = nil; exclusions = [:]; exclusionStore = nil; selected = nil; frame = nil; frameTime = nil; quad = nil; proposal = nil; shownAI = nil; labelSource = nil; blocked = nil
+        items = []; labels = [:]; aiProposals = [:]; aiStore = nil; proposalFrames = [:]; exclusions = [:]; exclusionStore = nil; selected = nil; frame = nil; frameTime = nil; quad = nil; proposal = nil; shownAI = nil; labelSource = nil; blocked = nil
     }
 
     /// A new inventory of recordings and their labels, replacing whatever was listed; reads
     /// in flight for the old one land nowhere, even for a recording of the same name.
     func install(items: [Item], labels: [String: NetLabel], store: NetLabelStore,
-                 aiProposals: [String: NetAIProposal] = [:], aiStore: NetAIProposalStore? = nil,
+                 aiProposals: [String: NetAIProposal] = [:], aiStore: NetAIProposalStore? = nil, proposalFrames: [String: URL] = [:],
                  exclusions: [String: NetExclusion] = [:], exclusionStore: NetExclusionStore? = nil) {
         clear()
         self.store = store
         self.labels = labels
         self.aiProposals = aiProposals
         self.aiStore = aiStore
+        self.proposalFrames = proposalFrames
         self.exclusions = exclusions
         self.exclusionStore = exclusionStore
         let fingerprints = Dictionary(items.map { ($0.video, $0.fingerprint) }, uniquingKeysWith: { a, _ in a })
@@ -287,6 +292,12 @@ final class NetLabelsModel {
         return ai
     }
 
+    /// The offered proposal and where its own frame lies on this Mac, if it does.
+    private func savedFrame(_ item: Item) -> (ai: NetAIProposal, url: URL)? {
+        guard let ai = offeredAI(item), let url = proposalFrames[item.video] else { return nil }
+        return (ai, url)
+    }
+
     /// The recordings still to label after the selection (wrapping round), in list order.
     private func upcoming() -> [Item] {
         let todo = items.filter { $0.skip == nil && !$0.labeled && !$0.boxOnly }
@@ -301,7 +312,8 @@ final class NetLabelsModel {
     /// the read-ahead before their own reads and start it again once the frame is up.
     private func prefetch() {
         guard prefetchAhead > 0 else { return }
-        let window = Array(upcoming().prefix(prefetchAhead))
+        // A recording whose proposal frame is on this Mac opens from there; the share is left to the others.
+        let window = Array(upcoming().filter { savedFrame($0) == nil }.prefix(prefetchAhead))
         let keep = Set(window.map(\.video)).union(selected.map { [$0] } ?? [])
         prefetched = prefetched.filter { keep.contains($0.key) }
         let todo = window.filter { prefetched[$0.video] == nil }
@@ -378,6 +390,19 @@ final class NetLabelsModel {
             frameTime = ready.time
             status = present(on: ready.frame, for: item)
             if item.stale { status += " (The label on file is another recording's and is replaced when you confirm.)" }
+            return
+        }
+        if !item.labeled, !item.boxOnly, let saved = savedFrame(item),
+           let image = await Task.detached(priority: .userInitiated, operation: { NetAIPilot.savedFrame(at: saved.url, for: saved.ai) }).value {
+            let ai = saved.ai
+            // The proposal's own frame, on this Mac and unchanged: on screen without touching the share.
+            guard !Task.isCancelled, selected == item.video else { return }
+            time = ai.time
+            frame = image
+            frameTime = ai.time
+            status = present(on: image, for: item)
+            if item.stale { status += " (The label on file is another recording's and is replaced when you confirm.)" }
+            readDuration(of: item)
             return
         }
         let readable = await footage.isReadable(item.url)
@@ -467,6 +492,18 @@ final class NetLabelsModel {
         quad = NetQuad(rect: best.rect)
         proposed = true
         return "\(item.video): the old model's box, \(String(format: "%.2f", best.confidence)) — drag its corners onto the net's corners and confirm, or draw your own."
+    }
+
+    /// The recording's length, for stepping to another frame, read from the share after a saved
+    /// frame is already up: neither Confirm nor the read-ahead waits for it.
+    private func readDuration(of item: Item) {
+        let inventory = inventory
+        Task {
+            guard await footage.isReadable(item.url) else { return }
+            let dur = await footage.duration(of: item.url)
+            guard inventory == self.inventory, selected == item.video, duration == 0 else { return }
+            duration = dur
+        }
     }
 
     /// Decode the frame at `t`; it goes on screen only if no later request superseded it.

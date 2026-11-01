@@ -26,6 +26,7 @@
 
 import CoreGraphics
 import Foundation
+import ImageIO
 
 /// A model's proposal of a recording's net corners, on one frame.
 struct NetAIProposal: Codable, Equatable {
@@ -223,6 +224,39 @@ enum NetAIPilot {
         let final = manifest()
         try encoder.encode(final).write(to: dir.appendingPathComponent(manifestName), options: .atomic)
         return final
+    }
+
+    /// Where each proposal's own frame still lies on this Mac, in its run's folder
+    /// (`<project>/net-ai/<run folder>/`, as `writeFrames` left it): video → image file. A frame
+    /// is listed only when its manifest entry is the proposal's (run, time, size, fingerprint,
+    /// image hash); `savedFrame` checks the hash again when it reads it. This only spares the
+    /// tab a read of the share: a run folder that can't be read lists nothing, and the tab
+    /// decodes the video as before.
+    static func proposalFrames(projectDir: URL, proposals: [String: NetAIProposal]) -> [String: URL] {
+        let root = projectDir.appendingPathComponent("net-ai", isDirectory: true)
+        let runs = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
+        var found: [String: URL] = [:]
+        for dir in runs {
+            guard let data = try? Data(contentsOf: dir.appendingPathComponent(manifestName)),
+                  let manifest = try? decoder.decode(Manifest.self, from: data) else { continue }
+            for frame in manifest.frames {
+                guard let ai = proposals[frame.video], ai.run == manifest.run, ai.time == frame.time,
+                      ai.frameWidth == frame.width, ai.frameHeight == frame.height,
+                      ai.fingerprint == frame.fingerprint, ai.imageSHA256 == frame.imageSHA256 else { continue }
+                found[frame.video] = dir.appendingPathComponent(frame.image)
+            }
+        }
+        return found
+    }
+
+    /// The image at `url` when it is still the one `proposal` was made on (same SHA-256, same
+    /// size); nil otherwise, and the tab reads the video instead.
+    static func savedFrame(at url: URL, for proposal: NetAIProposal) -> CGImage? {
+        guard DatasetSplitManifest.sha256(of: url) == proposal.imageSHA256,
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+              image.width == proposal.frameWidth, image.height == proposal.frameHeight else { return nil }
+        return image
     }
 
     /// Check that `video`'s frame may be shown to the model now: in the pilot, not withheld,
