@@ -2,7 +2,7 @@
 id: EXP-20261031-l2-decider-retune
 status: done — need data (two of five acceptance bars failed on the evaluation pool); no production change; the owner decides the next plan
 created: 2026-10-31T18:39:45Z
-updated: 2026-11-01T05:24:42Z
+updated: 2026-11-01T05:44:08Z
 decision: owner decisions 2026-10-31 §2 (bounded L2 decider retune on eligible development tune data only) and §3 (model-specific scoring ledger rows, PR #120); D-002, D-017 honoured; D-001 (the FSM decider is the benchmark and fallback)
 roadmap_phase: L2 ship decision (PR #110 held)
 pr: feat/l2-decider-retune (stacked on PR #120)
@@ -92,20 +92,20 @@ Per pool, per surface, per recording group and per recording, for each condition
 
 ## 7. Results (run 2026-10-31 → 2026-11-01; search on the cached passes with the parity-fixed replayer)
 
-**Where.** `~/Movies/RallyLab/Reports/l2-retune-20261031/`: passes written by `run-passes.zsh` (`--passes-only`, started 2026-10-31T18:41Z, interrupted by a reboot at 21:27Z after 25 of 52 passes, resumed 21:36Z from the cache, finished 2026-11-01T00:28Z — the interrupted pass was re-run, none reused half-done); the search (`--retune-decider plan.json --out search`, 2026-11-01T00:32–00:51Z, 19 min for 144 candidates × 26 replays) from the build of `fix/replay-parity`. Plan sha256 in `search/report.json` = §3's `c0f9d3bac865dc42…`.
+**Where.** `~/Movies/RallyLab/Reports/l2-retune-20261031/`: passes written by `run-passes.zsh` (`--passes-only`, started 2026-10-31T18:41Z, interrupted by a reboot at 21:27Z after 25 of 52 passes, resumed 21:36Z from the cache, finished 2026-11-01T00:28Z — the interrupted pass was re-run, none reused half-done); the search (`--retune-decider plan.json --out search`, 2026-11-01T05:28:48Z–2026-11-01T05:43:44Z, 144 candidates × 26 replays) from the build of `fix/replay-parity` at `995e610`. Plan sha256 in `search/report.json` = §3's `c0f9d3bac865dc42…`.
 
 | file | sha256 |
 |---|---|
-| search/report.json | `652e9fb96a44783b70b319cd5b2bb1c4c5be1b9d99890f76d35dc5f5359c95c3` |
-| search/report.md | `662d25e5bcd8be5d5cc63e8fa7fa8f645bc3654291802f1dde9755558709d4fa` |
+| search/report.json | `9c5d3e4039e03f83e5f4e00d6f5f62aaeb09af62c8196fb16f14be5ac6e43629` |
+| search/report.md | `559b21c83e2b19c321647cdf655bb03b885adf17cca0e127a83217d05a427276` |
 | search/plan.json | `c0f9d3bac865dc422fcf2cbf7c551d13eca02e44396c7d33ed6a1d37851ce2ec` |
-| search.log | `d38277445a851f29911c012ab57b92657ac70eca1928676406d08761784917b9` |
+| search.log | `3c124c2ea7646a13093861d3896275c18948d8ba302cbc6653edaed8039d73a1` |
 | passes/report.json | `657febce564bc07df3d78199f78a831485e20eade91ad18f10f90ce7b0cfba1e` |
 | passes.log (resumed run) | `9ebf0cb23d4408a5dafbedb751ec3115316f0045c69b514734371a6729659a17` |
 | passes.log.1 (before the reboot) | `3de295e8527928725dbfdcc8df6c2fb163b8e31266b42ee70c8341e2df1c4fa5` |
 | run-passes.zsh | `74c81b9b38966048484ae5b6bb1f144e2646896416595274306ca678b2db1361` |
 
-**Replay parity, and the fix it needed.** The first search build flagged 19 of 52 passes (replay at the committed settings differing from the pass's own clips by more than 0.2 s). Reading the pipeline against the replayer found the cause without a run: `VideoProcessor` gives the decider's sky-ball grace and the above-net rule the active track's last *raw* height, else the highest on-court detection; `EvidenceReplayer` gave it the *smoothed* trail point and nothing without one, so the 2 s grace instead of the 0.4 s end timeout moved rally ends. `EvidenceReplayer.ballHeight` now reconstructs the pipeline's input from the evidence (selected candidate's raw point, else trail point, else highest on-court detection). With it: **1 of 52 passes** still differs — L1 on `bch_ele_ovc_land_self_02`, 17 pipeline clips vs 18 replayed, largest boundary difference 24.6 s (both clip lists in `search/report.md`); unexplained, carried as a caveat on that one recording. Every number below is a replay, the committed-settings rows included, so the three conditions are comparable with each other and with the pipeline on 51 of 52 passes.
+**Replay parity, and the fix it needed.** The first search build flagged 19 of 52 passes (replay at the committed settings differing from the pass's own clips by more than 0.2 s). Reading the pipeline against the replayer found the cause without a run: `VideoProcessor` gives the decider's sky-ball grace and the above-net rule the active track's last *raw* height, else the highest on-court detection; `EvidenceReplayer` gave it the *smoothed* trail point and nothing without one, so the 2 s grace instead of the 0.4 s end timeout moved rally ends. `EvidenceReplayer.ballHeight` now reconstructs the pipeline's input from the evidence: while there is an active track (a trail point) the selected candidate's raw point, else the trail point; with no active track — a lock retained through the drop grace included, whose candidate is still marked selected — the highest on-court detection, as the pipeline read. With it: **every pass matches** its replay within 0.2 s. Every number below is a replay, the committed-settings rows included, so the three conditions are comparable with each other and with the pipeline on 52 of 52 passes.
 
 ### Tune pool (settings chosen here; 9 recordings, 4 groups)
 
@@ -113,7 +113,7 @@ Per pool, per surface, per recording group and per recording, for each condition
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | L1 committed | 128 | 68 | 25 | 27 | 0 | 1 | 7 | 116 | 12 | 2.8 | -1.0 / +0.2 | +0.9 / -0.2 | 26 | 0 (0) | 0.3457 |
 | L2 committed | 128 | 61 | 25 | 35 | 0 | 1 | 6 | 111 | 11 | 2.9 | -1.0 / +0.2 | +0.9 / -0.2 | 21 | 0 (0) | 0.2588 |
-| L2 chosen (join 0, postroll 1.0, preroll 2.0, min clip 1.5) | 128 | 83 | 19 | 18 | 0 | 2 | 6 | 125 | 14 | 3.3 | -1.1 / +0.6 | +0.9 / -0.3 | 20 | 0 (0) | 0.4845 |
+| L2 chosen (join 0, postroll 1, preroll 2, min clip 1.5) | 128 | 83 | 19 | 18 | 0 | 2 | 6 | 125 | 14 | 3.3 | -1.1 / +0.6 | +0.9 / -0.3 | 20 | 0 (0) | 0.4845 |
 
 By surface (tune):
 
@@ -133,15 +133,15 @@ By surface (tune):
 
 | condition | rallies | preserved | clipped | merged | split | partial | missed | clips | false | dead s/rally | start/end padded | start/end raw | both ≤ 1 s | missed-serve marks (missed) | objective |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| L1 committed | 321 | 126 | 10 | 159 | 1 | 6 | 19 | 192 | 29 | 3.8 | -1.9 / +1.7 | +0.1 / +1.2 | 11 | 36 (8) | -0.0197 |
+| L1 committed | 321 | 127 | 10 | 159 | 0 | 6 | 19 | 191 | 29 | 3.8 | -1.9 / +1.7 | +0.1 / +1.2 | 11 | 36 (8) | -0.0166 |
 | L2 committed | 321 | 121 | 6 | 169 | 0 | 8 | 17 | 192 | 35 | 4.2 | -1.9 / +1.6 | +0.1 / +1.1 | 11 | 36 (7) | -0.0694 |
-| L2 chosen (join 0, postroll 1.0, preroll 2.0, min clip 1.5) | 321 | 137 | 5 | 150 | 2 | 10 | 17 | 230 | 48 | 4.4 | -1.9 / +2.1 | +0.0 / +1.1 | 5 | 36 (7) | -0.0094 |
+| L2 chosen (join 0, postroll 1, preroll 2, min clip 1.5) | 321 | 137 | 5 | 150 | 2 | 10 | 17 | 230 | 48 | 4.4 | -1.9 / +2.1 | +0.0 / +1.1 | 5 | 36 (7) | -0.0094 |
 
 By surface (eval):
 
 | condition | rallies | preserved | clipped | merged | split | partial | missed | clips | false | dead s/rally | start/end padded | start/end raw | both ≤ 1 s | missed-serve marks (missed) | objective |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| bch · L1 committed | 125 | 64 | 5 | 44 | 1 | 2 | 9 | 99 | 20 | 4.4 | -1.7 / +1.8 | +0.3 / +1.3 | 3 | 11 (3) | 0.1551 |
+| bch · L1 committed | 125 | 65 | 5 | 44 | 0 | 2 | 9 | 98 | 20 | 4.4 | -1.7 / +1.8 | +0.3 / +1.3 | 3 | 11 (3) | 0.1631 |
 | bch · L2 committed | 125 | 65 | 2 | 46 | 0 | 4 | 8 | 99 | 21 | 4.8 | -1.8 / +1.7 | +0.2 / +1.2 | 3 | 11 (3) | 0.1391 |
 | bch · L2 chosen | 125 | 72 | 3 | 37 | 0 | 5 | 8 | 113 | 28 | 5.2 | -1.8 / +2.1 | +0.2 / +1.2 | 2 | 11 (3) | 0.2039 |
 | grs · L1 committed | 93 | 24 | 0 | 68 | 0 | 1 | 0 | 32 | 2 | 3.2 | -2.1 / +1.7 | -0.1 / +1.2 | 1 | 8 (0) | -0.2534 |
@@ -155,9 +155,9 @@ By surface (eval):
 
 | bar | value | bar | met |
 |---|---|---|---|
-| preserved ≥ L1 | 137 | ≥ 126 | **yes** |
+| preserved ≥ L1 | 137 | ≥ 127 | **yes** |
 | merged ≤ L1 | 150 | ≤ 159 | **yes** |
-| false clips ≤ L1 + 2 | 48 | ≤ 31 | **no** (+19 over L1) |
+| false clips ≤ L1 + 2 | 48 | ≤ 31 | **no** |
 | dead time per rally ≤ 1.1 × L1 | 4.43 s | ≤ 4.19 s | **no** |
 | objective > L2 committed | -0.0094 | > -0.0694 | **yes** |
 
@@ -165,7 +165,7 @@ By recording group (evaluation pool; L1 committed → L2 chosen): **8 of 11 grou
 
 | group (recordings) | preserved | merged | false clips | missed |
 |---|---|---|---|---|
-| bch_ele_ovc_land_self_02 (5) | 39 → 44 | 42 → 37 | 12 → 16 | 6 → 5 |
+| bch_ele_ovc_land_self_02 (5) | 40 → 44 | 42 → 37 | 12 → 16 | 6 → 5 |
 | bch_ele_sun_land_self_01 (1) | 10 → 9 | 0 → 0 | 3 → 3 | 3 → 3 |
 | bch_ele_sun_port_self_03 (1) | 9 → 13 | 2 → 0 | 2 → 5 | 0 → 0 |
 | bch_gnd_ovc_land_self_01 (1) | 6 → 6 | 0 → 0 | 3 → 4 | 0 → 0 |
@@ -178,7 +178,7 @@ By recording group (evaluation pool; L1 committed → L2 chosen): **8 of 11 grou
 | ind_onl_bright_land_onl_01 (1) | 11 → 9 | 2 → 2 | 0 → 4 | 0 → 0 |
 
 ### The 449 marked rallies, each in one class (both pools)
-- L1 committed: 449 = preserved 194 + clipped 35 + merged 186 + split 1 + partial 7 + missed 26; of these, 36 are missed-serve marks (S then N), 8 of them missed; excluded: 0 (every mark of the 26 recordings is in a pool).
+- L1 committed: 449 = preserved 195 + clipped 35 + merged 186 + split 0 + partial 7 + missed 26; of these, 36 are missed-serve marks (S then N), 8 of them missed; excluded: 0 (every mark of the 26 recordings is in a pool).
 - L2 committed: 449 = preserved 182 + clipped 31 + merged 204 + split 0 + partial 9 + missed 23; of these, 36 are missed-serve marks (S then N), 7 of them missed; excluded: 0 (every mark of the 26 recordings is in a pool).
 - L2 chosen: 449 = preserved 220 + clipped 24 + merged 168 + split 2 + partial 12 + missed 23; of these, 36 are missed-serve marks (S then N), 7 of them missed; excluded: 0 (every mark of the 26 recordings is in a pool).
 
@@ -195,14 +195,14 @@ By recording group (evaluation pool; L1 committed → L2 chosen): **8 of 11 grou
 | join 0, postroll 0.5, preroll 1, min clip 2.6131 | 0.4486 | 70 | 6 | 16 | 2.1 |
 | join 0, postroll 0.5, preroll 1, min clip 1.5 | 0.4393 | 70 | 6 | 20 | 2.2 |
 
-The two best candidates tie exactly: `minSegmentLength` 1.5 and 2.6131 give identical clips with join 0 and postroll 1.0 (no delivered clip falls between 1.5 and 2.6 s), so the tie-break (earlier in grid order) named 1.5 — the committed 2.6131 is equally good and is what any change would keep. The committed settings are a grid point (preroll 2.0, postroll 0.5, join 1.3513, min clip 2.6131): objective on tune 0.2588, the L2-committed row above.
+The two best candidates tie exactly ({'minGapToMerge': 0, 'minSegmentLength': 1.5, 'postroll': 1, 'preroll': 2} and {'minGapToMerge': 0, 'minSegmentLength': 2.6131, 'postroll': 1, 'preroll': 2} give identical clips), so the tie-break (earlier in grid order) named the first; a change would keep the committed value of the knob that made no difference. The committed settings are a grid point (preroll 2.0, postroll 0.5, join 1.3513, min clip 2.6131): objective on tune 0.2588, the L2-committed row above.
 
 ## 8. Decision
 
-**Need data — no production change.** Three of five bars are met on the evaluation pool (preserved 137 vs 126, merged 150 vs 159, objective -0.0094 vs L2-committed -0.0694); two fail: **false clips 48 vs L1's 29** (bar 31) and **dead time per rally 4.43 s vs L1's 3.81 s** (bar 4.19). Joining nothing (join 0) and padding the end to 1.0 s buys the preservation and the fewer merges, and pays for them in clips that touch no rally and in dead time — on the tune pool too (false 12 → 14, dead 2.8 → 3.3 s), so the search was not misled by the pool: the objective's false-clip cost (0.25 of a rally) weighs false clips lighter than the acceptance bar (+2) does, and the two were written to disagree. That is a methodology finding: a next plan should price false clips in the objective at the bar's rate, or drop the bar.
+**Need data — no production change.** 3 of five bars are met on the evaluation pool; **false clips ≤ L1 + 2: 48 against ≤ 31**; **dead time per rally ≤ 1.1 × L1: 4.43 s against ≤ 4.19 s** fail. The chosen settings buy preservation and fewer merges and pay in clips that touch no rally and in dead time — on the tune pool too (false 12 → 14, dead 2.8 → 3.3 s), so the search was not misled by the pool: the objective's false-clip cost (0.25 of a rally) weighs false clips lighter than the acceptance bar (+2) does, and the two were written to disagree. That is a methodology finding: a next plan should price false clips in the objective at the bar's rate, or drop the bar.
 
 What the owner can decide with this: (a) keep PR #110 held and L1's committed settings as they are; (b) authorise a second plan on the same cached passes — candidates between the committed and the chosen settings (join 0.25–0.5 with postroll 0.5–0.75), or a second stage on `endTimeout`/`skyBallTimeout`, with the false-clip cost raised to match the bar — a replay-only run, minutes, no detector pass; (c) accept the trade-off explicitly (more preserved rallies and fewer merges for 19 more false clips over 17 recordings) as a product call, which this record does not make. Development evidence throughout: every recording is in both models' training packages and was scored in the diagnostic.
 
 ## 9. Test results
 
-`RallyLabTests/DeciderRetuneTests` 8/8 on `fix/replay-parity` (the 7 of PR #121 plus `testBallHeightFollowsThePipelinesOrder`; `testEveryRallyLandsInOneClass` extended with the missed-serve mark class); `ScoringExposureTests` 7/7 and `ReservationAndExposureTests` 28/28 on PR #120. Parity on the real passes: 51 of 52 within 0.2 s after the fix (19 of 52 before it).
+`RallyLabTests/DeciderRetuneTests` 8/8 on `fix/replay-parity` (the 7 of PR #121 plus `testBallHeightFollowsThePipelinesOrder`, with the retained-lock fixture; `testEveryRallyLandsInOneClass` extended with the missed-serve mark class); `ScoringExposureTests` 7/7 and `ReservationAndExposureTests` 28/28 on PR #120. Parity on the real passes: 52 of 52 within 0.2 s after the fix (19 of 52 before it).
