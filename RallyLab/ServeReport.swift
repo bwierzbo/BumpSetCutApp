@@ -2,9 +2,9 @@
 //  ServeReport.swift
 //  RallyLab
 //
-//  How well the serve is found (ServeDetector), against the validation
-//  videos' marked rallies (pipeline_tuning/validation.json, the tuner's
-//  cached evidence): for each marked rally, whether the clip the pipeline
+//  How well the serve is found (ServeDetector), against the tune videos'
+//  marked rallies (validation.json's tune list less any withheld recording,
+//  as the tuner reads it; the tuner's cached evidence): for each marked rally, whether the clip the pipeline
 //  cut around it has a serve, and how far that serve starts from the mark.
 //  Then what starting each clip at its serve (less a lead-in) would score,
 //  by the tuner's measure. Nothing is applied.
@@ -40,12 +40,13 @@ enum ServeReport {
             log("❌ \(error.localizedDescription)")
             return false
         }
-        let clash = (set.tune + set.holdout).filter { reserved.contains($0) }   // listed names and their aliases
-        guard clash.isEmpty else {
-            log("❌ Reserved final-test videos are also listed as tune/holdout: \(clash.joined(separator: ", ")). Fix validation.json (D-002).")
+        let withheld: Set<String>
+        do { withheld = try ReservedVideos.lineageWithheldNames(in: sampler.datasetRoot) } catch {
+            log("❌ \(error.localizedDescription)")
             return false
         }
-        let videos = PipelineTuner.videos(set.tune + set.holdout, sampler: sampler, log: log)
+        guard let names = PipelineTuner.eligible(set, reserved: reserved, withheld: withheld, log: log) else { return false }
+        let videos = PipelineTuner.videos(names, sampler: sampler, log: log)
         let base = PipelineTuner.Settings(config: ProcessorConfig())
         let threshold = base.config.heatmapModel.flatMap { HeatmapBallDetector(modelURL: $0) }.map { Double($0.threshold) } ?? 0.5
         let key = PipelineTuner.detectionKey(base, knobs: PipelineTuner.detectionKnobs(modelThreshold: threshold))

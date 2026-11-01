@@ -80,11 +80,12 @@
 //             --redo: track the pre-tracked ones again, e.g. after a better model; --val: val videos instead, a head
 //             start for the test set — every frame goes to review and only checked frames score)
 //    RallyLab --project v3 --tune-pipeline [--replay-only] [--rounds 2]   (search the pipeline's settings for the cuts
-//             closest to the marked rallies of pipeline_tuning/validation.json's videos; reports, applies nothing)
+//             closest to the marked rallies of validation.json's tune videos, less any withheld recording — the file's
+//             holdout list is the legacy holdout, withheld, not a held-out set (D-017; owner 2026-10-31); reports, applies nothing)
 //    RallyLab --project v3 --retune-decider <plan.json> --out <dir> [--passes-only]   (bounded decider retune for one
 //             detector from a frozen plan: passes cached, candidates replayed, chosen on the tune pool, replayed on eval)
-//    RallyLab --project v3 --serve-report [--verbose]    (the serve found in each marked rally of the validation
-//             videos, how far from the mark, and what starting clips at the serve would score)
+//    RallyLab --project v3 --serve-report [--verbose]    (the serve found in each marked rally of the tune videos, as
+//             --tune-pipeline reads them, how far from the mark, and what starting clips at the serve would score)
 //    RallyLab --project v3 --pretrack-check [--heat M]     (how right "sure" frames are, against val rallies people tracked)
 //    RallyLab --project v3 --add-heat <bring_back folder>  (convert + add a multi-frame model)
 //    RallyLab --project v3 --evaluate-heat [model name]    (score vs YOLO on the newest package)
