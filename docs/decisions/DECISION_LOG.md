@@ -342,7 +342,7 @@ The authoritative record of product, architecture, data and process decisions fo
 
 ### D-027
 
-**The legacy `holdout` list is not a held-out set: `--tune-pipeline` and `--serve-report` read validation.json's `tune` list less the withheld closure, and nothing else** — 2026-11-01 — proposed — owner (chat, 2026-11-01: "yes on those small PRs", to the question whether the tuner and serve report should stop treating the legacy holdout as a holdout; applies the owner's decision of 2026-10-31 §2: "Do not use the legacy holdout simply because the old PipelineTuner calls it a holdout").
+**The legacy `holdout` list is not a held-out set: `--tune-pipeline` and `--serve-report` read validation.json's `tune` list less the withheld closure, and nothing else** — 2026-11-01 — accepted — owner (chat, 2026-11-01: "yes on those small PRs", to the question whether the tuner and serve report should stop treating the legacy holdout as a holdout; applies the owner's decision of 2026-10-31 §2: "Do not use the legacy holdout simply because the old PipelineTuner calls it a holdout").
 
 **Context.** validation.json's `holdout` (5 recordings) was the pipeline tuner's held-out set from EXP-20261011-tune-pipeline-r1 on, recorded under `pipeline_tuning_holdout`. D-017 made those recordings part of the lineage-withheld closure (`ReservedVideos.lineageWithheldNames`), and the owner's decisions of 2026-10-31 ruled that the legacy holdout is not a holdout for any L2 decision. PR #120 applied the closure to the single-recording scoring commands and left `--tune-pipeline` and `--serve-report` reading the list, noting it as the owner's ruling to make.
 
@@ -352,3 +352,5 @@ The authoritative record of product, architecture, data and process decisions fo
 3. validation.json is unchanged: its `holdout` list stays as the legacy holdout's definition, which the closure withholds.
 
 **Consequences.** `PipelineTuner.run` and `ServeReport.run` read the withheld closure (fail closed) and use `eligible`; the tuner's Holdout section and its per-surface lines are gone; `TunerEligibilityTests`. Proposed until the owner merges the PR that carries it.
+
+**Status 2026-11-01.** Accepted: the owner authorised the merge of PR #126 ("go ahead and merge", chat, 2026-11-01, after Codex's clean review of 16154cb).
