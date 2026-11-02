@@ -40,6 +40,7 @@ The authoritative record of product, architecture, data and process decisions fo
 | [D-023](#d-023) | 2026-10-23 | accepted | L2 labels are people's only; unreviewed pre-tracked rallies excluded |
 | [D-024](#d-024) | 2026-10-23 | accepted | Progressive RallyLab rally review: full-video boundaries first, optional contacts second, player IDs later |
 | [D-025](#d-025) | 2026-10-24 | accepted | Amends D-022: a planned frame the decoder reproducibly cannot produce — an HEVC leading picture, and only that — is recorded in the journal and the summary and left out with every window that needed it, instead of stopping the export; every other failure stays fatal; plan and run identity unchanged; the three affected recordings stay in the package |
+| [D-029](#d-029) | 2026-11-02 | accepted | The L2 decider's rally-cutting tradeoff (EXP-20261031-l2-decider-retune / -r2 evaluation: preserved 137 vs 127, merged 150 vs 159, false clips 48 vs bar 31, dead time 4.43 vs bar 4.19 s/rally) is accepted temporarily as a product decision, not as meeting the acceptance criteria; the learned temporal rally classifier is the intended next research direction; #110, production defaults and deployment each need separate approval |
 
 ---
 
@@ -354,3 +355,31 @@ The authoritative record of product, architecture, data and process decisions fo
 **Consequences.** `PipelineTuner.run` and `ServeReport.run` read the withheld closure (fail closed) and use `eligible`; the tuner's Holdout section and its per-surface lines are gone; `TunerEligibilityTests`. Proposed until the owner merges the PR that carries it.
 
 **Status 2026-11-01.** Accepted: the owner authorised the merge of PR #126 ("go ahead and merge", chat, 2026-11-01, after Codex's clean review of 16154cb).
+
+### D-029
+
+**The L2 decider's rally-cutting tradeoff is accepted temporarily as a product decision — not as meeting the preregistered acceptance criteria; the learned temporal rally classifier is the intended next research direction** — 2026-11-02 — accepted — owner ([verbatim](2026-11-02-l2-tradeoff-and-net-investigation-direction.md) §1: "I accept the current L2 decider performance tradeoff as a temporary product decision. … Record this as an explicit owner-accepted performance tradeoff, not as passing the original acceptance criteria.").
+
+**Context.** [EXP-20261031-l2-decider-retune](../ml-roadmap/experiments/EXP-20261031-l2-decider-retune.md) (frozen, *done — need data*) and its second plan EXP-20261101-l2-decider-retune-r2 (PR #127, same verdict) evaluated the L2 detector (epoch 47, D-026 candidate) with the decider settings their search chose on the 9-recording tune pool — join 0 s (`minGapToMerge`), postroll 1.0 s, preroll 2.0 s, min clip 1.5 s (`minSegmentLength`) — on the other 17 diagnostic recordings (321 marked rallies, 11 recording groups, development evidence):
+
+| evaluation pool | preserved | merged | false clips | dead s/rally |
+|---|---|---|---|---|
+| L1 at the committed settings | 127 | 159 | 29 | 3.81 |
+| L2 at the committed settings | 121 | 169 | 35 | 4.2 |
+| **L2 at the chosen settings** | **137** | **150** | **48** | **4.43** |
+| acceptance bars (set before the search) | ≥ 127 | ≤ 159 | ≤ 31 | ≤ 4.19 |
+
+Three of five bars were met and two were not, at both false-clip prices tried; both records closed as *need data* and name the next options as the owner's. Every one of the 26 diagnostic recordings is in both models' training packages; the protected holdout was not used.
+
+**Decision.**
+1. The owner accepts the tradeoff in the bold row — ten more complete rallies and nine fewer merged ones for nineteen more false clips and 16 % more dead time per rally — as a **temporary product decision**. It is recorded as that: the two experiments' preregistered criteria were not met, their records and registry rows keep saying so, and nothing in them is rewritten.
+2. The figures accepted are those of L2 **with the chosen decider settings**, which are not the committed settings. L2 at the committed (L1-tuned) settings scores below L1 on every count in the table. Which configuration the product ships under is therefore an open point for the owner (Consequences); this entry does not change `ProcessorConfig`.
+3. Rally segmentation is to be improved by the learned temporal rally classifier over detector/tracker features — a production candidate under D-001 — as the intended next research direction. It is a direction, not an outcome: it gets its own preregistered record, its own acceptance criteria and its own owner approval before training, and this entry promises nothing about its result.
+4. Not authorised by this entry: merging PR #110, changing production defaults in either app, uploading a build, or deploying anything. Each needs the owner's separate approval.
+
+**Consequences.**
+- **PR #110 (D-026, proposed).** It replaces `ball_heat.mlpackage` with the L2 model and changes nothing else, so merging it as it stands would ship L2 at the committed settings — the row this decision does *not* describe (121 preserved, 169 merged). To ship what the owner accepted, the four decider defaults above must change with it, on both apps (one shared pipeline), and the retune's chosen settings become the production configuration until the classifier replaces the decider's joining and padding. The branch is stale (base c195ae4; `CONFLICTING` against `main` in the decision log, registry and docs index) and needs a rebase either way. The owner's choices: (a) rebase #110 and add the decider settings as a second commit, with D-026 amended to say so and a re-review — the implementer's recommendation, since it is the configuration the evidence is about; (b) merge #110 unchanged — not recommended, since the shipped behaviour would be the worse row; (c) hold #110 until the classifier work starts. None is done without the owner's word.
+- The registry rows for the two retune records gain a pointer to this entry; their status text stays *done — need data*. The r2 row lives on PR #127's branch and is pointed there when that PR merges.
+- The decider retune records' §8 options (a re-split plan, a higher false-clip price, the product call) are closed by this decision: the product call was made. No third retune plan is planned.
+
+**Status 2026-11-02.** Accepted: the owner's direction of 2026-11-02 ([verbatim](2026-11-02-l2-tradeoff-and-net-investigation-direction.md), §1) is the decision; this entry records it. The PR that carries the entry is still reviewed and merged by the owner.
