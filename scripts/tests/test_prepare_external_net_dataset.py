@@ -276,6 +276,24 @@ class PrepareTests(unittest.TestCase):
         self.assertEqual(info["net_class_index"], 0)
         self.assertTrue(all(s.box is not None and s.source == out.name for s in samples))
 
+    def test_non_ascii_config_round_trips_under_a_cp1252_default(self):
+        """Codex P2 on 7420931: a Windows locale (cp1252) must not change what is read."""
+        self.fx.config["provenance"]["note"] = "boxes — not corners; Główny sponsor"
+        self.fx.config["groups"][0]["evidence"] = "OLSZTYN GRAND SLAM — GALERIA WARMIŃSKA"
+        self.fx.config_path.write_bytes(json.dumps(self.fx.config, ensure_ascii=False).encode("utf-8"))
+        original = Path.read_text
+
+        def cp1252_default(path, encoding=None, errors=None, *args, **kwargs):
+            return original(path, encoding or "cp1252", errors or "replace", *args, **kwargs)
+        from unittest import mock
+        with mock.patch.object(Path, "read_text", cp1252_default):
+            out, m, _ = self.fx.build()
+            self.assertEqual(P.verify(out), [])
+            self.assertIn("Główny", m["groups"][0].get("evidence", "") + json.loads(
+                (out / "provenance.json").read_text(encoding="utf-8"))["note"])
+        for name in ("manifest.json", "provenance.json", "exclusions.json", "audit.json"):
+            (out / name).read_bytes().decode("ascii")   # raises if any non-ASCII byte was written
+
     def test_cli_verify_exit_codes(self):
         out, _, _ = self.fx.build()
         self.assertEqual(P.main(["verify", str(out)]), 0)

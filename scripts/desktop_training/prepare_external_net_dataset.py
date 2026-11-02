@@ -81,7 +81,9 @@ def sha256_file(path: Path) -> str:
 
 
 def canonical(obj) -> bytes:
-    return json.dumps(obj, sort_keys=True, indent=1, ensure_ascii=False).encode() + b"\n"
+    # ASCII only (non-ASCII as \\u escapes): the bytes and their hash are the same whatever
+    # locale reads or writes them, the trainer's plain read_text() of provenance.json included.
+    return json.dumps(obj, sort_keys=True, indent=1, ensure_ascii=True).encode("ascii") + b"\n"
 
 
 # ---------------------------------------------------------------- withheld guard
@@ -90,7 +92,7 @@ def withheld_names(manifest_path: Path) -> set[str]:
     """Every recording the split manifest withholds, closed over alias groups. An
     unreadable manifest is an error, never an empty set."""
     try:
-        m = json.loads(manifest_path.read_text())
+        m = json.loads(manifest_path.read_text(encoding="utf-8"))
         videos = m["videos"]
     except (OSError, ValueError, KeyError, TypeError) as e:
         raise PrepError(f"{manifest_path}: unreadable split manifest ({e})") from None
@@ -112,7 +114,7 @@ def refuse_withheld(paths: list[Path], names: set[str]) -> None:
 # ---------------------------------------------------------------- reading the export
 
 def read_names(yaml_path: Path) -> list[str]:
-    for line in yaml_path.read_text().splitlines():
+    for line in yaml_path.read_text(encoding="utf-8").splitlines():
         s = line.strip()
         if s.startswith("names:"):
             rest = s[len("names:"):].strip()
@@ -275,7 +277,7 @@ def clusters(pairs: list[tuple[int, int]], n: int) -> list[list[int]]:
 # ---------------------------------------------------------------- the build
 
 def load_config(path: Path) -> dict:
-    cfg = json.loads(path.read_text())
+    cfg = json.loads(path.read_text(encoding="utf-8"))
     for key in ("dataset_id", "net_class", "groups", "near_duplicate", "provenance", "source"):
         if key not in cfg:
             raise PrepError(f"{path}: missing `{key}`")
@@ -337,7 +339,7 @@ def audit_and_decide(export: Path, cfg: dict, compare: dict[str, Path], manifest
     kinds_by_class: dict[str, dict[str, int]] = {n: {} for n in names}
     for r in records:
         r["label_sha256"] = sha256_file(r["label"]) if r["label"] else None
-        lines = parse_label(r["label"].read_text()) if r["label"] else []
+        lines = parse_label(r["label"].read_text(encoding="utf-8")) if r["label"] else []
         r["lines"] = lines
         for ln in lines:
             cname = names[ln["class"]] if ln["class"] is not None and 0 <= ln["class"] < len(names) else f"?{ln['class']}"
@@ -573,7 +575,7 @@ def verify(pkg: Path) -> list[str]:
     """Everything the manifest claims, checked against the files. Returns the problems."""
     problems: list[str] = []
     try:
-        manifest = json.loads((pkg / "manifest.json").read_text())
+        manifest = json.loads((pkg / "manifest.json").read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
         return [f"manifest.json unreadable: {e}"]
     claimed = manifest.pop("digest", None)
@@ -596,7 +598,7 @@ def verify(pkg: Path) -> list[str]:
     except (OSError, PrepError) as e:
         problems.append(str(e))
     try:
-        prov = json.loads((pkg / "provenance.json").read_text())
+        prov = json.loads((pkg / "provenance.json").read_text(encoding="utf-8"))
         missing = [f for f in PROVENANCE_FIELDS if not str(prov.get(f, "")).strip()]
         if missing:
             problems.append(f"provenance.json missing {missing}")
@@ -628,7 +630,7 @@ def verify(pkg: Path) -> list[str]:
         if not lab.exists() or sha256_file(lab) != e["package_label_sha256"]:
             problems.append(f"{e['package_label']}: missing or changed")
             continue
-        lines = parse_label(lab.read_text())
+        lines = parse_label(lab.read_text(encoding="utf-8"))
         if not lines:
             problems.append(f"{e['package_label']}: no net box")
         for ln in lines:
@@ -667,7 +669,7 @@ def main(argv=None) -> int:
             for x in problems:
                 print(f"❌ {x}")
             if not problems:
-                m = json.loads((a.package / "manifest.json").read_text())
+                m = json.loads((a.package / "manifest.json").read_text(encoding="utf-8"))
                 print(f"✅ {a.package}: {m['counts']}; digest {m['digest']}")
             return 1 if problems else 0
         cfg = load_config(a.config)
@@ -679,7 +681,7 @@ def main(argv=None) -> int:
             compare[k] = Path(d)
         records, audit = audit_and_decide(a.export, cfg, compare, a.manifest)
         write_package(a.package, a.export, cfg, records, audit, a.config)
-        m = json.loads((a.package / "manifest.json").read_text())
+        m = json.loads((a.package / "manifest.json").read_text(encoding="utf-8"))
         print(f"✅ {a.package}: {m['counts']}; digest {m['digest']}")
         return 0
     except PrepError as e:
