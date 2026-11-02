@@ -424,6 +424,17 @@ class DataTests(unittest.TestCase):
         self.assertEqual(m["top_median_range90"]["groups"], 3)
         self.assertLessEqual(m["top_median_range90"]["low"], m["top_median_range90"]["high"])
         self.assertGreater(m["iou_mean"], 0.5)
+        # Each frame's record, against its label, gives the same top and side errors (what a paired comparison resamples).
+        det = [r for r in rows if r["has_net"] and r["presence"] >= t.PRESENCE_THRESHOLD]
+        per = {"top": [], "left": [], "right": []}
+        for r in det:
+            rec = t.frame_record(r)
+            tl, _, tr, _ = t.edges(t.corners_box(tc))
+            per["top"].append((abs(rec["top"][0] - tc[0][1]) + abs(rec["top"][1] - tc[1][1])) / 2)
+            per["left"].append(abs(rec["sides"][0] - tl))
+            per["right"].append(abs(rec["sides"][1] - tr))
+        for key in per:
+            self.assertAlmostEqual(float(np.median(per[key])), m[f"{key}_error"]["median"], places=3, msg=key)
 
     def test_names_are_read_from_both_yaml_shapes(self):
         y = self.tmp / "a.yaml"
@@ -468,6 +479,7 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(m["best"]["frames"], m["val_frames"])
         self.assertEqual(len(m["best"]["per_frame"]), m["val_frames"])
         self.assertEqual(len(m["best"]["per_frame"][0]["top"]), 2, "the two tape ends")
+        self.assertEqual(len(m["best"]["per_frame"][0]["sides"]), 2, "the box's left and right edges")
         self.assertIsNotNone(m["best"]["corner_error"]["median"])
         self.assertEqual(sorted(m["val_groups"]), m["val_groups"])
         split = json.loads((run / "split.json").read_text())
@@ -481,6 +493,10 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(s["scored_weights"]["sha256"], m["best_sha256"])
         self.assertAlmostEqual(s["scored"]["top_error_mean_with_misses"], m["best"]["top_error_mean_with_misses"], places=5)
         self.assertEqual([r["video"] for r in s["scored"]["per_frame"]], [r["video"] for r in m["best"]["per_frame"]])
+        for a, b in zip(s["scored"]["per_frame"], m["best"]["per_frame"]):
+            for key in ("top", "sides"):
+                for x, y in zip(a[key], b[key]):
+                    self.assertAlmostEqual(x, y, delta=2e-4, msg=f"{a['video']} {key}")
         self.assertFalse((scored / "best.pt").exists(), "nothing is trained")
 
     def test_augmentation_is_fresh_each_epoch_and_repeatable(self):

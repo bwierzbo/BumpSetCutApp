@@ -62,13 +62,20 @@ set COMMON=%DS% --manifest %DS%\manifest.json --split runs\net\net_v1\split.json
 python train_net_model.py %COMMON% --input 640x360 --aug basic  --name net_v2_res
 python train_net_model.py %COMMON% --input 384x216 --aug strong --name net_v2_aug
 python train_net_model.py %COMMON% --input 640x360 --aug strong --name net_v2
+rem the control's per-frame sides: score the frozen net_v1_extra checkpoint (nothing is trained)
+python train_net_model.py %COMMON% --input 384x216 --score-only runs\net\net_v1_extra\best.pt --name net_v1_extra_rescored
 # on the Mac, ~/.venvs/heatconv
 python scripts/desktop_training/net_to_coreml.py ~/Movies/RallyLab/Reports/net-v2/<run> ~/Movies/RallyLab/Reports/net-v2/<run>.mlpackage
 ```
 
 The three runs are started one after another, detached, each with its own log. A run that stops is reported and not retried with other settings.
 
-**Paired analysis, the same as in v1's H2.** Each frame's top error is computed from its run's `metrics.json` `per_frame` against `net-dataset.json`. The check is that this reproduces each run's reported median. Side errors are compared from the trainer's per-surface and overall medians. The 90% ranges come from 10,000 resamples of the 15 validation groups, seed 0.
+**Paired analysis, the same as in v1's H2, extended to the sides.** The trainer at the code SHA writes each validation frame's predicted tape ends (`top`) and the left and right edges of its predicted box (`sides`) to `per_frame`. v1's `net_v1_extra` metrics hold only `top`, so its frozen checkpoint (best.pt SHA-256 `eb75eaa41f59cc5902e95817dfca5f04e7be8e1e4d0989ee1e7464ef9c848a41`) is scored again with `--score-only` at 384×216 on the same split. Nothing is trained. That re-score is accepted as the control only if all three checks hold, otherwise the analysis stops and is reported:
+- its validation digest equals `050294b6…ef65b`;
+- its weights' SHA-256 equals the one above;
+- its per-frame `top` matches v1's stored `per_frame` within 0.0002.
+
+Each frame's top, left and right errors are computed from `per_frame` against `net-dataset.json`, the same way the trainer computes them: the top error is the mean of the two tape ends' vertical errors, and each side error is the gap between the predicted and labelled box edges. One check is that these reproduce each run's reported medians. The 90% ranges for the three differences in medians come from 10,000 resamples of the 15 validation groups, seed 0.
 
 Outputs are copied to `~/Movies/RallyLab/Reports/net-v2/` (the bring_back folders and Core ML), with SHA-256s listed here.
 

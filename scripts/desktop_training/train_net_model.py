@@ -837,13 +837,19 @@ def evaluate(model, samples: list[Sample], device, batch: int, workers: int) -> 
                              "presence": float(o[0]), "pred": unflat(o[1:9]),
                              "truth": unflat(t[1:9]) if t[0] > 0.5 else None, "w": w, "h": h})
     m = summarize(rows)
-
-    def tape(r: dict) -> list[float]:
-        back = letterbox_corners_back(r["pred"], r["w"], r["h"])
-        return [round(back[0][1], 4), round(back[1][1], 4)]
-
-    m["per_frame"] = [{"video": r["video"], "presence": round(r["presence"], 4), "top": tape(r)} for r in rows]
+    m["per_frame"] = [frame_record(r) for r in rows]
     return m
+
+
+def frame_record(r: dict) -> dict:
+    """One val frame's prediction in frame fractions (y down), enough to pair it with
+    another run's: the two tape ends' y (`top`) and the left and right edges of the box
+    the predicted corners span (`sides`), which against the label give the frame's top
+    and side errors exactly as `summarize` computes them."""
+    back = letterbox_corners_back(r["pred"], r["w"], r["h"])
+    left, _, right, _ = edges(corners_box(back))
+    return {"video": r["video"], "presence": round(r["presence"], 4),
+            "top": [round(back[0][1], 4), round(back[1][1], 4)], "sides": [round(left, 4), round(right, 4)]}
 
 
 def git_sha() -> Optional[str]:
