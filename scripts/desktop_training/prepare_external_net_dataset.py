@@ -94,11 +94,11 @@ def withheld_names(manifest_path: Path) -> set[str]:
     try:
         m = json.loads(manifest_path.read_text(encoding="utf-8"))
         videos = m["videos"]
-    except (OSError, ValueError, KeyError, TypeError) as e:
-        raise PrepError(f"{manifest_path}: unreadable split manifest ({e})") from None
-    seed_groups = {v["aliasGroup"] for v in videos if v.get("split") in WITHHELD_SPLITS or v.get("reservedAs")}
-    names = {v["video"] for v in videos if v["aliasGroup"] in seed_groups}
-    names |= {v["clipId"] for v in videos if v["aliasGroup"] in seed_groups and v.get("clipId")}
+        seed_groups = {v["aliasGroup"] for v in videos if v.get("split") in WITHHELD_SPLITS or v.get("reservedAs")}
+        names = {v["video"] for v in videos if v["aliasGroup"] in seed_groups}
+        names |= {v["clipId"] for v in videos if v["aliasGroup"] in seed_groups and v.get("clipId")}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+        raise PrepError(f"{manifest_path}: unreadable split manifest ({e!r})") from None
     return names
 
 
@@ -417,7 +417,7 @@ def audit_and_decide(export: Path, cfg: dict, compare: dict[str, Path], manifest
         elif r["bad_lines"]:
             set_("quarantined", f"unparseable or malformed label lines {[ln['line'] for ln in r['bad_lines']]}",
                  "label_check", "certain")
-        elif not r["net_lines"] and not cfg.get("negatives_trusted", False):
+        elif not r["net_lines"] and cfg.get("negatives_trusted") is not True:
             set_("quarantined", "no net annotation; whether the image truly has no net is not established",
                  "label_check", "certain")
         elif any(ln["kind"] != "box" for ln in r["net_lines"]):
@@ -540,6 +540,7 @@ def write_package(out: Path, export: Path, cfg: dict, records: list[dict], audit
         "class_mapping": {"source_class": cfg["net_class"], "source_class_id": audit["net_class_id"],
                           "package_class": "net", "package_class_id": 0, "other_classes": "dropped"},
         "near_duplicate_threshold": audit["near_duplicate"]["threshold"],
+        "negatives_trusted": cfg.get("negatives_trusted") is True,
         "counts": {"source_images": audit["images"], **audit["status_counts"],
                    "eligible_net_annotations": audit["eligible_net_annotations"]},
         "files": {"data.yaml": sha256_file(tmp / "data.yaml"), "provenance.json": sha256_file(tmp / "provenance.json")},
@@ -612,6 +613,11 @@ def verify(pkg: Path) -> list[str]:
             if "package_image" in e:
                 problems.append(f"{e['file']}: {e['status']} but packaged")
             continue
+        missing = [k for k in ("package_image", "package_image_sha256", "package_label", "package_label_sha256",
+                               "source_image_sha256", "width", "height", "net_boxes") if k not in e]
+        if missing:
+            problems.append(f"{e.get('file')}: eligible but the manifest lacks {missing}")
+            continue
         img, lab = pkg / e["package_image"], pkg / e["package_label"]
         listed_images.add(img.name)
         listed_labels.add(lab.name)
@@ -631,8 +637,10 @@ def verify(pkg: Path) -> list[str]:
             problems.append(f"{e['package_label']}: missing or changed")
             continue
         lines = parse_label(lab.read_text(encoding="utf-8"))
-        if not lines:
-            problems.append(f"{e['package_label']}: no net box")
+        if not lines and not (manifest.get("negatives_trusted") is True and e.get("net_boxes") == 0):
+            problems.append(f"{e['package_label']}: no net box, and the manifest does not trust negatives")
+        if len(lines) != e.get("net_boxes"):
+            problems.append(f"{e['package_label']}: {len(lines)} boxes, manifest says {e.get('net_boxes')}")
         for ln in lines:
             if ln["class"] != 0 or ln["kind"] != "box" or not box_valid(ln["values"]):
                 problems.append(f"{e['package_label']} line {ln['line']}: not a valid class-0 box inside the frame")

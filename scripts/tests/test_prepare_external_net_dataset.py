@@ -246,6 +246,10 @@ class PrepareTests(unittest.TestCase):
         save_jpeg(smooth_image(30), other / "free_rec.jpg")
         with self.assertRaisesRegex(P.PrepError, "needs --manifest"):
             self.fx.build(compare={"ours": other})
+        rowless = self.tmp / "rowless.json"
+        rowless.write_text(json.dumps({"videos": [{"video": "x", "split": "legacy_holdout"}]}))   # no aliasGroup
+        with self.assertRaisesRegex(P.PrepError, "unreadable split manifest"):
+            self.fx.build(compare={"ours": other}, manifest=rowless)
         bad = self.tmp / "bad.json"
         bad.write_text("{")
         with self.assertRaisesRegex(P.PrepError, "unreadable split manifest"):
@@ -293,6 +297,38 @@ class PrepareTests(unittest.TestCase):
                 (out / "provenance.json").read_text(encoding="utf-8"))["note"])
         for name in ("manifest.json", "provenance.json", "exclusions.json", "audit.json"):
             (out / name).read_bytes().decode("ascii")   # raises if any non-ASCII byte was written
+
+    def test_trusted_negatives_round_trip(self):
+        """Codex P2 on 964f182: a negative the config trusts is packaged and verifies."""
+        self.fx.config["negatives_trusted"] = True
+        self.fx.write_config()
+        out, m, _ = self.fx.build()
+        self.assertTrue(m["negatives_trusted"])
+        neg = next(e for e in m["entries"] if e["file"] == self.fx.files["no_net"])
+        self.assertEqual((neg["status"], neg["net_boxes"]), ("eligible", 0))
+        self.assertEqual((out / neg["package_label"]).read_bytes(), b"")
+        self.assertEqual(P.verify(out), [])
+        try:
+            import train_net_model as t
+        except ImportError:
+            return
+        _, info = t.read_extra_folder(out)
+        self.assertEqual(info["no_net_images"], 1)
+
+    def test_untrusted_empty_label_fails_verify(self):
+        out, m, _ = self.fx.build()
+        self.assertFalse(m["negatives_trusted"])
+        e = next(e for e in m["entries"] if e["status"] == "eligible")
+        (out / e["package_label"]).write_bytes(b"")
+        # a self-consistent manifest that claims a negative without the policy: only the policy check can refuse it
+        e["package_label_sha256"], e["net_boxes"] = hashlib.sha256(b"").hexdigest(), 0
+        m.pop("digest")
+        m["digest"] = P.sha256_bytes(P.canonical(m))
+        (out / "manifest.json").write_bytes(P.canonical(m))
+        (out / "exclusions.json").write_bytes(P.canonical(P.exclusions(m)))
+        problems = P.verify(out)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertTrue(any("does not trust negatives" in p for p in problems), problems)
 
     def test_cli_verify_exit_codes(self):
         out, _, _ = self.fx.build()
