@@ -207,6 +207,38 @@ class DataTests(unittest.TestCase):
         plain, c = t.augment(img, None, random.Random(1))
         self.assertIsNone(c)
 
+    def test_strong_augmentation_moves_the_corners_with_the_pixels(self):
+        """Four bright dots where the corners are: after a strong augmentation (crop, rotation,
+        zoom-out, colour, blur, JPEG, noise) each returned corner still sits on its dot."""
+        w, h = 320, 180
+        tilted = ((0.20, 0.32), (0.80, 0.38), (0.81, 0.50), (0.19, 0.45))
+        img = np.full((h, w, 3), 30, dtype=np.uint8)
+        for x, y in tilted:
+            cv2.circle(img, (int(round(x * w)), int(round(y * h))), 5, (240, 240, 240), -1)
+        rotated = zoomed = 0
+        for seed in range(60):
+            out, c = t.augment(img, tilted, random.Random(seed), strong=True)
+            oh, ow = out.shape[:2]
+            self.assertTrue(all(0 <= v <= 1 for p in c for v in p), f"seed {seed}: a corner left the frame")
+            grey = out.mean(axis=2)
+            for x, y in c:
+                px, py = int(round(x * (ow - 1))), int(round(y * (oh - 1)))
+                spot = grey[max(0, py - 1):py + 2, max(0, px - 1):px + 2].mean()
+                self.assertGreater(spot, np.median(grey) + 40, f"seed {seed}: corner {x:.3f},{y:.3f} is not on its dot")
+            tl, tr, br, bl = c
+            self.assertLess(tl[0], tr[0]); self.assertLess(bl[0], br[0])
+            slope = (tr[1] - tl[1]) / (tr[0] - tl[0])
+            base = (tilted[1][1] - tilted[0][1]) * h / ((tilted[1][0] - tilted[0][0]) * w)
+            if abs(abs(slope * oh / ow) - base) > 0.02:   # the tape's angle changed: rotated
+                rotated += 1
+            geo, _ = t.geometric_strong(img, tilted, random.Random(seed))
+            if (geo[0, :, 0] == t.PAD_GREY).all() or (geo[:, 0, 0] == t.PAD_GREY).all():
+                zoomed += 1
+        self.assertGreater(rotated, 10, "the rotation is drawn")
+        self.assertGreater(zoomed, 2, "the zoom-out is drawn")
+        _, none = t.augment(img, None, random.Random(3), strong=True)
+        self.assertIsNone(none)
+
     def test_a_withheld_recording_in_the_export_stops_the_run(self):
         f = Fixture(self.tmp, withhold="grs_ele_shade_land_self_02")
         _, rows = t.load_manifest(f.manifest)
@@ -392,6 +424,17 @@ class DataTests(unittest.TestCase):
         self.assertEqual(m["top_median_range90"]["groups"], 3)
         self.assertLessEqual(m["top_median_range90"]["low"], m["top_median_range90"]["high"])
         self.assertGreater(m["iou_mean"], 0.5)
+        # Each frame's record, against its label, gives the same top and side errors (what a paired comparison resamples).
+        det = [r for r in rows if r["has_net"] and r["presence"] >= t.PRESENCE_THRESHOLD]
+        per = {"top": [], "left": [], "right": []}
+        for r in det:
+            rec = t.frame_record(r)
+            tl, _, tr, _ = t.edges(t.corners_box(tc))
+            per["top"].append((abs(rec["top"][0] - tc[0][1]) + abs(rec["top"][1] - tc[1][1])) / 2)
+            per["left"].append(abs(rec["sides"][0] - tl))
+            per["right"].append(abs(rec["sides"][1] - tr))
+        for key in per:
+            self.assertAlmostEqual(float(np.median(per[key])), m[f"{key}_error"]["median"], places=3, msg=key)
 
     def test_names_are_read_from_both_yaml_shapes(self):
         y = self.tmp / "a.yaml"
@@ -436,6 +479,7 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(m["best"]["frames"], m["val_frames"])
         self.assertEqual(len(m["best"]["per_frame"]), m["val_frames"])
         self.assertEqual(len(m["best"]["per_frame"][0]["top"]), 2, "the two tape ends")
+        self.assertEqual(len(m["best"]["per_frame"][0]["sides"]), 2, "the box's left and right edges")
         self.assertIsNotNone(m["best"]["corner_error"]["median"])
         self.assertEqual(sorted(m["val_groups"]), m["val_groups"])
         split = json.loads((run / "split.json").read_text())
@@ -449,6 +493,10 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(s["scored_weights"]["sha256"], m["best_sha256"])
         self.assertAlmostEqual(s["scored"]["top_error_mean_with_misses"], m["best"]["top_error_mean_with_misses"], places=5)
         self.assertEqual([r["video"] for r in s["scored"]["per_frame"]], [r["video"] for r in m["best"]["per_frame"]])
+        for a, b in zip(s["scored"]["per_frame"], m["best"]["per_frame"]):
+            for key in ("top", "sides"):
+                for x, y in zip(a[key], b[key]):
+                    self.assertAlmostEqual(x, y, delta=2e-4, msg=f"{a['video']} {key}")
         self.assertFalse((scored / "best.pt").exists(), "nothing is trained")
 
     def test_augmentation_is_fresh_each_epoch_and_repeatable(self):
@@ -487,6 +535,24 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(keys.index(min(keys)) + 1, m["best_epoch"])
         self.assertLess(m["best"]["top_error_mean_with_misses"], keys[0], "better than after the first epoch")
 
+    def test_a_run_at_another_input_size_records_it_and_only_scores_at_that_size(self):
+        self.addCleanup(t.set_input, (384, 216))
+        f = Fixture(self.tmp)
+        run = self.train(f, "wide", epochs=1, more=["--input", "192x108", "--aug", "strong"])
+        m = json.loads((run / "metrics.json").read_text())
+        self.assertEqual((m["input"], m["aug"]), ([192, 108], "strong"))
+        saved = torch.load(run / "best.pt", map_location="cpu")
+        self.assertEqual((saved["input"], saved["aug"]), ([192, 108], "strong"))
+        split = ["--split", str(run / "split.json")]
+        with self.assertRaises(SystemExit) as cm:   # a checkpoint is scored only at the size it was trained at
+            self.train(f, "wide-at-default", more=["--score-only", str(run / "best.pt")] + split)
+        self.assertIn("--input", str(cm.exception))
+        scored = self.train(f, "wide-scored", more=["--score-only", str(run / "best.pt"), "--input", "192x108"] + split)
+        s = json.loads((scored / "metrics.json").read_text())
+        self.assertAlmostEqual(s["scored"]["top_error_mean_with_misses"], m["best"]["top_error_mean_with_misses"], places=5)
+        with self.assertRaises(SystemExit):
+            t.set_input((191, 108))
+
     @unittest.skipUnless(HAVE_COREML, "coremltools is not installed")
     def test_core_ml_conversion_matches_torch(self):
         import net_to_coreml
@@ -496,6 +562,15 @@ class TrainingTests(unittest.TestCase):
         diff = net_to_coreml.convert(run / "best.pt", out)
         self.assertTrue(out.exists())
         self.assertLessEqual(diff, net_to_coreml.MAX_DIFF)
+        # A run at another size converts at its own size, read from the checkpoint.
+        self.addCleanup(t.set_input, (384, 216))
+        wide = self.train(f, "coreml-wide", epochs=1, more=["--input", "192x108"])
+        t.set_input((384, 216))
+        wide_out = self.tmp / "wide.mlpackage"
+        self.assertLessEqual(net_to_coreml.convert(wide / "best.pt", wide_out), net_to_coreml.MAX_DIFF)
+        import coremltools as ct
+        shape = ct.models.MLModel(str(wide_out), skip_model_load=True).get_spec().description.input[0].type.imageType
+        self.assertEqual((shape.width, shape.height), (192, 108))
 
 
 if __name__ == "__main__":

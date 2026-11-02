@@ -19,6 +19,7 @@ Data:
     python train_net_model.py <RallyLab net dataset> --manifest <manifests/manifest.json>
                               [--extra <YOLO folder>]... [--epochs 40] [--seed N]
                               [--val-fraction 0.25] [--split <split.json>] [--name net_v1]
+                              [--input 384x216] [--aug basic|strong]
     python train_net_model.py <dataset> --manifest <m> --score-only <best.pt> --name <run>
 
   <RallyLab net dataset>  a folder written by `RallyLab --project P --export-net-dataset`:
@@ -63,7 +64,13 @@ Results:
     runs/net/<name>/   best.pt  best.onnx  metrics.json  log.csv  split.json
     bring_back/<name>/ the same  ← copy this folder back; net_to_coreml.py converts it
 
-The ONNX/Core ML model takes "frame" [1, 3, 216, 384] RGB 0–1 (letterboxed:
+--input sets the letterbox canvas (default 384×216, v1; v2 uses 640×360);
+the checkpoint records it, and --score-only scores only at that size.
+--aug strong adds a deeper crop, a small rotation, a zoom-out, colour, gamma,
+blur, JPEG and more noise to v1's flip/crop/contrast (augment()); the
+default, basic, draws exactly what v1 drew.
+
+The ONNX/Core ML model takes "frame" [1, 3, H, W] (216×384 by default) RGB 0–1 (letterboxed:
 scaled to fit, centred, grey borders) and gives "net" [1, 9]: presence, then
 x, y of the top-left, top-right, bottom-right and bottom-left corners in the
 letterboxed frame (all 0–1, y downwards). The caller maps the corners back
@@ -96,7 +103,8 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-WIDTH, HEIGHT = 384, 216
+WIDTH, HEIGHT = 384, 216   # the default input; --input changes it for a run (set_input), and the checkpoint records it
+AUG_LEVELS = ("basic", "strong")
 NET_CLASS = "net"
 PAD_GREY = 114
 WITHHELD_SPLITS = {"lineage_holdout", "legacy_holdout", "final_test_candidate", "final_test"}
@@ -106,7 +114,35 @@ DRAWS, DRAW_SEED = 1000, 0
 
 
 def say(msg: str) -> None:
-    print(msg, flush=True)
+    try:
+        print(msg, flush=True)
+    except UnicodeEncodeError:   # a console that cannot show ✅ (Windows cp1252) must not stop the run after its outputs are written
+        print(msg.encode("ascii", "replace").decode("ascii"), flush=True)
+
+
+def set_input(size) -> None:
+    """The letterbox canvas (width, height) for this process. Data-loader workers start a fresh
+    interpreter on Windows, so Frames sets it again in each worker."""
+    global WIDTH, HEIGHT
+    w, h = int(size[0]), int(size[1])
+    if w % 2 or h % 2 or w < 64 or h < 64:
+        fail(f"--input {w}x{h}: both sides must be even and at least 64")
+    WIDTH, HEIGHT = w, h
+
+
+def parse_input(text: str) -> tuple[int, int]:
+    try:
+        w, h = (int(v) for v in text.lower().split("x"))
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r}: expected WIDTHxHEIGHT, e.g. 640x360")
+    return w, h
+
+
+def feature_size(w: int, h: int) -> tuple[int, int]:
+    """(height, width) of the feature map after the six stride-2 blocks."""
+    for _ in range(6):
+        w, h = (w + 1) // 2, (h + 1) // 2
+    return h, w
 
 
 def fail(msg: str) -> None:
@@ -581,7 +617,7 @@ def torch_modules():
 def build_model():
     """A small CNN from scratch: 6 stride-2 blocks over the letterboxed frame with two
     coordinate channels (where in the frame each pixel is — a corner regressor needs
-    position), then the 4×6 map flattened into the nine outputs (logits; sigmoid
+    position), then the final map (4×6 at 384×216, 6×10 at 640×360) flattened into the nine outputs (logits; sigmoid
     makes them presence and the four corners' x, y)."""
     torch, nn = torch_modules()
 
@@ -594,7 +630,8 @@ def build_model():
                 layers += [nn.Conv2d(cin, cout, 3, stride=2, padding=1, bias=False), nn.BatchNorm2d(cout), nn.ReLU(inplace=True),
                            nn.Conv2d(cout, cout, 3, padding=1, bias=False), nn.BatchNorm2d(cout), nn.ReLU(inplace=True)]
             self.features = nn.Sequential(*layers)
-            self.head = nn.Sequential(nn.Flatten(), nn.Linear(160 * 4 * 6, 256), nn.ReLU(inplace=True), nn.Dropout(0.2), nn.Linear(256, 9))
+            fh, fw = feature_size(WIDTH, HEIGHT)
+            self.head = nn.Sequential(nn.Flatten(), nn.Linear(160 * fh * fw, 256), nn.ReLU(inplace=True), nn.Dropout(0.2), nn.Linear(256, 9))
             ys = torch.linspace(-1, 1, HEIGHT).view(1, 1, HEIGHT, 1).expand(1, 1, HEIGHT, WIDTH)
             xs = torch.linspace(-1, 1, WIDTH).view(1, 1, 1, WIDTH).expand(1, 1, HEIGHT, WIDTH)
             self.register_buffer("coords", torch.cat([xs, ys], dim=1))
@@ -626,8 +663,9 @@ class Frames:
     `epoch` before each pass; the loader's workers are not persistent, so they
     pick the dataset up again, epoch included."""
 
-    def __init__(self, samples: list[Sample], train: bool, seed: int):
-        self.samples, self.train, self.seed = samples, train, seed
+    def __init__(self, samples: list[Sample], train: bool, seed: int, aug: str = "basic"):
+        self.samples, self.train, self.seed, self.aug = samples, train, seed, aug
+        self.size = (WIDTH, HEIGHT)
         self.epoch = 0
 
     def __len__(self):
@@ -636,6 +674,7 @@ class Frames:
     def __getitem__(self, i: int):
         import cv2
         torch, _ = torch_modules()
+        set_input(self.size)
         s = self.samples[i]
         img = cv2.imread(str(s.image), cv2.IMREAD_COLOR)
         if img is None:
@@ -646,7 +685,7 @@ class Frames:
         size = torch.tensor(img.shape[1::-1])   # (w, h) of the frame as read
         if self.train:
             rng = random.Random(f"{self.seed}/{self.epoch}/{i}")
-            img, corners = augment(img, corners, rng)
+            img, corners = augment(img, corners, rng, strong=self.aug == "strong")
         h, w = img.shape[:2]
         canvas, _ = letterbox_image(img)
         target = np.zeros(10, dtype=np.float32)
@@ -658,7 +697,13 @@ class Frames:
         return x, torch.from_numpy(target), i, size
 
 
-def augment(img: np.ndarray, corners: Optional[tuple], rng: random.Random) -> tuple[np.ndarray, Optional[tuple]]:
+def augment(img: np.ndarray, corners: Optional[tuple], rng: random.Random, strong: bool = False) -> tuple[np.ndarray, Optional[tuple]]:
+    """Basic (v1): a flip, a crop of 80–100% that keeps the net whole, contrast and brightness,
+    sometimes a little noise. Strong (--aug strong) adds to that: a deeper crop (60–100%), a
+    small rotation and sometimes a zoom-out (the frame smaller on a grey canvas), each kept only
+    when every corner stays in the frame; saturation, hue and gamma; wider contrast and
+    brightness; blur; JPEG recompression; more noise. The basic path draws exactly what v1 drew,
+    so a basic run repeats v1's augmentation."""
     h, w = img.shape[:2]
     if rng.random() < 0.5:
         img = img[:, ::-1]
@@ -666,8 +711,8 @@ def augment(img: np.ndarray, corners: Optional[tuple], rng: random.Random) -> tu
             # Mirrored: the left corners become the right ones and vice versa.
             tl, tr, br, bl = ((1 - x, y) for x, y in corners)
             corners = (tr, tl, bl, br)
-    # A crop of 80–100% that keeps the whole net (no crop when it doesn't fit).
-    frac = rng.uniform(0.8, 1.0)
+    # A crop that keeps the whole net (no crop when it doesn't fit).
+    frac = rng.uniform(0.6 if strong else 0.8, 1.0)
     cw, ch = int(w * frac), int(h * frac)
     if cw < w or ch < h:
         if corners is None:
@@ -686,11 +731,63 @@ def augment(img: np.ndarray, corners: Optional[tuple], rng: random.Random) -> tu
             img = img[y0:y0 + ch, x0:x0 + cw]
             if corners is not None:
                 corners = tuple(((x * w - x0) / cw, (y * h - y0) / ch) for x, y in corners)
+    if strong:
+        img, corners = geometric_strong(np.ascontiguousarray(img), corners, rng)
+        return photometric_strong(img, rng), corners
     img = np.ascontiguousarray(img).astype(np.float32)
     img = (img - 128) * rng.uniform(0.8, 1.2) + 128 + rng.uniform(-30, 30)
     if rng.random() < 0.3:
         img += np.random.default_rng(rng.getrandbits(32)).normal(0, 4, img.shape).astype(np.float32)
     return np.clip(img, 0, 255).astype(np.uint8), corners
+
+
+def geometric_strong(img: np.ndarray, corners: Optional[tuple], rng: random.Random) -> tuple[np.ndarray, Optional[tuple]]:
+    """A rotation of up to ±6° about the centre (70% of frames), then a zoom-out to 70–100% on a
+    grey canvas of the same size (30%). Either is skipped when it would push a corner out of the frame."""
+    import cv2
+    h, w = img.shape[:2]
+    angle = rng.uniform(-6.0, 6.0) if rng.random() < 0.7 else 0.0
+    if angle:
+        m = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1.0)
+        moved = None if corners is None else tuple(
+            ((m[0, 0] * x * w + m[0, 1] * y * h + m[0, 2]) / w, (m[1, 0] * x * w + m[1, 1] * y * h + m[1, 2]) / h) for x, y in corners)
+        if moved is None or all(0 <= x <= 1 and 0 <= y <= 1 for x, y in moved):
+            img = cv2.warpAffine(img, m, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(PAD_GREY,) * 3)
+            corners = moved
+    if rng.random() < 0.3:
+        z = rng.uniform(0.7, 1.0)
+        nw, nh = max(1, int(round(w * z))), max(1, int(round(h * z)))
+        ox, oy = rng.randint(0, w - nw), rng.randint(0, h - nh)
+        canvas = np.full_like(img, PAD_GREY)
+        canvas[oy:oy + nh, ox:ox + nw] = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_AREA)
+        img = canvas
+        if corners is not None:
+            corners = tuple(((x * nw + ox) / w, (y * nh + oy) / h) for x, y in corners)
+    return img, corners
+
+
+def photometric_strong(img: np.ndarray, rng: random.Random) -> np.ndarray:
+    """Colour and quality: saturation 0.5–1.5 and hue ±8 (OpenCV units), gamma 0.7–1.4, contrast
+    0.6–1.4 and brightness ±45, blur (25%), JPEG at quality 35–90 (30%), noise up to σ 8 (40%)."""
+    import cv2
+    hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV).astype(np.float32)
+    hsv[..., 1] *= rng.uniform(0.5, 1.5)
+    hsv[..., 0] = (hsv[..., 0] + rng.uniform(-8, 8)) % 180
+    img = cv2.cvtColor(np.clip(hsv, 0, [179, 255, 255]).astype(np.uint8), cv2.COLOR_HSV2RGB).astype(np.float32)
+    img = 255.0 * (img / 255.0) ** rng.uniform(0.7, 1.4)
+    img = (img - 128) * rng.uniform(0.6, 1.4) + 128 + rng.uniform(-45, 45)
+    img = np.clip(img, 0, 255).astype(np.uint8)
+    if rng.random() < 0.25:
+        k = rng.choice((3, 5))
+        img = cv2.GaussianBlur(img, (k, k), 0)
+    if rng.random() < 0.3:
+        ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, rng.randint(35, 90)])
+        if ok:
+            img = cv2.imdecode(buf, cv2.IMREAD_UNCHANGED)
+    if rng.random() < 0.4:
+        noisy = img.astype(np.float32) + np.random.default_rng(rng.getrandbits(32)).normal(0, rng.uniform(2, 8), img.shape)
+        img = np.clip(noisy, 0, 255).astype(np.uint8)
+    return img
 
 
 def box_of(corners):
@@ -740,13 +837,19 @@ def evaluate(model, samples: list[Sample], device, batch: int, workers: int) -> 
                              "presence": float(o[0]), "pred": unflat(o[1:9]),
                              "truth": unflat(t[1:9]) if t[0] > 0.5 else None, "w": w, "h": h})
     m = summarize(rows)
-
-    def tape(r: dict) -> list[float]:
-        back = letterbox_corners_back(r["pred"], r["w"], r["h"])
-        return [round(back[0][1], 4), round(back[1][1], 4)]
-
-    m["per_frame"] = [{"video": r["video"], "presence": round(r["presence"], 4), "top": tape(r)} for r in rows]
+    m["per_frame"] = [frame_record(r) for r in rows]
     return m
+
+
+def frame_record(r: dict) -> dict:
+    """One val frame's prediction in frame fractions (y down), enough to pair it with
+    another run's: the two tape ends' y (`top`) and the left and right edges of the box
+    the predicted corners span (`sides`), which against the label give the frame's top
+    and side errors exactly as `summarize` computes them."""
+    back = letterbox_corners_back(r["pred"], r["w"], r["h"])
+    left, _, right, _ = edges(corners_box(back))
+    return {"video": r["video"], "presence": round(r["presence"], 4),
+            "top": [round(back[0][1], 4), round(back[1][1], 4)], "sides": [round(left, 4), round(right, 4)]}
 
 
 def git_sha() -> Optional[str]:
@@ -783,10 +886,13 @@ def main(argv: Optional[list[str]] = None) -> None:
     p.add_argument("--split", type=Path, default=None, help="A split.json from another run: validate on the same groups")
     p.add_argument("--seed", type=int, default=0, help="Fixes the split (without --split), the initialisation and the augmentation")
     p.add_argument("--name", default="net_v1")
+    p.add_argument("--input", type=parse_input, default=(384, 216), metavar="WxH", help="Letterbox canvas, e.g. 640x360 (default 384x216, v1)")
+    p.add_argument("--aug", choices=AUG_LEVELS, default="basic", help="Training augmentation: basic (v1) or strong")
     p.add_argument("--score-only", type=Path, default=None, metavar="WEIGHTS", help="Score this checkpoint on the val frames and stop")
     p.add_argument("--runs", type=Path, default=HERE / "runs" / "net", help=argparse.SUPPRESS)
     p.add_argument("--bring-back", type=Path, default=HERE / "bring_back", help=argparse.SUPPRESS)
     args = p.parse_args(argv)
+    set_input(args.input)
 
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -835,7 +941,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     (run / "split.json").write_text(json.dumps({"val_groups": val_groups_list, "val_videos": sorted({s.video for s in val_s}),
                                                 "val_fraction": args.val_fraction, "seed": args.seed,
                                                 "from": str(args.split) if args.split else None}, indent=2))
-    metrics = {"trainer": "train_net_model.py", "code_sha": git_sha(), "torch": torch.__version__, "input": [WIDTH, HEIGHT],
+    metrics = {"trainer": "train_net_model.py", "code_sha": git_sha(), "torch": torch.__version__, "input": [WIDTH, HEIGHT], "aug": args.aug,
                "dataset": export_info, "extras": extras_info, "manifest_sha256": sha256_file(args.manifest),
                "manifest_createdAt": manifest.get("createdAt"), "seed": args.seed, "epochs": args.epochs, "batch": args.batch,
                "lr": args.lr, "train_frames": len(train_s), "train_digest": dataset_digest(train_s), "val_frames": len(val_s),
@@ -854,6 +960,8 @@ def main(argv: Optional[list[str]] = None) -> None:
 
     if args.score_only:
         saved = torch.load(args.score_only, map_location=device)
+        if tuple(saved.get("input", (384, 216))) != (WIDTH, HEIGHT):
+            fail(f"{args.score_only} was trained at {saved.get('input', (384, 216))}; pass --input to match")
         model.load_state_dict(saved["state_dict"])
         metrics["scored"] = evaluate(model, val_s, device, args.batch, args.workers)
         metrics["scored_weights"] = {"path": str(args.score_only), "epoch": saved.get("epoch"), "sha256": sha256_file(args.score_only)}
@@ -863,7 +971,7 @@ def main(argv: Optional[list[str]] = None) -> None:
 
     g = torch.Generator()
     g.manual_seed(args.seed)
-    train_frames = Frames(train_s, True, args.seed)
+    train_frames = Frames(train_s, True, args.seed, args.aug)
     # Not persistent: each epoch's workers are started with the dataset as it is then (its epoch set below).
     loader = torch.utils.data.DataLoader(train_frames, batch_size=args.batch, shuffle=True, num_workers=args.workers,
                                          drop_last=len(train_s) > args.batch, generator=g, persistent_workers=False)
@@ -895,7 +1003,7 @@ def main(argv: Optional[list[str]] = None) -> None:
         if best_key is None or key < best_key:
             best_key = key
             metrics["best"], metrics["best_epoch"] = m, epoch
-            torch.save({"state_dict": model.state_dict(), "epoch": epoch}, run / "best.pt")
+            torch.save({"state_dict": model.state_dict(), "epoch": epoch, "input": [WIDTH, HEIGHT], "aug": args.aug}, run / "best.pt")
         with open(run / "log.csv", "w", newline="") as f:
             csv.writer(f).writerows(log)
 
