@@ -3,11 +3,10 @@
 //  RallyLab
 //
 //  Mark every rally in a video in one pass, live: watch at ½–4× and press
-//  one key per event as it happens. S at the serve starts a rally; P pass,
-//  T set, A attack, B block, F free ball tag its touches; D at the dead
-//  ball ends it. N ends it as not a rally (a missed serve when nothing
-//  followed the serve). ⇧ far and ⌥ near say the side when the net guess
-//  is wrong; Z takes back the last press. The rules are LiveTagger's,
+//  one key per event as it happens. S at the serve starts a rally; D at
+//  the dead ball ends it; M ends it as a missed serve, N as not a rally;
+//  Z takes back the last press. The touches inside a rally are advanced
+//  marking, not part of this pass (D-028). The rules are LiveTagger's,
 //  shared with the phone.
 //
 //  Pre-tracked rallies inside a rally you mark are confirmed and trimmed to
@@ -29,7 +28,6 @@ struct LiveTagView: View {
     let onDone: () -> Void
 
     @State private var tagger: LiveTagger
-    @State private var findingNet = false
     @State private var speed: Float = 1
 
     private static let speeds: [Float] = [0.5, 1, 2, 3, 4]
@@ -43,7 +41,7 @@ struct LiveTagView: View {
         self.isActive = isActive
         self.onClose = onClose
         self.onDone = onDone
-        _tagger = State(initialValue: LiveTagger(tracks: session.tracks ?? [], net: session.netBox?.rect,
+        _tagger = State(initialValue: LiveTagger(tracks: session.tracks ?? [],
                                                  store: ProjectLiveTagStore(session: session, marker: marker, review: review)))
     }
 
@@ -76,7 +74,6 @@ struct LiveTagView: View {
             loadPath()
         }
         .onChange(of: paths.finished) { loadPath() }
-        .task { await findNet() }
         .onDisappear { if marker.isPlaying { marker.togglePlay() } }
         .onChange(of: speed) { _, s in marker.rate = s }
         .onChange(of: marker.playhead) { _, t in
@@ -97,8 +94,8 @@ struct LiveTagView: View {
             .clipShape(RoundedRectangle(cornerRadius: 12))
             RallyTimesBar(time: marker.playhead, duration: marker.duration, found: marker.guesses.map { [$0.start, $0.end] },
                           marked: marker.rallies.map { LabelRally(start: $0.start, end: $0.end) },
-                          current: nil, pending: tagger.open?.first?.time,
-                          ticks: (tagger.open ?? marker.rallies.first { $0.contains(marker.playhead) }?.contacts ?? []).map(\.time))
+                          current: nil, pending: tagger.open,
+                          ticks: marker.rallies.first { $0.contains(marker.playhead) }?.contacts.map(\.time) ?? [])
                 .frame(height: 22)
                 .overlay {
                     GeometryReader { geo in
@@ -113,24 +110,19 @@ struct LiveTagView: View {
         .padding(16)
     }
 
-    /// Dead or in a rally, the touches so far, and the last press.
+    /// Dead or in a rally, and the last press.
     private var state: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 if let open = tagger.open {
                     Circle().fill(.orange).frame(width: 9, height: 9)
-                    Text("Rally · \(clockText(open[0].time)) · \(open.count) \(open.count == 1 ? "touch" : "touches")")
+                    Text("Rally · served at \(clockText(open))")
                 } else {
                     Circle().fill(.secondary).frame(width: 9, height: 9)
                     Text("Dead ball · S at the serve")
                 }
             }
             .font(.callout.weight(.semibold).monospacedDigit())
-            if let open = tagger.open {
-                HStack(spacing: 6) {
-                    ForEach(Array(open.enumerated()), id: \.offset) { _, c in chip(c) }
-                }
-            }
             if let note = tagger.recentNote {
                 Text(note).font(.caption).foregroundStyle(.secondary)
             }
@@ -140,33 +132,20 @@ struct LiveTagView: View {
         .environment(\.colorScheme, .dark)
     }
 
-    private func chip(_ c: RallyContact) -> some View {
-        Text(c.kind.name + (c.side.map { " · \($0 == .near ? "near" : "far")" } ?? ""))
-            .font(.caption.weight(.medium))
-            .padding(.horizontal, 7).padding(.vertical, 3)
-            .background(c.kind == .serve ? Color.orange.opacity(0.35) : Color.white.opacity(0.15), in: Capsule())
-    }
-
     private var controls: some View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
                 key("S", "Serve", .orange) { tagger.serve(press()) }
-                key("P", "Pass") { tagger.touch(.pass, press()) }
-                key("T", "Set") { tagger.touch(.set, press()) }
-                key("A", "Attack") { tagger.touch(.attack, press()) }
-                key("B", "Block") { tagger.touch(.block, press()) }
-                key("F", "Free ball") { tagger.touch(.freeBall, press()) }
-                Divider().frame(height: 24)
                 key("D", "Dead ball", .green) { tagger.close(as: .rally, press()) }
-                key("N", "Not a rally", .red) { tagger.close(as: nil, press()) }
+                Divider().frame(height: 24)
+                key("M", "Missed serve", .red) { tagger.close(as: .missedServe, press()) }
+                key("N", "Not a rally", .red) { tagger.close(as: .other, press()) }
             }
             .controlSize(.large)
             HStack(spacing: 14) {
                 Button { marker.togglePlay() } label: { Image(systemName: marker.isPlaying ? "pause.fill" : "play.fill") }
                     .help("Play / pause (Space)")
                 Text(clockText(marker.playhead)).font(.callout.monospacedDigit()).foregroundStyle(.secondary)
-                if findingNet { ProgressView().controlSize(.mini); Text("Finding the net…").font(.caption).foregroundStyle(.secondary) }
-                else if tagger.net == nil { Text("No net found · sides are up to ⇧ far and ⌥ near").font(.caption).foregroundStyle(.secondary) }
                 if paths.building == session.name {
                     ProgressView().controlSize(.mini)
                     Text("Finding the ball… \(Int(paths.fraction * 100))%").font(.caption).foregroundStyle(.secondary)
@@ -180,7 +159,7 @@ struct LiveTagView: View {
                         .help("Where the ball was seen; a press within 0.4 s of it changing course moves to that moment")
                 }
                 Spacer()
-                Text("⇧ far · ⌥ near · Z takes back a press · ←/→ 2 s · ⌫ removes the rally here")
+                Text("Z takes back a press · ←/→ 2 s · ⌫ removes the rally here")
                     .font(.caption).foregroundStyle(.secondary)
                 Button { finish() } label: { Label("That's every rally", systemImage: "flag.checkered") }
                     .buttonStyle(.borderedProminent)
@@ -241,9 +220,8 @@ struct LiveTagView: View {
 
     // MARK: - Presses
 
-    private func press(_ flags: NSEvent.ModifierFlags = []) -> LiveTagger.Press {
-        LiveTagger.Press(now: marker.now, playing: marker.isPlaying, rate: marker.rate,
-                         side: flags.contains(.shift) ? .far : flags.contains(.option) ? .near : nil)
+    private func press() -> LiveTagger.Press {
+        LiveTagger.Press(now: marker.now, playing: marker.isPlaying, rate: marker.rate)
     }
 
     /// Everything you didn't mark isn't a rally: pre-tracked rallies are
@@ -274,17 +252,6 @@ struct LiveTagView: View {
         tagger.path = BallPath(tracks: session.tracks ?? [], seen: paths.samples(for: session) ?? [])
     }
 
-    /// The net, once per video, from the review copy; kept on the session.
-    private func findNet() async {
-        guard session.netBox == nil, tagger.net == nil, !findingNet,
-              let url = session.playbackURL(in: marker.sampler.datasetRoot) else { return }
-        findingNet = true
-        defer { findingNet = false }
-        guard let found = await LiveTagger.findNet(in: url) else { return }
-        tagger.net = found.rect
-        marker.sampler.setNetBox(found, session: session.name)
-    }
-
     // MARK: - Keys
 
     private func handleKey(_ event: NSEvent) -> Bool {
@@ -303,14 +270,10 @@ struct LiveTagView: View {
         guard let ch = event.charactersIgnoringModifiers?.lowercased() else { return false }
         if let n = Int(ch), let s = Self.speeds.first(where: { $0 == (n == 0 ? 0.5 : Float(n)) }) { speed = s; return true }
         switch ch {
-        case "s": tagger.serve(press(flags))
-        case "p": tagger.touch(.pass, press(flags))
-        case "t": tagger.touch(.set, press(flags))
-        case "a": tagger.touch(.attack, press(flags))
-        case "b": tagger.touch(.block, press(flags))
-        case "f": tagger.touch(.freeBall, press(flags))
+        case "s": tagger.serve(press())
         case "d": tagger.close(as: .rally, press())
-        case "n": tagger.close(as: nil, press())
+        case "m": tagger.close(as: .missedServe, press())
+        case "n": tagger.close(as: .other, press())
         case "z": tagger.undo()
         default: return false
         }
@@ -332,8 +295,8 @@ final class ProjectLiveTagStore: LiveTagStore {
         self.review = review
     }
 
-    func mark(start: Double, end: Double, kind: RallyKind, contacts: [RallyContact]) -> AnyHashable {
-        marker.mark(start: start, end: end, kind: kind, contacts: contacts).id
+    func mark(start: Double, end: Double, kind: RallyKind) -> AnyHashable {
+        marker.mark(start: start, end: end, kind: kind).id
     }
 
     func delete(_ mark: AnyHashable) {

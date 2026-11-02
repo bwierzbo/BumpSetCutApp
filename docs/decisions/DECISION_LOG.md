@@ -40,6 +40,7 @@ The authoritative record of product, architecture, data and process decisions fo
 | [D-023](#d-023) | 2026-10-23 | accepted | L2 labels are people's only; unreviewed pre-tracked rallies excluded |
 | [D-024](#d-024) | 2026-10-23 | accepted | Progressive RallyLab rally review: full-video boundaries first, optional contacts second, player IDs later |
 | [D-025](#d-025) | 2026-10-24 | accepted | Amends D-022: a planned frame the decoder reproducibly cannot produce — an HEVC leading picture, and only that — is recorded in the journal and the summary and left out with every window that needed it, instead of stopping the export; every other failure stays fatal; plan and run identity unchanged; the three affected recordings stay in the package |
+| [D-028](#d-028) | 2026-11-02 | proposed | Live marking is Stage 1 only: serve, dead ball and the rally's kind; touches and their side of the net are advanced marking, deferred (D-024 Stage 2) |
 
 ---
 
@@ -354,3 +355,17 @@ The authoritative record of product, architecture, data and process decisions fo
 **Consequences.** `PipelineTuner.run` and `ServeReport.run` read the withheld closure (fail closed) and use `eligible`; the tuner's Holdout section and its per-surface lines are gone; `TunerEligibilityTests`. Proposed until the owner merges the PR that carries it.
 
 **Status 2026-11-01.** Accepted: the owner authorised the merge of PR #126 ("go ahead and merge", chat, 2026-11-01, after Codex's clean review of 16154cb).
+
+### D-028
+
+**Live marking is Stage 1 only: a rally's serve, its dead ball and its kind; the touches inside it and their side of the net are advanced marking, deferred** — 2026-11-02 — proposed — owner (chat, 2026-11-02: "can we remove contacts for and near and far with our current version of marking and mark that an advanced marking thing for a later update").
+
+**Context.** Live tagging (2026-10-17) took one key per touch (S P T A B F), each with a near/far side read from the ball's size against the net or said with ⇧/⌥ (on the phone, by holding a key), and closed a rally with D or N. D-024 already placed per-contact review in its optional Stage 2. The side guess needed the net found in every video, and the touch keys slowed the pass the owner wants from marking: complete rally times for scoring and the decision model.
+
+**Decision.**
+1. The marking pass on the Mac ("Mark the rallies") and the phone takes four events: S serve, D dead ball (a rally), M missed serve, N not a rally; Z takes back the last press, Esc drops the open rally. No touch keys, no side of the net, no net detection in the pass.
+2. A serve pressed while a rally is still open closes it where the pre-tracked ball's path last ended between the two serves, else 0.3 s before the new serve (before: no later than 1.5 s after the last touch).
+3. The stored format is unchanged: `RallyMarkRecord` and `LabelRally` keep `kind` and `contacts?`. The rallies marked with touches so far (on the server: 411 of 581, 107 with a side) stay as they are, with their touch count and ticks still shown. A new mark carries its `kind` and no `contacts`; its serve contact is `startTime`, which SCORING_CONTRACT already reads when `contacts` is absent.
+4. Touches and sides come back as a separate advanced-marking step (D-024 Stage 2) under a later decision; nothing here fixes its shape.
+
+**Consequences.** `LiveTagger` (shared), `LiveTagView`, `MarkRalliesView`; `LiveTagStore.mark` and `RallyMarkModel.mark` take no contacts; `BallPath.side`, `NetSide.flipped`, `SamplerModel.setNetBox` and `LiveTagger.findNet` are gone (`VideoSession.netBox` stays as stored data); `LiveTaggerTests`. The phone takes the change with its next TestFlight build (a separate, owner-approved upload). Proposed until the owner merges the PR that carries it.

@@ -3,11 +3,11 @@
 //  RallyLab (iPhone)
 //
 //  Mark every rally in a video in one pass, live, as the Mac does: watch
-//  at ½–4× and tap one key per event. Serve starts a rally; Pass, Set,
-//  Attack, Block, Free ball tag its touches; Dead ball ends it; Not a rally
-//  ends it as a missed serve or other. Hold a key to say which side of the
-//  net when the guess from the ball's size is wrong. Undo takes back the
-//  last tap. The rules are LiveTagger's, shared with the Mac.
+//  at ½–4× and tap one key per event. Serve starts a rally; Dead ball ends
+//  it; Missed serve and Not a rally end it as one of those. Undo takes
+//  back the last tap. The touches inside a rally are advanced marking, not
+//  part of this pass (D-028). The rules are LiveTagger's, shared with the
+//  Mac.
 //
 //  Pre-tracked rallies inside a rally you mark are confirmed and trimmed
 //  to it. "That's every rally" turns down the ones you never marked, drops
@@ -31,14 +31,13 @@ struct MarkRalliesView: View {
     @State private var loadError: String?
     @State private var url: URL?
     @State private var tagger: LiveTagger
-    @State private var findingNet = false
 
     private static let speeds: [Float] = [0.5, 1, 2, 3, 4]
 
     init(model: LabelerModel, video: LabelVideo) {
         self.model = model
         self.video = video
-        _tagger = State(initialValue: LiveTagger(tracks: model.tracks(for: video).map(\.rally), net: nil,
+        _tagger = State(initialValue: LiveTagger(tracks: model.tracks(for: video).map(\.rally),
                                                  store: PhoneLiveTagStore(model: model, video: video)))
     }
 
@@ -52,8 +51,8 @@ struct MarkRalliesView: View {
                 .overlay(alignment: .bottomLeading) { state.padding(8) }
                 .overlay { if let loadError { Text(loadError).foregroundStyle(.white).padding() } }
             RallyTimesBar(time: time, duration: duration, found: video.ralliesFound, marked: times.rallies,
-                          current: nil, pending: tagger.open?.first?.time,
-                          ticks: (tagger.open ?? times.rallies.first { $0.start <= time && time <= $0.end }?.contacts ?? []).map(\.time))
+                          current: nil, pending: tagger.open,
+                          ticks: times.rallies.first { $0.start <= time && time <= $0.end }?.contacts?.map(\.time) ?? [])
                 .frame(height: 22)
                 .contentShape(Rectangle())
                 .gesture(SpatialTapGesture().onEnded { tap in seek(tap.location.x / max(barWidth, 1) * duration) })
@@ -61,9 +60,6 @@ struct MarkRalliesView: View {
                 .padding(.horizontal).padding(.top, 8)
             HStack {
                 Text(clockText(time)).monospacedDigit()
-                Spacer()
-                if findingNet { ProgressView().controlSize(.mini); Text("Finding the net…") }
-                else if tagger.net == nil { Text("No net found · hold a key to say the side") }
                 Spacer()
                 Text("\(times.rallies.count) marked").monospacedDigit()
             }
@@ -75,7 +71,6 @@ struct MarkRalliesView: View {
         .navigationTitle(video.name)
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
-        .task { await findNet() }
         .onDisappear {
             player.pause()
             if let observer { player.removeTimeObserver(observer) }
@@ -90,32 +85,19 @@ struct MarkRalliesView: View {
 
     // MARK: - Live state
 
-    /// Dead or in a rally, the touches so far, and the last tap.
+    /// Dead or in a rally, and the last tap.
     private var state: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 if let open = tagger.open {
                     Circle().fill(.orange).frame(width: 8, height: 8)
-                    Text("Rally · \(clockText(open[0].time)) · \(open.count) \(open.count == 1 ? "touch" : "touches")")
+                    Text("Rally · served at \(clockText(open))")
                 } else {
                     Circle().fill(.secondary).frame(width: 8, height: 8)
                     Text("Dead ball · Serve starts one")
                 }
             }
             .font(.caption.weight(.semibold).monospacedDigit())
-            if let open = tagger.open {
-                ScrollView(.horizontal) {
-                    HStack(spacing: 4) {
-                        ForEach(Array(open.enumerated()), id: \.offset) { _, c in
-                            Text(c.kind.name + (c.side.map { " · \($0 == .near ? "near" : "far")" } ?? ""))
-                                .font(.caption2.weight(.medium))
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(c.kind == .serve ? Color.orange.opacity(0.35) : Color.white.opacity(0.15), in: Capsule())
-                        }
-                    }
-                }
-                .scrollIndicators(.hidden)
-            }
             if let note = tagger.recentNote {
                 Text(note).font(.caption2).foregroundStyle(.secondary)
             } else if duration > 0 {
@@ -135,39 +117,21 @@ struct MarkRalliesView: View {
     private var keys: some View {
         VStack(spacing: 8) {
             HStack(spacing: 8) {
-                key("Serve", "S", .orange) { tagger.serve(press($0)) }
-                key("Pass", "P") { tagger.touch(.pass, press($0)) }
-                key("Set", "T") { tagger.touch(.set, press($0)) }
-            }
-            HStack(spacing: 8) {
-                key("Attack", "A") { tagger.touch(.attack, press($0)) }
-                key("Block", "B") { tagger.touch(.block, press($0)) }
-                key("Free ball", "F") { tagger.touch(.freeBall, press($0)) }
-            }
-            HStack(spacing: 8) {
+                Button { tagger.serve(press()) } label: { keyLabel("Serve", "S") }
+                    .buttonStyle(.borderedProminent).tint(.orange)
                 Button { tagger.close(as: .rally, press()) } label: { keyLabel("Dead ball", "D") }
                     .buttonStyle(.borderedProminent).tint(.green)
-                Button { tagger.close(as: nil, press()) } label: { keyLabel("Not a rally", "N") }
+            }
+            HStack(spacing: 8) {
+                Button { tagger.close(as: .missedServe, press()) } label: { keyLabel("Missed serve", "M") }
+                    .buttonStyle(.bordered).tint(.red)
+                Button { tagger.close(as: .other, press()) } label: { keyLabel("Not a rally", "N") }
                     .buttonStyle(.bordered).tint(.red)
                 Button { tagger.undo() } label: { keyLabel("Undo", "Z") }
                     .buttonStyle(.bordered)
             }
         }
         .controlSize(.large)
-    }
-
-    /// A touch key: tap for the side the ball's size says, hold to say it.
-    private func key(_ name: String, _ k: String, _ tint: Color = .accentColor, action: @escaping (NetSide?) -> Void) -> some View {
-        Menu {
-            Button("Near side (camera's half)") { action(.near) }
-            Button("Far side") { action(.far) }
-        } label: {
-            keyLabel(name, k)
-        } primaryAction: {
-            action(nil)
-        }
-        .buttonStyle(.bordered)
-        .tint(tint)
     }
 
     private func keyLabel(_ name: String, _ k: String) -> some View {
@@ -238,9 +202,9 @@ struct MarkRalliesView: View {
 
     // MARK: - Presses
 
-    private func press(_ side: NetSide? = nil) -> LiveTagger.Press {
+    private func press() -> LiveTagger.Press {
         let now = player.currentTime().seconds
-        return LiveTagger.Press(now: now.isFinite ? now : time, playing: player.rate > 0, rate: rate, side: side)
+        return LiveTagger.Press(now: now.isFinite ? now : time, playing: player.rate > 0, rate: rate)
     }
 
     /// Everything you didn't mark isn't a rally: pre-tracked rallies are
@@ -283,17 +247,6 @@ struct MarkRalliesView: View {
         }
     }
 
-    /// The net, once per visit, from the phone's copy of the video.
-    private func findNet() async {
-        guard tagger.net == nil, !findingNet else { return }
-        let clip: URL
-        do { clip = try await model.playbackURL(for: video) } catch { return }
-        findingNet = true
-        defer { findingNet = false }
-        guard let found = await LiveTagger.findNet(in: clip) else { return }
-        tagger.net = found.rect
-    }
-
     private func seek(_ t: Double) {
         let target = min(max(0, t), max(duration, 0))
         time = target
@@ -324,8 +277,8 @@ final class PhoneLiveTagStore: LiveTagStore {
         self.video = video
     }
 
-    func mark(start: Double, end: Double, kind: RallyKind, contacts: [RallyContact]) -> AnyHashable {
-        let rally = LabelRally(start: start, end: end, kind: kind, contacts: contacts.isEmpty ? nil : contacts)
+    func mark(start: Double, end: Double, kind: RallyKind) -> AnyHashable {
+        let rally = LabelRally(start: start, end: end, kind: kind)
         model.update(video) { t in
             t.rallies.removeAll { $0.id == rally.id }
             t.rallies.append(rally)

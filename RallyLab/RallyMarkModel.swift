@@ -29,7 +29,8 @@ final class RallyMarkModel {
         var start: Double
         var end: Double
         var kind: RallyKind
-        /// Its touches in time order, the serve first, once live-tagged.
+        /// Its touches in time order, the serve first, where it was marked
+        /// with them (advanced marking, D-028); kept as the file has them.
         var contacts: [RallyContact]
         init(id: UUID = UUID(), start: Double, end: Double, kind: RallyKind = .rally, contacts: [RallyContact] = []) {
             (self.id, self.start, self.end, self.kind, self.contacts) = (id, start, end, kind, contacts)
@@ -297,8 +298,8 @@ final class RallyMarkModel {
     /// A rally from `start` to `end`, replacing any marked rally it overlaps
     /// (the same rally, marked again).
     @discardableResult
-    func mark(start: Double, end: Double, kind: RallyKind = .rally, contacts: [RallyContact] = []) -> Mark {
-        let mark = Mark(start: start, end: end, kind: kind, contacts: contacts)
+    func mark(start: Double, end: Double, kind: RallyKind = .rally) -> Mark {
+        let mark = Mark(start: start, end: end, kind: kind)
         rallies.removeAll { min($0.end, mark.end) - max($0.start, mark.start) > 0.5 * min($0.end - $0.start, mark.end - mark.start) }
         rallies.append(mark)
         selectedId = mark.id
