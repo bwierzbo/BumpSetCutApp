@@ -1,17 +1,17 @@
 ---
 id: EXP-20261102-net-model-v2
-status: planned — not approved, not run
+status: approved — not run (owner, 2026-11-02)
 created: 2026-11-02T16:23:54Z
-updated: 2026-11-02T16:23:54Z
+updated: 2026-11-02T18:32:50Z
 decision: owner direction 2026-11-02 ("do a higher input resolution and more data augmentation"), after EXP-20261031-net-model-v1 missed H1; D-002, D-017, D-018 honoured
 roadmap_phase: net model replacement (licensing, 2026-10-09; plan: ../NET_MODEL_PLAN.md)
-pr: exp/net-model-v2-recipe (the trainer options and this record); the run's results go on the same branch
+pr: #129 exp/net-model-v2-recipe (the trainer options and this record); the results go on a follow-up branch, exp/net-model-v2-run
 issue: n/a
 ---
 
 # EXP-20261102-net-model-v2 — the net detector at a higher input resolution and with stronger augmentation
 
-**Status: planned, not approved, not run.** Written before any run. The previous record, [EXP-20261031-net-model-v1](EXP-20261031-net-model-v1.md), found the net on every validation frame but missed the bars: median top error 0.043 H (bar 0.02) and side errors 0.080 / 0.092 W (bar 0.05). With the Roboflow boxes added the figures were 0.033 H and 0.058 / 0.065 W. The owner chose to change the recipe: "do a higher input resolution and more data augmentation". This record tests those two changes, separately and together, on the same data and the same validation frames as v1. Nothing runs until the owner approves this record and the trainer change is merged.
+**Status: approved, not run.** The owner approved this record on 2026-11-02 ("Approve the v2 record and merge 129"), after the paired side-error fix for Codex's review. The hypotheses and bars are unchanged by the approval. Written before any run. The previous record, [EXP-20261031-net-model-v1](EXP-20261031-net-model-v1.md), found the net on every validation frame but missed the bars: median top error 0.043 H (bar 0.02) and side errors 0.080 / 0.092 W (bar 0.05). With the Roboflow boxes added the figures were 0.033 H and 0.058 / 0.065 W. The owner chose to change the recipe: "do a higher input resolution and more data augmentation". This record tests those two changes, separately and together, on the same data and the same validation frames as v1. The runs start once PR #129 is merged, at the merged code SHA.
 
 ## What changes in the trainer
 
