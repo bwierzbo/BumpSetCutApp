@@ -11,8 +11,9 @@ eligible images byte for byte, their net boxes as class 0 `net`, `data.yaml`,
 source image with its status, reason, evidence and hashes), `exclusions.json` (the images
 left out and why, drawn from the manifest) and `audit.json` (the inventory and the
 duplicate checks). The package is written beside its destination and
-moved into place only after `verify` passes on it. No wall-clock time is written, so a
-second build from the same inputs produces identical files.
+moved into place only after `verify` passes on it. No wall-clock time and no machine path
+is written, and files are written as bytes, so a second build from the same inputs produces
+identical files on any machine.
 
 Rules, each recorded per image in the manifest:
 - Every image belongs to exactly one source group from the config (a pattern on the file
@@ -201,6 +202,15 @@ def image_features(path: Path) -> dict:
             "pixel_sha256": sha256_bytes(rgb.tobytes()), "thumbs": np.stack(crop_thumbs(gray))}
 
 
+def compare_thumbs(path: Path) -> np.ndarray:
+    try:
+        with Image.open(path) as im:
+            gray = im.convert("RGB").convert("L")
+    except Exception as e:  # noqa: BLE001 — any decoder error
+        raise PrepError(f"{path}: cannot be decoded ({e})") from None
+    return np.stack(crop_thumbs(gray))
+
+
 def aligned_similarity(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """a: (n, k, d), b: (m, k, d) crop thumbnails → (n, m): the best correlation between one
     image's full frame and any crop of the other, in either direction."""
@@ -373,7 +383,7 @@ def audit_and_decide(export: Path, cfg: dict, compare: dict[str, Path], manifest
     # Cross-source duplicates.
     cross = {}
     for name, ps in compare_paths.items():
-        C = np.stack([np.stack(crop_thumbs(Image.open(p).convert("RGB").convert("L"))) for p in ps])
+        C = np.stack([compare_thumbs(p) for p in ps])
         csha = {sha256_file(p): p for p in ps}
         s = aligned_similarity(T, C)
         best = s.argmax(1)
@@ -385,7 +395,7 @@ def audit_and_decide(export: Path, cfg: dict, compare: dict[str, Path], manifest
                                                           "similarity": round(float(s[i, best[i]]), 5), "exact": exact})
                 matches.append(r["file"])
         top = np.argsort(-s.max(1))[:5]
-        cross[name] = {"folder": str(compare[name]), "images": len(ps), "matches": matches,
+        cross[name] = {"folder": compare[name].name, "images": len(ps), "matches": matches,
                        "max_similarity": round(float(s.max()), 5),
                        "median_best_similarity": round(float(np.median(s.max(1))), 5),
                        "closest": [{"export": records[i]["file"], "other": ps[best[i]].name,
@@ -426,12 +436,14 @@ def audit_and_decide(export: Path, cfg: dict, compare: dict[str, Path], manifest
     for c in near_clusters:
         members = sorted(c, key=lambda i: (-records[i]["width"] * records[i]["height"], rank[records[i]["file"]]))
         keep = next((i for i in members if records[i]["status"] == "eligible"), None)
+        if keep is None:
+            continue
         exact_c = any(set(c) <= set(e) for e in exact_clusters)
         for i in members:
             if i != keep and records[i]["status"] == "eligible":
                 r = records[i]
                 r["status"] = "excluded"
-                r["reason"] = f"duplicate of {records[keep]['file'] if keep is not None else 'a quarantined image'}"
+                r["reason"] = f"duplicate of {records[keep]['file']}"
                 r["evidence_type"] = "exact_hash" if exact_c else "near_duplicate"
                 r["confidence"] = "certain" if exact_c else "high"
 
@@ -439,7 +451,7 @@ def audit_and_decide(export: Path, cfg: dict, compare: dict[str, Path], manifest
         if any(ln["kind"] == "box" for r in records for ln in r["net_lines"]) else np.zeros((0, 4))
     eligible = [r for r in records if r["status"] == "eligible"]
     audit = {
-        "dataset_id": cfg["dataset_id"], "export": str(export), "classes": names, "net_class": cfg["net_class"],
+        "dataset_id": cfg["dataset_id"], "export": export.name, "classes": names, "net_class": cfg["net_class"],
         "net_class_id": net_id,
         "images": n, "by_split": {s: sum(r["split"] == s for r in records) for s in SPLIT_DIRS},
         "annotations_by_class": class_counts, "annotation_kinds_by_class": kinds_by_class,
@@ -506,14 +518,14 @@ def write_package(out: Path, export: Path, cfg: dict, records: list[dict], audit
         if r["status"] == "eligible":
             shutil.copyfile(r["image"], tmp / "images" / r["file"])
             stem = Path(r["file"]).stem
-            text = "".join("0 " + " ".join(ln["text"]) + "\n" for ln in r["net_lines"])
-            (tmp / "labels" / f"{stem}.txt").write_text(text)
+            data = "".join("0 " + " ".join(ln["text"]) + "\n" for ln in r["net_lines"]).encode()
+            (tmp / "labels" / f"{stem}.txt").write_bytes(data)   # bytes: no CRLF on Windows, so the hash holds
             e["package_image"] = f"images/{r['file']}"
             e["package_image_sha256"] = sha256_file(tmp / "images" / r["file"])
             e["package_label"] = f"labels/{stem}.txt"
-            e["package_label_sha256"] = sha256_bytes(text.encode())
+            e["package_label_sha256"] = sha256_bytes(data)
         entries.append(e)
-    (tmp / "data.yaml").write_text("train: images\nnc: 1\nnames: ['net']\n")
+    (tmp / "data.yaml").write_bytes(b"train: images\nnc: 1\nnames: ['net']\n")
     prov = dict(cfg["provenance"])
     (tmp / "provenance.json").write_bytes(canonical(prov))
     manifest = {

@@ -161,6 +161,10 @@ class PrepareTests(unittest.TestCase):
                          sorted([f["copy_exact"]] + [f[f"good_{i:02d}"] for i in range(1, 6)]))
         label = (out / "labels" / f"{Path(f['good_02']).stem}.txt").read_text()
         self.assertEqual(label, "0 0.5 0.4 0.6 0.1\n", "net lines only, class 0, the source's numbers as written")
+        raw = (out / "labels" / f"{Path(f['good_02']).stem}.txt").read_bytes()
+        self.assertEqual(raw, b"0 0.5 0.4 0.6 0.1\n", "LF only, whatever the platform: the recorded hash is of these bytes")
+        self.assertNotIn(b"\r", (out / "data.yaml").read_bytes())
+        self.assertNotIn(str(self.tmp), (out / "audit.json").read_text(), "no machine path in the outputs")
         src = self.fx.export / "train" / "images" / f["good_02"]
         self.assertEqual((out / "images" / f["good_02"]).read_bytes(), src.read_bytes())
         decided = next(e for e in m["entries"] if e["file"] == f["decided"])
@@ -226,6 +230,14 @@ class PrepareTests(unittest.TestCase):
         (other / "other_cam.jpg").write_bytes(b"not an image")   # train split, but in the withheld alias group
         manifest = split_manifest(self.tmp / "manifest.json", "held_rec", "other_cam")
         with self.assertRaisesRegex(P.PrepError, "withheld recording other_cam — not opened"):
+            self.fx.build(compare={"ours": other}, manifest=manifest)
+
+    def test_undecodable_compare_image_is_named(self):
+        other = self.tmp / "other"
+        other.mkdir()
+        (other / "free_rec.jpg").write_bytes(b"not an image")
+        manifest = split_manifest(self.tmp / "manifest.json", "held_rec", "other_cam")
+        with self.assertRaisesRegex(P.PrepError, "free_rec.jpg: cannot be decoded"):
             self.fx.build(compare={"ours": other}, manifest=manifest)
 
     def test_compare_needs_a_readable_manifest(self):
