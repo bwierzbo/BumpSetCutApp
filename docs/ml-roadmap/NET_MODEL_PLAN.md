@@ -35,6 +35,8 @@ Scratch on 2026-10-30: 167 recordings; the 21 withheld and the 8 handheld (disjo
 
 **The public Roboflow dataset** (`bumpsetcut/volleyball-ykkmn-grgwy`: 547 images at 640×640, classes ball 481 / net 586, no version generated) is a second source. Its images are stretched to square with generic names, so their provenance is unknown; they are kept apart from ours in training (their own folder, their own split), and a model is reported on our frames alone as well as on both.
 
+**Avais Beach Volleyball** (owner, 2026-11-02, after PR #132 §F.4: "We should not have any overlapping go ahead and use it"): forked to `bumpsetcut/beach-volleyball-tt2vj-zia7d`, version 1 (auto-orient only, no augmentation, CC BY 4.0), and packaged for training only by `scripts/desktop_training/prepare_external_net_dataset.py` as `avais-net-v1-boxes`: **593 net boxes from one fixed ground-level endline camera at one FIVB event** (Olsztyn Grand Slam), after 2 screenshots and 1 mislabelled frame were quarantined and 40 near-identical frames excluded; no exact, near or event-level overlap with our recordings, protected ones included (metadata only). Its boxes' top edge is the tape, but their sides are the net's side bands, inside the posts, so they are not our corners and must not supervise corners or side edges. Report, hashes and the recommended way into a v3 record: [AVAIS_NET_DATASET_AUDIT_2026-11-02.md](AVAIS_NET_DATASET_AUDIT_2026-11-02.md). Nothing has trained on it.
+
 **Split:** by recording group (clip card / alias / session / venue / uploader, as the split manifest defines them), never by frame — `_v2` copies of a recording share a net.
 
 ## 3. Handheld recordings and the training data (asked 2026-10-30)
