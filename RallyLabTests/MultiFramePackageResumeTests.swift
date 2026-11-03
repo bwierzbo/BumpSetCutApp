@@ -489,7 +489,7 @@ final class MultiFramePackageResumeTests: XCTestCase {
         // The lineage preflight: passes, with the omission on record per clip.
         let p = try XCTUnwrap(preflighted)
         XCTAssertTrue(p.passed, p.checks.filter { !$0.passed }.map { "\($0.name): \($0.detail)" }.joined(separator: "; "))
-        XCTAssertEqual(p.checks.count, 13)
+        XCTAssertEqual(p.checks.count, 14)
         let recorded = try XCTUnwrap(p.checks.first { $0.name == "undecodable-frames-recorded" })
         XCTAssertTrue(recorded.detail.hasPrefix("2 frame(s) in 1 clip(s) left out as HEVC leading pictures"), recorded.detail)
         XCTAssertEqual(p.clips.first { $0.clip == "lead3" }?.undecodableFrames, 2)
@@ -682,6 +682,51 @@ final class MultiFramePackageResumeTests: XCTestCase {
                                                   .init(video: "b", split: .train, packageSplit: "train", aliasGroup: "b", identities: [], reviewedFrames: 1, ralliesMarked: false)])
         return try LineagePackage.preflight(packageDir: dir, plan: plan, sourceFingerprints: ["a": "file:A", "b": "file:B"], protectedSources: ["file:W"],
                                             protectedHashes: ["0000"], now: now)
+    }
+
+    // MARK: - Cut ranges (D-030)
+
+    /// A window any of whose frames a cut range covers is left out and counted apart from the
+    /// clip's edges; the plan's identity names the cuts, so a resume under other cuts is refused.
+    func testWindowsInsideACutRangeAreLeftOutAndCounted() async throws {
+        var sessions = try await sessions()
+        // a's windows: 1.5 s (frames 1.233…1.767) and 2.0 s (frames 1.733…2.267). A cut from 1.9 s covers the second only.
+        sessions[0].cuts = [CutRange(start: 1.9, end: 2.5)]
+        let (dir, summary) = try await export(sessions)
+        XCTAssertEqual(summary.valWindows, 1)
+        XCTAssertEqual(summary.trainWindows, 1)
+        XCTAssertEqual(summary.windowsCut, 1)
+        XCTAssertEqual(summary.framesAtEdges, 0)
+        let keys = try frameNames(dir, "a").map { Int64($0.dropLast(4))! }
+        XCTAssertEqual(keys.count, 17, "only the 1.5 s window's frames")
+        XCTAssertEqual(keys.max(), 1_766_667)
+        let journal = try ExportJournal.read(ExportJournal.url(forPackage: dir), forPackage: dir.lastPathComponent)
+        XCTAssertEqual(journal.identity.clips["a"]?.cuts, [CutRange(start: 1.9, end: 2.5)])
+        XCTAssertEqual(journal.identity.clips["a"]?.plannedKeys, 17)
+        XCTAssertNil(journal.identity.clips["b"]?.cuts)
+        XCTAssertTrue(try String(contentsOf: dir.appendingPathComponent("README.txt"), encoding: .utf8).contains("1 windows were left out as inside a cut range"))
+        var other = journal.identity
+        other.clips["a"]?.cuts = nil
+        XCTAssertTrue(journal.identity.differences(from: other).contains { $0.hasPrefix("clip a.cuts") })
+    }
+
+    /// Dead-time windows come from a video with every rally marked, away from its rallies — and
+    /// away from its cut ranges: a replay is neither a rally nor dead time.
+    func testDeadTimeWindowsKeepAwayFromCutRanges() async throws {
+        let clip = try await video("d", seed: 3, frames: 240)   // 8 s: dead-time centres at 1.5 and 4.5 s
+        try "[{\"startTime\": 3.5, \"endTime\": 4.2}]".write(to: RallyMarkModel.labelsURL(for: clip), atomically: true, encoding: .utf8)
+        var marked = VideoSession(name: "d", sourcePath: clip.path, split: "train", addedAt: now, frames: [])
+        marked.ralliesMarked = true
+        let val = session("a", split: "val", video: try await video("a", seed: 0), times: [1.5])
+        let (dir, before) = try await export([marked, val])
+        XCTAssertEqual(before.deadWindows, 1, "4.5 s is within the margin of the rally; 1.5 s is dead time")
+        XCTAssertEqual(before.windowsCut, 0)
+        for leftover in [dir, dir.appendingPathExtension("zip"), ExportJournal.url(forPackage: dir)] { try? FileManager.default.removeItem(at: leftover) }
+
+        marked.cuts = [CutRange(start: 0.5, end: 2.0)]
+        let (_, after) = try await export([marked, val])
+        XCTAssertEqual(after.deadWindows, 0, "1.5 s is now within the margin of a cut")
+        XCTAssertEqual(after.windowsCut, 0, "kept away, not planned and dropped")
     }
 
     // MARK: - Fresh export

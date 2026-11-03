@@ -56,6 +56,8 @@ enum LineagePackage {
         var identities: [String]
         var reviewedFrames: Int
         var ralliesMarked: Bool
+        /// The recording's cut ranges (not footage; D-030), normalised; nil when it has none.
+        var cuts: [CutRange]? = nil
     }
 
     struct AuditSummary: Codable, Equatable {
@@ -132,8 +134,10 @@ enum LineagePackage {
                                          identities: identities(of: v)))
             } else {
                 let packageSplit = v.split == .train ? "train" : "val"
+                let cuts = (v.cuts ?? []).normalised()
                 eligible.append(Eligible(video: v.video, split: v.split, packageSplit: packageSplit, aliasGroup: v.aliasGroup,
-                                         identities: identities(of: v), reviewedFrames: v.reviewedFrames, ralliesMarked: v.ralliesMarked))
+                                         identities: identities(of: v), reviewedFrames: v.reviewedFrames, ralliesMarked: v.ralliesMarked,
+                                         cuts: cuts.isEmpty ? nil : cuts))
             }
         }
         let withheldNames = Set(withheld.map(\.video))
@@ -307,6 +311,14 @@ enum LineagePackage {
 
         let eligibleSplit = Dictionary(uniqueKeysWithValues: plan.eligible.map { ($0.video, $0.packageSplit) })
         let eligibleBySafe = Dictionary(plan.eligible.map { (DatasetStore.safeName($0.video), $0.video) }, uniquingKeysWith: { a, _ in a })
+        let eligibleCuts = Dictionary(uniqueKeysWithValues: plan.eligible.map { ($0.video, $0.cuts ?? []) })
+        // A frame file is named by its presentation time in µs; inside one of its clip's cut ranges it is not footage (D-030).
+        var inCut: [String] = []
+        func checkCut(_ path: String, clip: String) {
+            let parts = path.split(separator: "/").map(String.init)
+            guard parts.count == 3, let cuts = eligibleCuts[clip], !cuts.isEmpty, let µs = Int64(parts[2].dropLast(4)) else { return }
+            if cuts.contains(Double(µs) / 1_000_000) { inCut.append(path) }
+        }
         let withheldSafe = Set(plan.withheld.map { DatasetStore.safeName($0.video) })
         let withheldNames = plan.withheldNames
 
@@ -332,6 +344,7 @@ enum LineagePackage {
                 let parts = path.split(separator: "/").map(String.init)
                 guard parts.count == 3, parts[0] == "frames", eligibleBySafe[parts[1]] == clip, !withheldSafe.contains(parts[1])
                 else { badPaths.insert(path); continue }
+                checkCut(path, clip: clip)
             }
         }
 
@@ -405,7 +418,10 @@ enum LineagePackage {
             if path == recordFile && parts.count == 1 { continue }   // allowed, never hashed into its own record
             files.append(FileHash(path: path, sha256: sha, bytes: bytes))
             let frame = parts.count == 3 && parts[0] == "frames" && packaged(parts[1])
-            if frame { framesInFolder[parts[1], default: 0] += 1 }
+            if frame {
+                framesInFolder[parts[1], default: 0] += 1
+                if let clip = eligibleBySafe[parts[1]] { checkCut(path, clip: clip) }
+            }
             if !(own || frame) { stray.append(path) }
             if protectedHashes.contains(sha) { protected.append(path) }
         }
@@ -444,6 +460,10 @@ enum LineagePackage {
         let splits = Set(windowsByClip.values.flatMap(\.split))
         check("both-splits-present", splits.isSuperset(of: ["train", "val"]) ? [] : ["have: " + splits.sorted().joined(separator: ",")],
               ok: "train and val windows present")
+        let cutClips = plan.eligible.filter { !($0.cuts ?? []).isEmpty }
+        check("no-frame-in-cut-range", Array(Set(inCut)),
+              ok: cutClips.isEmpty ? "no eligible recording has a cut range"
+                : "no frame named by a window or in a clip's folder lies inside its recording's cut ranges (\(cutClips.count) recording(s), \(String(format: "%.1f", cutClips.reduce(0) { $0 + ($1.cuts ?? []).reduce(0) { $0 + $1.seconds } })) s cut; D-030)")
         // …and each recorded frame is absent: no file for it, no window that names it; the counts agree.
         for (clip, entry) in undecodableByClip.sorted(by: { $0.key < $1.key }) {
             for path in entry.frames.sorted() {
@@ -518,7 +538,8 @@ enum LineagePackage {
             guard let split = planned[s.name] else { return nil }
             return VideoSession(name: s.name, sourcePath: s.sourcePath, split: split, addedAt: s.addedAt, frames: s.frames,
                                 rejected: s.rejected, tracks: s.tracks.map(Self.humanLabeled), ralliesMarked: s.ralliesMarked,
-                                syncedTrackIds: s.syncedTrackIds, notRallies: s.notRallies, fittedTracks: s.fittedTracks, netBox: s.netBox)
+                                syncedTrackIds: s.syncedTrackIds, notRallies: s.notRallies, fittedTracks: s.fittedTracks, netBox: s.netBox,
+                                cuts: s.cuts)
         }
         let missing = out.filter { MultiFramePackage.contributes($0) && !FileManager.default.fileExists(atPath: $0.sourcePath) }
         guard missing.isEmpty else { throw SourceError.sourcesMissing(missing.map(\.name).sorted()) }
@@ -651,8 +672,11 @@ enum LineagePackage {
 
         """
         for w in plan.withheld { md += "| \(w.video) | \(w.split.rawValue) | \(w.reservedAs ?? "—") | \(w.aliasGroup ?? "—") |\n" }
-        md += "\n## Eligible\n\n| Recording | Manifest split | Package split | Reviewed frames | Rallies marked |\n|---|---|---|---|---|\n"
-        for e in plan.eligible { md += "| \(e.video) | \(e.split.rawValue) | \(e.packageSplit) | \(e.reviewedFrames) | \(e.ralliesMarked ? "yes" : "no") |\n" }
+        md += "\n## Eligible\n\n| Recording | Manifest split | Package split | Reviewed frames | Rallies marked | Cut s |\n|---|---|---|---|---|---|\n"
+        for e in plan.eligible {
+            let cut = (e.cuts ?? []).reduce(0) { $0 + $1.seconds }
+            md += "| \(e.video) | \(e.split.rawValue) | \(e.packageSplit) | \(e.reviewedFrames) | \(e.ralliesMarked ? "yes" : "no") | \(cut == 0 ? "—" : String(format: "%.1f", cut)) |\n"
+        }
         return md
     }
 

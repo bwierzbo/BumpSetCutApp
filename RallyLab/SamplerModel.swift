@@ -1190,6 +1190,11 @@ final class SamplerModel {
         modify(session: name) { $0.ralliesMarked = marked }
     }
 
+    /// Mark the rallies → X: the video's cut ranges, raw as marked (D-030).
+    func setCuts(_ cuts: [CutRange], session name: String) {
+        modify(session: name) { $0.cuts = cuts.sorted { $0.start < $1.start } }
+    }
+
     /// Label → Not a rally: the found rally starting at `start` isn't one.
     func addNotRally(start: Double, session name: String) {
         modify(session: name) { $0.notRallies = ($0.notRallies ?? []) + [start] }

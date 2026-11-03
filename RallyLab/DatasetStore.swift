@@ -101,6 +101,13 @@ struct VideoSession: Codable, Identifiable, Equatable {
     /// The net as NetDetector found it (the median box over sampled frames,
     /// Vision-normalised, upright), for which side of it a touch was on.
     var netBox: TrackCandidate? = nil
+    /// Stretches of the video that are not footage — the clip started in the
+    /// middle of a rally, an editor put an instant replay in — as marked in
+    /// the live pass (raw, as marked; read through `cutRanges`). D-030.
+    var cuts: [CutRange]? = nil
+
+    /// The cut ranges as every consumer reads them: normalised.
+    var cutRanges: [CutRange] { (cuts ?? []).normalised() }
 
     var reviewedCount: Int { frames.filter(\.reviewed).count }
     var boxCount: Int { frames.filter(\.keep).reduce(0) { $0 + $1.boxes.count } }
