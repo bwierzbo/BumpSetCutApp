@@ -144,6 +144,51 @@ enum SourceRegistry {
         let sessionsByName = Dictionary(inputs.sessions.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
         let names = Set(cards.keys).union(sessionsByName.keys)
 
+        // A footage-properties record is tied to the file it describes: one recorded for another fingerprint than
+        // the card's (the recording was replaced under the same id, or the card has no fingerprint to check) is
+        // another file's record and is not used — nothing of it is carried to this recording, which is quarantined
+        // as it is for an unreadable record (Codex on #134, round 4). A record with no fingerprint is bound by name.
+        var unusable: [String: String] = inputs.unreadableProperties.mapValues { "unreadable: \($0)" }
+        var properties: [String: FootageProperties.File] = [:]
+        for (name, p) in inputs.properties where unusable[name] == nil {
+            let current = cards[name].flatMap { ReservedVideos.effectiveFingerprint($0.source) }
+            if let recorded = p.sourceFingerprint, recorded != current {
+                unusable[name] = "of another file (recorded for \(recorded); the project card has \(current ?? "no fingerprint"))"
+            } else {
+                properties[name] = p
+            }
+        }
+        /// The recordings a derivative's record names as its original: by video id, or by identity key (`src:` / `fp:`)
+        /// through every project video carrying that confirmed source or fingerprint. Empty when the original is not
+        /// in the project (nothing withheld can be outside it: the closure is over the project's videos).
+        func parents(of video: String) -> [String] {
+            guard let parent = properties[video]?.derivedFrom?.parent else { return [] }
+            if names.contains(parent) { return [parent] }
+            let safe = DatasetStore.safeName(parent)
+            if names.contains(safe) { return [safe] }
+            return names.filter { n in
+                guard let s = sources[n] else { return false }
+                if let id = s.sourceId, !id.isEmpty, parent == "src:" + id { return true }
+                if let fp = ReservedVideos.effectiveFingerprint(s), parent == "fp:" + fp { return true }
+                return false
+            }.sorted()
+        }
+        enum Ancestry { case clear, withheld(String), unknown(String) }
+        /// The derivative's ancestry through `derivedFrom`, every generation: the withheld recording it descends
+        /// from, or an ancestor whose record cannot be used (its ancestry is then unknown, which is not clear). A
+        /// recording is expanded once, so a cycle in the records ends the walk instead of looping.
+        func ancestry(of video: String) -> Ancestry {
+            var seen: Set<String> = [video]
+            var frontier = parents(of: video)
+            while let p = frontier.popLast() {
+                if withheld.contains(p) { return .withheld(p) }
+                guard seen.insert(p).inserted else { continue }
+                if let why = unusable[p] { return .unknown("\(p)'s footage-properties record is \(why)") }
+                frontier.append(contentsOf: parents(of: p))
+            }
+            return .clear
+        }
+
         let out = names.sorted().map { name -> Source in
             let card = cards[name]
             let session = sessionsByName[name]
@@ -166,18 +211,8 @@ enum SourceRegistry {
             else { split = unreserved }
             let reservedAs: String? = split.isReserved && split != .legacyHoldout ? (listedReserved.contains(name) ? "listed" : "alias") : nil
 
-            let props = inputs.properties[name]
-            let parentWithheld: String? = props?.derivedFrom.flatMap { d in
-                let parent = d.parent
-                if withheld.contains(parent) || withheld.contains(DatasetStore.safeName(parent)) { return parent }
-                // The parent named by identity: any withheld video carrying that confirmed source or fingerprint.
-                return withheld.first { w in
-                    guard let s = sources[w] else { return false }
-                    if let id = s.sourceId, !id.isEmpty, parent == "src:" + id { return true }
-                    if let fp = ReservedVideos.effectiveFingerprint(s), parent == "fp:" + fp { return true }
-                    return false
-                }
-            }
+            let props = properties[name]
+            let lineage: Ancestry = props?.derivedFrom == nil ? .clear : ancestry(of: name)
             let admission: Admission
             var reason: String?
             if withheld.contains(name) {
@@ -187,12 +222,15 @@ enum SourceRegistry {
                     : reservedAs == "listed" ? "\(split.rawValue), listed in validation.json"
                     : reservedAs == "alias" ? "\(split.rawValue), an alias of a listed recording"
                     : "aliased to a withheld recording (shared file or confirmed identity)"
-            } else if let parent = parentWithheld {
+            } else if case .withheld(let parent) = lineage {
                 admission = .quarantined
-                reason = "derived from withheld recording \(parent) (recorded in its footage properties; the guard closure does not yet follow derivations — phase 3)"
-            } else if let why = inputs.unreadableProperties[name] {
+                reason = "derived from withheld recording \(parent) (through the footage-properties derivations; the guard closure does not yet follow derivations — phase 3)"
+            } else if case .unknown(let why) = lineage {
                 admission = .quarantined
-                reason = "footage-properties record unreadable: \(why)"
+                reason = "derived from a recording whose ancestry cannot be established: \(why)"
+            } else if let why = unusable[name] {
+                admission = .quarantined
+                reason = "footage-properties record \(why)"
             } else if session == nil {
                 admission = .pendingIngest
                 reason = "on card \(card?.clip.id ?? "?") with no dataset session"
@@ -233,7 +271,7 @@ enum SourceRegistry {
                 exposure: inputs.exposure.map { Array(Set(($0[name] ?? []).map(\.kind.rawValue))).sorted() },
                 recordingType: props?.recordingType ?? .unknown,
                 derivedFrom: props?.derivedFrom?.parent,
-                eligibility: TrainingEligibility.assess(admission: admission, properties: props, unreadableReason: inputs.unreadableProperties[name]))
+                eligibility: TrainingEligibility.assess(admission: admission, properties: props, unreadableReason: unusable[name]))
         }
         return Index(project: inputs.project?.name ?? "", createdAt: inputs.now, hashes: inputs.hashes, sources: out, problems: inputs.problems)
     }

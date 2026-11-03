@@ -167,6 +167,64 @@ final class SourceRegistryTests: XCTestCase {
         XCTAssertEqual(index.count(.quarantined), 3)
     }
 
+    /// Codex on #134 (b03c5fe): a derivative of a derivative of a withheld recording was admitted (only the
+    /// immediate parent was checked), and a footage-properties record was used by name after the recording
+    /// had been replaced under the same id. Derivations are followed through every generation, by video id
+    /// and by identity key, ending at a cycle; an ancestor whose record can't be used leaves the ancestry
+    /// unknown, which quarantines too. A record for another fingerprint than the card's is not used at all.
+    func testDerivationsAreFollowedThroughEveryGenerationAndARecordOfAnotherFileIsNotUsed() {
+        let now = "2026-11-02T20:00:00Z"
+        func derived(_ video: String, from parent: String, fingerprint: String? = nil) -> FootageProperties.File {
+            FootageProperties.File(video: video, sourceFingerprint: fingerprint, derivedFrom: .init(parent: parent, relation: .highlight, note: nil), updatedAt: now)
+        }
+        var i = inputs()
+        i.properties = [
+            "grs_t": derived("grs_t", from: "ind_h"),            // withheld original
+            "bch_b": derived("bch_b", from: "grs_t"),            // second generation
+            "orphan": derived("orphan", from: "bch_b"),          // third
+            "ind_p": derived("ind_p", from: "fp:file:ttt"),      // grs_t by its fingerprint, then up the chain
+            "bch_a": derived("bch_a", from: "bch_b_v2"),         // a cycle between two admitted recordings
+            "bch_b_v2": derived("bch_b_v2", from: "bch_a"),
+        ]
+        let by = SourceRegistry.build(i).byVideo
+        for (video, generations) in [("grs_t", 1), ("bch_b", 2), ("orphan", 3), ("ind_p", 3)] {
+            XCTAssertEqual(by[video]?.admission, .quarantined, "\(video): \(generations) generation(s) from ind_h")
+            XCTAssertTrue(by[video]?.admissionReason?.contains("withheld recording ind_h") == true, by[video]?.admissionReason ?? "nil")
+            for m in TrainingEligibility.Model.allCases { XCTAssertEqual(by[video]?.eligibility[m].level, .quarantined, "\(video) \(m.rawValue)") }
+            XCTAssertEqual(by[video]?.eligibility.fullVideoNegatives.level, .quarantined, video)
+        }
+        XCTAssertEqual(by["bch_a"]?.admission, .admitted, "a cycle with nothing withheld in it ends the walk")
+        XCTAssertEqual(by["bch_b_v2"]?.admission, .admitted)
+
+        // An ancestor whose record can't be read: the ancestry is unknown, not clear.
+        var j = inputs()
+        j.properties = ["bch_b": derived("bch_b", from: "grs_t")]
+        j.unreadableProperties = ["grs_t": "broken json"]
+        let unknown = SourceRegistry.build(j).byVideo
+        XCTAssertEqual(unknown["bch_b"]?.admission, .quarantined)
+        XCTAssertTrue(unknown["bch_b"]?.admissionReason?.contains("ancestry cannot be established") == true, unknown["bch_b"]?.admissionReason ?? "nil")
+        XCTAssertTrue(unknown["grs_t"]?.admissionReason?.contains("unreadable: broken json") == true, unknown["grs_t"]?.admissionReason ?? "nil")
+
+        // A record of another file: nothing of it is used, and the recording is quarantined until it is characterised again.
+        var k = inputs()
+        let continuous = FootageProperties.File(video: "bch_a", sourceFingerprint: "file:old", recordingType: .continuous, recordingTypeBy: "BW", recordingTypeAt: now,
+                                                spans: [], derivedFrom: .init(parent: "ind_h", relation: .crop, note: nil), updatedAt: now)
+        var current = continuous; current.sourceFingerprint = "file:aaa"; current.derivedFrom = nil
+        var unidentified = continuous; unidentified.video = "orphan"; unidentified.sourceFingerprint = "file:zzz"; unidentified.derivedFrom = nil
+        k.properties = ["bch_a": continuous, "bch_b_v2": { var f = current; f.video = "bch_b_v2"; f.sourceFingerprint = "file:bbb"; return f }(), "orphan": unidentified]
+        let replaced = SourceRegistry.build(k).byVideo
+        XCTAssertEqual(replaced["bch_a"]?.admission, .quarantined, "the record is the old file's")
+        XCTAssertTrue(replaced["bch_a"]?.admissionReason?.contains("recorded for file:old") == true, replaced["bch_a"]?.admissionReason ?? "nil")
+        XCTAssertEqual(replaced["bch_a"]?.recordingType, .unknown, "the old file's recording type is not carried forward")
+        XCTAssertNil(replaced["bch_a"]?.derivedFrom, "nor its derivation")
+        for m in TrainingEligibility.Model.allCases { XCTAssertEqual(replaced["bch_a"]?.eligibility[m].level, .quarantined, m.rawValue) }
+        XCTAssertEqual(replaced["bch_a"]?.eligibility.fullVideoNegatives.level, .quarantined)
+        XCTAssertEqual(replaced["bch_b_v2"]?.recordingType, .continuous, "a record for the card's own fingerprint is used")
+        XCTAssertEqual(replaced["bch_b_v2"]?.eligibility[.netDetector].level, .standard)
+        XCTAssertEqual(replaced["orphan"]?.admission, .quarantined, "a record with a fingerprint for a recording that has none cannot be tied to it")
+        XCTAssertTrue(replaced["orphan"]?.admissionReason?.contains("no fingerprint") == true, replaced["orphan"]?.admissionReason ?? "nil")
+    }
+
     func testNoValidationFileMeansNothingWithheld() {
         let index = SourceRegistry.build(inputs(validation: nil))
         XCTAssertEqual(index.count(.withheld), 0)
