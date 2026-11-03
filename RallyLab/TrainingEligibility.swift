@@ -10,11 +10,15 @@
 //  model and, through the spans, per usable interval; the reasons travel
 //  with the verdict. The rules are the direction's starting table, conservative,
 //  and live here alone so a later controlled experiment can change them in one
-//  place. A proposal nobody confirmed restricts and never clears; an unknown
+//  place. Eligibility is established only by what a person confirmed: the
+//  recording type (continuous or edited). A recording of unconfirmed type stays
+//  not assessed whatever is proposed about it — a proposal nobody confirmed
+//  restricts and never clears, and never establishes eligibility either (Codex
+//  on #134, 2026-11-03); a rejected proposal counts for nothing; an unknown
 //  trait a person confirmed quarantines. Separately: whether the recording's
 //  unmarked time may serve as ordinary non-rally negatives (§4) — edited time
 //  may not, and an unconfirmed recording type is not assessed, however complete
-//  its marks are declared.
+//  its marks are declared and whatever a scanner proposes about its continuity.
 //
 
 import Foundation
@@ -44,11 +48,15 @@ enum TrainingEligibility {
 
         static func notAssessed(_ why: String) -> Verdict { Verdict(level: .notAssessed, reasons: [why]) }
 
-        /// This verdict with `other` folded in: the worse level, the reasons joined.
+        /// This verdict with `other` folded in: the worse level, the reasons joined. "Not assessed"
+        /// is resolved only by a quarantine or worse (something known to be wrong wins over nothing
+        /// known); a standard or restricted verdict folded into it keeps it not assessed and adds its
+        /// reasons — a condition on footage nobody assessed is not an assessment.
         func combined(_ other: Verdict) -> Verdict {
-            if level == .notAssessed { return other }
-            if other.level == .notAssessed { return self }
-            return Verdict(level: max(level, other.level), reasons: reasons + other.reasons.filter { !reasons.contains($0) })
+            let joined = reasons + other.reasons.filter { !reasons.contains($0) }
+            if level == .notAssessed { return other.level >= .quarantined ? other : Verdict(level: .notAssessed, reasons: joined) }
+            if other.level == .notAssessed { return level >= .quarantined ? self : Verdict(level: .notAssessed, reasons: joined) }
+            return Verdict(level: max(level, other.level), reasons: joined)
         }
     }
 
@@ -116,9 +124,14 @@ enum TrainingEligibility {
         }
         guard let p = properties else { return all(.notAssessed("footage not characterised (no footage-properties record)")) }
         let confirmed = p.traits(.confirmed), proposed = p.traits(.proposed).subtracting(confirmed)
+        // Only a person's confirmation of the recording type establishes eligibility. Until then the
+        // verdict is not assessed, and stays so under anything proposed (a proposal restricts, never
+        // clears, never establishes) and under a confirmed trait that merely restricts; a confirmed
+        // unknown trait quarantines, which is known and wins.
+        let base: Verdict = p.recordingType == .unknown ? .notAssessed("recording type not confirmed: eligibility not established") : Verdict(level: .standard)
         var byModel: [String: Verdict] = [:]
         for model in Model.allCases {
-            var v = Verdict(level: .standard)
+            var v = base
             for t in confirmed.sorted(by: { $0.rawValue < $1.rawValue }) {
                 if let r = rule(t, model) { v = v.combined(Verdict(level: r.level, reasons: [r.reason])) }
             }
@@ -129,7 +142,6 @@ enum TrainingEligibility {
             if p.recordingType == .edited, model != .netDetector, v.level == .standard {
                 v = v.combined(Verdict(level: .restricted, reasons: ["edited recording: temporal windows only within confirmed continuous spans"]))
             }
-            if p.recordingType == .unknown, p.activeSpans.isEmpty, v.level == .standard { v = .notAssessed("recording type not confirmed and no span recorded") }
             byModel[model.rawValue] = v
         }
         var negatives: Verdict

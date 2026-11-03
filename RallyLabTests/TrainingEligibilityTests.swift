@@ -6,8 +6,10 @@
 //  direction of 2026-11-02 on edited footage): the record is read strictly
 //  and written atomically; nothing is assessed without a record; a confirmed
 //  trait applies the direction's table per model; a proposal restricts and
-//  never clears; an unknown trait quarantines; withheld is ineligible; edited
-//  or uncertain time never yields ordinary full-video negatives.
+//  never clears, and never establishes eligibility (Codex on #134: an unknown
+//  recording stays not assessed under proposals alone); an unknown trait
+//  quarantines; withheld is ineligible; edited or uncertain time never yields
+//  ordinary full-video negatives.
 //
 
 import XCTest
@@ -146,6 +148,63 @@ final class TrainingEligibilityTests: XCTestCase {
         XCTAssertEqual(rejected.fullVideoNegatives.level, .standard)
     }
 
+    /// Codex on #134 (d6a41b7): with the recording type unknown, a proposed `fixedCamera` or
+    /// `normalSpeed` span turned every model's verdict from not assessed to standard. A proposal
+    /// never establishes eligibility: only a confirmed recording type does. Proposed restrictions
+    /// are kept on record under the unassessed verdict, a rejected proposal counts for nothing,
+    /// a confirmed unknown trait still quarantines, and the unmarked time of a recording nobody
+    /// confirmed continuous is never ordinary negatives, whatever a scanner proposes.
+    func testProposalsNeverEstablishEligibilityOfAnUnknownRecording() {
+        let models = TrainingEligibility.Model.allCases
+        // The reproduced case: a proposal of a trait that imposes nothing.
+        for trait in [FootageProperties.Trait.fixedCamera, .normalSpeed, .normalPanning] {
+            let a = assess(file(.unknown, [span([trait], .proposed, start: 0, end: 60)]))
+            for m in models {
+                XCTAssertEqual(a[m].level, .notAssessed, "\(trait.rawValue) proposed on an unknown recording: \(m.rawValue)")
+                XCTAssertTrue(a[m].reasons.contains { $0.contains("recording type not confirmed") }, a[m].reasons.joined(separator: "; "))
+            }
+            XCTAssertEqual(a.fullVideoNegatives.level, .notAssessed, "proposed continuity is not evidence of uninterrupted real time")
+        }
+        // A proposed restriction is recorded but still establishes nothing.
+        let replay = assess(file(.unknown, [span([.replay], .proposed, start: 1, end: 5)]))
+        for m in models {
+            XCTAssertEqual(replay[m].level, .notAssessed, m.rawValue)
+        }
+        XCTAssertTrue(replay[.rallyClassifier].reasons.contains { $0.hasPrefix("proposed, unconfirmed") }, "the proposed restriction travels with the verdict")
+        XCTAssertEqual(replay.fullVideoNegatives.level, .notAssessed)
+        XCTAssertTrue(replay.fullVideoNegatives.reasons.contains { $0.contains("proposed, unconfirmed") })
+        let deadTime = assess(file(.unknown, [span([.deadTimeRemoved], .proposed)]))
+        XCTAssertEqual(deadTime.fullVideoNegatives.level, .notAssessed, "a proposed dead-time cut neither clears nor assesses")
+        // A confirmed span alone does not confirm the recording type: still not assessed, the restriction kept.
+        let handheld = assess(file(.unknown, [span([.handheld])]))
+        for m in models {
+            XCTAssertEqual(handheld[m].level, .notAssessed, m.rawValue)
+            XCTAssertTrue(handheld[m].reasons.contains { $0.contains("handheld") })
+        }
+        // A confirmed unknown trait is known to be wrong: quarantined, for every model and for negatives.
+        let unknownTrait = assess(file(.unknown, [span([.unknown])]))
+        for m in models { XCTAssertEqual(unknownTrait[m].level, .quarantined, m.rawValue) }
+        XCTAssertEqual(unknownTrait.fullVideoNegatives.level, .quarantined)
+        let proposedUnknown = assess(file(.unknown, [span([.unknown], .proposed)]))
+        for m in models { XCTAssertEqual(proposedUnknown[m].level, .notAssessed, "a proposal cannot quarantine: \(m.rawValue)") }
+        // A rejected proposal counts for nothing: the verdict is the bare unknown one.
+        let rejected = assess(file(.unknown, [span([.fixedCamera], .proposed, rejected: true), span([.replay], .proposed, start: 1, end: 5, rejected: true)]))
+        XCTAssertEqual(rejected, assess(file(.unknown)))
+        // A person's confirmation establishes eligibility; a proposal of a harmless trait then changes nothing,
+        // a proposed restriction restricts (never clears), and a confirmed restriction applies the table.
+        let confirmed = assess(file(.continuous, [span([.fixedCamera], .proposed, start: 0, end: 60)]))
+        for m in models { XCTAssertEqual(confirmed[m].level, .standard, m.rawValue) }
+        XCTAssertEqual(confirmed.fullVideoNegatives.level, .standard)
+        let confirmedWithProposal = assess(file(.continuous, [span([.replay], .proposed, start: 1, end: 5)]))
+        XCTAssertEqual(confirmedWithProposal[.rallyClassifier].level, .restricted)
+        XCTAssertEqual(confirmedWithProposal[.ballDetector].level, .restricted)
+        XCTAssertEqual(confirmedWithProposal[.netDetector].level, .standard)
+        let edited = assess(file(.edited, [span([.fixedCamera], .proposed)]))
+        XCTAssertEqual(edited[.rallyClassifier].level, .restricted)
+        XCTAssertEqual(edited[.netDetector].level, .standard)
+        XCTAssertEqual(edited.fullVideoNegatives.level, .restricted)
+    }
+
     func testAdmissionOverridesTheFootage() {
         let f = file(.continuous, [span([.fixedCamera])])
         XCTAssertEqual(assess(f, admission: .withheld)[.ballDetector].level, .ineligible)
@@ -163,7 +222,14 @@ final class TrainingEligibilityTests: XCTestCase {
         XCTAssertEqual(a.combined(b).level, .restricted)
         XCTAssertEqual(b.combined(c).level, .quarantined)
         XCTAssertEqual(c.combined(b).reasons, ["q", "r"])
-        XCTAssertEqual(TrainingEligibility.Verdict.notAssessed("x").combined(b), b)
+        // Not assessed is resolved only by something known to be wrong; a restriction folded into it is kept as a reason.
+        let unknown = TrainingEligibility.Verdict.notAssessed("x")
+        XCTAssertEqual(unknown.combined(b), TrainingEligibility.Verdict(level: .notAssessed, reasons: ["x", "r"]))
+        XCTAssertEqual(b.combined(unknown), TrainingEligibility.Verdict(level: .notAssessed, reasons: ["r", "x"]))
+        XCTAssertEqual(unknown.combined(a).level, .notAssessed)
+        XCTAssertEqual(unknown.combined(c), c)
+        XCTAssertEqual(c.combined(unknown), c)
+        XCTAssertEqual(unknown.combined(TrainingEligibility.Verdict(level: .ineligible, reasons: ["w"])).level, .ineligible)
         XCTAssertTrue(TrainingEligibility.Level.restricted < .quarantined && TrainingEligibility.Level.quarantined < .ineligible)
     }
 }

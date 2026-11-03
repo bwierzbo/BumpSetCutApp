@@ -154,8 +154,10 @@ struct ContentView: View {
             tab = .track
             tracker.open(sessionName: video)
         case .netCorners:
+            // Asked for before the tab switch: the Net labels tab selects it after its activation
+            // reload, in the project as it is then (a stale request is dropped there).
+            netLabels.open(video, in: projects.projectDir)
             tab = .netLabels
-            netLabels.select(video)
         case .contactLabels:
             break
         }
