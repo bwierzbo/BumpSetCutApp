@@ -299,9 +299,12 @@ enum NetDatasetExport {
         var url: URL
         /// The file's identity now (ReservedVideos.effectiveFingerprint).
         var fingerprint: String?
+        /// The recording's cut ranges (not footage; D-030): a label on a frame inside one is not a label of footage.
+        var cuts: [CutRange] = []
     }
 
     static let cornersNotMarked = "corners not marked (a box-only label from before) — mark them in the Net labels tab"
+    static let frameInsideCut = "the labeled frame lies inside a cut range (not footage) — label the net again outside it in the Net labels tab"
 
     /// Which recordings go out and which stay, in a stable order. A withheld
     /// recording is refused even if someone labeled it; a label whose
@@ -321,6 +324,7 @@ enum NetDatasetExport {
             } else if let label = labels[s.video] {
                 if label.fingerprint != s.fingerprint { skipped.append(Skipped(video: s.video, reason: "label is another recording's (fingerprint differs)")) }
                 else if label.corners == nil { skipped.append(Skipped(video: s.video, reason: cornersNotMarked)) }
+                else if s.cuts.contains(label.time) { skipped.append(Skipped(video: s.video, reason: frameInsideCut)) }
                 else { export.append(s) }
             } else {
                 skipped.append(Skipped(video: s.video, reason: "unlabeled"))

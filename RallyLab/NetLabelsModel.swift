@@ -91,11 +91,14 @@ final class NetLabelsModel {
         var boxOnly = false
         /// The recording's cut ranges (not footage; D-030): the frame is taken outside them.
         var cuts: [CutRange] = []
+        /// This recording's label is on a frame inside a cut range: not a label of footage, to label again.
+        var cutLabel = false
 
         func with(skip: NetLabels.Skip?) -> Item {
             var it = Item(video: video, clip: clip, camera: camera, url: url, fingerprint: fingerprint, skip: skip, labeled: labeled, stale: stale)
             it.boxOnly = boxOnly
             it.cuts = cuts
+            it.cutLabel = cutLabel
             return it
         }
     }
@@ -203,11 +206,13 @@ final class NetLabelsModel {
         var it = item
         if let label = labels[item.video] {
             let mine = item.fingerprint != nil && label.fingerprint == item.fingerprint
-            it.labeled = mine && label.corners != nil
-            it.boxOnly = mine && label.corners == nil
+            // A label on a frame inside a cut range is not a label of footage (D-030): to label again.
+            it.cutLabel = mine && item.cuts.contains(label.time)
+            it.labeled = mine && label.corners != nil && !it.cutLabel
+            it.boxOnly = mine && label.corners == nil && !it.cutLabel
             it.stale = !mine
         } else {
-            it.labeled = false; it.stale = false; it.boxOnly = false
+            it.labeled = false; it.stale = false; it.boxOnly = false; it.cutLabel = false
         }
         return it
     }
@@ -443,6 +448,7 @@ final class NetLabelsModel {
         } else if let frame {
             status = present(on: frame, for: item)
             if item.stale { status += " (The label on file is another recording's and is replaced when you confirm.)" }
+            if item.cutLabel { status += " (The label on file is on a frame inside a cut range — not footage; confirm the corners on this frame to replace it.)" }
         }
     }
 

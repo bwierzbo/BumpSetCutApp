@@ -182,6 +182,13 @@ final class CutRangeConsumersTests: XCTestCase {
         XCTAssertEqual(plain?.start ?? 1, -2, accuracy: 1e-9); XCTAssertEqual(plain?.end ?? 1, -24, accuracy: 1e-9)
     }
 
+    func testStage1ReviewedSecondsLeaveOutTheCuts() {
+        func cov(_ a: Double, _ b: Double) -> EventReview.Coverage { EventReview.Coverage(start: a, end: b, at: "2026-11-03T00:00:00Z", annotator: "t") }
+        XCTAssertEqual(EventInventory.reviewedSeconds([cov(0, 50)], cuts: [cut(0, 50)]), 0, "a review of only a replay reviews nothing")
+        XCTAssertEqual(EventInventory.reviewedSeconds([cov(0, 50), cov(40, 60)], cuts: [cut(10, 20)]), 50, accuracy: 1e-9, "union 0–60 less 10 s")
+        XCTAssertEqual(EventInventory.reviewedSeconds([cov(0, 50)], cuts: []), 50, accuracy: 1e-9)
+    }
+
     func testTheSamplersDatasetParksAFrameInsideACutAndBringsItBack() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("ds-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }

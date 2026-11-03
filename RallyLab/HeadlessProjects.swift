@@ -1088,9 +1088,11 @@ enum HeadlessProjects {
         do { labels = try NetLabelStore(projectDir: root).load() } catch { log("❌ net-labels.json: \(error.localizedDescription)"); return false }
         let exclusions: [String: NetExclusion]
         do { exclusions = try NetExclusionStore(projectDir: root).load() } catch { log("❌ net-exclusions.json: \(error.localizedDescription)"); return false }
+        let cuts = Dictionary(uniqueKeysWithValues: projects.sampler.sessions.map { ($0.name, $0.cutRanges) })
         let sources = project.clips.flatMap { clip in
             clip.videos.map { NetDatasetExport.Source(video: clip.videoId(of: $0), clip: clip.id, camera: clip.camera,
-                                                      url: URL(fileURLWithPath: $0.clipFile), fingerprint: ReservedVideos.effectiveFingerprint($0)) }
+                                                      url: URL(fileURLWithPath: $0.clipFile), fingerprint: ReservedVideos.effectiveFingerprint($0),
+                                                      cuts: cuts[clip.videoId(of: $0)] ?? []) }
         }
         guard !FileManager.default.fileExists(atPath: dir.path) else { log("❌ \(dir.path) exists; name a new folder."); return false }
         // A staging folder of this run's own, beside the destination (same volume, so the final move is a rename);

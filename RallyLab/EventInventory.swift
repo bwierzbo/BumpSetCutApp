@@ -85,7 +85,7 @@ enum EventInventory {
                 row.reviewedRallies = file.rallies.filter { $0.reviewState == .reviewed }.count
                 row.withdrawnRallies = file.rallies.filter { $0.reviewState == .withdrawn }.count
                 row.spans = file.spans.count
-                row.coverageSec = EventReview.union(file.coverage).reduce(0) { $0 + ($1.end - $1.start) }
+                row.coverageSec = Self.reviewedSeconds(file.coverage, cuts: s.cutRanges)
                 row.cutSec = s.cutRanges.seconds(within: file.durationSec)
                 row.coverageFraction = min(1, row.coverageSec / max(file.durationSec - (row.cutSec ?? 0), 0.001))
                 row.unknownGaps = EventReview.gaps(in: file).count
@@ -94,6 +94,12 @@ enum EventInventory {
             rows.append(row)
         }
         return Report(createdAt: EventReview.stamp(now), project: root.lastPathComponent, manifestHashes: hashes, recordings: rows)
+    }
+
+    /// Seconds reviewed that are footage: the coverage union less the cut ranges (D-030), so a
+    /// review that covers only a replay reviews nothing. The event record itself is unchanged.
+    static func reviewedSeconds(_ coverage: [EventReview.Coverage], cuts: [CutRange]) -> Double {
+        EventReview.union(coverage).reduce(0) { total, c in total + cuts.outside(c.start, c.end).reduce(0) { $0 + ($1.end - $1.start) } }
     }
 
     /// Writes the report as JSON and CSV under `manifests/`, named by the stamp; returns both URLs.

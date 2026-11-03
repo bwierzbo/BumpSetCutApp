@@ -228,22 +228,25 @@ final class NetLabelsTests: XCTestCase {
     }
 
     func testExportPlanRefusesWithheldOtherRecordingsLabelsAndSkipsUnlabeled() {
-        func src(_ v: String, _ camera: String = "Tripod / corner", fp: String? = "fp-a") -> NetDatasetExport.Source {
-            NetDatasetExport.Source(video: v, clip: v, camera: camera, url: URL(fileURLWithPath: "/nonexistent/\(v).mp4"), fingerprint: fp)
+        func src(_ v: String, _ camera: String = "Tripod / corner", fp: String? = "fp-a", cuts: [CutRange] = []) -> NetDatasetExport.Source {
+            NetDatasetExport.Source(video: v, clip: v, camera: camera, url: URL(fileURLWithPath: "/nonexistent/\(v).mp4"), fingerprint: fp, cuts: cuts)
         }
         let sources = [src("c_labeled"), src("a_withheld_but_labeled"), src("b_unlabeled"), src("d_handheld", "Handheld / corner"),
-                       src("e_replaced_video", fp: "fp-new"), src("f_no_identity", fp: nil), src("g_box_only")]
+                       src("e_replaced_video", fp: "fp-new"), src("f_no_identity", fp: nil), src("g_box_only"),
+                       src("h_label_in_cut", cuts: [CutRange(start: 0.5, end: 3)]), src("i_label_outside_cut", cuts: [CutRange(start: 5, end: 9)])]
         let labels = ["c_labeled": Self.label(), "a_withheld_but_labeled": Self.label(), "d_handheld": Self.label(),
                       "e_replaced_video": Self.label(fingerprint: "fp-old"), "f_no_identity": Self.label(),
-                      "g_box_only": Self.label(boxOnly: true)]
+                      "g_box_only": Self.label(boxOnly: true),
+                      "h_label_in_cut": Self.label(time: 1), "i_label_outside_cut": Self.label(time: 1)]
         let plan = NetDatasetExport.plan(labels: labels, sources: sources, withheld: ["a_withheld_but_labeled"])
-        XCTAssertEqual(plan.export.map(\.video), ["c_labeled"])
+        XCTAssertEqual(plan.export.map(\.video), ["c_labeled", "i_label_outside_cut"])
         XCTAssertEqual(plan.skipped, [.init(video: "a_withheld_but_labeled", reason: "withheld"),
                                       .init(video: "b_unlabeled", reason: "unlabeled"),
                                       .init(video: "d_handheld", reason: "handheld"),
                                       .init(video: "e_replaced_video", reason: "label is another recording's (fingerprint differs)"),
                                       .init(video: "f_no_identity", reason: "unidentified"),
-                                      .init(video: "g_box_only", reason: NetDatasetExport.cornersNotMarked)])
+                                      .init(video: "g_box_only", reason: NetDatasetExport.cornersNotMarked),
+                                      .init(video: "h_label_in_cut", reason: NetDatasetExport.frameInsideCut)])
     }
 
     // MARK: - The tab
