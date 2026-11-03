@@ -2,7 +2,7 @@
 id: EXP-20261103-temporal-rally-classifier-prereg
 status: proposed — not approved, not run; conditional on the data-readiness gate (§2a)
 created: 2026-11-03T19:05:00Z
-updated: 2026-11-03T19:05:00Z
+updated: 2026-11-03T23:06:45Z
 approved_by: not yet
 decision: D-001 (approved production candidate), D-007 (objective), D-021 (scoring contract), D-010, D-017, D-018 (preregistration before training, applied to this model), D-031 (eligibility); D-029 (proposed, PR #132) names this direction
 roadmap_phase: Phase 8 (learned temporal classifier vs FSM; no longer approval-gated, D-001), after the measurement phases
@@ -50,11 +50,12 @@ issue: n/a
 | Gate | Condition | State 2026-11-03 |
 |---|---|---|
 | G1 | A confirmed `recordingType` (footage-properties record) for every candidate recording; `continuous` recordings supply negatives, `edited` ones supply positives only | **not met** (0 records) |
-| G2 | The three scanner-flagged recordings either carry cut ranges (D-030, PR #135 on `main`) or are confirmed `continuous`; otherwise they stay restricted with no negatives | not met |
+| G2 | Each of the three scanner-flagged recordings has reached one of four outcomes, decided by a person, never by the scanner and never by the gate: (a) confirmed `continuous` where genuinely supported; (b) confirmed `edited` with valid cut ranges (D-030, PR #135 on `main`) excluding the non-continuous spans, so its negatives outside the cuts are `standard`; (c) restricted positives-only use with its non-rally time `UNKNOWN` (the default when nothing is confirmed); (d) excluded from the candidate list when source timing or eligibility cannot be established. A recording is never classified `continuous` to satisfy this gate (owner 2026-11-03 §4; amended in [RALLY_CLASSIFIER_DATA_READINESS_PLAN_2026-11-03.md](../RALLY_CLASSIFIER_DATA_READINESS_PLAN_2026-11-03.md)) | not met (all three at outcome c by default) |
 | G3 | An exporter that writes `rally_classifier_dataset_v1` from the split manifest, the withheld closure, eligibility and the marks, and records the ledger row (a reviewed RallyLab PR) | not met (no exporter) |
 | G4 | A fresh split manifest and audit (0 hard findings) at the export commit | re-run at export |
 | G5 | The validator reports 0 errors on the written dataset, with the external closure file | at export |
 | G6 | At least 12 of the 18 groups contribute negatives (otherwise the negative class is too thin for grouped folds) — a count, not a target; below it the experiment is *need data* before it starts | `not fixed` |
+| G7 (proposed, owner decision D8) | Every recording that supplies `NON_RALLY` steps is `audited_clean` under the [coverage-audit protocol](../RALLY_CLASSIFIER_COVERAGE_AUDIT_PROTOCOL.md) (stage 1 bound met and the recording itself audited) or `stage1_complete`; a recording without either contributes positives only; G6 is counted over such recordings | not met (no audit drawn) |
 
 ## 3. Models and initialisation
 
