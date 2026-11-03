@@ -20,6 +20,14 @@ final class WorkQueueModelTests: XCTestCase {
         try FileManager.default.createDirectory(at: root.appendingPathComponent("pipeline_tuning"), withIntermediateDirectories: true)
         let store = DatasetStore(root: root)
         try store.prepare()
+        // Project cards with fingerprints: an identified recording is admitted; one with no card would be
+        // unidentified, and the queue blocks every task of an inadmissible recording (owner, 2026-11-03).
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let project = Project(name: "Fixture", createdAt: now, framesPerRally: 2, clips: ["a", "b", "c"].enumerated().map { n, id in
+            SourceRegistryTests.clip(id, number: n + 1, videos: [SourceRegistryTests.video(nil, fingerprint: "file:\(id)\(id)\(id)")])
+        })
+        try encoder.encode(project).write(to: root.appendingPathComponent("project.json"))
         for n in ["a", "b", "c"] {
             var s = VideoSession(name: n, sourcePath: root.appendingPathComponent("footage/\(n).mp4").path, split: "train", addedAt: now, frames: [])
             s.tracks = [SourceRegistryTests.rally(done: true), SourceRegistryTests.rally(done: true)]

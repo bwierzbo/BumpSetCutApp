@@ -175,18 +175,26 @@ enum SourceRegistry {
                 return false
             }.sorted()
         }
-        enum Ancestry { case clear, withheld(String), unknown(String) }
+        enum Ancestry: Error { case clear, withheld(String), unknown(String) }
         /// The derivative's ancestry through `derivedFrom`, every generation: the withheld recording it descends
-        /// from, or an ancestor whose record cannot be used (its ancestry is then unknown, which is not clear). A
-        /// recording is expanded once, so a cycle in the records ends the walk instead of looping.
+        /// from, or an ancestor whose record cannot be used, or an explicit parent that is neither a project
+        /// recording nor a reserved name (its ancestry is then unknown, which is not clear: an unresolvable parent
+        /// is not verified provenance — owner, 2026-11-03). A recording is expanded once, so a cycle in the
+        /// records ends the walk instead of looping.
         func ancestry(of video: String) -> Ancestry {
+            func expand(_ v: String) -> Result<[String], Ancestry> {
+                guard let parent = properties[v]?.derivedFrom?.parent else { return .success([]) }
+                let found = parents(of: v)
+                return found.isEmpty ? .failure(.unknown("\(v) is recorded as derived from \(parent), which is not in the project and not reserved: ancestry unverified")) : .success(found)
+            }
             var seen: Set<String> = [video]
-            var frontier = parents(of: video)
+            var frontier: [String]
+            switch expand(video) { case .success(let f): frontier = f; case .failure(let a): return a }
             while let p = frontier.popLast() {
                 if withheld.contains(p) { return .withheld(p) }
                 guard seen.insert(p).inserted else { continue }
                 if let why = unusable[p] { return .unknown("\(p)'s footage-properties record is \(why)") }
-                frontier.append(contentsOf: parents(of: p))
+                switch expand(p) { case .success(let f): frontier.append(contentsOf: f); case .failure(let a): return a }
             }
             return .clear
         }

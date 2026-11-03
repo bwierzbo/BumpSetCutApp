@@ -95,7 +95,7 @@ struct WorkQueueView: View {
         HStack(spacing: 10) {
             if let t = model.visible.first(where: { $0.id == selection }) {
                 Button("Open in \(tabName(t.kind))") { open(t.kind, t.video) }
-                    .disabled(t.kind == .contactLabels || t.state == .blocked)
+                    .disabled(t.kind == .contactLabels || !t.state.isActionable)
                 if t.state == .failed { Button("Retry") { model.retry(t.id) } }
                 if t.state == .cancelled { Button("Reopen") { model.reopen(t.id) } }
                 else { Button("Cancel task") { model.cancel(t.id) } }

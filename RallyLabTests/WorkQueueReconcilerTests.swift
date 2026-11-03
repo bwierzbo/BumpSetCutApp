@@ -43,10 +43,100 @@ final class WorkQueueReconcilerTests: XCTestCase {
 
     private func inputs(sessions: [VideoSession], withheld: Set<String> = [], events: [EventInventory.Recording] = [],
                         net: [String: WorkQueueReconciler.NetObservation]? = nil, netProblem: String? = nil,
-                        policy: WorkQueue.Policy = WorkQueue.Policy()) -> WorkQueueReconciler.Inputs {
+                        policy: WorkQueue.Policy = WorkQueue.Policy(),
+                        admission: [String: SourceRegistry.Admission] = [:], reasons: [String: String] = [:]) -> WorkQueueReconciler.Inputs {
         WorkQueueReconciler.Inputs(sessions: sessions, withheld: withheld,
                                    events: Dictionary(events.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a }),
-                                   net: net, netProblem: netProblem, identityKeys: [:], policy: policy, now: now)
+                                   net: net, netProblem: netProblem, identityKeys: [:], policy: policy, now: now,
+                                   admission: admission, admissionReason: reasons)
+    }
+
+    // MARK: - Admission gate (owner, 2026-11-03)
+
+    /// A recording the source index does not admit gets no actionable task of any kind, whatever its annotation
+    /// files say: the withheld original is blocked; a derivative of it — with its own, different fingerprint, so
+    /// the withheld closure does not know it — is quarantined, at any depth, as is one whose parent cannot be
+    /// resolved; an unidentified recording is blocked. The observations that would otherwise make the task ready,
+    /// in progress, complete or needing review are all present here and all overruled.
+    func testInadmissibleRecordingsGetNoActionableTaskOfAnyKind() {
+        let labelable = WorkQueueReconciler.NetObservation(skip: nil, status: .init(labeled: false, boxOnly: false, stale: false), proposalPending: true)
+        let labeled = WorkQueueReconciler.NetObservation(skip: nil, status: .init(labeled: true, boxOnly: false, stale: false), proposalPending: false)
+        let sessions = [session("o", marked: true, tracks: [SourceRegistryTests.rally(done: true), SourceRegistryTests.rally(done: true)]),
+                        session("d1", marked: true, tracks: [SourceRegistryTests.rally(done: true), SourceRegistryTests.rally(done: true)]),
+                        session("d2", tracks: [SourceRegistryTests.rally(done: false, machine: true)]),
+                        session("u"), session("x"), session("a")]
+        let i = inputs(sessions: sessions, withheld: ["o"],
+                       events: [recording("o", withheld: true), recording("d1", eventsFile: true, coverage: 1, reviewed: 3, complete: true), recording("d2"), recording("u"), recording("x"), recording("a")],
+                       net: ["o": labeled, "d1": labeled, "d2": labelable, "u": labelable, "x": labelable, "a": labelable],
+                       admission: ["o": .withheld, "d1": .quarantined, "d2": .quarantined, "u": .quarantined, "x": .unidentified, "a": .admitted],
+                       reasons: ["d1": "derived from withheld recording o", "d2": "derived from withheld recording o", "u": "ancestry unverified", "x": "no file fingerprint on record"])
+        let v: [WorkQueue.Kind: [String: WorkQueueReconciler.Verdict]] = WorkQueueReconciler.verdicts(i)
+        for kind in [WorkQueue.Kind.rallyBoundaries, .ballTracks, .netCorners] {
+            XCTAssertEqual(v[kind]?["o"]?.state, .blocked, "\(kind): the protected original")
+            XCTAssertEqual(v[kind]?["d1"]?.state, .quarantined, "\(kind): an edited derivative with its own fingerprint, Stage 1 complete and net labeled — still quarantined")
+            XCTAssertEqual(v[kind]?["d2"]?.state, .quarantined, "\(kind): two generations down")
+            XCTAssertEqual(v[kind]?["u"]?.state, .quarantined, "\(kind): an unknown parent")
+            XCTAssertEqual(v[kind]?["x"]?.state, .blocked, "\(kind): unidentified")
+            for name in ["o", "d1", "d2", "u", "x"] {
+                XCTAssertFalse(v[kind]?[name]?.state.isActionable ?? true, "\(kind) \(name) is actionable")
+                XCTAssertTrue(v[kind]?[name]?.reason?.contains(name == "o" ? "withheld" : "not admitted") == true, v[kind]?[name]?.reason ?? "nil")
+            }
+            XCTAssertTrue(v[kind]?["d1"]?.reason?.contains("derived from withheld recording o") == true, "the index's reason travels with the task")
+        }
+        XCTAssertEqual(v[WorkQueue.Kind.rallyBoundaries]?["a"]?.state, .ready)
+        XCTAssertEqual(v[WorkQueue.Kind.netCorners]?["a"]?.state, .needsReview)
+        XCTAssertTrue(v[WorkQueue.Kind.rallyBoundaries]?["a"]?.state.isActionable ?? false)
+        // A session the index could not name is not gated by admission (never produced by gather, which indexes every session).
+        XCTAssertEqual(WorkQueueReconciler.verdicts(inputs(sessions: [session("a")]))[.ballTracks]?["a"]?.state, .ready)
+        XCTAssertFalse(WorkQueue.State.cancelled.isActionable, "a cancelled task is reopened first")
+    }
+
+    /// From the project's own records on disk: a legacy holdout `o`; `d1` cut from it under its own fingerprint (the
+    /// withheld closure does not know it); `d2` cut from `d1`; `u` from a parent nobody can resolve; `a` ordinary.
+    /// The run reads project.json, the sessions, validation.json and the footage-properties records — a stale
+    /// source-index file claiming otherwise is never consulted. Re-characterising `u` as derived from `a` frees it.
+    func testDerivativesOfProtectedFootageAreQuarantinedFromTheAuthoritativeRecords() throws {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let project = Project(name: "Fixture", createdAt: now, framesPerRally: 2, clips: ["o": "ooo", "d1": "d1d1", "d2": "d2d2", "u": "uuu", "a": "aaa"].sorted(by: { $0.key < $1.key }).enumerated().map { n, e in
+            SourceRegistryTests.clip(e.key, number: n + 1, videos: [SourceRegistryTests.video(nil, fingerprint: "file:\(e.value)")])
+        })
+        try encoder.encode(project).write(to: root.appendingPathComponent("project.json"))
+        let store = DatasetStore(root: root)
+        for name in ["o", "d1", "d2", "u", "a"] { try store.save(session(name, marked: true, tracks: [SourceRegistryTests.rally(done: true), SourceRegistryTests.rally(done: true)])) }
+        try #"{"tune":[],"holdout":["o"]}"#.write(to: PipelineTuner.ValidationSet.file(in: root), atomically: true, encoding: .utf8)
+        let stamp = "2026-11-03T00:00:00Z"
+        let props = FootageProperties.Store(root: root)
+        try props.save(FootageProperties.File(video: "d1", sourceFingerprint: "file:d1d1", recordingType: .edited, recordingTypeBy: "BW", recordingTypeAt: stamp, derivedFrom: .init(parent: "o", relation: .highlight, note: nil), updatedAt: stamp))
+        try props.save(FootageProperties.File(video: "d2", sourceFingerprint: "file:d2d2", derivedFrom: .init(parent: "d1", relation: .crop, note: nil), updatedAt: stamp))
+        try props.save(FootageProperties.File(video: "u", sourceFingerprint: "file:uuu", derivedFrom: .init(parent: "https://youtu.be/elsewhere", relation: .other, note: nil), updatedAt: stamp))
+        // A written index that says everything is admitted: not an authority, not read.
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("manifests"), withIntermediateDirectories: true)
+        try "{\"schemaVersion\":1,\"sources\":[{\"video\":\"d1\",\"admission\":\"admitted\"}]}".write(to: SourceRegistry.url(in: root, stamp: "stale"), atomically: true, encoding: .utf8)
+        let (file, summary) = try WorkQueueReconciler.run(root: root, project: "Fixture", now: now)
+        XCTAssertEqual(summary.skipped.keys.map(\.rawValue), ["net_corners"], "no split manifest: net tasks skipped as before")
+        for kind in ["rally_boundaries", "ball_tracks"] {
+            XCTAssertEqual(file.task("\(kind):o")?.state, .blocked, kind)
+            XCTAssertEqual(file.task("\(kind):d1")?.state, .quarantined, "\(kind): derived from the holdout, own fingerprint, every rally marked and tracked")
+            XCTAssertEqual(file.task("\(kind):d2")?.state, .quarantined, "\(kind): second generation")
+            XCTAssertEqual(file.task("\(kind):u")?.state, .quarantined, "\(kind): unresolvable parent")
+            XCTAssertEqual(file.task("\(kind):a")?.state, .complete, kind)
+            XCTAssertTrue(file.task("\(kind):d1")?.reason?.contains("withheld recording o") == true, file.task("\(kind):d1")?.reason ?? "nil")
+            XCTAssertTrue(file.task("\(kind):u")?.reason?.contains("ancestry unverified") == true, file.task("\(kind):u")?.reason ?? "nil")
+        }
+        XCTAssertEqual(try WorkQueue.Store(root: root).load(), file)
+        // The owner corrects u's record: it was cut from a. The next run reads the record, not the last verdict.
+        try props.save(FootageProperties.File(video: "u", sourceFingerprint: "file:uuu", derivedFrom: .init(parent: "a", relation: .crop, note: nil), updatedAt: stamp))
+        let (again, _) = try WorkQueueReconciler.run(root: root, project: "Fixture", now: now.addingTimeInterval(60))
+        XCTAssertEqual(again.task("ball_tracks:u")?.state, .complete)
+        XCTAssertEqual(again.task("ball_tracks:d2")?.state, .quarantined)
+        // An unreadable footage-properties record quarantines its recording and whatever derives from it.
+        try "{broken".write(to: FootageProperties.url(in: root, video: "d1"), atomically: true, encoding: .utf8)
+        let (broken, _) = try WorkQueueReconciler.run(root: root, project: "Fixture", now: now.addingTimeInterval(120))
+        XCTAssertEqual(broken.task("rally_boundaries:d1")?.state, .quarantined)
+        XCTAssertTrue(broken.task("rally_boundaries:d1")?.reason?.contains("unreadable") == true, broken.task("rally_boundaries:d1")?.reason ?? "nil")
+        XCTAssertEqual(broken.task("rally_boundaries:d2")?.state, .quarantined)
+        XCTAssertTrue(broken.task("rally_boundaries:d2")?.reason?.contains("ancestry cannot be established") == true, broken.task("rally_boundaries:d2")?.reason ?? "nil")
     }
 
     // MARK: - Stage 1 rally boundaries

@@ -56,6 +56,10 @@ enum WorkQueue {
         }
         /// Nothing moves a cancelled task but an explicit reopen.
         var isFinal: Bool { self == .cancelled }
+        /// Whether a person may work on the task: not while it is blocked or quarantined (the recording is
+        /// withheld or otherwise inadmissible) and not while it is cancelled (reopen it first). The Queue tab's
+        /// "Open" follows this, so an inadmissible recording is never offered for labeling from the queue.
+        var isActionable: Bool { ![State.blocked, .quarantined, .cancelled].contains(self) }
     }
 
     /// Who moved a task.

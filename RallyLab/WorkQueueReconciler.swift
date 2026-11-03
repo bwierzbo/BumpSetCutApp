@@ -40,6 +40,14 @@ enum WorkQueueReconciler {
         var identityKeys: [String: String]
         var policy: WorkQueue.Policy
         var now: Date
+        /// Each recording's admission as the source index judges it from the authoritative files (project.json, the
+        /// sessions, validation.json, the exposure ledger and the footage-properties records — built fresh by
+        /// `gather`, never read from a written index). Anything but `admitted` — withheld, quarantined (a
+        /// derivative of protected footage at any depth, an unverifiable parent, an unusable record), unidentified,
+        /// rejected — gets no actionable task of any kind (owner, 2026-11-03). Missing = not judged = admitted
+        /// only when the index could not name the recording at all, which `gather` never produces.
+        var admission: [String: SourceRegistry.Admission] = [:]
+        var admissionReason: [String: String] = [:]
     }
 
     struct Verdict: Equatable, Sendable {
@@ -65,15 +73,29 @@ enum WorkQueueReconciler {
         for s in inputs.sessions {
             let withheld = inputs.withheld.contains(s.name) || inputs.events[s.name]?.withheld == true
             let withheldReason = "withheld: a lineage or legacy holdout, final test or candidate, or an alias of one (D-017) — not labeled"
+            // The gate every kind passes before any observation is read: the withheld closure (by name, file and
+            // content, as EventInventory judges it), then the source index's admission. An inadmissible recording's
+            // task is blocked (withheld, unidentified, rejected) or quarantined (the index's quarantine: a
+            // derivative of protected footage at any depth, an unverifiable parent, an unusable record) — never
+            // actionable, whatever its annotation files say.
+            let gate: (state: WorkQueue.State, summary: String, reason: String)? = {
+                if withheld { return (.blocked, "withheld", withheldReason) }
+                if let a = inputs.admission[s.name], a != .admitted {
+                    let why = inputs.admissionReason[s.name].map { ": \($0)" } ?? ""
+                    return (a == .quarantined ? .quarantined : .blocked, "not admitted: \(a.rawValue)",
+                            "not admitted (\(a.rawValue)\(why)) — judged by the source index from the project's records; no labeling task is actionable")
+                }
+                return nil
+            }()
 
             // Stage 1 rally boundaries.
             do {
                 let e = inputs.events[s.name]
                 var o = WorkQueue.Observed(at: at, summary: "", declaredComplete: s.ralliesMarked ?? false, verifiedCoverage: e?.coverageFraction)
                 let verdict: Verdict
-                if withheld {
-                    o.summary = "withheld"
-                    verdict = Verdict(state: .blocked, reason: withheldReason, observed: o)
+                if let gate {
+                    o.summary = gate.summary
+                    verdict = Verdict(state: gate.state, reason: gate.reason, observed: o)
                 } else if let problem = e?.recordProblem {
                     o.summary = "record not accepted"
                     verdict = Verdict(state: .failed, reason: "rallyevents.json is not this recording's: \(problem)", observed: o)
@@ -105,9 +127,9 @@ enum WorkQueueReconciler {
                 var o = WorkQueue.Observed(at: at, summary: "", humanLabeled: human, machineProposed: machine, open: open)
                 let target = inputs.policy.ballTrackRalliesPerRecording
                 let verdict: Verdict
-                if withheld {
-                    o.summary = "withheld"
-                    verdict = Verdict(state: .blocked, reason: withheldReason, observed: o)
+                if let gate {
+                    o.summary = gate.summary
+                    verdict = Verdict(state: gate.state, reason: gate.reason, observed: o)
                 } else if open > 0 {
                     o.summary = "\(open) rally(ies) started and not finished; \(human) of \(target) human-labeled"
                     verdict = Verdict(state: .inProgress, reason: nil, observed: o)
@@ -133,9 +155,9 @@ enum WorkQueueReconciler {
             if let net = inputs.net {
                 var o = WorkQueue.Observed(at: at, summary: "")
                 let verdict: Verdict
-                if withheld {
-                    o.summary = "withheld"
-                    verdict = Verdict(state: .blocked, reason: withheldReason, observed: o)
+                if let gate {
+                    o.summary = gate.summary
+                    verdict = Verdict(state: gate.state, reason: gate.reason, observed: o)
                 } else if let n = net[s.name] {
                     o.proposalPending = n.proposalPending
                     if let skip = n.skip {
@@ -202,9 +224,14 @@ enum WorkQueueReconciler {
         var net: [String: NetObservation]?
         var netProblem: String?
         do { net = try netObservations(root: root) } catch { netProblem = error.localizedDescription }
+        // The index built now from the project's own records (SourceRegistry.inputs reads them strictly) — not a
+        // source-index file written earlier, which could be stale.
         let index = try SourceRegistry.load(root: root, now: now)
         let keys = Dictionary(index.sources.map { ($0.video, $0.identityKey) }, uniquingKeysWith: { a, _ in a })
-        return Inputs(sessions: sessions, withheld: withheld, events: events, net: net, netProblem: netProblem, identityKeys: keys, policy: policy, now: now)
+        let admission = Dictionary(index.sources.map { ($0.video, $0.admission) }, uniquingKeysWith: { a, _ in a })
+        let reasons = Dictionary(index.sources.compactMap { s in s.admissionReason.map { (s.video, $0) } }, uniquingKeysWith: { a, _ in a })
+        return Inputs(sessions: sessions, withheld: withheld, events: events, net: net, netProblem: netProblem, identityKeys: keys, policy: policy, now: now,
+                      admission: admission, admissionReason: reasons)
     }
 
     /// The Net labels tab's inventory, by session name: the same rules it applies (NetInventory from the split
