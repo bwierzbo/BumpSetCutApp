@@ -201,7 +201,7 @@ final class ProjectsModel {
     /// was reading has since been closed, switched, or reopened (its sessions reloaded), whatever the name
     /// or path of the project open now. The name and root are the captured project's own: file paths
     /// derived from `root` stay that project's even after the opening ends.
-    struct Opening: Equatable, Sendable {
+    struct Opening: Hashable, Sendable {
         let generation: UUID
         let name: String
         let root: URL

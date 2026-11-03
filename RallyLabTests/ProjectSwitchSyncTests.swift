@@ -778,6 +778,46 @@ final class ProjectSwitchSyncTests: XCTestCase {
         XCTFail("timed out waiting for: \(what)")
     }
 
+    func testBallPathJobsQueuedUnderAnEndedOpeningDoNotRunWhenTheSameProjectIsOpenedAgain() async throws {
+        // A → B → A: the reopened A is another opening (same folder). Jobs queued under the first opening and not
+        // started are dropped when it ends; they run only if queued afresh under the new one.
+        try project("A", videos: ["video_01", "video_02", "video_03"]); try project("B")
+        let a1 = open("A")
+        let latch = Latch()
+        var runs: [String] = []
+        let builder = BallPathBuilder(sampler: sampler, projects: projects) { playback, _, _ in
+            runs.append(playback.path)
+            if runs.count == 1 { try await latch.wait() }
+            return [BallPath.Sample(time: 1, center: CGPoint(x: 0.5, y: 0.5), size: 0.02)]
+        }
+        let aSessions = sampler.sessions.sorted { $0.name < $1.name }
+        builder.ensure(aSessions)
+        try await until("the first job began") { runs.count == 1 }
+        XCTAssertTrue(builder.isBuilding(aSessions[0]))
+        // Switch to B and back to A while the first job is suspended.
+        open("B")
+        let a2 = open("A")
+        XCTAssertNotEqual(a2, a1)
+        XCTAssertFalse(builder.isBuilding(aSessions[0]), "the running job is the first opening's, not this one's")
+        let before = try snapshot("A")
+        latch.open()
+        try await until("the first job finished") { builder.finished == 1 && builder.building == nil }
+        try await Task.sleep(for: .milliseconds(150))   // anything that would start, has
+        // The running job finished into A (its own dataset); the two unstarted ones did not run under the new opening.
+        XCTAssertEqual(runs, [footage("A").path])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: BallPathBuilder.url(for: "video_01", in: a2.root).path))
+        XCTAssertEqual(ballPathRows("A"), ["video_01"], "no exposure row for a job that was not started")
+        let changed = Set(try snapshot("A").keys).symmetricDifference(Set(before.keys))
+        XCTAssertEqual(changed.map { $0.hasSuffix("/ballpaths/video_01.ballpath.json") }, [true], "the first job's file is the only thing new in A: \(changed)")
+        XCTAssertEqual(ballPathRows("B"), [])
+        // Queued afresh under the new opening, they run — under it.
+        builder.ensure(sampler.sessions.sorted { $0.name < $1.name })
+        try await until("the requeued jobs ran") { builder.finished == 3 && builder.building == nil }
+        XCTAssertEqual(runs, [footage("A").path, footage("A", "video_02").path, footage("A", "video_03").path])
+        XCTAssertEqual(ballPathRows("A"), ["video_01", "video_02", "video_03"])
+        XCTAssertEqual(projects.opening, a2)
+    }
+
     func testBallPathJobsBelongToTheDatasetTheyWereQueuedFromNotTheOneOpenWhenTheyRun() async throws {
         // A and B each hold video_01 and video_02. B reserves video_02 as final test; A reserves video_03 (B has none).
         try project("A", videos: ["video_01", "video_02", "video_03"]); try project("B", videos: ["video_01", "video_02"])
@@ -786,7 +826,7 @@ final class ProjectSwitchSyncTests: XCTestCase {
         let rootA = sampler.datasetRoot, rootB = base.appendingPathComponent("B", isDirectory: true).standardizedFileURL
         let latch = Latch()   // the first run waits here until the test lets it finish
         var runs: [String] = []
-        let builder = BallPathBuilder(sampler: sampler) { playback, _, _ in
+        let builder = BallPathBuilder(sampler: sampler, projects: projects) { playback, _, _ in
             runs.append(playback.path)
             if runs.count == 1 { try await latch.wait() }
             return [BallPath.Sample(time: 1, center: CGPoint(x: 0.5, y: 0.5), size: 0.02)]
