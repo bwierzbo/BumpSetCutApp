@@ -136,6 +136,8 @@ struct ContentView: View {
         HSplitView {
             playerColumn
                 .frame(minWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
+                // Cuts marked in the Label tab or pulled from the phone since the video was opened (D-030).
+                .onAppear { model.refreshCuts() }
             InspectorPane(model: model)
                 .frame(minWidth: 360, idealWidth: 400, maxWidth: 480)
         }

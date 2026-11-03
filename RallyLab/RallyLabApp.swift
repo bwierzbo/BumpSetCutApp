@@ -10,7 +10,7 @@ import SwiftUI
 
 @main
 struct RallyLabApp: App {
-    @State private var model = RallyLabModel()
+    @State private var model: RallyLabModel
     @State private var sampler: SamplerModel
     /// Reopens the last project on launch, the way Xcode restores its window.
     @State private var projects: ProjectsModel
@@ -36,6 +36,8 @@ struct RallyLabApp: App {
         let sampling = HeadlessSampler.runIfRequested()
         if HeadlessProjects.runIfRequested() || sampling { dispatchMain() }
 
+        let pipeline = RallyLabModel()
+        _model = State(initialValue: pipeline)
         let sampler = SamplerModel()
         _sampler = State(initialValue: sampler)
         _library = State(initialValue: ModelLibrary(sampler: sampler))
@@ -49,7 +51,8 @@ struct RallyLabApp: App {
         _netLabels = State(initialValue: NetLabelsModel(projects: projects))
         let phone = LabelingSync(projects: projects)
         phone.onTracksChanged = { tracker.reloadRallies(session: $0) }
-        phone.onTimesChanged = { marker.reloadMarks(session: $0) }
+        // Rally times pulled from the phone carry the cut ranges: the Pipeline tab scores over them again (D-030).
+        phone.onTimesChanged = { marker.reloadMarks(session: $0); pipeline.refreshCuts() }
         phone.onRecordSynced = { boundaries.recordSynced(root: $0, $1, $2) }
         // A rally finished here or on the phone gets its boxes fitted to the
         // ball before it's reviewed.

@@ -244,7 +244,12 @@ final class NetLabelsModel {
         do { exclusions = try exclusionStore.load() } catch {
             blocked = "\(exclusionStore.url.lastPathComponent) unreadable: \(error.localizedDescription)"; status = blocked!; return
         }
-        let cuts = Dictionary(uniqueKeysWithValues: projects.sampler.sessions.map { ($0.name, $0.cutRanges) })
+        // Every session read strictly: one that won't decode is unknown cut ranges, not none (D-030).
+        let sessions: [VideoSession]
+        do { sessions = try projects.sampler.store.loadSessionsStrict() } catch {
+            blocked = "Nothing can be labeled: the cut ranges can't be known — \(error.localizedDescription)"; status = blocked!; return
+        }
+        let cuts = Dictionary(uniqueKeysWithValues: sessions.map { ($0.name, $0.cutRanges) })
         let items = project.clips.flatMap { clip in
             clip.videos.map { video in
                 let id = clip.videoId(of: video)

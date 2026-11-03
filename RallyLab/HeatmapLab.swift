@@ -138,8 +138,15 @@ final class HeatmapLab {
         let root = sampler.datasetRoot.appendingPathComponent("scores", isDirectory: true)
         let jobs: [TestSetScore.Job]
         let insideCuts: Int
-        // Windows inside a recording's cut ranges are left out, whatever the export holds (D-030).
-        do { (jobs, insideCuts) = try TestSetScore.jobs(export: export, cuts: Self.cutRanges(sampler.sessions)) } catch {
+        // Windows inside a recording's cut ranges are left out, whatever the export holds (D-030); the
+        // cuts come from every session read strictly — one that won't decode is unknown cuts, not none.
+        let cutsByClip: [String: [CutRange]]
+        do { cutsByClip = try cutRanges() } catch {
+            scoringLine = "The cut ranges can't be known: \(error.localizedDescription)"
+            log("❌ " + scoringLine)
+            return false
+        }
+        do { (jobs, insideCuts) = try TestSetScore.jobs(export: export, cuts: cutsByClip) } catch {
             scoringLine = "Couldn't read \(export.lastPathComponent): \(error.localizedDescription)"
             log("❌ " + scoringLine)
             return false
@@ -400,11 +407,12 @@ final class HeatmapLab {
 
     func evaluate() {
         guard !isBusy, let model = selected, let package else { return }
+        let cuts: [String: [CutRange]]
+        do { cuts = try cutRanges() } catch { status = "The cut ranges can't be known: \(error.localizedDescription)"; return }
         isBusy = true
         result = nil
         status = "Scoring \(model.name) on \(package.lastPathComponent)…"
         let yolo = sampler.prelabelModel
-        let cuts = Self.cutRanges(sampler.sessions)
         Task {
             defer { isBusy = false; progress = nil }
             let outcome = await Task.detached(priority: .userInitiated) {
@@ -423,9 +431,10 @@ final class HeatmapLab {
         }
     }
 
-    /// Each recording's cut ranges (not footage; D-030), by name, for the ones that have any.
-    nonisolated static func cutRanges(_ sessions: [VideoSession]) -> [String: [CutRange]] {
-        Dictionary(uniqueKeysWithValues: sessions.compactMap { s in s.cutRanges.isEmpty ? nil : (s.name, s.cutRanges) })
+    /// Each recording's cut ranges (not footage; D-030), by name, for the ones that have any — from
+    /// every session read strictly: one that won't decode is unknown cuts, not none (fails closed).
+    func cutRanges() throws -> [String: [CutRange]] {
+        Dictionary(uniqueKeysWithValues: try sampler.store.loadSessionsStrict().compactMap { s in s.cutRanges.isEmpty ? nil : (s.name, s.cutRanges) })
     }
 }
 

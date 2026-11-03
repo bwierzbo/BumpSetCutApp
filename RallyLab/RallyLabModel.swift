@@ -648,6 +648,7 @@ final class RallyLabModel {
     /// (for evidence) and at least one label (for ground truth).
     func exportTrainingData() {
         guard let videoURL else { return }
+        refreshCuts()
         if let cutsProblem { status = cutsProblem; return }
         guard !evidence.isEmpty else {
             status = "Run the pipeline first — the export needs its frame evidence."
@@ -710,10 +711,9 @@ final class RallyLabModel {
         videoDisplaySize = CGSize(width: 16, height: 9)
         videoRotationQuarterTurns = 0
         detectionConfigDirty = false
-        do { cuts = try Self.cutRanges(for: url); cutsProblem = nil } catch {
-            cuts = []
-            cutsProblem = "❌ \(url.lastPathComponent): the project's cut ranges can't be known — \(error.localizedDescription)"
-        }
+        cuts = []
+        cutsProblem = nil
+        refreshCuts()
 
         Task {
             let asset = AVURLAsset(url: url)
@@ -955,6 +955,7 @@ final class RallyLabModel {
     func runComparison() async {
         guard let url = videoURL, !isComparing else { return }
         if let refusal = Self.finalTestRefusal(for: url) { compareStatus = refusal; return }
+        refreshCuts()
         if let cutsProblem { compareStatus = cutsProblem; return }
         guard !labels.isEmpty else {
             compareStatus = "Add ground-truth labels in the Pipeline tab to score against."
@@ -1006,6 +1007,20 @@ final class RallyLabModel {
         } catch { return "❌ \(error.localizedDescription)" }
     }
 
+    /// The cuts as the project has them now — marked in the Label tab or pulled from the phone
+    /// since the video was opened — and, when they changed, the predictions and score over them
+    /// again. Run before anything scores, compares or exports the video.
+    func refreshCuts() {
+        guard let url = videoURL else { return }
+        let before = (cuts, cutsProblem)
+        do { cuts = try Self.cutRanges(for: url); cutsProblem = nil } catch {
+            cuts = []
+            cutsProblem = "❌ \(url.lastPathComponent): the project's cut ranges can't be known — \(error.localizedDescription)"
+        }
+        guard before.0 != cuts || before.1 != cutsProblem else { return }
+        if !evidence.isEmpty { recomputePredictionsAndScore() }
+    }
+
     /// The cut ranges of the open project's session over this video (not footage; D-030),
     /// matched by path, name or content like the refusal; none for a video outside the project.
     static func cutRanges(for url: URL) throws -> [CutRange] {
@@ -1037,6 +1052,7 @@ final class RallyLabModel {
         guard let url = videoURL else { return }
         guard !isProcessing, !exportingDebugVideo else { return }
         if let refusal = Self.finalTestRefusal(for: url) { status = refusal; return }
+        refreshCuts()
         if let cutsProblem { status = cutsProblem; return }
         do { try Self.recordRallyScoring(url, ref: "RallyLab Pipeline tab") } catch { status = "❌ \(error.localizedDescription)"; return }
 
@@ -1082,6 +1098,7 @@ final class RallyLabModel {
     /// in Finder.
     func exportDebugVideo() async {
         guard let url = videoURL, !isProcessing, !exportingDebugVideo else { return }
+        refreshCuts()
         if let cutsProblem { status = cutsProblem; return }
         exportingDebugVideo = true
         // The marked rallies of the video exported, not whatever's open when it finishes — outside its cut ranges.

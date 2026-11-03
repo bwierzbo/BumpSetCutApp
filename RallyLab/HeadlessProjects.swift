@@ -1088,7 +1088,10 @@ enum HeadlessProjects {
         do { labels = try NetLabelStore(projectDir: root).load() } catch { log("❌ net-labels.json: \(error.localizedDescription)"); return false }
         let exclusions: [String: NetExclusion]
         do { exclusions = try NetExclusionStore(projectDir: root).load() } catch { log("❌ net-exclusions.json: \(error.localizedDescription)"); return false }
-        let cuts = Dictionary(uniqueKeysWithValues: projects.sampler.sessions.map { ($0.name, $0.cutRanges) })
+        // Every session read strictly: one that won't decode is unknown cut ranges, not none (D-030; fails closed).
+        let sessions: [VideoSession]
+        do { sessions = try projects.sampler.store.loadSessionsStrict() } catch { log("❌ The cut ranges can't be known: \(error.localizedDescription)"); return false }
+        let cuts = Dictionary(uniqueKeysWithValues: sessions.map { ($0.name, $0.cutRanges) })
         let sources = project.clips.flatMap { clip in
             clip.videos.map { NetDatasetExport.Source(video: clip.videoId(of: $0), clip: clip.id, camera: clip.camera,
                                                       url: URL(fileURLWithPath: $0.clipFile), fingerprint: ReservedVideos.effectiveFingerprint($0),
@@ -1150,7 +1153,9 @@ enum HeadlessProjects {
             manifest = try DatasetSplitManifest.readStrict(from: NetInventory.manifestURL(in: root))
         } catch { log("❌ \(error.localizedDescription)"); return false }
         let rows = Dictionary((manifest?.videos ?? []).map { ($0.video, $0) }, uniquingKeysWith: { a, _ in a })
-        let cuts = Dictionary(uniqueKeysWithValues: projects.sampler.sessions.map { ($0.name, $0.cutRanges) })
+        let sessions: [VideoSession]
+        do { sessions = try projects.sampler.store.loadSessionsStrict() } catch { log("❌ The cut ranges can't be known: \(error.localizedDescription)"); return false }
+        let cuts = Dictionary(uniqueKeysWithValues: sessions.map { ($0.name, $0.cutRanges) })
         let candidates = project.clips.flatMap { clip in
             clip.videos.map { source -> NetAIPilot.Candidate in
                 let id = clip.videoId(of: source)
