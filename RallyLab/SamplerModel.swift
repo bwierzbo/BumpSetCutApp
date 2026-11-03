@@ -129,6 +129,9 @@ struct IngestJob: Identifiable, Equatable {
     var sessionName: String? = nil
     var split: String? = nil
     var framesPerRally: Int? = nil
+    /// The dataset the job was queued for: its session, frames and labels go there, whatever dataset is current
+    /// when the job runs or finishes (the project can be switched meanwhile).
+    var root: URL? = nil
     var state: State = .pending
     /// How far through the job is, 0–1, while running: finding rallies is
     /// the first half, extracting and pre-labeling frames the rest.
@@ -255,9 +258,14 @@ final class SamplerModel {
     nonisolated static let reviewMaxPixel = 1600
     private static let rootKey = "RallyLab.datasetRoot"
 
-    init() {
-        let saved = UserDefaults.standard.string(forKey: Self.rootKey).map { URL(fileURLWithPath: $0, isDirectory: true) }
-        let root = saved ?? DatasetStore.defaultRoot
+    /// Where the dataset root and the review place are remembered. Tests pass their own suite and root: a
+    /// fixture never becomes the dataset RallyLab opens next, and the person's dataset is not read.
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard, root: URL? = nil) {
+        self.defaults = defaults
+        let saved = defaults.string(forKey: Self.rootKey).map { URL(fileURLWithPath: $0, isDirectory: true) }
+        let root = root ?? saved ?? DatasetStore.defaultRoot
         datasetRoot = root
         store = DatasetStore(root: root)
         reloadSessions()
@@ -268,7 +276,7 @@ final class SamplerModel {
     func setDatasetRoot(_ url: URL) {
         datasetRoot = url
         store = DatasetStore(root: url)
-        UserDefaults.standard.set(url.path, forKey: Self.rootKey)
+        defaults.set(url.path, forKey: Self.rootKey)
         closeSession()
         reloadSessions()
         status = "Dataset: \(url.path)"
@@ -282,15 +290,15 @@ final class SamplerModel {
 
     private func rememberPlace() {
         guard let session = currentSession else { return }
-        var places = UserDefaults.standard.dictionary(forKey: Self.resumeKey) as? [String: String] ?? [:]
+        var places = defaults.dictionary(forKey: Self.resumeKey) as? [String: String] ?? [:]
         places[datasetRoot.path] = session.name + "|" + (selectedId?.uuidString ?? "")
-        UserDefaults.standard.set(places, forKey: Self.resumeKey)
+        defaults.set(places, forKey: Self.resumeKey)
     }
 
     /// Reopen the video and frame last reviewed in this dataset.
     private func resumeReview() {
         guard currentSession == nil,
-              let place = (UserDefaults.standard.dictionary(forKey: Self.resumeKey) as? [String: String])?[datasetRoot.path]
+              let place = (defaults.dictionary(forKey: Self.resumeKey) as? [String: String])?[datasetRoot.path]
         else { return }
         let parts = place.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
         guard let session = sessions.first(where: { $0.name == parts.first }) else { return }
@@ -342,10 +350,10 @@ final class SamplerModel {
             var isDir: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { continue }
             if isDir.boolValue {
-                queue.append(IngestJob(url: url, kind: .folder))
+                queue.append(IngestJob(url: url, kind: .folder, root: datasetRoot))
                 added += 1
             } else if ["mov", "mp4", "m4v"].contains(url.pathExtension.lowercased()) {
-                queue.append(IngestJob(url: url, kind: .video))
+                queue.append(IngestJob(url: url, kind: .video, root: datasetRoot))
                 added += 1
             }
         }
@@ -357,7 +365,7 @@ final class SamplerModel {
     /// session with this name.
     func enqueueClip(_ url: URL, sessionName: String, split: String?, framesPerRally: Int?) {
         queue.append(IngestJob(url: url, kind: .video, sessionName: sessionName,
-                               split: split, framesPerRally: framesPerRally))
+                               split: split, framesPerRally: framesPerRally, root: datasetRoot))
         Task { await processQueue() }
     }
 
@@ -380,6 +388,8 @@ final class SamplerModel {
             do {
                 let session = try await ingest(job)
                 setJob(job.id, .done("\(session.frames.count) frames · \(session.boxCount) boxes"))
+                // The session belongs to the dataset the job was queued for: shown here only if that is still the one open.
+                guard (job.root ?? datasetRoot) == datasetRoot else { continue }
                 reloadSessions()
                 if currentSession == nil { openSession(session) }
             } catch {
@@ -401,6 +411,9 @@ final class SamplerModel {
     }
 
     private func ingest(_ job: IngestJob) async throws -> VideoSession {
+        // The job's own dataset, from start to finish: `self.store` is whatever dataset is current, and the
+        // project can be switched while frames are extracted.
+        let store = job.root.map { DatasetStore(root: $0) } ?? self.store
         try store.prepare()
         let existing = store.loadSessions()
         let name = job.sessionName
@@ -408,13 +421,13 @@ final class SamplerModel {
         let split = job.split ?? store.splitForNewVideo(existing: existing, valFraction: validationFraction)
         var records: [FrameRecord]
         switch job.kind {
-        case .video: records = try await ingestVideo(job, name: name, split: split)
-        case .folder: records = try await ingestFolder(job, name: name, split: split)
+        case .video: records = try await ingestVideo(job, name: name, split: split, root: store.root)
+        case .folder: records = try await ingestFolder(job, name: name, split: split, root: store.root)
         }
         if let perRally = job.framesPerRally, perRally > 0 {
             let keep = Set(Self.thin(records, perRally: perRally))
             for (i, record) in records.enumerated() where !keep.contains(i) {
-                try? FileManager.default.removeItem(at: datasetRoot.appendingPathComponent(record.file))
+                try? FileManager.default.removeItem(at: store.root.appendingPathComponent(record.file))
             }
             records = records.enumerated().filter { keep.contains($0.offset) }.map(\.element)
         }
@@ -432,12 +445,12 @@ final class SamplerModel {
         let model: URL?
     }
 
-    private func ingestSettings(name: String, split: String) -> IngestSettings {
+    private func ingestSettings(name: String, split: String, root: URL) -> IngestSettings {
         IngestSettings(
             burstFPS: burstFPS, padding: rallyPadding, includeMissed: includeMissed,
             maxMissed: Int(maxMissed), randomCount: Int(randomCount),
             confidence: Float(prelabelConfidence), duplicateThreshold: Int(duplicateThreshold),
-            jpegQuality: jpegQuality, name: name, split: split, root: datasetRoot,
+            jpegQuality: jpegQuality, name: name, split: split, root: root,
             model: prelabelModel
         )
     }
@@ -455,7 +468,7 @@ final class SamplerModel {
 
     private static let rallyShare = 0.5
 
-    private func ingestVideo(_ job: IngestJob, name: String, split: String) async throws -> [FrameRecord] {
+    private func ingestVideo(_ job: IngestJob, name: String, split: String, root: URL) async throws -> [FrameRecord] {
         let video = job.url
         let labelsURL = video.deletingPathExtension().appendingPathExtension("rallylabels.json")
         let labeled: [LabeledRally] = preferHandLabels
@@ -487,7 +500,7 @@ final class SamplerModel {
                                              minRallySec: 1.1653, padded: false)
             : labeled.map { Interval(start: $0.startTime, end: $0.endTime) }
 
-        let settings = ingestSettings(name: name, split: split)
+        let settings = ingestSettings(name: name, split: split, root: root)
         func planFrames(random: Int) -> [PlannedFrame] {
             Self.plan(rallies: rallies, evidence: evidence, duration: duration,
                       burstFPS: settings.burstFPS, padding: settings.padding,
@@ -515,11 +528,11 @@ final class SamplerModel {
         }.value
     }
 
-    private func ingestFolder(_ job: IngestJob, name: String, split: String) async throws -> [FrameRecord] {
+    private func ingestFolder(_ job: IngestJob, name: String, split: String, root: URL) async throws -> [FrameRecord] {
         let files = SamplerImageTools.imageFiles(in: job.url)
         guard !files.isEmpty else { throw IngestError.noImages }
         setJob(job.id, .running("Pre-labeling \(files.count) files…"), fraction: 0)
-        let settings = ingestSettings(name: name, split: split)
+        let settings = ingestSettings(name: name, split: split, root: root)
         let progress = prelabelProgress(for: job.id, from: 0)
         return try await Task.detached(priority: .userInitiated) {
             try Self.copyAndLabel(files: files, settings: settings, progress: progress)

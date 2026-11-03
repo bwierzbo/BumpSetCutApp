@@ -79,9 +79,15 @@ final class BallPathBuilder {
         defer { running = false }
         while !waiting.isEmpty {
             let session = waiting.removeFirst()
-            guard !FileManager.default.fileExists(atPath: url(for: session).path),
-                  let playback = session.playbackURL(in: datasetRoot) else { continue }
-            if let why = Self.admission(of: session.name, in: datasetRoot) {
+            // The dataset this video belongs to, taken once: the project can be switched while the pipeline runs,
+            // and the path (its own data) then still goes into this dataset's folder — never the one open by then,
+            // whose same-named recording it would describe falsely and whose sync would send it up as its own.
+            // The exposure row goes on this dataset's ledger for the same reason.
+            let root = datasetRoot
+            let out = Self.url(for: session.name, in: root)
+            guard !FileManager.default.fileExists(atPath: out.path),
+                  let playback = session.playbackURL(in: root) else { continue }
+            if let why = Self.admission(of: session.name, in: root) {
                 refused[session.name] = why
                 failed.insert(session.name)
                 continue
@@ -109,7 +115,7 @@ final class BallPathBuilder {
             if ok {
                 let file = BallPathFile(samples: Self.samples(from: processor.frameEvidence))
                 do {
-                    try file.save(to: url(for: session))
+                    try file.save(to: out)
                     finished += 1
                 } catch {
                     ok = false

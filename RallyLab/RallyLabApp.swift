@@ -58,7 +58,7 @@ struct RallyLabApp: App {
         phone.onRecordSynced = { boundaries.recordSynced(root: $0, $1, $2) }
         // A rally finished here or on the phone gets its boxes fitted to the
         // ball before it's reviewed.
-        let fitter = ProjectReviewStore(sampler: sampler, tracker: tracker, sync: phone)
+        let fitter = ProjectReviewStore(sampler: sampler, tracker: tracker, sync: phone, projects: projects)
         phone.afterSync = { await fitter.fitNewRallies() }
         phone.startAutomatic()
         _phone = State(initialValue: phone)
