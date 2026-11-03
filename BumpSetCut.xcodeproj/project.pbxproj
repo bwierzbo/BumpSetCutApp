@@ -115,6 +115,7 @@
 				Shared/BoundaryEditor.swift,
 				Shared/BoundaryTimelineView.swift,
 				Shared/BoxFitter.swift,
+				Shared/CutRanges.swift,
 				Shared/EventReviewRecord.swift,
 				Shared/FinalCheckView.swift,
 				Shared/FrameIdentity.swift,
