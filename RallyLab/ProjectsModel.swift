@@ -475,10 +475,15 @@ final class ProjectsModel {
     // MARK: - Progress
 
     /// Wait for a video `addVideo` started to be cut and sampled: true once
-    /// it's in the dataset.
-    func waitForSampling(_ videoId: String) async -> Bool {
+    /// it's in the dataset. Throws when the waiting task is cancelled (the
+    /// wait ends at once instead of polling on — a cancelled sleep returns
+    /// immediately) and, given `opening`, as soon as that opening — the
+    /// project the video was added to — has ended, before its progress is
+    /// read: the jobs and sessions looked at are the open project's.
+    func waitForSampling(_ videoId: String, in opening: Opening? = nil) async throws -> Bool {
         while true {
-            try? await Task.sleep(nanoseconds: 500_000_000)
+            try await Task.sleep(nanoseconds: 500_000_000)
+            if let opening { try require(opening) }
             switch progress(ofVideo: videoId) {
             case .pulled: return true
             case .failed: return false

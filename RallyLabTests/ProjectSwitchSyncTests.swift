@@ -207,6 +207,30 @@ final class ProjectSwitchSyncTests: XCTestCase {
         XCTAssertFalse(sync.isSyncing)
     }
 
+    func testTheSamplingWaitEndsWhenItsOpeningEndsOrItsTaskIsCancelled() async throws {
+        // A phone video pulled in is waited for while it's cut and sampled; the wait checks every half second.
+        try project("A"); try project("B")
+        let a = open("A")
+        let wait = Task { try await self.projects.waitForSampling("card_0_02", in: a) }
+        // The project changes before the wait's first check: it ends there, before reading any progress of B's.
+        open("B")
+        let result = await wait.result
+        guard case .failure(let error) = result else { return XCTFail("the wait went on under B: \(result)") }
+        XCTAssertTrue(error is ProjectsModel.OpeningEnded, "\(error)")
+        // A cancelled wait ends at once — no polling on with sleeps that no longer sleep.
+        let a2 = open("A")
+        let started = Date()
+        let cancelled = Task { try await self.projects.waitForSampling("card_0_02", in: a2) }
+        cancelled.cancel()
+        let result2 = await cancelled.result
+        guard case .failure(let error2) = result2 else { return XCTFail("the cancelled wait returned \(result2)") }
+        XCTAssertTrue(error2 is CancellationError, "\(error2)")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 0.4)
+        // Under its own opening, idle, the wait answers as before: nothing of that video is there.
+        let idle = try await projects.waitForSampling("card_0_02", in: a2)
+        XCTAssertFalse(idle)
+    }
+
     // MARK: - A and B: identical names, a stale reply
 
     func testAStaleReplyNeverWritesTheServersTimesBesideAnotherProjectsSameNamedRecording() async throws {
@@ -365,6 +389,34 @@ final class ProjectSwitchSyncTests: XCTestCase {
         XCTAssertEqual(projects.session(named: "video_01")?.tracks?.count ?? 0, 0, "nothing came back from the server as new")
         XCTAssertEqual(projects.session(named: "video_01")?.syncedTrackIds ?? [], [], "every deletion acknowledged: the synced list is empty")
         XCTAssertEqual(tracksChanged, [])
+    }
+
+    func testARallyReceivedInARoundWhosePushFailedCanStillBeDeletedHereNotRestoredAsNew() async throws {
+        // A mixed round: a rally new from the phone comes down, a rally new here goes up — and the push fails.
+        try project("A", tracks: true)
+        open("A")
+        let r = row("A")
+        let phone = LabelTrack(SourceRegistryTests.rally(done: true), videoId: r.id)
+        server.tracks[phone.id] = phone
+        server.stamps = [LabelingClient.TrackStamp(id: phone.id, videoId: r.id, deleted: false, updatedAt: now)]
+        server.failures["save(tracks)"] = URLError(.networkConnectionLost)
+        let outcome = await sync.sync(videos: false)
+        XCTAssertFalse(outcome)
+        XCTAssertTrue(sync.status.hasPrefix("Sync stopped:"), sync.status)
+        XCTAssertEqual(projects.session(named: "video_01")?.tracks?.count, 2, "the phone's rally was received")
+        XCTAssertEqual(tracksChanged, ["video_01"])
+        XCTAssertEqual(Set(projects.session(named: "video_01")?.syncedTrackIds ?? []),
+                       Set((projects.session(named: "video_01")?.tracks ?? []).map(\.id)), "the received rally is on the synced list at once")
+        // Deleted here before the next successful round.
+        sampler.setTracks((projects.session(named: "video_01")?.tracks ?? []).filter { $0.id != phone.id }, session: "video_01")
+        let outcome2 = await sync.sync(videos: false)
+        XCTAssertTrue(outcome2, sync.status)
+        XCTAssertEqual(projects.session(named: "video_01")?.tracks?.count, 1, "the deleted rally did not come back as new")
+        XCTAssertEqual(server.tracks[phone.id]?.deleted, true, "its tombstone went up")
+        XCTAssertEqual(Set(server.savedTracks.last?.map(\.deleted) ?? []), [false, true], "with the rally new here")
+        XCTAssertEqual(server.savedTracks.last?.count, 2)
+        XCTAssertEqual(Set(projects.session(named: "video_01")?.syncedTrackIds ?? []),
+                       Set((projects.session(named: "video_01")?.tracks ?? []).map(\.id)), "acknowledged: the tombstone is off the list")
     }
 
     // MARK: - E: failure, cancellation, delayed acknowledgement

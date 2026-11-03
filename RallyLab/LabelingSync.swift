@@ -332,7 +332,7 @@ final class LabelingSync {
                     status = "Couldn't add \(title): \(projects.status)"
                     continue
                 }
-                guard await projects.waitForSampling(added) else {
+                guard try await projects.waitForSampling(added, in: opening) else {
                     status = "\(title) didn't sample: \(projects.status)"
                     continue
                 }
@@ -831,6 +831,10 @@ final class LabelingSync {
                 projects.sampler.setTracks(local, session: name)
                 onTracksChanged?(name)
             }
+            // The synced list now: the session's rallies (a rally just received from the phone included — deleted
+            // here before the next successful round, it must go up as a tombstone, not come back as new) plus the
+            // rallies deleted here, every one of them until the server acknowledges its tombstone below.
+            projects.sampler.setSyncedTrackIds(local.map(\.id) + tombstones, session: name)
             syncedAfter.append((name, local.map(\.id), tombstones))
         }
         var acknowledged: Set<UUID> = []
@@ -842,11 +846,11 @@ final class LabelingSync {
             try await client.save(batch)
             acknowledged.formUnion(batch.map(\.id))
         }
-        // The synced lists are written once the server has every batch. A round stopped between batches — the
-        // opening ended, the connection dropped — leaves them as they were: a deletion whose tombstone was not
-        // acknowledged is still on the list, so the next round sends it instead of taking the server's still-present
-        // rally for a new one; a tombstone the server did acknowledge drops off the list on that round (its stamp is
-        // deleted by then, so nothing is fetched or sent for it).
+        // Once the server has every batch, the acknowledged tombstones come off the synced lists. A round stopped
+        // between batches — the opening ended, the connection dropped — leaves the lists as written above: a
+        // deletion whose tombstone was not acknowledged is still on them, so the next round sends it instead of
+        // taking the server's still-present rally for a new one; a tombstone the server did acknowledge drops off
+        // on that round (its stamp is deleted by then, so nothing is fetched or sent for it).
         try projects.require(opening)
         for entry in syncedAfter {
             projects.sampler.setSyncedTrackIds(entry.ids + entry.tombstones.filter { !acknowledged.contains($0) }, session: entry.session)
