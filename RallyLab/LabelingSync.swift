@@ -765,6 +765,9 @@ final class LabelingSync {
         let remoteIds = Dictionary(grouping: stamps, by: \.videoId).mapValues { Set($0.map(\.id)) }
         var outgoing: [LabelTrack] = []
         var received = 0
+        // What each session's synced list becomes once the server has this round's batches: its rallies now, plus
+        // the rallies deleted here whose tombstones the server has not acknowledged yet.
+        var syncedAfter: [(session: String, ids: [UUID], tombstones: [UUID])] = []
         // Sent rallies are stamped with the time they're sent, not when they
         // changed here: the phone takes only rows stamped after its last look,
         // so a rally changed here while syncing was off would never reach it.
@@ -777,6 +780,7 @@ final class LabelingSync {
             let theirs = remote[video.id] ?? []
             let known = remoteIds[video.id] ?? []
             var changedHere = false
+            var tombstones: [UUID] = []
             for r in theirs {
                 let i = local.firstIndex { $0.id == r.id }
                 if r.deleted {
@@ -789,6 +793,7 @@ final class LabelingSync {
                         gone.deleted = true
                         gone.updatedAt = Date()
                         outgoing.append(gone)           // deleted here since the last sync
+                        tombstones.append(r.id)
                     } else {
                         local.append(r.rally)          // new from the phone
                         changedHere = true
@@ -826,13 +831,25 @@ final class LabelingSync {
                 projects.sampler.setTracks(local, session: name)
                 onTracksChanged?(name)
             }
-            projects.sampler.setSyncedTrackIds(local.map(\.id), session: name)
+            syncedAfter.append((name, local.map(\.id), tombstones))
         }
+        var acknowledged: Set<UUID> = []
         for batch in stride(from: 0, to: outgoing.count, by: 20).map({ Array(outgoing[$0..<min($0 + 20, outgoing.count)]) }) {
             // Rallies not sent because the opening ended go next time: changed here, they are newer than the
-            // server's stamp; new here, the server does not know them; deleted here, they are still in the synced list.
+            // server's stamp; new here, the server does not know them; deleted here, they stay on the synced list
+            // (written below only once every batch is acknowledged).
             try projects.require(opening)
             try await client.save(batch)
+            acknowledged.formUnion(batch.map(\.id))
+        }
+        // The synced lists are written once the server has every batch. A round stopped between batches — the
+        // opening ended, the connection dropped — leaves them as they were: a deletion whose tombstone was not
+        // acknowledged is still on the list, so the next round sends it instead of taking the server's still-present
+        // rally for a new one; a tombstone the server did acknowledge drops off the list on that round (its stamp is
+        // deleted by then, so nothing is fetched or sent for it).
+        try projects.require(opening)
+        for entry in syncedAfter {
+            projects.sampler.setSyncedTrackIds(entry.ids + entry.tombstones.filter { !acknowledged.contains($0) }, session: entry.session)
         }
         return (outgoing.count, received)
     }

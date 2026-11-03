@@ -326,6 +326,47 @@ final class ProjectSwitchSyncTests: XCTestCase {
         XCTAssertFalse(sync.isSyncing)
     }
 
+    func testADeletionWhoseTombstoneWasNotSentIsKeptForTheNextRoundNotTakenBackFromTheServer() async throws {
+        // 21 rallies were synced, then all deleted here: 21 tombstones go up in two batches (20 + 1). The project
+        // changes while the first batch's reply is on its way back.
+        try project("A"); try project("B")
+        let a1 = open("A")
+        let r = row("A")
+        let rallies = (0..<21).map { _ in SourceRegistryTests.rally(done: true) }
+        for rally in rallies {
+            let track = LabelTrack(rally, videoId: r.id)
+            server.tracks[track.id] = track
+            server.stamps.append(LabelingClient.TrackStamp(id: track.id, videoId: r.id, deleted: false, updatedAt: now))
+        }
+        sampler.setSyncedTrackIds(rallies.map(\.id), session: "video_01")
+        let before = try snapshot("A")
+        server.hold("save(tracks)")
+        let round = await startRound()
+        open("B")
+        server.release()
+        let outcome = await round.value
+        XCTAssertFalse(outcome)
+        XCTAssertEqual(sync.status, LabelingSync.stopped("A"))
+        XCTAssertEqual(server.savedTracks.map(\.count), [20], "the first batch was acknowledged, the second never sent")
+        XCTAssertTrue(server.savedTracks[0].allSatisfy(\.deleted))
+        XCTAssertEqual(try snapshot("A"), before, "A's session — its synced list with all 21 — is exactly as it was")
+        XCTAssertEqual(tracksChanged, [])
+        // A again: the one tombstone the server does not have goes up; the 20 it has are not sent again; the server's
+        // still-present rally is NOT restored here.
+        let a2 = open("A")
+        XCTAssertNotEqual(a2, a1)
+        let outcome2 = await sync.sync(videos: false)
+        XCTAssertTrue(outcome2, sync.status)
+        XCTAssertEqual(server.savedTracks.map(\.count), [20, 1])
+        let last = try XCTUnwrap(server.savedTracks.last?.first)
+        XCTAssertTrue(last.deleted)
+        XCTAssertFalse(server.savedTracks[0].map(\.id).contains(last.id))
+        XCTAssertTrue(server.tracks.values.allSatisfy(\.deleted), "the server has all 21 deletions")
+        XCTAssertEqual(projects.session(named: "video_01")?.tracks?.count ?? 0, 0, "nothing came back from the server as new")
+        XCTAssertEqual(projects.session(named: "video_01")?.syncedTrackIds ?? [], [], "every deletion acknowledged: the synced list is empty")
+        XCTAssertEqual(tracksChanged, [])
+    }
+
     // MARK: - E: failure, cancellation, delayed acknowledgement
 
     func testAFailedPushIsRetriedOnceAndNeverDuplicated() async throws {
