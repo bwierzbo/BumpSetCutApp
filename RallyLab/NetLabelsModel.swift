@@ -297,9 +297,12 @@ final class NetLabelsModel {
     /// The vision model's proposal to offer on this recording: only one with no label of its
     /// own (never over a person's label, box-only included), not skipped, made on this file and
     /// not rejected. A manual-review answer is offered too: it names why the net wasn't placed.
+    /// A proposal on a frame inside a cut range (made before the cut) is not footage's (D-030):
+    /// not offered, so the frame comes from outside the cuts as for an unproposed recording.
     func offeredAI(_ item: Item) -> NetAIProposal? {
         guard item.skip == nil, !item.labeled, !item.boxOnly, let fingerprint = item.fingerprint,
-              let ai = aiProposals[item.video], ai.fingerprint == fingerprint, ai.rejectedAt == nil else { return nil }
+              let ai = aiProposals[item.video], ai.fingerprint == fingerprint, ai.rejectedAt == nil,
+              !item.cuts.contains(ai.time) else { return nil }
         return ai
     }
 

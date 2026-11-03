@@ -63,9 +63,9 @@
    "split": 0,
    "merged": 0,
    "excludedTimeDiagnostics": {
-    "predictionsEnteringExcludedTime": 1,
-    "excludedSecondsOverlapped": 4.0,
-    "partiallyMaskedPredictions": 1,
+    "predictionsEnteringExcludedTime": 0,
+    "excludedSecondsOverlapped": 0.0,
+    "partiallyMaskedPredictions": 0,
     "predictionsWithDisconnectedPieces": 0
    },
    "matches": [

@@ -178,6 +178,26 @@ extension NetLabelsTests {
 
     // MARK: - The tab
 
+    /// A proposal made before a cut range covered its frame is not footage's (D-030): not offered,
+    /// and the tab opens the recording on a frame outside the cuts.
+    @MainActor
+    func testAProposalOnAFrameInsideACutIsNotOfferedAndTheFrameComesFromOutsideTheCuts() async throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let footage = ScriptedFootage()
+        var cutItem = try item("c_cut", in: dir)
+        cutItem.cuts = [CutRange(start: 40, end: 45)]
+        let model = NetLabelsModel(items: [cutItem, try item("d_clear", in: dir)], labels: [:], store: NetLabelStore(projectDir: dir), footage: footage,
+                                   aiProposals: ["c_cut": Self.aiProposal(time: 42), "d_clear": Self.aiProposal(time: 42)]) { _, _ in }
+        XCTAssertNil(model.offeredAI(try XCTUnwrap(model.items.first { $0.video == "c_cut" })))
+        XCTAssertNotNil(model.offeredAI(try XCTUnwrap(model.items.first { $0.video == "d_clear" })))
+        model.select("c_cut")
+        await settle()
+        XCTAssertNil(model.shownAI)
+        XCTAssertEqual(model.frameTime, 72.5, "the middle of the longest stretch outside the cut (45–100 of a 100 s video)")
+        XCTAssertEqual(footage.frameCalls.map(\.1), [72.5])
+    }
+
     @MainActor
     func testTheTabShowsTheAIProposalOnItsFrameWithoutTheOldModelAndSavesItOnlyOnConfirm() async throws {
         let dir = try Self.tempDir()

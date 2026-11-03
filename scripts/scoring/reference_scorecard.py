@@ -295,6 +295,10 @@ def score(fixture: dict) -> dict:
             for (s, e) in subtract([(t["s"], t["e"])], cuts):
                 pieces.append({**t, "s": s, "e": e, "contact": t["contact"] if s <= t["contact"] < e else s})
         truth = pieces
+        # A raw prediction is split at the cuts the same way, each piece a prediction of its own (a cut is not
+        # footage: a decision across one is two decisions) — unlike the excluded spans of §2, which keep a
+        # prediction's disconnected pieces as one. Padded clips stay as production wrote them (§3 counts segments).
+        raw = [piece for r in raw for piece in subtract([r], cuts)]
     return {"contract": "SCORING_CONTRACT v1", "params": p,
             "rawBoundary": raw_boundary_score(truth, raw, p, cuts),
             "paddedExport": padded_export_score(truth, padded, tick(fixture["duration"]), p, fixture.get("fullyMarked") is True, cuts)}

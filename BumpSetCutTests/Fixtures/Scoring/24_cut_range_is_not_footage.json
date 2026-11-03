@@ -1,5 +1,5 @@
 {
- "note": "A cut range (D-030) over an instant replay the uploader put in at 28-42 s: part of the excluded union X. The decider fired on the replay (30-40): unscored in the raw scorer (nothing outside X), neither a false clip nor dead time in the export (its segment delivers only excluded time); the two real rallies match; dead time is scorable time outside the rallies, 86 s, of which the padding keeps 5 s.",
+ "note": "A cut range (D-030) over an instant replay the uploader put in at 28-42 s: part of the excluded union X, and raw predictions are split at it like truth. The decider fired on the replay (30-40): that prediction has no piece outside the cut and is gone from the raw scorer (neither a hit nor a false clip), and its exported segment delivers only excluded time (not a false clip, not dead time); the two real rallies match; dead time is scorable time outside the rallies, 86 s, of which the padding keeps 5 s.",
  "duration": 120.0,
  "truth": [
   {
@@ -76,8 +76,8 @@
   },
   "rawBoundary": {
    "rallies": 2,
-   "predictions": 3,
-   "unscoredPredictions": 1,
+   "predictions": 2,
+   "unscoredPredictions": 0,
    "tp": 2,
    "fp": 0,
    "fn": 0,
@@ -93,8 +93,8 @@
    "split": 0,
    "merged": 0,
    "excludedTimeDiagnostics": {
-    "predictionsEnteringExcludedTime": 1,
-    "excludedSecondsOverlapped": 10.0,
+    "predictionsEnteringExcludedTime": 0,
+    "excludedSecondsOverlapped": 0.0,
     "partiallyMaskedPredictions": 0,
     "predictionsWithDisconnectedPieces": 0
    },
