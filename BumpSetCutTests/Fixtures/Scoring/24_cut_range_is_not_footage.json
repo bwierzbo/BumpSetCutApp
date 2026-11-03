@@ -1,0 +1,152 @@
+{
+ "note": "A cut range (D-030) over an instant replay the uploader put in at 28-42 s: part of the excluded union X. The decider fired on the replay (30-40): unscored in the raw scorer (nothing outside X), neither a false clip nor dead time in the export (its segment delivers only excluded time); the two real rallies match; dead time is scorable time outside the rallies, 86 s, of which the padding keeps 5 s.",
+ "duration": 120.0,
+ "truth": [
+  {
+   "start": 10.0,
+   "end": 20.0,
+   "kind": "rally",
+   "contact": 10.0
+  },
+  {
+   "start": 50.0,
+   "end": 60.0,
+   "kind": "rally",
+   "contact": 50.0
+  }
+ ],
+ "cuts": [
+  [
+   28.0,
+   42.0
+  ]
+ ],
+ "decided": [
+  [
+   10.0,
+   20.0
+  ],
+  [
+   30.0,
+   40.0
+  ],
+  [
+   50.0,
+   60.0
+  ]
+ ],
+ "raw": [
+  [
+   10.0,
+   20.0
+  ],
+  [
+   30.0,
+   40.0
+  ],
+  [
+   50.0,
+   60.0
+  ]
+ ],
+ "padded": [
+  [
+   8.0,
+   20.5
+  ],
+  [
+   28.0,
+   40.5
+  ],
+  [
+   48.0,
+   60.5
+  ]
+ ],
+ "fullyMarked": true,
+ "expected": {
+  "contract": "SCORING_CONTRACT v1",
+  "params": {
+   "iou": 0.5,
+   "tolerance": 1.0,
+   "complete": 0.98,
+   "detected": 0.5,
+   "split": 0.25,
+   "merged": 0.5
+  },
+  "rawBoundary": {
+   "rallies": 2,
+   "predictions": 3,
+   "unscoredPredictions": 1,
+   "tp": 2,
+   "fp": 0,
+   "fn": 0,
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "startMAE": 0.0,
+   "endMAE": 0.0,
+   "startMedianSigned": 0.0,
+   "endMedianSigned": 0.0,
+   "startWithinTolerance": 1.0,
+   "endWithinTolerance": 1.0,
+   "split": 0,
+   "merged": 0,
+   "excludedTimeDiagnostics": {
+    "predictionsEnteringExcludedTime": 1,
+    "excludedSecondsOverlapped": 10.0,
+    "partiallyMaskedPredictions": 0,
+    "predictionsWithDisconnectedPieces": 0
+   },
+   "matches": [
+    {
+     "truth": 0,
+     "prediction": 0,
+     "startError": 0.0,
+     "endError": 0.0
+    },
+    {
+     "truth": 1,
+     "prediction": 1,
+     "startError": 0.0,
+     "endError": 0.0
+    }
+   ]
+  },
+  "paddedExport": {
+   "rallies": 2,
+   "clips": 3,
+   "complete": 2,
+   "clipped": 0,
+   "missed": 0,
+   "completeRallyRecall": 1.0,
+   "mergedRallies": 0,
+   "rallySeconds": 20.0,
+   "exportSeconds": 37.5,
+   "excludedSecondsDelivered": 12.5,
+   "scorableDeadSecondsDelivered": 5.0,
+   "deadSeconds": 86.0,
+   "deadSecondsRetained": 5.0,
+   "deadTimeRetention": 0.05814,
+   "falseClips": 0,
+   "fullyMarked": true,
+   "perRally": [
+    {
+     "retainedFraction": 1.0,
+     "contactInExport": true,
+     "deadBallInExport": true,
+     "status": "complete",
+     "inMergedExport": false
+    },
+    {
+     "retainedFraction": 1.0,
+     "contactInExport": true,
+     "deadBallInExport": true,
+     "status": "complete",
+     "inMergedExport": false
+    }
+   ],
+   "legacyCoveredMinusQuarterDead": 0.78125
+  }
+ }
+}
