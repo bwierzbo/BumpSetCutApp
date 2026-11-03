@@ -76,13 +76,36 @@ final class WorkQueueTests: XCTestCase {
         XCTAssertEqual(f.task(id)?.reason, "record not accepted")
         try f.retry(id, now: now)
         XCTAssertEqual(f.task(id)?.state, .pending)
+        XCTAssertFalse(f.task(id)!.state.isActionable, "retried: pending until the reconciler judges it")
         XCTAssertEqual(f.task(id)?.attempts, 1)
         XCTAssertNil(f.task(id)?.reason)
         try f.cancel(id, now: now)
         XCTAssertThrowsError(try f.cancel(id, now: now))
         try f.reopen(id, now: now)
         XCTAssertEqual(f.task(id)?.state, .pending)
+        XCTAssertFalse(f.task(id)!.state.isActionable, "reopened: pending until the reconciler judges it")
         XCTAssertEqual(f.task(id)?.history.map(\.by), [.reconcile, .reconcile, .user, .user, .user])
+    }
+
+    /// Codex on #134 (6bf653c): cancel then reopen turned a quarantined task into a pending one that "Open"
+    /// accepted. Only a state the reconciler set from the records is actionable; the reopened task waits for it.
+    func testOnlyReconciledWorkingStatesAreActionable() throws {
+        for state in WorkQueue.State.allCases {
+            XCTAssertEqual(state.isActionable, [.ready, .inProgress, .needsReview, .complete, .failed].contains(state), state.rawValue)
+        }
+        var f = file()
+        let id = f.enqueue(kind: .ballTracks, video: "d1", now: now).task.id
+        let o = WorkQueue.Observed(at: WorkQueue.stamp(now), summary: "not admitted: quarantined")
+        _ = try f.reconcile(id, state: .quarantined, reason: "derived from withheld recording o", observed: o, now: now)
+        XCTAssertFalse(f.task(id)!.state.isActionable)
+        try f.cancel(id, now: now)
+        try f.reopen(id, now: now)
+        XCTAssertEqual(f.task(id)?.state, .pending)
+        XCTAssertFalse(f.task(id)!.state.isActionable, "reopened, not judged: not openable")
+        // The next reconcile reapplies the gate.
+        _ = try f.reconcile(id, state: .quarantined, reason: "derived from withheld recording o", observed: o, now: now)
+        XCTAssertEqual(f.task(id)?.state, .quarantined)
+        XCTAssertFalse(f.task(id)!.state.isActionable)
     }
 
     func testAllowedTable() {

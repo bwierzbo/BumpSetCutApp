@@ -101,6 +101,30 @@ final class WorkQueueModelTests: XCTestCase {
         XCTAssertFalse(model.refreshing)
     }
 
+    /// Codex on #134 (6bf653c): through the model, cancel then reopen a quarantined task — it is pending and not
+    /// openable, and the next refresh (the records again) quarantines it.
+    @MainActor
+    func testAReopenedQuarantinedTaskIsNotOpenableUntilRefreshJudgesIt() async throws {
+        let stamp = "2026-11-03T00:00:00Z"
+        try FootageProperties.Store(root: root).save(FootageProperties.File(video: "c", sourceFingerprint: "file:ccc", derivedFrom: .init(parent: "nobody-knows", relation: .other, note: nil), updatedAt: stamp))
+        _ = try WorkQueueReconciler.run(root: root, project: "Fixture", now: now)
+        let model = WorkQueueModel(root: root, project: "Fixture")
+        model.load()
+        await model.settle()
+        XCTAssertEqual(model.file?.task("ball_tracks:c")?.state, .quarantined, "an unresolvable parent: unverified ancestry")
+        model.cancel("ball_tracks:c")
+        model.reopen("ball_tracks:c")
+        await model.settle()
+        XCTAssertEqual(model.file?.task("ball_tracks:c")?.state, .pending)
+        XCTAssertFalse(model.file!.task("ball_tracks:c")!.state.isActionable, "reopened: not openable before a refresh")
+        XCTAssertTrue(model.status.contains("not openable"), model.status)
+        model.refresh()
+        await model.settle()
+        XCTAssertEqual(model.file?.task("ball_tracks:c")?.state, .quarantined)
+        XCTAssertEqual(try WorkQueue.Store(root: root).load()?.task("ball_tracks:c")?.state, .quarantined)
+        XCTAssertEqual(model.file?.task("ball_tracks:a")?.state, .complete, "an admitted recording's task is unaffected")
+    }
+
     @MainActor
     func testProjectChangeDropsOldResultsAndClearsTheFlag() async throws {
         _ = try WorkQueueReconciler.run(root: root, project: "Fixture", now: now)

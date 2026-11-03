@@ -56,10 +56,13 @@ enum WorkQueue {
         }
         /// Nothing moves a cancelled task but an explicit reopen.
         var isFinal: Bool { self == .cancelled }
-        /// Whether a person may work on the task: not while it is blocked or quarantined (the recording is
-        /// withheld or otherwise inadmissible) and not while it is cancelled (reopen it first). The Queue tab's
+        /// Whether a person may work on the task: only once the reconciler has judged it from the project's records
+        /// (ready, in progress, needs review, complete, failed). Not while blocked or quarantined (the recording is
+        /// withheld or otherwise inadmissible), not while cancelled (reopen it first), and not while pending — a
+        /// reopened or retried task is pending until the next refresh reapplies the admission gate, so cancelling
+        /// and reopening a quarantined task never makes it openable (Codex on #134, round 7). The Queue tab's
         /// "Open" follows this, so an inadmissible recording is never offered for labeling from the queue.
-        var isActionable: Bool { ![State.blocked, .quarantined, .cancelled].contains(self) }
+        var isActionable: Bool { [State.ready, .inProgress, .needsReview, .complete, .failed].contains(self) }
     }
 
     /// Who moved a task.

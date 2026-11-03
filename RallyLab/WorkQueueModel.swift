@@ -181,7 +181,9 @@ final class WorkQueueModel {
         } }) { [weak self] result in
             guard let self else { return }
             switch result {
-            case .success(let file): self.file = file; self.problem = nil; self.status = "\(what): saved."
+            case .success(let file):
+                self.file = file; self.problem = nil
+                self.status = what == "cancel" ? "\(what): saved." : "\(what): saved — the task is pending, not openable, until Refresh judges it from the project's records."
             case .failure(let e): self.problem = e.localizedDescription
             }
         }

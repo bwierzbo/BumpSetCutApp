@@ -125,6 +125,16 @@ final class WorkQueueReconcilerTests: XCTestCase {
             XCTAssertTrue(file.task("\(kind):u")?.reason?.contains("ancestry unverified") == true, file.task("\(kind):u")?.reason ?? "nil")
         }
         XCTAssertEqual(try WorkQueue.Store(root: root).load(), file)
+        // Cancel and reopen the quarantined derivative's task: pending and not openable; the next run quarantines it again.
+        var edited = file
+        try edited.cancel("ball_tracks:d1", now: now)
+        try edited.reopen("ball_tracks:d1", now: now)
+        XCTAssertEqual(edited.task("ball_tracks:d1")?.state, .pending)
+        XCTAssertFalse(edited.task("ball_tracks:d1")!.state.isActionable)
+        try WorkQueue.Store(root: root).save(edited)
+        let (judged, _) = try WorkQueueReconciler.run(root: root, project: "Fixture", now: now.addingTimeInterval(30))
+        XCTAssertEqual(judged.task("ball_tracks:d1")?.state, .quarantined, "the gate is reapplied on the reopened task")
+        XCTAssertEqual(judged.task("ball_tracks:d1")?.history.map(\.to).suffix(3), [.cancelled, .pending, .quarantined])
         // The owner corrects u's record: it was cut from a. The next run reads the record, not the last verdict.
         try props.save(FootageProperties.File(video: "u", sourceFingerprint: "file:uuu", derivedFrom: .init(parent: "a", relation: .crop, note: nil), updatedAt: stamp))
         let (again, _) = try WorkQueueReconciler.run(root: root, project: "Fixture", now: now.addingTimeInterval(60))
