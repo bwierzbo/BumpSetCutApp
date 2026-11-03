@@ -134,18 +134,26 @@ final class CutRangeConsumersTests: XCTestCase {
     }
 
     func testTrainingDataExportDropsTheFramesInsideCutsAndFindsAVideosCutsByItsSession() throws {
-        func frame(_ t: Double) -> VideoProcessor.FrameEvidence {
+        func frame(_ t: Double, net: CGFloat? = nil) -> VideoProcessor.FrameEvidence {
             VideoProcessor.FrameEvidence(time: t, hasBall: true, isProjectile: true, detections: [], trackPoint: CGPoint(x: 0.5, y: 0.5),
-                                         rSquared: nil, gravitySignature: nil, movementType: nil, rejectionReason: nil, candidates: [], detectedNet: nil)
+                                         rSquared: nil, gravitySignature: nil, movementType: nil, rejectionReason: nil, candidates: [],
+                                         detectedNet: net.map { DetectedNet(box: CGRect(x: 0.1, y: $0, width: 0.8, height: 0.1), confidence: 0.9) })
         }
-        let export = TrainingDataExporter.makeExport(videoName: "v.mp4", duration: 100, evidence: stride(from: 0.0, to: 100, by: 1).map(frame),
+        // The net too comes from footage: a replay inside a leading cut, shot from another view, found the net elsewhere.
+        let viewed = TrainingDataExporter.makeExport(videoName: "v.mp4", duration: 100,
+                                                     evidence: [frame(1, net: 0.8), frame(2, net: 0.8), frame(20, net: 0.4), frame(21, net: 0.4)],
+                                                     labels: [], baselineRaw: [], cuts: [cut(0, 10)])
+        XCTAssertEqual(viewed.netTopY ?? -1, 0.5, accuracy: 1e-9, "the net of the first retained frame, not the replay's")
+        XCTAssertEqual(viewed.netBottomY ?? -1, 0.4, accuracy: 1e-9)
+        XCTAssertEqual(viewed.frames.map(\.t), [20, 21])
+        let export = TrainingDataExporter.makeExport(videoName: "v.mp4", duration: 100, evidence: stride(from: 0.0, to: 100, by: 1).map { frame($0) },
                                                      labels: [iv(10, 20), iv(30, 40)], baselineRaw: [iv(9, 21), iv(31, 39)], cuts: [cut(15, 35)])
         XCTAssertEqual(export.frames.count, 80)
         XCTAssertFalse(export.frames.contains { (15..<35).contains($0.t) })
         XCTAssertEqual(export.labels.map { [$0.start, $0.end] }, [[10, 15], [35, 40]])
         XCTAssertEqual(export.baselineRaw.map { [$0.start, $0.end] }, [[9, 15], [35, 39]])
         XCTAssertEqual(export.cuts.map { [$0.start, $0.end] }, [[15, 35]], "the trainer masks its own decisions with them")
-        let whole = TrainingDataExporter.makeExport(videoName: "v.mp4", duration: 100, evidence: stride(from: 0.0, to: 100, by: 1).map(frame),
+        let whole = TrainingDataExporter.makeExport(videoName: "v.mp4", duration: 100, evidence: stride(from: 0.0, to: 100, by: 1).map { frame($0) },
                                                     labels: [iv(10, 20)], baselineRaw: [iv(9, 21)], cuts: [cut(0, 100)])
         XCTAssertTrue(whole.frames.isEmpty && whole.labels.isEmpty && whole.baselineRaw.isEmpty, "a recording cut whole: nothing to train on")
         // …and the empty export is still written, replacing an earlier one with the frames in it: the trainer

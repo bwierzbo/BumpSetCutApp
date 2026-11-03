@@ -64,8 +64,10 @@ enum TrainingDataExporter {
         baselineRaw: [Interval],
         cuts: [CutRange] = []
     ) -> Export {
-        let net = evidence.lazy.compactMap { $0.detectedNet }.first
-        let frames = evidence.filter { !cuts.contains($0.time) }.map { f -> FrameRow in
+        // The net too comes from footage: a replay or intro inside a cut may show another view.
+        let retained = evidence.filter { !cuts.contains($0.time) }
+        let net = retained.lazy.compactMap { $0.detectedNet }.first
+        let frames = retained.map { f -> FrameRow in
             let selected = f.candidates.first { $0.isSelected }
             return FrameRow(
                 t: f.time,
