@@ -1079,7 +1079,14 @@ final class ProjectsModel {
 
     /// A file's identity wherever it is copied: its size plus a hash of its
     /// first and last 4 MB, as `"file:<sha256>"`. nil when it can't be read.
+    /// Read once per process while the file is unchanged (FileFingerprintCache):
+    /// the files sit on the footage share, where the 8 MB took 48 s under load.
     nonisolated static func fileFingerprint(atPath path: String) -> String? {
+        FileFingerprintCache.shared.fingerprint(atPath: path) { readFileFingerprint(atPath: path) }
+    }
+
+    /// The fingerprint read from the file's bytes, uncached.
+    nonisolated static func readFileFingerprint(atPath path: String) -> String? {
         guard let handle = FileHandle(forReadingAtPath: path),
               let size = try? handle.seekToEnd() else { return nil }
         defer { try? handle.close() }

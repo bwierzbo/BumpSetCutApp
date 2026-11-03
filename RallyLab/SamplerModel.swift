@@ -1180,8 +1180,12 @@ final class SamplerModel {
         modify(session: name) { $0.tracks = tracks }
     }
 
-    /// What the phone had of this video's tracked rallies at the last sync.
+    /// What the phone had of this video's tracked rallies at the last sync. Saved only when it changed: the
+    /// sync asks for every video every round, and writing 167 unchanged session files (tens of MB) on the
+    /// main actor each round was a stall of its own (2026-11-02: 128 files rewritten in one minute).
     func setSyncedTrackIds(_ ids: [UUID], session name: String) {
+        let current = (currentSession?.name == name ? currentSession : sessions.first { $0.name == name })?.syncedTrackIds
+        guard current != ids else { return }
         modify(session: name) { $0.syncedTrackIds = ids }
     }
 

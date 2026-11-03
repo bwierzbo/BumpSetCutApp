@@ -194,6 +194,28 @@ enum NetLabels {
     /// `NetLabel.proposalSource` of a label that started as the old net model's box.
     static let oldModelSource = "old net model"
 
+    /// Where a recording's label stands against the file it is now: `labeled` (its corners are on file for this
+    /// file), `boxOnly` (its box is, from before corners existed), or `stale` (a label under the id, but for another
+    /// file). The one rule for the tab and the work queue.
+    struct LabelStatus: Equatable, Sendable {
+        var labeled = false
+        var boxOnly = false
+        var stale = false
+    }
+
+    static func status(of label: NetLabel?, fingerprint: String?) -> LabelStatus {
+        guard let label else { return LabelStatus() }
+        let mine = fingerprint != nil && label.fingerprint == fingerprint
+        return LabelStatus(labeled: mine && label.corners != nil, boxOnly: mine && label.corners == nil, stale: !mine)
+    }
+
+    /// Whether a vision model's proposal is offered on the recording: only one with no label of its own (never over
+    /// a person's label, box-only included), not skipped, made on this file and not rejected.
+    static func isOffered(_ ai: NetAIProposal?, skip: Skip?, fingerprint: String?, status: LabelStatus) -> Bool {
+        guard skip == nil, !status.labeled, !status.boxOnly, let fingerprint, let ai else { return false }
+        return ai.fingerprint == fingerprint && ai.rejectedAt == nil
+    }
+
     /// Why a recording gets no net label, or nil when it should have one. A
     /// recording without a file identity can't carry a label that is checked
     /// against the file later, so it is skipped too. `excluded`: the owner's side views

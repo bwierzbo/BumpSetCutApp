@@ -198,14 +198,10 @@ final class NetLabelsModel {
 
     private static func marked(_ item: Item, labels: [String: NetLabel]) -> Item {
         var it = item
-        if let label = labels[item.video] {
-            let mine = item.fingerprint != nil && label.fingerprint == item.fingerprint
-            it.labeled = mine && label.corners != nil
-            it.boxOnly = mine && label.corners == nil
-            it.stale = !mine
-        } else {
-            it.labeled = false; it.stale = false; it.boxOnly = false
-        }
+        let status = NetLabels.status(of: labels[item.video], fingerprint: item.fingerprint)
+        it.labeled = status.labeled
+        it.boxOnly = status.boxOnly
+        it.stale = status.stale
         return it
     }
 
@@ -287,9 +283,9 @@ final class NetLabelsModel {
     /// own (never over a person's label, box-only included), not skipped, made on this file and
     /// not rejected. A manual-review answer is offered too: it names why the net wasn't placed.
     func offeredAI(_ item: Item) -> NetAIProposal? {
-        guard item.skip == nil, !item.labeled, !item.boxOnly, let fingerprint = item.fingerprint,
-              let ai = aiProposals[item.video], ai.fingerprint == fingerprint, ai.rejectedAt == nil else { return nil }
-        return ai
+        let ai = aiProposals[item.video]
+        let status = NetLabels.LabelStatus(labeled: item.labeled, boxOnly: item.boxOnly, stale: item.stale)
+        return NetLabels.isOffered(ai, skip: item.skip, fingerprint: item.fingerprint, status: status) ? ai : nil
     }
 
     /// The offered proposal and where its own frame lies on this Mac, if it does.

@@ -172,8 +172,10 @@ final class LabelingSync {
         guard !isSyncing else { again = true; return false }
         guard let project = projects.project?.name, let root = projects.projectDir else { return false }
         isSyncing = true
+        MainThreadWatchdog.shared.note("phone sync round")
         defer {
             isSyncing = false
+            MainThreadWatchdog.shared.note(nil)
             if again {
                 again = false
                 syncSoon()
@@ -322,7 +324,11 @@ final class LabelingSync {
         // nothing is uploaded at all (fail closed). The closure is the captured project's: if the open project
         // changed meanwhile, nothing of it is published under this project's name.
         guard let withheld = await withheldClosure(root: root), projects.projectDir == root else { return (0, 0, []) }
-        let sessions = try DatasetStore(root: root).loadSessionsStrict().filter { FileManager.default.fileExists(atPath: $0.sourcePath) && !withheld.contains($0.name) }
+        // Decoding every session and asking the share whether each file is there is file work: off the main actor.
+        let sessions = try await Task.detached(priority: .utility) {
+            try DatasetStore(root: root).loadSessionsStrict().filter { FileManager.default.fileExists(atPath: $0.sourcePath) && !withheld.contains($0.name) }
+        }.value
+        guard projects.projectDir == root else { throw SyncFailure.projectChanged(project) }
         for (i, session) in sessions.enumerated() {
             guard let surface = LabelSurface(rawValue: Coverage.environment(session.name)) else { continue }
             let existing = remote.first { $0.sessionName == session.name }
@@ -479,7 +485,8 @@ final class LabelingSync {
         let remote = Dictionary(uniqueKeysWithValues: try await client.rallyEvents().map { ($0.videoId, $0) })
         var pushed = 0, pulled = 0
         var conflicts: [String] = []
-        let sessions = try DatasetStore(root: root).loadSessionsStrict()
+        let sessions = try await Task.detached(priority: .utility) { try DatasetStore(root: root).loadSessionsStrict() }.value
+        guard projects.projectDir == root else { throw SyncFailure.projectChanged(project) }
         for video in videos {
             guard let name = video.sessionName, !withheld.contains(name), let session = sessions.first(where: { $0.name == DatasetStore.safeName(name) }) else { continue }
             guard projects.projectDir == root else { throw SyncFailure.projectChanged(project) }
