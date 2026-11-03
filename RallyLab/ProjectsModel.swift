@@ -192,7 +192,7 @@ final class ProjectsModel {
         if let last = defaults.string(forKey: lastProjectKey) { roots.append(URL(fileURLWithPath: last, isDirectory: true)) }
         roots += (try? FileManager.default.contentsOfDirectory(at: defaultLocation, includingPropertiesForKeys: nil)) ?? []
         var seen = Set<String>()
-        return roots.map(\.standardizedFileURL).filter { seen.insert($0.path).inserted }
+        return roots.map(\.standardizedFileURL).filter { isProject($0) && seen.insert($0.path).inserted }
     }
     private static let lastProjectKey = "RallyLab.lastProjectPath"
     private static let openedKey = "RallyLab.projectOpenedAt"
@@ -247,7 +247,7 @@ final class ProjectsModel {
 
     // MARK: - Projects
 
-    private static func isProject(_ dir: URL) -> Bool {
+    nonisolated private static func isProject(_ dir: URL) -> Bool {
         FileManager.default.fileExists(atPath: dir.appendingPathComponent("project.json").path)
     }
 

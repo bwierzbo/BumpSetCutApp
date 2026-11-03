@@ -101,10 +101,12 @@ enum TrainingDataExporter {
     /// by the session's source path over every project this Mac knows (`ProjectsModel
     /// .savedProjectRoots`: the remembered list, the last opened and the default location; a
     /// project may live anywhere). A video no project knows has no cuts, by construction.
-    static func cutRanges(forVideo url: URL, projectRoots: [URL] = ProjectsModel.savedProjectRoots()) -> [CutRange] {
+    /// Throws when a project's sessions can't all be read: an unreadable session is unknown
+    /// cuts, not no cuts, and the export must not go out as if there were none (fails closed).
+    static func cutRanges(forVideo url: URL, projectRoots: [URL] = ProjectsModel.savedProjectRoots()) throws -> [CutRange] {
         let path = url.standardizedFileURL.resolvingSymlinksInPath().path
         for project in projectRoots {
-            for session in DatasetStore(root: project).loadSessions() {
+            for session in try DatasetStore(root: project).loadSessionsStrict() {
                 let source = URL(fileURLWithPath: session.sourcePath).standardizedFileURL.resolvingSymlinksInPath().path
                 if source == path || session.sourcePath == url.path { return session.cutRanges }
             }
@@ -211,7 +213,13 @@ enum HeadlessTrainingExport {
             let baseline = EvidenceReplayer.decidedRanges(
                 evidence: evidence, duration: duration, config: ProcessorConfig(),
                 minRallySec: 1.1653, padded: false)   // RallyDecider's production default
-            let cuts = TrainingDataExporter.cutRanges(forVideo: video)
+            // Unknown cuts are not no cuts: a project whose sessions can't be read stops this video's export.
+            let cuts: [CutRange]
+            do { cuts = try TrainingDataExporter.cutRanges(forVideo: video) } catch {
+                log("❌ \(video.lastPathComponent): the cut ranges can't be known — \(error.localizedDescription) Not exported.")
+                allSucceeded = false
+                continue
+            }
             if !cuts.isEmpty { log("  \(video.lastPathComponent): \(String(format: "%.1f", cuts.seconds(within: duration))) s of cut ranges left out (D-030)") }
 
             let export = TrainingDataExporter.makeExport(

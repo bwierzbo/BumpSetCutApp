@@ -153,8 +153,8 @@ final class CutRangeConsumersTests: XCTestCase {
         var session = VideoSession(name: "v", sourcePath: video.path, split: "train", addedAt: Date(), frames: [])
         session.cuts = [cut(1, 2)]
         try DatasetStore(root: project).save(session)
-        XCTAssertEqual(TrainingDataExporter.cutRanges(forVideo: video, projectRoots: [project]), [cut(1, 2)])
-        XCTAssertEqual(TrainingDataExporter.cutRanges(forVideo: root.appendingPathComponent("footage/other.mp4"), projectRoots: [project]), [])
+        XCTAssertEqual(try TrainingDataExporter.cutRanges(forVideo: video, projectRoots: [project]), [cut(1, 2)])
+        XCTAssertEqual(try TrainingDataExporter.cutRanges(forVideo: root.appendingPathComponent("footage/other.mp4"), projectRoots: [project]), [])
         // A project anywhere on the Mac is searched when it is on the list, not only the default location.
         let elsewhere = FileManager.default.temporaryDirectory.appendingPathComponent("elsewhere-\(UUID().uuidString)/Q", isDirectory: true)
         try FileManager.default.createDirectory(at: elsewhere.appendingPathComponent("sessions"), withIntermediateDirectories: true)
@@ -163,8 +163,12 @@ final class CutRangeConsumersTests: XCTestCase {
         var farSession = VideoSession(name: "far", sourcePath: far.path, split: "train", addedAt: Date(), frames: [])
         farSession.cuts = [cut(3, 4)]
         try DatasetStore(root: elsewhere).save(farSession)
-        XCTAssertEqual(TrainingDataExporter.cutRanges(forVideo: far, projectRoots: [root]), [], "not on the list: unknown")
-        XCTAssertEqual(TrainingDataExporter.cutRanges(forVideo: far, projectRoots: [project, elsewhere]), [cut(3, 4)])
+        XCTAssertEqual(try TrainingDataExporter.cutRanges(forVideo: far, projectRoots: [root]), [], "not on the list: unknown")
+        XCTAssertEqual(try TrainingDataExporter.cutRanges(forVideo: far, projectRoots: [project, elsewhere]), [cut(3, 4)])
+        // A project whose sessions can't all be read: unknown cuts are not no cuts — the lookup fails closed.
+        try Data("{not json".utf8).write(to: project.appendingPathComponent("sessions/broken.json"))
+        XCTAssertThrowsError(try TrainingDataExporter.cutRanges(forVideo: video, projectRoots: [project]))
+        XCTAssertThrowsError(try TrainingDataExporter.cutRanges(forVideo: far, projectRoots: [project, elsewhere]), "even for a video another project holds")
     }
 
     // MARK: - Pipeline comparison coverage and the Sampler's dataset

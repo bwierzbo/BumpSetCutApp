@@ -67,6 +67,9 @@ final class RallyLabModel {
     /// The open project's cut ranges over the loaded video (not footage; D-030): predictions and
     /// labels are scored outside them. Empty for a video no project knows.
     private(set) var cuts: [CutRange] = []
+    /// Why the cuts can't be known (the project's sessions can't be read): nothing is run or
+    /// scored on the video until they can — unknown cuts are not no cuts.
+    private(set) var cutsProblem: String?
 
     var labels: [EditableRally] = [] {
         didSet {
@@ -645,6 +648,7 @@ final class RallyLabModel {
     /// (for evidence) and at least one label (for ground truth).
     func exportTrainingData() {
         guard let videoURL else { return }
+        if let cutsProblem { status = cutsProblem; return }
         guard !evidence.isEmpty else {
             status = "Run the pipeline first — the export needs its frame evidence."
             return
@@ -706,7 +710,10 @@ final class RallyLabModel {
         videoDisplaySize = CGSize(width: 16, height: 9)
         videoRotationQuarterTurns = 0
         detectionConfigDirty = false
-        cuts = Self.cutRanges(for: url)
+        do { cuts = try Self.cutRanges(for: url); cutsProblem = nil } catch {
+            cuts = []
+            cutsProblem = "❌ \(url.lastPathComponent): the project's cut ranges can't be known — \(error.localizedDescription)"
+        }
 
         Task {
             let asset = AVURLAsset(url: url)
@@ -948,6 +955,7 @@ final class RallyLabModel {
     func runComparison() async {
         guard let url = videoURL, !isComparing else { return }
         if let refusal = Self.finalTestRefusal(for: url) { compareStatus = refusal; return }
+        if let cutsProblem { compareStatus = cutsProblem; return }
         guard !labels.isEmpty else {
             compareStatus = "Add ground-truth labels in the Pipeline tab to score against."
             return
@@ -1000,11 +1008,11 @@ final class RallyLabModel {
 
     /// The cut ranges of the open project's session over this video (not footage; D-030),
     /// matched by path, name or content like the refusal; none for a video outside the project.
-    static func cutRanges(for url: URL) -> [CutRange] {
+    static func cutRanges(for url: URL) throws -> [CutRange] {
         guard let rootPath = UserDefaults.standard.string(forKey: "RallyLab.datasetRoot") else { return [] }
         let root = URL(fileURLWithPath: rootPath, isDirectory: true)
-        guard let match = try? ReservedVideos.match(url, root: root) else { return [] }
-        return DatasetStore(root: root).loadSessions().first { $0.name == match.session }?.cutRanges ?? []
+        guard let match = try ReservedVideos.match(url, root: root) else { return [] }   // not a project video
+        return try DatasetStore(root: root).loadSessionsStrict().first { $0.name == match.session }?.cutRanges ?? []
     }
 
     /// Running the pipeline on a project video and scoring it is a use the
@@ -1023,6 +1031,7 @@ final class RallyLabModel {
         guard let url = videoURL else { return }
         guard !isProcessing, !exportingDebugVideo else { return }
         if let refusal = Self.finalTestRefusal(for: url) { status = refusal; return }
+        if let cutsProblem { status = cutsProblem; return }
         do { try Self.recordRallyScoring(url, ref: "RallyLab Pipeline tab") } catch { status = "❌ \(error.localizedDescription)"; return }
 
         let processor = VideoProcessor()
@@ -1067,6 +1076,7 @@ final class RallyLabModel {
     /// in Finder.
     func exportDebugVideo() async {
         guard let url = videoURL, !isProcessing, !exportingDebugVideo else { return }
+        if let cutsProblem { status = cutsProblem; return }
         exportingDebugVideo = true
         // The marked rallies of the video exported, not whatever's open when it finishes — outside its cut ranges.
         let cuts = self.cuts
