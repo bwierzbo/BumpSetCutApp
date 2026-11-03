@@ -1010,9 +1010,15 @@ final class RallyLabModel {
     /// matched by path, name or content like the refusal; none for a video outside the project.
     static func cutRanges(for url: URL) throws -> [CutRange] {
         guard let rootPath = UserDefaults.standard.string(forKey: "RallyLab.datasetRoot") else { return [] }
-        let root = URL(fileURLWithPath: rootPath, isDirectory: true)
+        return try cutRanges(for: url, root: URL(fileURLWithPath: rootPath, isDirectory: true))
+    }
+
+    /// Every session is read strictly first: one that won't decode is unknown cuts, not none,
+    /// and the match itself refuses to run on an unreadable session (ReservedVideos.match).
+    static func cutRanges(for url: URL, root: URL) throws -> [CutRange] {
+        let sessions = try DatasetStore(root: root).loadSessionsStrict()
         guard let match = try ReservedVideos.match(url, root: root) else { return [] }   // not a project video
-        return try DatasetStore(root: root).loadSessionsStrict().first { $0.name == match.session }?.cutRanges ?? []
+        return sessions.first { $0.name == match.session }?.cutRanges ?? []
     }
 
     /// Running the pipeline on a project video and scoring it is a use the
