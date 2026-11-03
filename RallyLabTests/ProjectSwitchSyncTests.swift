@@ -156,6 +156,57 @@ final class ProjectSwitchSyncTests: XCTestCase {
         XCTAssertEqual(ended.count, 5)
     }
 
+    func testACreatedProjectIsAnOpeningOfItsOwn() async throws {
+        // From the welcome window, with nothing open: the new project is open, with an opening — so its sync runs
+        // and a cut made for it is recorded.
+        XCTAssertNil(projects.opening)
+        projects.create(name: "C", in: base)
+        let c = try XCTUnwrap(projects.opening, "a created project is an opening like an opened one")
+        XCTAssertEqual(c.name, "C")
+        XCTAssertEqual(c.root, base.appendingPathComponent("C", isDirectory: true).standardizedFileURL)
+        XCTAssertEqual(projects.projectDir, c.root)
+        XCTAssertNoThrow(try projects.require(c))
+        let outcome = await sync.sync(videos: false)
+        XCTAssertTrue(outcome, sync.status)
+        XCTAssertEqual(server.states.map(\.project), ["C"], "the new project's plan went up under its own name")
+        // Creating a project whose folder already is one opens it, as a new opening.
+        try project("A")
+        projects.create(name: "A", in: base)
+        let a = try XCTUnwrap(projects.opening)
+        XCTAssertEqual(a.name, "A")
+        XCTAssertNotEqual(a, c)
+        XCTAssertThrowsError(try projects.require(c))
+        projects.create(name: "A", in: base)
+        XCTAssertNotEqual(projects.opening, a, "created over itself: a new opening, like opened over itself")
+    }
+
+    func testCreatingAProjectUnderARoundEndsTheOpeningTheRoundStartedFor() async throws {
+        try project("A")
+        let a = open("A")
+        serverTimes(for: row("A"), rallies: 1)
+        var ended: [ProjectsModel.Opening] = []
+        projects.onOpeningEnded { ended.append($0) }
+        server.hold("videos")
+        let round = await startRound()
+        // The person creates a new project while A's listing is on its way back.
+        projects.create(name: "New", in: base)
+        let new = try XCTUnwrap(projects.opening)
+        XCTAssertEqual(new.name, "New")
+        XCTAssertEqual(ended, [a], "A's opening ended when New was created")
+        XCTAssertThrowsError(try projects.require(a))
+        let before = try snapshot("New")
+        server.release()
+        let outcome = await round.value
+        XCTAssertFalse(outcome)
+        XCTAssertEqual(sync.status, LabelingSync.stopped("A"))
+        XCTAssertEqual(try snapshot("New"), before, "nothing of A's reply was written into the new project")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: labels("A").path), "nor into A, whose opening ended")
+        XCTAssertEqual(timesChanged, [])
+        XCTAssertEqual(server.savedTimes, [])
+        XCTAssertEqual(projects.opening, new)
+        XCTAssertFalse(sync.isSyncing)
+    }
+
     // MARK: - A and B: identical names, a stale reply
 
     func testAStaleReplyNeverWritesTheServersTimesBesideAnotherProjectsSameNamedRecording() async throws {

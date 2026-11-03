@@ -378,9 +378,8 @@ final class ProjectsModel {
             status = "Couldn't create \(dir.path): \(error.localizedDescription)"
             return
         }
-        project = Project(name: clean, createdAt: Date(), framesPerRally: StandardClipPlan.framesPerRally,
-                          clips: StandardClipPlan.clips)
-        projectDir = dir.standardizedFileURL
+        install(Project(name: clean, createdAt: Date(), framesPerRally: StandardClipPlan.framesPerRally,
+                        clips: StandardClipPlan.clips), at: dir)
         save()
         remember(dir)
         activate()
@@ -400,12 +399,7 @@ final class ProjectsModel {
             status = "\(dir.lastPathComponent)/project.json is unreadable."
             return
         }
-        // The opening in progress (of this folder or another) ends before the new one begins: work started
-        // under it stops at its next step, and never reads the sessions reloaded below as its own.
-        endOpening()
-        project = loaded
-        projectDir = dir.standardizedFileURL
-        opening = Opening(generation: UUID(), name: loaded.name, root: dir.standardizedFileURL)
+        install(loaded, at: dir)
         try? ProjectLayout.create(at: dir)
         addNewPlanClips()
         selectedClipId = nil
@@ -413,6 +407,17 @@ final class ProjectsModel {
         remember(dir)
         activate()
         status = "\(loaded.name): \(loaded.clips.count) planned clips."
+    }
+
+    /// Make `loaded` the open project, as a new opening. The only way a project becomes the open one (opened or
+    /// created): the opening in progress — of this folder or another — ends first, so work started under it
+    /// stops at its next step and never reads the sessions loaded for this one as its own; a project is never
+    /// the open one without an opening of its own.
+    private func install(_ loaded: Project, at dir: URL) {
+        endOpening()
+        project = loaded
+        projectDir = dir.standardizedFileURL
+        opening = Opening(generation: UUID(), name: loaded.name, root: dir.standardizedFileURL)
     }
 
     /// Point the Sampler at this project's dataset.
