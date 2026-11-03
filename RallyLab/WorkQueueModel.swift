@@ -75,13 +75,14 @@ final class WorkQueueModel {
         while let task = operations.values.first { await task.value }
     }
 
-    /// Runs `work` as one operation off the main actor (its file access through `access`, in order with every
-    /// other operation's); its result is published only while the project is still the one it started on. `done`
-    /// runs on the main actor with the result, after the operation's own bookkeeping.
-    private func operation<T: Sendable>(_ work: @escaping @Sendable () async throws -> T, done: @escaping @MainActor (Result<T, Error>) -> Void) {
+    /// Runs `work` as one operation off the main actor (its file access through `access`, never at the same time
+    /// as another operation's); its result is published only while the project is still the one it started on.
+    /// `done` runs on the main actor with the result, after the operation's own bookkeeping.
+    @discardableResult
+    private func operation<T: Sendable>(_ work: @escaping @Sendable () async throws -> T, done: @escaping @MainActor (Result<T, Error>) -> Void) -> Task<Void, Never> {
         let mine = generation
         let id = UUID()
-        operations[id] = Task { [weak self] in
+        let task = Task { [weak self] in
             let result: Result<T, Error> = await Task.detached(priority: .userInitiated) {
                 do { return .success(try await work()) } catch { return .failure(error) }
             }.value
@@ -90,7 +91,16 @@ final class WorkQueueModel {
             guard mine == self.generation else { return }
             done(result)
         }
+        operations[id] = task
+        return task
     }
+
+    /// The last mutation submitted: the next one waits for it, so a person's actions land in the order they were
+    /// made. The actor alone orders nothing — it only keeps two operations from running at once — and a cancel
+    /// then a reopen of one task could land as reopen then cancel, the next cancel then refused as a same-state
+    /// move and lost (seen in the revision-2 test under load). A refresh is not in this order: its reconcile is
+    /// applied over the file as it is when its turn on the actor comes, after its own slow reading.
+    private var lastMutation: Task<Void, Never>?
 
     /// The queue as written, without reconciling: quick, so the tab shows the last state at once.
     func load() {
@@ -159,7 +169,10 @@ final class WorkQueueModel {
     private func mutate(_ what: String, _ change: @escaping @Sendable (inout WorkQueue.File) throws -> Void) {
         guard let (root, _) = location() else { return }
         let access = self.access
-        operation({ try await access.perform { () throws -> WorkQueue.File in
+        let previous = lastMutation
+        lastMutation = operation({
+            await previous?.value
+            return try await access.perform { () throws -> WorkQueue.File in
             let store = WorkQueue.Store(root: root)
             guard var file = try store.load() else { throw WorkQueue.Failure.invalid("no queue on disk to \(what)") }
             try change(&file)

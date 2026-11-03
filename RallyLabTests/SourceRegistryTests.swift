@@ -196,6 +196,20 @@ final class SourceRegistryTests: XCTestCase {
         XCTAssertEqual(by["bch_a"]?.admission, .admitted, "a cycle with nothing withheld in it ends the walk")
         XCTAssertEqual(by["bch_b_v2"]?.admission, .admitted)
 
+        // Codex on #134 (c5c3555): a reserved name validation.json lists that has no card or session any more is
+        // still withheld (the closure keeps listed names), so a derivative of it is quarantined; a parent that is
+        // neither in the project nor reserved is outside it, and the derivative stays admitted.
+        var g = inputs(validation: PipelineTuner.ValidationSet(tune: ["bch_b_v2"], holdout: ["old"], lineageHoldout: ["ind_h", "gone"]))
+        g.properties = ["bch_b": derived("bch_b", from: "gone"), "ind_p": derived("ind_p", from: "old"),
+                        "bch_a": derived("bch_a", from: "bch_b"), "grs_t": derived("grs_t", from: "elsewhere")]
+        let gone = SourceRegistry.build(g).byVideo
+        XCTAssertNil(gone["gone"], "the fixture has no card or session for it")
+        XCTAssertEqual(gone["bch_b"]?.admission, .quarantined, "derived from a listed lineage-holdout name that left the project")
+        XCTAssertTrue(gone["bch_b"]?.admissionReason?.contains("withheld recording gone") == true, gone["bch_b"]?.admissionReason ?? "nil")
+        XCTAssertEqual(gone["ind_p"]?.admission, .quarantined, "derived from a legacy-holdout name that left the project")
+        XCTAssertEqual(gone["bch_a"]?.admission, .quarantined, "two generations from it")
+        XCTAssertEqual(gone["grs_t"]?.admission, .admitted, "a parent outside the project and not reserved")
+
         // An ancestor whose record can't be read: the ancestry is unknown, not clear.
         var j = inputs()
         j.properties = ["bch_b": derived("bch_b", from: "grs_t")]

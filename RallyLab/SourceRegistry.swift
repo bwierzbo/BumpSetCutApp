@@ -158,14 +158,16 @@ enum SourceRegistry {
                 properties[name] = p
             }
         }
-        /// The recordings a derivative's record names as its original: by video id, or by identity key (`src:` / `fp:`)
-        /// through every project video carrying that confirmed source or fingerprint. Empty when the original is not
-        /// in the project (nothing withheld can be outside it: the closure is over the project's videos).
+        /// The recordings a derivative's record names as its original: by video id — a project video, or a
+        /// reserved name validation.json lists that has no card or session any more (the closure keeps it,
+        /// and so must this; Codex on #134, round 5) — or by identity key (`src:` / `fp:`) through every
+        /// project video carrying that confirmed source or fingerprint. Empty when the original is none of these.
+        let known = names.union(withheld)
         func parents(of video: String) -> [String] {
             guard let parent = properties[video]?.derivedFrom?.parent else { return [] }
-            if names.contains(parent) { return [parent] }
+            if known.contains(parent) { return [parent] }
             let safe = DatasetStore.safeName(parent)
-            if names.contains(safe) { return [safe] }
+            if known.contains(safe) { return [safe] }
             return names.filter { n in
                 guard let s = sources[n] else { return false }
                 if let id = s.sourceId, !id.isEmpty, parent == "src:" + id { return true }

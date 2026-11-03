@@ -76,9 +76,19 @@ final class WorkQueueModelTests: XCTestCase {
         }
         let file = try XCTUnwrap(try WorkQueue.Store(root: root).load())
         XCTAssertEqual(file.task("ball_tracks:c")?.state, .cancelled)
-        XCTAssertEqual(file.task("ball_tracks:b")?.state, .complete)
-        let history = file.task("ball_tracks:b")?.history.map(\.to) ?? []
-        XCTAssertEqual(history.filter { $0 == .cancelled }.count, 3, "every cancel is in the history")
+        // The person's actions land in the order they were made: cancel, then reopen, every round — so b is never
+        // left cancelled, and no cancel is refused as a same-state move. Whether the round's refresh reconciled it
+        // back to complete before or after the reopen is the scheduler's (a refresh is not in the actions' order).
+        XCTAssertTrue([.complete, .pending].contains(file.task("ball_tracks:b")?.state), "\(String(describing: file.task("ball_tracks:b")?.state))")
+        let history = file.task("ball_tracks:b")?.history.map { ($0.to, $0.by) } ?? []
+        XCTAssertEqual(history.filter { $0.0 == .cancelled }.count, 3, "every cancel is in the history")
+        XCTAssertEqual(history.filter { $0.0 == .pending && $0.1 == .user }.count, 3, "every reopen is in the history")
+        var last: WorkQueue.State?
+        for (to, by) in history where by == .user {
+            if to == .cancelled { XCTAssertNotEqual(last, .cancelled, "a cancel landed on a cancelled task") }
+            if to == .pending { XCTAssertEqual(last, .cancelled, "a reopen landed before its cancel") }
+            last = to
+        }
         XCTAssertEqual(model.file, file)
         XCTAssertFalse(model.refreshing)
     }
