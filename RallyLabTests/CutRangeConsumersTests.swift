@@ -145,6 +145,9 @@ final class CutRangeConsumersTests: XCTestCase {
         XCTAssertEqual(export.labels.map { [$0.start, $0.end] }, [[10, 15], [35, 40]])
         XCTAssertEqual(export.baselineRaw.map { [$0.start, $0.end] }, [[9, 15], [35, 39]])
         XCTAssertEqual(export.cuts.map { [$0.start, $0.end] }, [[15, 35]], "the trainer masks its own decisions with them")
+        let whole = TrainingDataExporter.makeExport(videoName: "v.mp4", duration: 100, evidence: stride(from: 0.0, to: 100, by: 1).map(frame),
+                                                    labels: [iv(10, 20)], baselineRaw: [iv(9, 21)], cuts: [cut(0, 100)])
+        XCTAssertTrue(whole.frames.isEmpty && whole.labels.isEmpty && whole.baselineRaw.isEmpty, "a recording cut whole: nothing to export (the callers skip it)")
 
         // The headless export walks a folder of videos; a video's cuts come from the project session over it.
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("projects-\(UUID().uuidString)")

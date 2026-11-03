@@ -665,6 +665,10 @@ final class RallyLabModel {
             labels: labels.map { Interval(start: $0.start, end: $0.end) },
             baselineRaw: rawPredictions,
             cuts: cuts)
+        guard !export.frames.isEmpty else {
+            status = "Every frame lies inside a cut range (not footage) — nothing to export."
+            return
+        }
         let outURL = TrainingDataExporter.exportURL(for: videoURL)
         do {
             try TrainingDataExporter.write(export, to: outURL)

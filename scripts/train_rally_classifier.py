@@ -385,6 +385,9 @@ def main():
     weights_out = None
 
     for path, ex in exports:
+        if not ex["frames"]:
+            print(f"=== {ex['video']} ===\nno frames (every one lies inside a cut range, D-030) — skipped\n")
+            continue
         X, names, times, y = build_features(ex)
         cuts = [(c["start"], c["end"]) for c in ex.get("cuts", [])]   # not footage (D-030); absent in exports from before
         labels = subtract_cuts([(l["start"], l["end"]) for l in ex["labels"]], cuts)

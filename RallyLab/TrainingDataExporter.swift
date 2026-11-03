@@ -230,6 +230,11 @@ enum HeadlessTrainingExport {
                 baselineRaw: baseline,
                 cuts: cuts)
 
+            // A recording cut whole (every processed frame inside a cut) has nothing to train on: no export.
+            guard !export.frames.isEmpty else {
+                log("⚠️ \(video.lastPathComponent): every frame lies inside a cut range (not footage) — nothing to export, skipped")
+                continue
+            }
             let outURL = TrainingDataExporter.exportURL(for: video)
             do {
                 try TrainingDataExporter.write(export, to: outURL)
