@@ -106,6 +106,17 @@ final class RallyMarkModel {
         }
     }
 
+    /// The video's cut ranges (not footage; D-030), raw as marked.
+    var cuts: [CutRange] { sampler.sessions.first { $0.name == sessionName }?.cuts ?? [] }
+
+    func setCuts(_ cuts: [CutRange]) {
+        guard let sessionName else { return }
+        sampler.setCuts(cuts, session: sessionName)
+        // Re-save the rally times: the phone sync carries the cuts with them and keeps
+        // whichever side changed last by this file's date (see wholeVideoMarked).
+        save()
+    }
+
     /// Guesses not yet covered by a marked rally.
     var openGuesses: [Mark] {
         guesses.filter { g in !rallies.contains { min($0.end, g.end) - max($0.start, g.start) > 0.3 } }
@@ -298,8 +309,8 @@ final class RallyMarkModel {
     /// A rally from `start` to `end`, replacing any marked rally it overlaps
     /// (the same rally, marked again).
     @discardableResult
-    func mark(start: Double, end: Double, kind: RallyKind = .rally) -> Mark {
-        let mark = Mark(start: start, end: end, kind: kind)
+    func mark(start: Double, end: Double, kind: RallyKind = .rally, contacts: [RallyContact] = []) -> Mark {
+        let mark = Mark(start: start, end: end, kind: kind, contacts: contacts)
         rallies.removeAll { min($0.end, mark.end) - max($0.start, mark.start) > 0.5 * min($0.end - $0.start, mark.end - mark.start) }
         rallies.append(mark)
         selectedId = mark.id

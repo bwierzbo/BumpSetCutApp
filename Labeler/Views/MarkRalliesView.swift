@@ -4,10 +4,12 @@
 //
 //  Mark every rally in a video in one pass, live, as the Mac does: watch
 //  at ½–4× and tap one key per event. Serve starts a rally; Dead ball ends
-//  it; Missed serve and Not a rally end it as one of those. Undo takes
-//  back the last tap. The touches inside a rally are advanced marking, not
-//  part of this pass (D-028). The rules are LiveTagger's, shared with the
-//  Mac.
+//  it; Missed serve and Not a rally end it as one of those. Cut takes out
+//  a stretch that is not footage (an instant replay), from one tap to the
+//  next; Starts mid-rally cuts from the clip's start to the next serve
+//  (D-030). Undo takes back the last tap. The touches inside a rally are
+//  advanced marking, not part of this pass (D-028). The rules are
+//  LiveTagger's, shared with the Mac.
 //
 //  Pre-tracked rallies inside a rally you mark are confirmed and trimmed
 //  to it. "That's every rally" turns down the ones you never marked, drops
@@ -52,7 +54,8 @@ struct MarkRalliesView: View {
                 .overlay { if let loadError { Text(loadError).foregroundStyle(.white).padding() } }
             RallyTimesBar(time: time, duration: duration, found: video.ralliesFound, marked: times.rallies,
                           current: nil, pending: tagger.open,
-                          ticks: times.rallies.first { $0.start <= time && time <= $0.end }?.contacts?.map(\.time) ?? [])
+                          ticks: times.rallies.first { $0.start <= time && time <= $0.end }?.contacts?.map(\.time) ?? [],
+                          cuts: (times.cuts ?? []).map { [$0.start, $0.end] }, pendingCut: tagger.cutFrom)
                 .frame(height: 22)
                 .contentShape(Rectangle())
                 .gesture(SpatialTapGesture().onEnded { tap in seek(tap.location.x / max(barWidth, 1) * duration) })
@@ -89,7 +92,10 @@ struct MarkRalliesView: View {
     private var state: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                if let open = tagger.open {
+                if let from = tagger.cutFrom {
+                    Circle().fill(.black).frame(width: 8, height: 8)
+                    Text("Cut from \(from == 0 ? "the start" : clockText(from)) · Cut ends it, Serve too")
+                } else if let open = tagger.open {
                     Circle().fill(.orange).frame(width: 8, height: 8)
                     Text("Rally · served at \(clockText(open))")
                 } else {
@@ -130,6 +136,12 @@ struct MarkRalliesView: View {
                 Button { tagger.undo() } label: { keyLabel("Undo", "Z") }
                     .buttonStyle(.bordered)
             }
+            HStack(spacing: 8) {
+                Button { tagger.cut(press()) } label: { keyLabel("Cut", "X") }
+                    .buttonStyle(.bordered).tint(.gray)
+                Button { tagger.cutFromStart() } label: { keyLabel("Starts mid-rally", "⇧X") }
+                    .buttonStyle(.bordered).tint(.gray)
+            }
         }
         .controlSize(.large)
     }
@@ -167,12 +179,32 @@ struct MarkRalliesView: View {
                     finish()
                 } label: { Label("That's every rally", systemImage: "flag.checkered").frame(maxWidth: .infinity) }
                     .buttonStyle(.borderedProminent).controlSize(.large)
-                    .disabled(tagger.open != nil)
+                    .disabled(tagger.open != nil || tagger.cutFrom != nil)
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
             } footer: {
-                Text(tagger.open != nil ? "End the open rally first (Dead ball or Not a rally)."
+                Text(tagger.cutFrom != nil ? "End the open cut first (Cut, or Serve at the next rally)."
+                     : tagger.open != nil ? "End the open rally first (Dead ball or Not a rally)."
                      : "Every rally in the video is marked: the found rallies you didn't mark are turned down and the video counts for scoring and the decision model.")
+            }
+            if let cuts = times.cuts, !cuts.isEmpty {
+                Section("Cut out (\(cuts.count))") {
+                    ForEach(cuts, id: \.self) { c in
+                        Button { play(from: c.start - 1) } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "scissors").foregroundStyle(.secondary).frame(width: 18)
+                                Text("\(clockText(c.start)) – \(clockText(c.end))").font(.callout.monospacedDigit())
+                                Spacer()
+                                Text(String(format: "%.1f s not footage", c.end - c.start)).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        .tint(.primary)
+                    }
+                    .onDelete { offsets in
+                        let gone = offsets.map { cuts[$0] }
+                        model.update(video) { $0.cuts?.removeAll { gone.contains($0) } }
+                    }
+                }
             }
             Section("Marked (\(times.rallies.count))") {
                 ForEach(times.rallies) { r in
@@ -208,17 +240,19 @@ struct MarkRalliesView: View {
     }
 
     /// Everything you didn't mark isn't a rally: pre-tracked rallies are
-    /// turned down, found rallies dropped; the video is finished.
+    /// turned down, found rallies dropped — except inside a cut range, which
+    /// is not footage and is left alone (D-030); the video is finished.
     private func finish() {
-        guard tagger.open == nil else { return }
+        guard tagger.open == nil, tagger.cutFrom == nil else { return }
         player.pause()
         isPlaying = false
         let marks = times.rallies
+        let cuts = times.cutRanges
         func covered(_ a: Double, _ b: Double) -> Bool { marks.contains { min($0.end, b) - max($0.start, a) > 0.5 * (b - a) } }
-        for t in model.tracks(for: video) where t.isMachine && t.isRally == nil && !covered(t.start, t.end) {
+        for t in model.tracks(for: video) where t.isMachine && t.isRally == nil && !covered(t.start, t.end) && !cuts.overlaps(t.start, t.end) {
             model.setIsRally(false, AnnotationReview.RallyCheck(video: video.id.uuidString, track: t.id, start: t.start, end: t.end))
         }
-        for f in model.openFound(in: video) where !covered(f[0], f[1]) {
+        for f in model.openFound(in: video) where !covered(f[0], f[1]) && !cuts.overlaps(f[0], f[1]) {
             model.rejectFound(f, in: video)
         }
         model.update(video) { $0.complete = true }
@@ -308,6 +342,34 @@ final class PhoneLiveTagStore: LiveTagStore {
             let check = AnnotationReview.RallyCheck(video: video.id.uuidString, track: t.id, start: t.start, end: t.end)
             model.replace(check, with: t)
             model.setIsRally(t.isRally, check)
+        }
+    }
+
+    func marks(overlapping start: Double, _ end: Double) -> [LiveTagger.ExistingMark] {
+        model.rallyTimes(for: video).rallies.filter { min($0.end, end) - max($0.start, start) > 0 }.map {
+            LiveTagger.ExistingMark(handle: $0.id, start: $0.start, end: $0.end, kind: $0.kind, contacts: $0.contacts)
+        }
+    }
+
+    func restoreMark(_ mark: LiveTagger.ExistingMark) -> AnyHashable {
+        let rally = LabelRally(start: mark.start, end: mark.end, kind: mark.kind, contacts: mark.contacts)
+        model.update(video) { t in
+            t.rallies.removeAll { $0.id == rally.id }
+            t.rallies.append(rally)
+        }
+        return rally.id
+    }
+
+    func cut(start: Double, end: Double) -> AnyHashable {
+        let range = CutRange(start: start, end: end)
+        model.update(video) { $0.cuts = ($0.cuts ?? []) + [range] }
+        return range
+    }
+
+    func uncut(_ cut: AnyHashable) {
+        guard let range = cut as? CutRange else { return }
+        model.update(video) { t in
+            if let i = t.cuts?.firstIndex(of: range) { t.cuts?.remove(at: i) }
         }
     }
 }
