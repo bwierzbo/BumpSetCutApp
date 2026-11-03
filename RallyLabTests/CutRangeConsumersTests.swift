@@ -172,11 +172,17 @@ final class CutRangeConsumersTests: XCTestCase {
         try FileManager.default.createDirectory(at: project.appendingPathComponent("sessions"), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let video = root.appendingPathComponent("footage/v.mp4")
+        try FileManager.default.createDirectory(at: video.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data((0..<5000).map { UInt8($0 % 251) }).write(to: video)
         var session = VideoSession(name: "v", sourcePath: video.path, split: "train", addedAt: Date(), frames: [])
         session.cuts = [cut(1, 2)]
         try DatasetStore(root: project).save(session)
         XCTAssertEqual(try TrainingDataExporter.cutRanges(forVideo: video, projectRoots: [project]), [cut(1, 2)])
-        XCTAssertEqual(try TrainingDataExporter.cutRanges(forVideo: root.appendingPathComponent("footage/other.mp4"), projectRoots: [project]), [])
+        let other = root.appendingPathComponent("footage/other.mp4"); try Data([1, 2, 3]).write(to: other)
+        XCTAssertEqual(try TrainingDataExporter.cutRanges(forVideo: other, projectRoots: [project]), [])
+        // A copy of the recording under another name and path is the same recording (by content), as the Pipeline tab sees it.
+        let copy = root.appendingPathComponent("elsewhere.mp4"); try FileManager.default.copyItem(at: video, to: copy)
+        XCTAssertEqual(try TrainingDataExporter.cutRanges(forVideo: copy, projectRoots: [project]), [cut(1, 2)])
         // A project anywhere on the Mac is searched when it is on the list, not only the default location.
         let elsewhere = FileManager.default.temporaryDirectory.appendingPathComponent("elsewhere-\(UUID().uuidString)/Q", isDirectory: true)
         try FileManager.default.createDirectory(at: elsewhere.appendingPathComponent("sessions"), withIntermediateDirectories: true)

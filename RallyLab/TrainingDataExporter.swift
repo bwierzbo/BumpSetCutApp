@@ -99,19 +99,19 @@ enum TrainingDataExporter {
         )
     }
 
-    /// The cut ranges of the project session over this video, if any project has one — matched
-    /// by the session's source path over every project this Mac knows (`ProjectsModel
-    /// .savedProjectRoots`: the remembered list, the last opened and the default location; a
-    /// project may live anywhere). A video no project knows has no cuts, by construction.
-    /// Throws when a project's sessions can't all be read: an unreadable session is unknown
-    /// cuts, not no cuts, and the export must not go out as if there were none (fails closed).
+    /// The cut ranges of the project session over this video, if any project has one — the
+    /// recording recognised as the Pipeline tab recognises it (`ReservedVideos.match`: by path,
+    /// by name, or by the file's content, so a copy under another name is the same recording)
+    /// over every project this Mac knows (`ProjectsModel.savedProjectRoots`: the remembered
+    /// list, the last opened and the default location; a project may live anywhere). A video
+    /// no project knows has no cuts, by construction. Throws when a project's sessions or
+    /// reservations can't all be read: an unreadable session is unknown cuts, not no cuts, and
+    /// the export must not go out as if there were none (fails closed).
     static func cutRanges(forVideo url: URL, projectRoots: [URL] = ProjectsModel.savedProjectRoots()) throws -> [CutRange] {
-        let path = url.standardizedFileURL.resolvingSymlinksInPath().path
         for project in projectRoots {
-            for session in try DatasetStore(root: project).loadSessionsStrict() {
-                let source = URL(fileURLWithPath: session.sourcePath).standardizedFileURL.resolvingSymlinksInPath().path
-                if source == path || session.sourcePath == url.path { return session.cutRanges }
-            }
+            let sessions = try DatasetStore(root: project).loadSessionsStrict()
+            guard let match = try ReservedVideos.match(url, root: project) else { continue }
+            return sessions.first { $0.name == match.session }?.cutRanges ?? []
         }
         return []
     }
