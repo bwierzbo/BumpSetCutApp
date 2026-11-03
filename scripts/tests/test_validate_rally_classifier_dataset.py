@@ -337,7 +337,7 @@ class SyntheticDataset(unittest.TestCase):
         path = os.path.join(self.dataset, r["stepsFile"])
         with open(path) as fh:
             lines = fh.read().splitlines()
-        lines[2] = lines[2].replace('"y":', '"f":[NaN,1,1,1,0.5,0.5,0,null,null,null,null,null,0,0,0,null,0],"y":', 1)
+        lines[2] = lines[2].replace('"y":', '"f":[NaN,1,1,1,0.5,0.5,0,null,null,null,null,null,0,0,0,null,0,null],"y":', 1)
         # the line now has two "f" keys; json keeps the last, so the NaN list wins
         with open(path, "w") as fh:
             fh.write("\n".join(lines) + "\n")
@@ -397,6 +397,46 @@ class SyntheticDataset(unittest.TestCase):
         self.rewrite_steps(r, spurious)
         self.save(m)
         self.assertRefused("seg changed to")
+
+    def test_a_span_between_two_processed_frames_still_breaks_the_segment(self):
+        # Codex finding on PR #136: a cut or replay that falls entirely between two processed frames has
+        # both endpoints outside it; the segment must still break at its boundaries.
+        m = self.manifest()
+        r = m["recordings"][0]   # the synthetic example carries a cut at ticks 5–10 between ticks 0 and 20
+        self.assertEqual(r["cutRanges"][0], {"startTick": 5, "endTick": 10})
+        self.assertEqual(self.errors(), [])
+
+        def flatten(steps):
+            steps[1]["seg"] = 0       # the step at tick 20 must be seg 1
+            for s in steps[2:]:
+                s["seg"] -= 1
+            return steps
+        self.rewrite_steps(r, flatten)
+        self.save(m)
+        self.assertRefused("syn_bch_a line 2: seg must increment to 1 at a cut/time-breaking boundary")
+        m = self.manifest()
+        r = m["recordings"][3]    # no cuts: add a replay span between two frames within the 0.5 s gap rule
+        r["timeBreakingSpans"].append({"startTick": 7, "endTick": 12, "trait": "replay", "origin": "proposed"})
+        self.save(m)
+        self.assertRefused("syn_ind_c line 2: seg must increment to 1 at a cut/time-breaking boundary")
+        self.assertTrue(v.crosses_non_footage(0, 20, r))
+        self.assertFalse(v.crosses_non_footage(12, 40, r))     # starting exactly at the span's end: outside, no break
+        self.assertTrue(v.crosses_non_footage(0, 7, r))        # landing exactly on the start: inside, break
+
+    def test_serve_features_are_causal_and_tied(self):
+        m = self.manifest()
+        r = m["recordings"][0]
+
+        def untie(steps):
+            steps[4]["f"][v.FEATURE_INDEX["serve_emitted"]] = 1
+            steps[4]["f"][v.FEATURE_INDEX["serve_contact_offset"]] = None
+            steps[5]["f"][v.FEATURE_INDEX["serve_contact_offset"]] = -0.5
+            return steps
+        self.rewrite_steps(r, untie)
+        self.save(m)
+        self.assertRefused("serve_contact_offset must be null exactly when serve_emitted is 0")
+        self.assertRefused("serve_contact_offset must be non-negative")
+        self.assertTrue(all(f["lookaheadSec"] == 0.0 and f["kind"] == "raw" for f in v.feature_schema()["features"]))
 
     def test_label_state_and_weight_consistency(self):
         m = self.manifest()

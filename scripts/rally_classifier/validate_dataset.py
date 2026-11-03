@@ -50,10 +50,11 @@ FEATURES = [
     ("n_cands_proj", False, "raw", 0.0),
     ("n_cands_rejected", False, "raw", 0.0),
     ("y_above_net", True, "raw", 0.0),
-    ("serve_flag", False, "raw_lookahead", 0.5),
+    ("serve_emitted", False, "raw", 0.0),
+    ("serve_contact_offset", True, "raw", 0.0),
 ]
 FEATURE_INDEX = {name: i for i, (name, _, _, _) in enumerate(FEATURES)}
-BINARY = {"has_ball", "is_projectile", "serve_flag"}
+BINARY = {"has_ball", "is_projectile", "serve_emitted"}
 COUNTS = {"n_court_dets", "n_dets", "n_cands", "n_cands_proj", "n_cands_rejected"}
 UNIT = {"max_conf", "ball_y_any", "sel_x", "sel_y", "r2", "grav"}
 
@@ -157,15 +158,15 @@ def expected_state(tick: int, rec: dict, ignore_ticks: int) -> int:
     return STATES["UNKNOWN"]
 
 
-def region_id(tick: int, rec: dict):
-    """Which non-footage region (cut or time-breaking span) the tick is in, if any; segments break at its edges."""
-    for i, span in enumerate(rec["cutRanges"]):
-        if _inside(tick, span):
-            return ("cut", i)
-    for i, span in enumerate(rec["timeBreakingSpans"]):
-        if _inside(tick, span):
-            return ("tb", i)
-    return None
+def crosses_non_footage(prev_tick: int, tick: int, rec: dict) -> bool:
+    """True when a boundary of a cut range or a time-breaking span lies in (prev_tick, tick]: the segment must
+    break there. Testing the boundaries, not the endpoints' membership, catches a span that falls entirely
+    between two processed frames."""
+    for span in rec["cutRanges"] + rec["timeBreakingSpans"]:
+        for b in (span["startTick"], span["endTick"]):
+            if prev_tick < b <= tick:
+                return True
+    return False
 
 
 # ----------------------------------------------------------------------------- validation
@@ -200,8 +201,8 @@ def _check_feature_value(name: str, nullable: bool, v, rec: dict, rep: Report, w
         rep.error(f"{where}: {name} must lie in [0, 1] (got {v})")
     elif name == "dt" and v <= 0:
         rep.error(f"{where}: dt must be positive (got {v})")
-    elif name == "sel_size" and v < 0:
-        rep.error(f"{where}: sel_size must be non-negative (got {v})")
+    elif name in ("sel_size", "serve_contact_offset") and v < 0:
+        rep.error(f"{where}: {name} must be non-negative (got {v})")
 
 
 def validate_steps(path: str, rec: dict, ignore_ticks: int, rep: Report) -> dict:
@@ -259,13 +260,16 @@ def validate_steps(path: str, rec: dict, ignore_ticks: int, rep: Report) -> dict
                 sel_y, ban = f[FEATURE_INDEX["sel_y"]], f[FEATURE_INDEX["y_above_net"]]
                 if has_net and (sel_y is None) != (ban is None):
                     rep.error(f"{where}: y_above_net must be null exactly when sel_y is null")
+                emitted, offset = f[FEATURE_INDEX["serve_emitted"]], f[FEATURE_INDEX["serve_contact_offset"]]
+                if emitted in (0, 1) and (emitted == 0) != (offset is None):
+                    rep.error(f"{where}: serve_contact_offset must be null exactly when serve_emitted is 0")
             # segments
             if prev_seg is None:
                 if seg != 0:
                     rep.error(f"{where}: the first step's seg must be 0 (got {seg})")
             else:
                 gap = (t - prev_t) > GAP_SEC
-                crossing = region_id(prev_tick, rec) != region_id(tick, rec)
+                crossing = crosses_non_footage(prev_tick, tick, rec)
                 should_break = gap or crossing
                 if should_break and seg != prev_seg + 1:
                     rep.error(f"{where}: seg must increment to {prev_seg + 1} at a {'gap' if gap else 'cut/time-breaking boundary'} (got {seg})")
@@ -527,12 +531,12 @@ def _synthetic_recording(rng: random.Random, rid: str, group: str, split: str, f
         "coverage": {"state": coverage, "verifiedCoverageSec": duration if coverage == "stage1_complete" else None},
         "labelProvenance": {"method": "stage1_verified" if coverage == "stage1_complete" else "legacy_declared",
                             "marksSha256": hashlib.sha256(f"marks:{rid}".encode()).hexdigest(), "rallyEventsSha256": None},
-        "rallies": [{"rallyId": None, "startTick": int(s * TIMESCALE), "endTick": int(e * TIMESCALE), "kind": "rally",
+        "rallies": [{"rallyId": None, "startTick": round(s * TIMESCALE), "endTick": round(e * TIMESCALE), "kind": "rally",
                      "provenance": "legacy_declared", "contactUncertaintyTicks": None, "deadUncertaintyTicks": None} for s, e in rallies],
-        "excludedSpans": [{"startTick": int(s * TIMESCALE), "endTick": int(e * TIMESCALE), "kind": k} for s, e, k in excluded],
-        "cutRanges": [{"startTick": int(s * TIMESCALE), "endTick": int(e * TIMESCALE)} for s, e in cuts],
-        "timeBreakingSpans": [{"startTick": int(s * TIMESCALE), "endTick": int(e * TIMESCALE), "trait": tr, "origin": o} for s, e, tr, o in tb],
-        "nonRallyActivitySpans": [{"startTick": int(s * TIMESCALE), "endTick": int(e * TIMESCALE)} for s, e in nra],
+        "excludedSpans": [{"startTick": round(s * TIMESCALE), "endTick": round(e * TIMESCALE), "kind": k} for s, e, k in excluded],
+        "cutRanges": [{"startTick": round(s * TIMESCALE), "endTick": round(e * TIMESCALE)} for s, e in cuts],
+        "timeBreakingSpans": [{"startTick": round(s * TIMESCALE), "endTick": round(e * TIMESCALE), "trait": tr, "origin": o} for s, e, tr, o in tb],
+        "nonRallyActivitySpans": [{"startTick": round(s * TIMESCALE), "endTick": round(e * TIMESCALE)} for s, e in nra],
         "exposure": [{"date": "2026-11-03", "kind": "training_package", "ref": "synthetic"}],
         "stepsFile": f"steps/{rid}.jsonl", "stepsSha256": "", "stepCount": 0, "labelCounts": {},
     }
@@ -564,9 +568,10 @@ def _synthetic_recording(rng: random.Random, rid: str, group: str, split: str, f
             round(rng.uniform(0.8, 1.0), 4) if sel else None, round(rng.uniform(0.3, 1.0), 4) if sel else None,
             n_cands, proj, max(0, n_cands - proj - rng.randint(0, 1)),
             (round(sel_y - (rec["net"]["y"] + rec["net"]["h"]), 4) if (sel and net) else None),
-            1 if (in_rally and rng.random() < 0.05) else 0,
         ]
-        if prev_tick is not None and (region_id(prev_tick, rec) != region_id(tick, rec) or (t - prev_t) > GAP_SEC):
+        emitted = 1 if (in_rally and rng.random() < 0.02) else 0
+        f += [emitted, round(rng.uniform(0.8, 2.0), 3) if emitted else None]
+        if prev_tick is not None and (crosses_non_footage(prev_tick, tick, rec) or (t - prev_t) > GAP_SEC):
             seg += 1
         y = expected_state(tick, rec, ignore_ticks)
         steps.append({"t": round(t, 6), "tick": tick, "seg": seg, "f": f, "y": y, "w": WEIGHTS[str(y)]})
@@ -585,7 +590,8 @@ def write_synthetic(out_dir: str, seed: int = 0) -> str:
     os.makedirs(os.path.join(out_dir, "steps"), exist_ok=False)
     specs = [
         dict(rid="syn_bch_a", group="g-syn-a", split="train", fold=0, surface="beach", recording_type="continuous", negatives="standard",
-             coverage="declared_complete", rallies=[(5, 12), (20, 31), (40, 48)], excluded=[(34, 36, "missedServe")], gap_at=15.0),
+             coverage="declared_complete", rallies=[(5, 12), (20, 31), (40, 48)], excluded=[(34, 36, "missedServe")],
+             cuts=[(0.00833, 0.01667)], gap_at=15.0),   # a cut between two processed frames (ticks 5–10): the segment still breaks
         dict(rid="syn_bch_a_v2", group="g-syn-a", split="train", fold=0, surface="beach", recording_type="continuous", negatives="standard",
              coverage="declared_complete", rallies=[(8, 14), (24, 33)], cuts=[(0, 3)], tb=[(50, 55, "replay", "proposed")]),
         dict(rid="syn_grs_b", group="g-syn-b", split="tune", fold=1, surface="grass", recording_type="edited", negatives="restricted",
