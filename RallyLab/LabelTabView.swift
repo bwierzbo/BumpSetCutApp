@@ -40,8 +40,8 @@ struct LabelTabView: View {
         self.phone = phone
         self.isActive = isActive
         _plan = State(initialValue: TrainingPlanModel(library: library))
-        _review = State(initialValue: ProjectReviewStore(sampler: projects.sampler, tracker: tracker, sync: phone))
-        _paths = State(initialValue: BallPathBuilder(sampler: projects.sampler))
+        _review = State(initialValue: ProjectReviewStore(sampler: projects.sampler, tracker: tracker, sync: phone, projects: projects))
+        _paths = State(initialValue: BallPathBuilder(sampler: projects.sampler, projects: projects))
     }
 
     private var sampler: SamplerModel { projects.sampler }

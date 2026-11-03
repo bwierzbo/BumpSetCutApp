@@ -21,6 +21,22 @@
 //  decision here goes up within a couple of seconds; every 30 s as a backstop.
 //  5. The training plan and its runs' scores go up for the phone's Plan tab.
 //
+//  One round belongs to one opening of one project (`ProjectsModel.Opening`,
+//  captured when the round starts). Its files are the captured project's
+//  (paths from the opening's root); the open project — its cards, its
+//  sampler's sessions — is read only right after `projects.require(opening)`
+//  says the opening still holds, with no suspension between the check and
+//  the read or write. When the project is closed, switched, or opened again
+//  while a round is suspended, the round is cancelled, and whatever of it
+//  still runs stops at its next check: nothing of the project open now is
+//  read as the old one's, nothing is written to it, no editor is told. The
+//  one thing a stopped round still records is an acknowledgement the server
+//  already gave for work done while the opening held — the reply to a
+//  boundary-record push, the row of a copy whose upload finished, the list
+//  of ball paths sent — each in the captured project's own files or rows,
+//  with the captured project's own data, so the next sync of that project
+//  does not redo or misread it.
+//
 //  Headless: RallyLab --project <name> --sync-phone (after signing in once
 //  in the app; the session is kept in the Keychain).
 //
@@ -29,6 +45,37 @@ import AppKit
 import AVFoundation
 import Foundation
 import Observation
+
+/// What the sync needs of the labeling server: `LabelingClient` in RallyLab, a fake in tests (which decides when each
+/// reply arrives). Every requirement is the client's own method under its own name, except the two transfers, named
+/// apart from the client's progress-reporting ones.
+protocol LabelingService: Sendable {
+    var hasSession: Bool { get async }
+    func signIn(email: String, password: String) async throws
+    func signOut() async
+    func isLabeler() async throws -> Bool
+    func videos() async throws -> [LabelVideo]
+    @discardableResult func save(_ video: LabelVideo) async throws -> LabelVideo
+    func rallyTimes(since: Date?) async throws -> [LabelRallyTimes]
+    @discardableResult func save(_ times: LabelRallyTimes) async throws -> LabelRallyTimes
+    func trackStamps() async throws -> [LabelingClient.TrackStamp]
+    func tracks(ids: [UUID]) async throws -> [LabelTrack]
+    func save(_ tracks: [LabelTrack]) async throws
+    func rallyEvents(since: Date?) async throws -> [LabelRallyEvents]
+    func saveRallyEvents(videoId: UUID, expected: Int, record: EventReview.File) async throws -> LabelRallyEvents
+    func publishWithheld(project: String, names: [String]) async throws -> Int
+    func save(_ state: LabelProjectState) async throws
+    func reviewRally(_ verdict: LabelingClient.RallyVerdict) async throws
+    func reviewFrames(_ track: UUID, _ edits: [LabelingClient.FrameEdit]) async throws
+    func uploadFile(_ file: URL, to path: String) async throws
+    func downloadFile(_ path: String, to destination: URL) async throws
+    func remove(_ path: String) async throws
+}
+
+extension LabelingClient: LabelingService {
+    func uploadFile(_ file: URL, to path: String) async throws { try await upload(file, to: path, progress: nil) }
+    func downloadFile(_ path: String, to destination: URL) async throws { try await download(path, from: Self.bucket, to: destination, progress: nil) }
+}
 
 @MainActor
 @Observable
@@ -52,14 +99,28 @@ final class LabelingSync {
     @ObservationIgnored private var soon: Task<Void, Never>?
     /// A sync was asked for while one ran: run again after it.
     @ObservationIgnored private var again = false
+    /// The round running now; cancelled when the opening it started under ends.
+    @ObservationIgnored private var round: Task<Bool, Never>?
     /// Review decisions made here not yet sent, frame by frame, and Rally-or-not answers.
-    private(set) var pendingFrames: [LabelingClient.FrameEdit] = Pending.load([LabelingClient.FrameEdit].self, "frames") ?? []
-    private(set) var pendingRallies: [LabelingClient.RallyVerdict] = Pending.load([LabelingClient.RallyVerdict].self, "rallies") ?? []
+    private(set) var pendingFrames: [LabelingClient.FrameEdit]
+    private(set) var pendingRallies: [LabelingClient.RallyVerdict]
 
-    private let client = LabelingClient.shared
+    private let client: any LabelingService
+    private let pending: Pending
 
-    init(projects: ProjectsModel) {
+    /// `client` and `pendingDirectory` are for tests: a fake server, and a folder of their own for the queued
+    /// decisions, so a test never sends or touches the person's.
+    init(projects: ProjectsModel, client: any LabelingService = LabelingClient.shared, pendingDirectory: URL = Pending.defaultDirectory) {
+        let pending = Pending(directory: pendingDirectory)
+        var notes: [String] = []
         self.projects = projects
+        self.client = client
+        self.pending = pending
+        pendingFrames = pending.load([LabelingClient.FrameEdit].self, "frames", notes: &notes) ?? []
+        pendingRallies = pending.load([LabelingClient.RallyVerdict].self, "rallies", notes: &notes) ?? []
+        status = notes.joined(separator: " ")
+        // A reply still in flight for a project no longer open is not waited for.
+        projects.onOpeningEnded { [weak self] _ in self?.round?.cancel() }
         Task { signedIn = await client.hasSession }
     }
 
@@ -83,13 +144,13 @@ final class LabelingSync {
     /// A review decision on a frame: sent on its own within a couple of seconds.
     func queue(_ edit: LabelingClient.FrameEdit) {
         pendingFrames.append(edit)
-        Pending.save(pendingFrames, "frames")
+        pending.save(pendingFrames, "frames")
         syncSoon()
     }
 
     func queue(_ verdict: LabelingClient.RallyVerdict) {
         pendingRallies.append(verdict)
-        Pending.save(pendingRallies, "rallies")
+        pending.save(pendingRallies, "rallies")
         syncSoon()
     }
 
@@ -105,12 +166,14 @@ final class LabelingSync {
 
     /// Send what's waiting: Rally-or-not answers, then frame decisions rally
     /// by rally. The rallies whose frames went (or were refused because
-    /// someone else is reviewing them — theirs stand).
+    /// someone else is reviewing them — theirs stand). The queues are keyed
+    /// by the server's rally ids, not by project: a decision made in one
+    /// project goes up whichever project is open when it is sent.
     private func sendPending() async throws -> Set<UUID> {
         for verdict in pendingRallies {
             try await client.reviewRally(verdict)
             pendingRallies.removeFirst()
-            Pending.save(pendingRallies, "rallies")
+            pending.save(pendingRallies, "rallies")
         }
         var sent: Set<UUID> = []
         for (track, edits) in Dictionary(grouping: pendingFrames, by: \.track) {
@@ -120,7 +183,7 @@ final class LabelingSync {
                 // Someone else is reviewing it: their decisions stand.
             }
             pendingFrames.removeAll { edits.contains($0) }
-            Pending.save(pendingFrames, "frames")
+            pending.save(pendingFrames, "frames")
             sent.insert(track)
         }
         return sent
@@ -165,36 +228,51 @@ final class LabelingSync {
 
     /// Run the sync: labels both ways and the plan, and with `videos` the
     /// videos too. False if it stopped on an error (status says why).
-    @discardableResult
     /// `remaking`: videos (session names) whose copy made with an older
     /// encoding is made again — otherwise only videos without one get one.
-    func sync(videos: Bool = true, remaking: @escaping (String) -> Bool = { _ in false }) async -> Bool {
+    @discardableResult
+    func sync(videos: Bool = true, remaking: @escaping @Sendable (String) -> Bool = { _ in false }) async -> Bool {
         guard !isSyncing else { again = true; return false }
-        guard let project = projects.project?.name, let root = projects.projectDir else { return false }
+        guard let opening = projects.opening else { return false }
         isSyncing = true
         MainThreadWatchdog.shared.note("phone sync round")
         defer {
             isSyncing = false
+            round = nil
             MainThreadWatchdog.shared.note(nil)
             if again {
                 again = false
                 syncSoon()
             }
         }
+        // The round is a task of its own so that the end of its opening can cancel it; the caller's own
+        // cancellation reaches it too.
+        let task = Task { await self.run(opening, videos: videos, remaking: remaking) }
+        round = task
+        return await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+    }
+
+    /// The round, for the project `opening` names.
+    private func run(_ opening: ProjectsModel.Opening, videos: Bool, remaking: @Sendable (String) -> Bool) async -> Bool {
+        let project = opening.name
         do {
             let framesSent = try await sendPending()
             var parts: [String] = []
             if videos {
-                let imported = try await importPhoneVideos(project: project)
-                let (listed, uploaded, failed) = try await publishVideos(project: project, root: root, remaking: remaking)
-                try await publishBallPaths(project: project)
+                let imported = try await importPhoneVideos(opening)
+                let (listed, uploaded, failed) = try await publishVideos(opening, remaking: remaking)
+                let paths = try await publishBallPaths(opening)
                 parts.append("\(listed) videos listed (\(uploaded) uploaded\(failed.isEmpty ? "" : ", \(failed.count) failed — next sync retries: \(failed.joined(separator: ", "))")), \(imported) phone videos pulled in")
+                if let paths { parts.append(paths) }
             }
-            let (pushed, pulled) = try await syncRallyTimes(project: project)
-            let (tracksSent, tracksReceived) = try await syncTracks(project: project, framesSent: framesSent)
-            try await publishPlan(project: project)
-            parts.append("rally times \(pushed) sent · \(pulled) received, tracked rallies \(tracksSent) sent · \(tracksReceived) received")
-            let events = try await syncRallyEvents(project: project, root: root)
+            let times = try await syncRallyTimes(opening)
+            let (tracksSent, tracksReceived) = try await syncTracks(opening, framesSent: framesSent)
+            let plan = try await publishPlan(opening)
+            parts.append("rally times \(times.pushed) sent · \(times.pulled) received"
+                         + (times.unreadable.isEmpty ? "" : " · \(times.unreadable.count) rally-times file(s) unreadable, left untouched: \(times.unreadable.joined(separator: ", "))")
+                         + ", tracked rallies \(tracksSent) sent · \(tracksReceived) received")
+            if let plan { parts.append(plan) }
+            let events = try await syncRallyEvents(opening)
             parts.append("boundary records \(events.pushed) sent · \(events.pulled) received" + (events.conflicts.isEmpty ? "" : " · conflicts kept for: \(events.conflicts.joined(separator: ", "))")
                          + (events.withheldPublished.map { " · withheld list published (\($0))" } ?? " · withheld list NOT published — no boundary record sent"))
             status = "Synced: " + parts.joined(separator: ", ") + "."
@@ -204,23 +282,39 @@ final class LabelingSync {
             signedIn = false
             status = "Sign in to sync with the phone."
             return false
+        } catch is ProjectsModel.OpeningEnded {
+            status = Self.stopped(project)
+            return false
+        } catch is CancellationError {
+            status = projects.opening == opening ? "Sync of \(project) cancelled." : Self.stopped(project)
+            return false
+        } catch let error as URLError where error.code == .cancelled {
+            status = projects.opening == opening ? "Sync of \(project) cancelled." : Self.stopped(project)
+            return false
         } catch {
             status = "Sync stopped: \(error.localizedDescription)"
             return false
         }
     }
 
+    /// The status of a round whose project was closed, switched or reopened under it.
+    static func stopped(_ project: String) -> String {
+        "Sync of \(project) stopped: the project changed — nothing more of it was written or published; the next sync of \(project) starts over."
+    }
+
     // MARK: - 1. Phone videos into the project
 
-    private func importPhoneVideos(project: String) async throws -> Int {
+    private func importPhoneVideos(_ opening: ProjectsModel.Opening) async throws -> Int {
         let waiting = try await client.videos().filter { $0.status == .uploaded && $0.clipPath != nil }
         var count = 0
+        let incoming = opening.root.appendingPathComponent("incoming", isDirectory: true)
         for var video in waiting {
-            guard let clipId = clipCard(for: video), let path = video.clipPath, let dir = projects.projectDir else {
+            // The clip cards and the project's videos are the open project's: read only while the opening holds.
+            try projects.require(opening)
+            guard let clipId = clipCard(for: video), let path = video.clipPath else {
                 status = "No clip card for \(video.name) (\(video.surface.rawValue), \(video.camera.title)) — skipped."
                 continue
             }
-            let incoming = dir.appendingPathComponent("incoming", isDirectory: true)
             let file = incoming.appendingPathComponent("phone-\(video.id.uuidString.lowercased()).mp4")
             let title = video.title.isEmpty ? "Phone video \(video.id.uuidString.prefix(8))" : video.title
             let videoId: String
@@ -230,23 +324,25 @@ final class LabelingSync {
             } else {
                 status = "Pulling in \(video.name) from the phone…"
                 try FileManager.default.createDirectory(at: incoming, withIntermediateDirectories: true)
-                try await client.download(path, to: file)
+                try await client.downloadFile(path, to: file)
+                // Added to the project it was pulled in for, never to one opened meanwhile.
+                try projects.require(opening)
                 guard let added = projects.addVideo(to: clipId, source: file.path, start: 0, length: video.duration + 1,
                                                     license: ProjectsModel.ownFootageLicense) else {
                     status = "Couldn't add \(title): \(projects.status)"
                     continue
                 }
-                guard await projects.waitForSampling(added) else {
+                guard try await projects.waitForSampling(added, in: opening) else {
                     status = "\(title) didn't sample: \(projects.status)"
                     continue
                 }
                 try? FileManager.default.removeItem(at: file)
                 videoId = added
             }
-            video.project = project
+            video.project = opening.name
             video.sessionName = videoId
             video.status = .imported
-            if let session = projects.session(named: videoId) {
+            if let session = try projects.session(named: videoId, in: opening) {
                 video.split = session.split
                 video.ralliesFound = Self.ralliesFound(in: session)
             }
@@ -288,11 +384,13 @@ final class LabelingSync {
     /// copy is uploaded, no row created, no withheld row touched; a recording whose original is not on disk is
     /// reported, not guessed.
     func publishIdentities() async -> Bool {
-        guard let project = projects.project?.name, let root = projects.projectDir else { status = "No project."; return false }
+        guard let opening = projects.opening else { status = "No project."; return false }
+        let project = opening.name, root = opening.root
         do {
-            guard let withheld = await withheldClosure(root: root), projects.projectDir == root else {
+            guard let withheld = await withheldClosure(root: root) else {
                 status = "The withheld closure cannot be read: nothing published."; return false
             }
+            try projects.require(opening)
             let listed = try await client.publishWithheld(project: project, names: Array(withheld))
             let sessions = try DatasetStore(root: root).loadSessionsStrict()
             var filled = 0, kept = 0
@@ -301,7 +399,7 @@ final class LabelingSync {
                 guard let name = video.sessionName, !withheld.contains(name) else { continue }
                 guard let session = sessions.first(where: { $0.name == name }), FileManager.default.fileExists(atPath: session.sourcePath) else { missing.append(name); continue }
                 if video.frameTimesDigest != nil, video.sourceFingerprint != nil { kept += 1; continue }
-                guard projects.projectDir == root else { throw SyncFailure.projectChanged(project) }
+                try projects.require(opening)
                 video = await Self.withIdentities(video, source: URL(fileURLWithPath: session.sourcePath))
                 guard video.frameTimesDigest != nil, video.sourceFingerprint != nil else { missing.append(name); continue }
                 _ = try await client.save(video)
@@ -310,26 +408,32 @@ final class LabelingSync {
             status = "Withheld list published (\(listed) names); identities published for \(filled) recordings, \(kept) already had them"
                 + (missing.isEmpty ? "." : "; not published (original not readable): \(missing.sorted().joined(separator: ", ")).")
             return true
+        } catch is ProjectsModel.OpeningEnded {
+            status = Self.stopped(project)
+            return false
         } catch {
             status = "Not published: \(error.localizedDescription)"
             return false
         }
     }
 
-    private func publishVideos(project: String, root: URL, remaking: (String) -> Bool) async throws -> (listed: Int, uploaded: Int, failed: [String]) {
+    private func publishVideos(_ opening: ProjectsModel.Opening, remaking: (String) -> Bool) async throws -> (listed: Int, uploaded: Int, failed: [String]) {
+        let project = opening.name, root = opening.root
         let remote = try await client.videos().filter { $0.project == project }
         var listed = 0, uploaded = 0
         var failed: [String] = []
         // Withheld recordings (the L2 closure) are never uploaded for the phone. When the closure cannot be read,
-        // nothing is uploaded at all (fail closed). The closure is the captured project's: if the open project
-        // changed meanwhile, nothing of it is published under this project's name.
-        guard let withheld = await withheldClosure(root: root), projects.projectDir == root else { return (0, 0, []) }
+        // nothing is uploaded at all (fail closed). The closure and the sessions are the captured project's (`root`).
+        guard let withheld = await withheldClosure(root: root) else { return (0, 0, []) }
+        try projects.require(opening)
         // Decoding every session and asking the share whether each file is there is file work: off the main actor.
         let sessions = try await Task.detached(priority: .utility) {
             try DatasetStore(root: root).loadSessionsStrict().filter { FileManager.default.fileExists(atPath: $0.sourcePath) && !withheld.contains($0.name) }
         }.value
-        guard projects.projectDir == root else { throw SyncFailure.projectChanged(project) }
         for (i, session) in sessions.enumerated() {
+            // Each recording's title and lighting are the open project's cards': the opening must still hold here,
+            // on every pass of this loop (the pass before it awaited).
+            try projects.require(opening)
             guard let surface = LabelSurface(rawValue: Coverage.environment(session.name)) else { continue }
             let existing = remote.first { $0.sessionName == session.name }
             let source = URL(fileURLWithPath: session.sourcePath)
@@ -361,11 +465,16 @@ final class LabelingSync {
                 } catch LabelingClient.Failure.notSignedIn {
                     throw LabelingClient.Failure.notSignedIn
                 } catch {
-                    // One clip failing (a dropped connection) shouldn't stop the rest.
+                    // One clip failing (a dropped connection, or the round cancelled) shouldn't stop the rest; the
+                    // next sync retries it.
                     failed.append(session.name)
                     continue
                 }
             }
+            // The row is the captured project's own (its name, its session, its card's title and lighting read
+            // above while the opening held). A copy whose upload finished is recorded on it even if the opening ended
+            // during the upload: the copy is on the server, and the row is how the phone finds it and the next sync
+            // knows not to make it again. The next pass stops at its check.
             if video != existing {
                 try await client.save(video)
             }
@@ -398,7 +507,7 @@ final class LabelingSync {
             "-pix_fmt", "yuv420p", "-movflags", "+faststart", out.path,
         ])
         guard run.status == 0 else { throw SyncError.encode(run.lines.last ?? "ffmpeg failed") }
-        try await client.upload(out, to: path)
+        try await client.uploadFile(out, to: path)
     }
 
     enum SyncError: LocalizedError {
@@ -412,19 +521,35 @@ final class LabelingSync {
     /// its clip once it exists here, so marking on the phone snaps too.
     /// Footage moved to the desktop counts: the path was made from the
     /// review copy. What's been sent is remembered in ballpaths/sent.json.
-    private func publishBallPaths(project: String) async throws {
-        let root = projects.sampler.datasetRoot
+    /// The paths and the list are the captured project's (`opening.root`).
+    /// Returns a note for the status when the list could not be read: then
+    /// nothing is sent (the list is never taken as empty, which would send
+    /// every path again) and the list is left as it is.
+    private func publishBallPaths(_ opening: ProjectsModel.Opening) async throws -> String? {
+        let root = opening.root
         let sentFile = root.appendingPathComponent("ballpaths/sent.json")
-        var sent = Set((try? Data(contentsOf: sentFile)).flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? [])
-        let remote = try await client.videos().filter { $0.project == project }
+        var sent: Set<String> = []
+        if FileManager.default.fileExists(atPath: sentFile.path) {
+            do { sent = Set(try JSONDecoder().decode([String].self, from: Data(contentsOf: sentFile))) }
+            catch { return "ball paths not sent: ballpaths/sent.json unreadable (\(error.localizedDescription)), left untouched" }
+        }
+        let remote = try await client.videos().filter { $0.project == opening.name }
         var sentNow = 0
+        // What went up is recorded even when the round stops: the uploads are on the server.
+        defer {
+            if sentNow > 0, let data = try? JSONEncoder().encode(sent.sorted()) {
+                try? FileManager.default.createDirectory(at: sentFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try? data.write(to: sentFile, options: .atomic)
+            }
+        }
         for video in remote {
+            try projects.require(opening)
             guard let clip = video.clipPath, let name = video.sessionName else { continue }
             let path = BallPathFile.remotePath(forClip: clip)
             let local = BallPathBuilder.url(for: name, in: root)
             guard !sent.contains(path), FileManager.default.fileExists(atPath: local.path) else { continue }
             do {
-                try await client.upload(local, to: path)
+                try await client.uploadFile(local, to: path)
             } catch LabelingClient.Failure.notSignedIn {
                 throw LabelingClient.Failure.notSignedIn
             } catch {
@@ -433,10 +558,7 @@ final class LabelingSync {
             sent.insert(path)
             sentNow += 1
         }
-        if sentNow > 0, let data = try? JSONEncoder().encode(sent.sorted()) {
-            try? FileManager.default.createDirectory(at: sentFile.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? data.write(to: sentFile, options: .atomic)
-        }
+        return nil
     }
 
     // MARK: - 3. Rally times, both ways
@@ -457,23 +579,17 @@ final class LabelingSync {
         await Task.detached(priority: .utility) { try? EventReview.publishedWithheldNames(in: root) }.value
     }
 
-    enum SyncFailure: LocalizedError {
-        case projectChanged(String)
-        var errorDescription: String? {
-            switch self { case .projectChanged(let p): return "the open project changed while syncing \(p): nothing more of it was published or written" }
-        }
-    }
-
     /// Publishes the project's withheld list (the server refuses events for a project without one), then reconciles
     /// every eligible recording's `rallyevents.json` with the server by `RallyEventsSync.decide`: a push sends the
     /// record at the revision it was loaded from, a pull writes the server's record (and the shadow), a conflict
     /// keeps the server's version beside the local one (`…rallyevents.conflict-r<n>.json`) and changes nothing.
     /// The legacy `rallylabels.json` is never touched; withheld recordings are never read or sent.
-    private func syncRallyEvents(project: String, root: URL) async throws -> (pushed: Int, pulled: Int, conflicts: [String], withheldPublished: Int?) {
+    private func syncRallyEvents(_ opening: ProjectsModel.Opening) async throws -> (pushed: Int, pulled: Int, conflicts: [String], withheldPublished: Int?) {
+        let project = opening.name, root = opening.root
         // The exclusions and the records are the captured project's (`root`): a project switched under a running
         // sync must never publish another project's list under this name, nor write another project's files.
         guard let withheld = await withheldClosure(root: root) else { return (0, 0, [], nil) }
-        guard projects.projectDir == root else { throw SyncFailure.projectChanged(project) }
+        try projects.require(opening)
         var published: Int?
         do { published = try await client.publishWithheld(project: project, names: Array(withheld)) } catch LabelingClient.Failure.notSignedIn {
             throw LabelingClient.Failure.notSignedIn
@@ -482,14 +598,14 @@ final class LabelingSync {
             return (0, 0, [], nil)
         }
         let videos = try await client.videos().filter { $0.project == project && $0.sessionName != nil }
-        let remote = Dictionary(uniqueKeysWithValues: try await client.rallyEvents().map { ($0.videoId, $0) })
+        let remote = Dictionary(uniqueKeysWithValues: try await client.rallyEvents(since: nil).map { ($0.videoId, $0) })
         var pushed = 0, pulled = 0
         var conflicts: [String] = []
         let sessions = try await Task.detached(priority: .utility) { try DatasetStore(root: root).loadSessionsStrict() }.value
-        guard projects.projectDir == root else { throw SyncFailure.projectChanged(project) }
+        try projects.require(opening)
         for video in videos {
             guard let name = video.sessionName, !withheld.contains(name), let session = sessions.first(where: { $0.name == DatasetStore.safeName(name) }) else { continue }
-            guard projects.projectDir == root else { throw SyncFailure.projectChanged(project) }
+            try projects.require(opening)
             let url = EventReview.url(forVideo: URL(fileURLWithPath: session.sourcePath))
             let shadowURL = RallyEventsSync.shadowURL(for: url)
             // A record that is present but cannot be read is left exactly as it is, and said so; never taken as absent.
@@ -508,7 +624,8 @@ final class LabelingSync {
             // record as it was then. If the file changed, nothing is done with this recording this round (the next
             // sync decides on the new record); from here to any write below there is no suspension point except the
             // push's own save, whose reply is reconciled with the file again (afterPush).
-            guard RallyEventsSync.localState(at: url) == localState, projects.projectDir == root else { continue }
+            try projects.require(opening)
+            guard RallyEventsSync.localState(at: url) == localState else { continue }
             if let local, let why = RallyEventsSync.identityMismatch(of: local, session: name, originalFingerprint: original) {
                 conflicts.append("\(name) (local record not sent: \(why) — open it in the Review tab to check it)")
                 continue
@@ -532,11 +649,11 @@ final class LabelingSync {
                     try EventReview.write(keep, to: url)
                     try EventReview.write(shadowRecord, to: shadowURL)
                     // Only the editor of the project still open hears of it; a switched project stops the sync here.
-                    guard projects.projectDir == root else { throw SyncFailure.projectChanged(project) }
+                    try projects.require(opening)
                     onRecordSynced?(root, name, keep)
                     pushed += 1
                 } catch let conflict as RallyEventsConflict {
-                    if let server = try? await client.rallyEvents().first(where: { $0.videoId == video.id }) {
+                    if let server = try? await client.rallyEvents(since: nil).first(where: { $0.videoId == video.id }) {
                         try? EventReview.write(server.record, to: RallyEventsSync.conflictURL(for: url, serverRevision: server.revision))
                     }
                     conflicts.append("\(name) (\(conflict.message))")
@@ -561,14 +678,36 @@ final class LabelingSync {
         return (pushed, pulled, conflicts, published)
     }
 
-    private func syncRallyTimes(project: String) async throws -> (pushed: Int, pulled: Int) {
-        let videos = try await client.videos().filter { $0.project == project && $0.sessionName != nil }
-        let remote = Dictionary(uniqueKeysWithValues: try await client.rallyTimes().map { ($0.videoId, $0) })
+    /// The legacy rally-times file beside a recording, as the sync reads it.
+    enum RallyTimesFile {
+        case absent
+        /// There, but not decodable: never taken as "no marks" — the server's copy would overwrite it.
+        case unreadable(String)
+        case present([RallyMarkRecord])
+    }
+
+    static func rallyTimes(at url: URL) -> RallyTimesFile {
+        guard FileManager.default.fileExists(atPath: url.path) else { return .absent }
+        do { return .present(try JSONDecoder().decode([RallyMarkRecord].self, from: Data(contentsOf: url))) }
+        catch { return .unreadable(error.localizedDescription) }
+    }
+
+    private func syncRallyTimes(_ opening: ProjectsModel.Opening) async throws -> (pushed: Int, pulled: Int, unreadable: [String]) {
+        let videos = try await client.videos().filter { $0.project == opening.name && $0.sessionName != nil }
+        let remote = Dictionary(uniqueKeysWithValues: try await client.rallyTimes(since: nil).map { ($0.videoId, $0) })
         var pushed = 0, pulled = 0
+        var unreadable: [String] = []
         for video in videos {
-            guard let name = video.sessionName, let session = projects.session(named: name) else { continue }
+            // The session is the captured project's (the lookup refuses once the opening ended); from it to the write
+            // below there is no suspension point but the push's own save, after which nothing of the recording is written.
+            guard let name = video.sessionName, let session = try projects.session(named: name, in: opening) else { continue }
             let labels = RallyMarkModel.labelsURL(for: URL(fileURLWithPath: session.sourcePath))
-            let localRallies = (try? Data(contentsOf: labels)).flatMap { try? JSONDecoder().decode([RallyMarkRecord].self, from: $0) }
+            let localRallies: [RallyMarkRecord]?
+            switch Self.rallyTimes(at: labels) {
+            case .absent: localRallies = nil
+            case .unreadable: unreadable.append(name); continue
+            case .present(let rallies): localRallies = rallies
+            }
             let localChanged = (try? labels.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
             let local = localRallies.map { rallies in
                 LabelRallyTimes(videoId: video.id,
@@ -583,7 +722,7 @@ final class LabelingSync {
                 try await client.save(mine)
                 pushed += 1
             case (nil, let theirs?):
-                write(theirs, to: labels, session: name)
+                try write(theirs, to: labels, session: name, in: opening)
                 pulled += 1
             case (let mine?, let theirs?):
                 guard !Self.same(mine, theirs) else { continue }
@@ -591,12 +730,12 @@ final class LabelingSync {
                     try await client.save(mine)
                     pushed += 1
                 } else {
-                    write(theirs, to: labels, session: name)
+                    try write(theirs, to: labels, session: name, in: opening)
                     pulled += 1
                 }
             }
         }
-        return (pushed, pulled)
+        return (pushed, pulled, unreadable)
     }
 
     // MARK: - 4. Tracked rallies, both ways
@@ -608,12 +747,12 @@ final class LabelingSync {
     /// Only rallies whose time differs from this Mac's copy are fetched in
     /// full: pre-tracked rallies make hundreds, and most don't change
     /// between syncs.
-    private func syncTracks(project: String, framesSent: Set<UUID>) async throws -> (sent: Int, received: Int) {
-        let videos = try await client.videos().filter { $0.project == project && $0.sessionName != nil }
+    private func syncTracks(_ opening: ProjectsModel.Opening, framesSent: Set<UUID>) async throws -> (sent: Int, received: Int) {
+        let videos = try await client.videos().filter { $0.project == opening.name && $0.sessionName != nil }
         let stamps = try await client.trackStamps()
         var localTimes: [UUID: Date?] = [:]
         for video in videos {
-            guard let name = video.sessionName, let session = projects.session(named: name) else { continue }
+            guard let name = video.sessionName, let session = try projects.session(named: name, in: opening) else { continue }
             for t in session.tracks ?? [] { localTimes[t.id] = t.updatedAt }
         }
         let changed = stamps.filter { s in
@@ -626,17 +765,22 @@ final class LabelingSync {
         let remoteIds = Dictionary(grouping: stamps, by: \.videoId).mapValues { Set($0.map(\.id)) }
         var outgoing: [LabelTrack] = []
         var received = 0
+        // What each session's synced list becomes once the server has this round's batches: its rallies now, plus
+        // the rallies deleted here whose tombstones the server has not acknowledged yet.
+        var syncedAfter: [(session: String, ids: [UUID], tombstones: [UUID])] = []
         // Sent rallies are stamped with the time they're sent, not when they
         // changed here: the phone takes only rows stamped after its last look,
         // so a rally changed here while syncing was off would never reach it.
         let now = Date()
         for video in videos {
-            guard let name = video.sessionName, let session = projects.session(named: name) else { continue }
+            // The session read here and written below is the captured project's: no suspension point in between.
+            guard let name = video.sessionName, let session = try projects.session(named: name, in: opening) else { continue }
             var local = session.tracks ?? []
             let synced = Set(session.syncedTrackIds ?? [])
             let theirs = remote[video.id] ?? []
             let known = remoteIds[video.id] ?? []
             var changedHere = false
+            var tombstones: [UUID] = []
             for r in theirs {
                 let i = local.firstIndex { $0.id == r.id }
                 if r.deleted {
@@ -649,6 +793,7 @@ final class LabelingSync {
                         gone.deleted = true
                         gone.updatedAt = Date()
                         outgoing.append(gone)           // deleted here since the last sync
+                        tombstones.append(r.id)
                     } else {
                         local.append(r.rally)          // new from the phone
                         changedHere = true
@@ -681,14 +826,34 @@ final class LabelingSync {
                 changedHere = true
             }
             local.sort { $0.start < $1.start }
+            try projects.require(opening)
             if changedHere {
                 projects.sampler.setTracks(local, session: name)
                 onTracksChanged?(name)
             }
-            projects.sampler.setSyncedTrackIds(local.map(\.id), session: name)
+            // The synced list now: the session's rallies (a rally just received from the phone included — deleted
+            // here before the next successful round, it must go up as a tombstone, not come back as new) plus the
+            // rallies deleted here, every one of them until the server acknowledges its tombstone below.
+            projects.sampler.setSyncedTrackIds(local.map(\.id) + tombstones, session: name)
+            syncedAfter.append((name, local.map(\.id), tombstones))
         }
+        var acknowledged: Set<UUID> = []
         for batch in stride(from: 0, to: outgoing.count, by: 20).map({ Array(outgoing[$0..<min($0 + 20, outgoing.count)]) }) {
+            // Rallies not sent because the opening ended go next time: changed here, they are newer than the
+            // server's stamp; new here, the server does not know them; deleted here, they stay on the synced list
+            // (written below only once every batch is acknowledged).
+            try projects.require(opening)
             try await client.save(batch)
+            acknowledged.formUnion(batch.map(\.id))
+        }
+        // Once the server has every batch, the acknowledged tombstones come off the synced lists. A round stopped
+        // between batches — the opening ended, the connection dropped — leaves the lists as written above: a
+        // deletion whose tombstone was not acknowledged is still on them, so the next round sends it instead of
+        // taking the server's still-present rally for a new one; a tombstone the server did acknowledge drops off
+        // on that round (its stamp is deleted by then, so nothing is fetched or sent for it).
+        try projects.require(opening)
+        for entry in syncedAfter {
+            projects.sampler.setSyncedTrackIds(entry.ids + entry.tombstones.filter { !acknowledged.contains($0) }, session: entry.session)
         }
         return (outgoing.count, received)
     }
@@ -699,29 +864,40 @@ final class LabelingSync {
 
     // MARK: - 5. The plan, for the phone's Plan tab
 
-    private func publishPlan(project: String) async throws {
-        let root = projects.sampler.datasetRoot
+    /// The captured project's plan and scores (`opening.root`). Returns a note for the status when the plan file
+    /// is there but cannot be read: then nothing is published — an empty plan would replace the phone's copy.
+    private func publishPlan(_ opening: ProjectsModel.Opening) async throws -> String? {
+        let root = opening.root
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        let plan = (try? Data(contentsOf: root.appendingPathComponent("training_plan.json")))
-            .flatMap { try? decoder.decode([TrainedRound].self, from: $0) } ?? []
+        let planURL = root.appendingPathComponent("training_plan.json")
+        var plan: [TrainedRound] = []
+        if FileManager.default.fileExists(atPath: planURL.path) {
+            do { plan = try decoder.decode([TrainedRound].self, from: Data(contentsOf: planURL)) }
+            catch { return "plan not published: training_plan.json unreadable (\(error.localizedDescription)), the phone keeps the plan it has" }
+        }
         var scores: [String: [String: Double]] = [:]
         for name in plan.flatMap({ $0.runs.compactMap(\.name) }) {
             let url = root.appendingPathComponent("incoming/\(name)/metrics.json")
             guard let s = (try? Data(contentsOf: url)).flatMap({ try? JSONDecoder().decode(RunScores.self, from: $0) }) else { continue }
             scores[name] = Dictionary(uniqueKeysWithValues: ["tracked", "indoor", "grass", "beach"].compactMap { k in s.f1(k).map { (k, $0) } })
         }
-        try await client.save(LabelProjectState(project: project, plan: plan, scores: scores, updatedAt: nil))
+        try projects.require(opening)
+        try await client.save(LabelProjectState(project: opening.name, plan: plan, scores: scores, updatedAt: nil))
+        return nil
     }
 
-    private func write(_ times: LabelRallyTimes, to labels: URL, session: String) {
-        defer { onTimesChanged?(session) }
+    /// The server's rally times written beside the captured project's recording, and its session marked: only
+    /// while the opening holds (the session is the open project's), and the editor told only then.
+    private func write(_ times: LabelRallyTimes, to labels: URL, session: String, in opening: ProjectsModel.Opening) throws {
+        try projects.require(opening)
         let rallies = times.rallies.sorted { $0.start < $1.start }
             .map { RallyMarkRecord(startTime: $0.start, endTime: $0.end, kind: $0.kind, contacts: $0.contacts) }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted]
-        try? encoder.encode(rallies).write(to: labels, options: .atomic)
+        try encoder.encode(rallies).write(to: labels, options: .atomic)
         projects.sampler.setRalliesMarked(times.complete, session: session)
+        onTimesChanged?(session)
     }
 
     /// Same rallies (to the frame, with the same kinds and touches) and the
@@ -750,19 +926,38 @@ final class LabelingSync {
     }
 }
 
-/// Review decisions waiting to go up, kept on disk so a quit doesn't lose them.
-private enum Pending {
-    private static func file(_ name: String) -> URL {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appending(path: "RallyLab")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appending(path: "pending-\(name).json")
+/// Review decisions waiting to go up, kept on disk so a quit doesn't lose them. They are keyed by the server's
+/// rally ids, not by project.
+struct Pending {
+    static let defaultDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appending(path: "RallyLab")
+
+    let directory: URL
+
+    func file(_ name: String) -> URL { directory.appending(path: "pending-\(name).json") }
+
+    /// What is waiting, or nil when nothing was saved. A file that is there but cannot be decoded is never taken as
+    /// empty — the next save would overwrite it: it is set aside under its own name with the time, kept for repair,
+    /// and a note says so (nothing in it is sent).
+    func load<T: Decodable>(_ type: T.Type, _ name: String, notes: inout [String]) -> T? {
+        let url = file(name)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        do {
+            return try JSONDecoder().decode(T.self, from: Data(contentsOf: url))
+        } catch {
+            let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+            let aside = directory.appending(path: "pending-\(name).unreadable-\(stamp).json")
+            do {
+                try FileManager.default.moveItem(at: url, to: aside)
+                notes.append("\(url.lastPathComponent) could not be read (\(error.localizedDescription)): kept as \(aside.lastPathComponent), nothing in it sent.")
+            } catch let move {
+                notes.append("\(url.lastPathComponent) could not be read (\(error.localizedDescription)) and could not be set aside (\(move.localizedDescription)): left in place, nothing in it sent.")
+            }
+            return nil
+        }
     }
 
-    static func load<T: Decodable>(_ type: T.Type, _ name: String) -> T? {
-        (try? Data(contentsOf: file(name))).flatMap { try? JSONDecoder().decode(T.self, from: $0) }
-    }
-
-    static func save<T: Encodable>(_ value: T, _ name: String) {
+    func save<T: Encodable>(_ value: T, _ name: String) {
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try? JSONEncoder().encode(value).write(to: file(name), options: .atomic)
     }
 }

@@ -195,6 +195,55 @@ final class ProjectsModel {
     private(set) var projectDir: URL?
     private(set) var status = "Create a project to start a training set."
 
+    /// One opening of a project: what an asynchronous operation captures when it starts, and shows before
+    /// every project-dependent step. Two openings are never equal — not of the same folder, not of the same
+    /// folder opened again after another project — so work started under one can tell that the project it
+    /// was reading has since been closed, switched, or reopened (its sessions reloaded), whatever the name
+    /// or path of the project open now. The name and root are the captured project's own: file paths
+    /// derived from `root` stay that project's even after the opening ends.
+    struct Opening: Hashable, Sendable {
+        let generation: UUID
+        let name: String
+        let root: URL
+    }
+
+    /// The project open now, as an opening; nil when none is open.
+    private(set) var opening: Opening?
+
+    /// Thrown by `require`: the opening an operation started under has ended.
+    struct OpeningEnded: LocalizedError, Equatable {
+        let name: String
+        var errorDescription: String? { "the open project changed while working on \(name): nothing more of it was read, written or published" }
+    }
+
+    /// That `opening` is still the project open now. Called right before every step that reads the open
+    /// project (`project`, `projectDir`, the sampler's sessions) or writes to it, with no suspension between
+    /// the call and the step: the step then sees exactly the project the operation started under.
+    func require(_ opening: Opening) throws {
+        guard self.opening == opening else { throw OpeningEnded(name: opening.name) }
+    }
+
+    /// The session of the project `opening` names, or nil if it has none by that name; throws when the opening
+    /// has ended — a same-named session of another project is never returned in its place.
+    func session(named videoId: String, in opening: Opening) throws -> VideoSession? {
+        try require(opening)
+        return session(named: videoId)
+    }
+
+    @ObservationIgnored private var openingEnded: [(Opening) -> Void] = []
+
+    /// Called, on the main actor, each time an opening ends (close, switch, reopen, forget) with the opening
+    /// that ended — for cancelling work started under it. The project open afterwards, if any, is `opening`.
+    func onOpeningEnded(_ handler: @escaping (Opening) -> Void) {
+        openingEnded.append(handler)
+    }
+
+    private func endOpening() {
+        guard let ended = opening else { return }
+        opening = nil
+        for handler in openingEnded { handler(ended) }
+    }
+
     var selectedClipId: String?
     /// A video dropped on an online clip's card, for its detail pane to
     /// pick up (it needs a licence before it's cut).
@@ -211,15 +260,19 @@ final class ProjectsModel {
     }
 
     let sampler: SamplerModel
+    /// Where the known projects, the last one opened and when each was opened are kept (tests pass their own
+    /// suite, so a fixture opened under XCTest never becomes the project RallyLab opens next).
+    private let defaults: UserDefaults
 
-    init(sampler: SamplerModel) {
+    init(sampler: SamplerModel, defaults: UserDefaults = .standard) {
         self.sampler = sampler
+        self.defaults = defaults
         loadKnownProjects()
         // Under XCTest the host app must not open the person's project: its periodic sync
         // re-saves every session from memory and its tabs run the pipeline on footage (ball
         // paths, scrub proxies) while the tests run. Tests bring their own fixtures.
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return }
-        if let last = UserDefaults.standard.string(forKey: Self.lastProjectKey) {
+        if let last = defaults.string(forKey: Self.lastProjectKey) {
             let dir = URL(fileURLWithPath: last, isDirectory: true)
             if knownProjects.contains(dir) { open(dir) }
         }
@@ -242,7 +295,7 @@ final class ProjectsModel {
     /// The remembered list, plus anything in the default location, minus
     /// folders that have since been moved or deleted.
     private func loadKnownProjects() {
-        let saved = (UserDefaults.standard.stringArray(forKey: Self.knownProjectsKey) ?? [])
+        let saved = (defaults.stringArray(forKey: Self.knownProjectsKey) ?? [])
             .map { URL(fileURLWithPath: $0, isDirectory: true) }
         let inDefault = (try? FileManager.default.contentsOfDirectory(
             at: Self.defaultLocation, includingPropertiesForKeys: nil)) ?? []
@@ -256,19 +309,19 @@ final class ProjectsModel {
 
     /// Known projects, most recently opened first — the welcome window's list.
     var recentProjects: [URL] {
-        let opened = UserDefaults.standard.dictionary(forKey: Self.openedKey) as? [String: Double] ?? [:]
+        let opened = defaults.dictionary(forKey: Self.openedKey) as? [String: Double] ?? [:]
         return knownProjects.sorted { (opened[$0.path] ?? 0) > (opened[$1.path] ?? 0) }
     }
 
     func lastOpened(_ dir: URL) -> Date? {
-        let opened = UserDefaults.standard.dictionary(forKey: Self.openedKey) as? [String: Double] ?? [:]
+        let opened = defaults.dictionary(forKey: Self.openedKey) as? [String: Double] ?? [:]
         return opened[dir.standardizedFileURL.path].map(Date.init(timeIntervalSince1970:))
     }
 
     private func markOpened(_ dir: URL) {
-        var opened = UserDefaults.standard.dictionary(forKey: Self.openedKey) as? [String: Double] ?? [:]
+        var opened = defaults.dictionary(forKey: Self.openedKey) as? [String: Double] ?? [:]
         opened[dir.standardizedFileURL.path] = Date().timeIntervalSince1970
-        UserDefaults.standard.set(opened, forKey: Self.openedKey)
+        defaults.set(opened, forKey: Self.openedKey)
     }
 
     /// Back to the welcome window. The project stays on the list, and
@@ -277,12 +330,13 @@ final class ProjectsModel {
         project = nil
         projectDir = nil
         selectedClipId = nil
-        UserDefaults.standard.removeObject(forKey: Self.lastProjectKey)
+        endOpening()
+        defaults.removeObject(forKey: Self.lastProjectKey)
         status = "Create a project to start a training set."
     }
 
     private func storeKnownProjects() {
-        UserDefaults.standard.set(knownProjects.map(\.path), forKey: Self.knownProjectsKey)
+        defaults.set(knownProjects.map(\.path), forKey: Self.knownProjectsKey)
     }
 
     private func remember(_ dir: URL) {
@@ -300,7 +354,8 @@ final class ProjectsModel {
         if projectDir == dir.standardizedFileURL {
             project = nil
             projectDir = nil
-            UserDefaults.standard.removeObject(forKey: Self.lastProjectKey)
+            endOpening()
+            defaults.removeObject(forKey: Self.lastProjectKey)
         }
     }
 
@@ -323,9 +378,8 @@ final class ProjectsModel {
             status = "Couldn't create \(dir.path): \(error.localizedDescription)"
             return
         }
-        project = Project(name: clean, createdAt: Date(), framesPerRally: StandardClipPlan.framesPerRally,
-                          clips: StandardClipPlan.clips)
-        projectDir = dir.standardizedFileURL
+        install(Project(name: clean, createdAt: Date(), framesPerRally: StandardClipPlan.framesPerRally,
+                        clips: StandardClipPlan.clips), at: dir)
         save()
         remember(dir)
         activate()
@@ -345,8 +399,7 @@ final class ProjectsModel {
             status = "\(dir.lastPathComponent)/project.json is unreadable."
             return
         }
-        project = loaded
-        projectDir = dir.standardizedFileURL
+        install(loaded, at: dir)
         try? ProjectLayout.create(at: dir)
         addNewPlanClips()
         selectedClipId = nil
@@ -356,11 +409,22 @@ final class ProjectsModel {
         status = "\(loaded.name): \(loaded.clips.count) planned clips."
     }
 
+    /// Make `loaded` the open project, as a new opening. The only way a project becomes the open one (opened or
+    /// created): the opening in progress — of this folder or another — ends first, so work started under it
+    /// stops at its next step and never reads the sessions loaded for this one as its own; a project is never
+    /// the open one without an opening of its own.
+    private func install(_ loaded: Project, at dir: URL) {
+        endOpening()
+        project = loaded
+        projectDir = dir.standardizedFileURL
+        opening = Opening(generation: UUID(), name: loaded.name, root: dir.standardizedFileURL)
+    }
+
     /// Point the Sampler at this project's dataset.
     private func activate() {
         guard let dir = projectDir else { return }
         sampler.setDatasetRoot(dir)
-        UserDefaults.standard.set(dir.path, forKey: Self.lastProjectKey)
+        defaults.set(dir.path, forKey: Self.lastProjectKey)
         markOpened(dir)
     }
 
@@ -411,10 +475,15 @@ final class ProjectsModel {
     // MARK: - Progress
 
     /// Wait for a video `addVideo` started to be cut and sampled: true once
-    /// it's in the dataset.
-    func waitForSampling(_ videoId: String) async -> Bool {
+    /// it's in the dataset. Throws when the waiting task is cancelled (the
+    /// wait ends at once instead of polling on — a cancelled sleep returns
+    /// immediately) and, given `opening`, as soon as that opening — the
+    /// project the video was added to — has ended, before its progress is
+    /// read: the jobs and sessions looked at are the open project's.
+    func waitForSampling(_ videoId: String, in opening: Opening? = nil) async throws -> Bool {
         while true {
-            try? await Task.sleep(nanoseconds: 500_000_000)
+            try await Task.sleep(nanoseconds: 500_000_000)
+            if let opening { try require(opening) }
             switch progress(ofVideo: videoId) {
             case .pulled: return true
             case .failed: return false
@@ -911,6 +980,9 @@ final class ProjectsModel {
 
         let videoId = nextVideoId(for: clip)
         let isFile = FileManager.default.fileExists(atPath: (trimmed as NSString).expandingTildeInPath)
+        // The cut lands in this project's footage folder (`dir`) and is recorded on this project's card — the
+        // one open now — never on a project opened while the cut ran.
+        let opening = opening
         var args = [script.path, trimmed,
                     "--id", videoId, "--license", note,
                     "--start", String(start), "--length", String(length),
@@ -931,26 +1003,43 @@ final class ProjectsModel {
                     self.jobs[i].fraction = fraction
                 }
             }
-            switch outcome {
-            case .failure(let failure):
-                if let i = jobs.firstIndex(where: { $0.id == videoId }) { jobs[i].failure = failure.message }
-                status = "\(videoId): \(failure.message)"
-                finished?(false)
-            case .success(let result):
-                jobs.removeAll { $0.id == videoId }
-                recordVideo(videoId, in: clipId, result: result, kind: isFile ? .file : .link,
-                            origin: trimmed, license: note, frames: frames, fingerprint: fingerprint,
-                            provenance: provenance)
-                // A session left by an earlier video with this ID.
-                if let old = session(named: videoId) { sampler.deleteSession(old) }
-                let split = project?.clips.first(where: { $0.id == clipId })?.split
-                sampler.enqueueClip(URL(fileURLWithPath: result.file), sessionName: DatasetStore.safeName(videoId),
-                                    split: split, framesPerRally: frames ?? project?.framesPerRally)
-                status = "\(videoId): cut \(Int(result.duration.rounded()))s, sampling…"
-                finished?(true)
-            }
+            finishFetch(outcome, videoId: videoId, clipId: clipId, opening: opening, kind: isFile ? .file : .link,
+                        origin: trimmed, license: note, frames: frames, fingerprint: fingerprint, provenance: provenance, finished: finished)
         }
         return videoId
+    }
+
+    /// The cut is done (or failed): recorded on the card and queued for sampling only while `opening` — the project
+    /// it was started for — is still the one open. Otherwise the cut file stays where it landed, in that project's
+    /// footage folder, and the job is marked failed with the reason: nothing of it is written to the project open now.
+    func finishFetch(_ outcome: Result<FetchResult, FetchFailure>, videoId: String, clipId: String, opening: Opening?,
+                     kind: ClipSource.Kind, origin: String, license: String, frames: Int?, fingerprint: String?,
+                     provenance: ClipSource?, finished: ((Bool) -> Void)?) {
+        guard self.opening == opening, let opening else {
+            let why = "the project changed while \(opening?.name ?? "it") was being cut: not recorded (the cut file, if made, is in that project's footage folder)"
+            if let i = jobs.firstIndex(where: { $0.id == videoId }) { jobs[i].failure = why }
+            status = "\(videoId): \(why)"
+            finished?(false)
+            return
+        }
+        switch outcome {
+        case .failure(let failure):
+            if let i = jobs.firstIndex(where: { $0.id == videoId }) { jobs[i].failure = failure.message }
+            status = "\(videoId): \(failure.message)"
+            finished?(false)
+        case .success(let result):
+            jobs.removeAll { $0.id == videoId }
+            recordVideo(videoId, in: clipId, result: result, kind: kind,
+                        origin: origin, license: license, frames: frames, fingerprint: fingerprint,
+                        provenance: provenance)
+            // A session left by an earlier video with this ID.
+            if let old = session(named: videoId) { sampler.deleteSession(old) }
+            let split = project?.clips.first(where: { $0.id == clipId })?.split
+            sampler.enqueueClip(URL(fileURLWithPath: result.file), sessionName: DatasetStore.safeName(videoId),
+                                split: split, framesPerRally: frames ?? project?.framesPerRally)
+            status = "\(videoId): cut \(Int(result.duration.rounded()))s, sampling… (\(opening.name))"
+            finished?(true)
+        }
     }
 
     private func recordVideo(_ videoId: String, in clipId: String, result: FetchResult, kind: ClipSource.Kind,
