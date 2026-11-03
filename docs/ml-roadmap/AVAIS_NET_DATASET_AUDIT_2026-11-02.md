@@ -1,8 +1,8 @@
 ---
 name: avais-net-dataset-audit-2026-11-02
-status: closed — dataset rejected by the owner; local data deleted; nothing trained
+status: closed — dataset rejected by the owner; local data and Roboflow fork deleted; nothing trained
 created: 2026-11-02T23:12:56Z
-updated: 2026-11-03T00:15:10Z
+updated: 2026-11-03T02:18:32Z
 decisions: owner direction 2026-11-02 on PR #132 §F.4 ("We should not have any overlapping go ahead and use it"); owner, after viewing it: "this dataset wont do us any good it doesnt give us anything its the same annotated net for almost every single frame" (rejected; "delete the avais files"); D-002, D-017, D-018 honoured
 roadmap_phase: net model replacement (NET_MODEL_PLAN.md)
 ---
@@ -15,7 +15,7 @@ On 2026-11-02 the Roboflow Universe dataset `avais-beach-volleyball/beach-volley
 - exported as YOLOv8 (zip SHA-256 `4100d851560f404e26888fdadd8d7bfdf7ac3faa4af68d91b6d83f27dc686c72`);
 - packaged with the new `scripts/desktop_training/prepare_external_net_dataset.py`.
 
-After looking at it, **the owner rejected it**, and the downloaded export and package were deleted from the Mac and the desktop staging share. **Nothing was trained.** The Roboflow fork remains in our workspace.
+After looking at it, **the owner rejected it**, and the downloaded export and package were deleted from the Mac and the desktop staging share. **Nothing was trained.** On the owner's word ("go ahead and delete avais"), the Roboflow fork was deleted the same day; Roboflow keeps it in the workspace Trash for 30 days.
 
 ## Why it was rejected
 
