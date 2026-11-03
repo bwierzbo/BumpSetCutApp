@@ -283,7 +283,7 @@ class PrepareTests(unittest.TestCase):
     def test_non_ascii_config_round_trips_under_a_cp1252_default(self):
         """Codex P2 on 7420931: a Windows locale (cp1252) must not change what is read."""
         self.fx.config["provenance"]["note"] = "boxes — not corners; Główny sponsor"
-        self.fx.config["groups"][0]["evidence"] = "OLSZTYN GRAND SLAM — GALERIA WARMIŃSKA"
+        self.fx.config["groups"][0]["evidence"] = "boards — GALERIA WARMIŃSKA, façade"
         self.fx.config_path.write_bytes(json.dumps(self.fx.config, ensure_ascii=False).encode("utf-8"))
         original = Path.read_text
 

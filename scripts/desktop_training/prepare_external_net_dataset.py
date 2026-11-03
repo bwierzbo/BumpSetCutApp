@@ -36,6 +36,26 @@ Rules, each recorded per image in the manifest:
   reservations, closed over alias groups) stops the build before any image is opened.
 
 Boxes are boxes: the package says so (`label_kind`), and nothing here makes corners.
+
+The config (JSON; the tests' fixture is a complete example):
+
+    {"dataset_id": "...", "net_class": "<the export's net class name>",
+     "negatives_trusted": false,
+     "source": {"universe_project": "...", "fork": "...", "version": 1, "export_zip_sha256": "...",
+                "augmentation": "none", "license": "..."},
+     "label_semantics": "what the box covers, checked on a sample",
+     "near_duplicate": {"threshold": 0.9965, "calibration_images": 20, "calibration_seed": 0},
+     "groups": [{"id": "...", "match": "<regex on the file name>", "status": "eligible",
+                 "event": "...", "evidence_type": "...", "evidence": "...", "confidence": "high"},
+                {"id": "...", "match": "...", "status": "quarantined", "reason": "...", ...}],
+     "decisions": [{"file": "<exact name>", "status": "quarantined", "reason": "...",
+                    "evidence_type": "manual_inspection", "confidence": "high",
+                    "proposed_correction": "for the owner; never applied"}],
+     "provenance": {"source": "...", "license": "...", "obtained": "...", "note": "..."}}
+
+Audit the source before trusting the image count: the first dataset run through this
+(Avais Beach Volleyball, 2026-11-02) had 636 images that were one fixed camera at one event,
+the same net in every frame, and was rejected (docs/ml-roadmap/AVAIS_NET_DATASET_AUDIT_2026-11-02.md).
 """
 
 from __future__ import annotations
