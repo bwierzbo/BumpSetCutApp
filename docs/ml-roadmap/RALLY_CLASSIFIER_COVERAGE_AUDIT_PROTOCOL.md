@@ -119,4 +119,4 @@ A new sidecar next to the marks, never written by live tagging or phone sync, wr
 
 ## 9. What this protocol does not authorise
 
-No audit is drawn or performed until the owner approves this document and decides D6 (sample) and D8 (amendment). The draw tool is not run on the Scratch project in this PR. No mark is written, moved or deleted by the audit; corrections go through the marking pass. No protected recording is listed, drawn, opened or scored.
+No audit is drawn or performed until the owner approves this document and decides D6 (sample) and D8 (amendment). The draw tool is not run on the Scratch project in this PR. No mark is written, moved or deleted by the audit; corrections go through the marking pass. No protected recording is listed, drawn, opened or scored: a `final_test` recording's coverage certification belongs to the separately authorised protected-annotation workflow (readiness plan §4 step 3, dependency P1), never to a draw from this tool.
