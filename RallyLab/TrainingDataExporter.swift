@@ -53,15 +53,18 @@ enum TrainingDataExporter {
         let frames: [FrameRow]
     }
 
+    /// `cuts`: the recording's cut ranges (not footage; D-030) — frames inside them are left out,
+    /// labels and baseline rallies are taken outside them.
     static func makeExport(
         videoName: String,
         duration: Double,
         evidence: [VideoProcessor.FrameEvidence],
         labels: [Interval],
-        baselineRaw: [Interval]
+        baselineRaw: [Interval],
+        cuts: [CutRange] = []
     ) -> Export {
         let net = evidence.lazy.compactMap { $0.detectedNet }.first
-        let frames = evidence.map { f -> FrameRow in
+        let frames = evidence.filter { !cuts.contains($0.time) }.map { f -> FrameRow in
             let selected = f.candidates.first { $0.isSelected }
             return FrameRow(
                 t: f.time,
@@ -86,10 +89,25 @@ enum TrainingDataExporter {
             duration: duration,
             netTopY: net.map { Double($0.box.maxY) },
             netBottomY: net.map { Double($0.box.minY) },
-            labels: labels.map { IntervalDTO(start: $0.start, end: $0.end) },
-            baselineRaw: baselineRaw.map { IntervalDTO(start: $0.start, end: $0.end) },
+            labels: labels.outside(cuts).map { IntervalDTO(start: $0.start, end: $0.end) },
+            baselineRaw: baselineRaw.outside(cuts).map { IntervalDTO(start: $0.start, end: $0.end) },
             frames: frames
         )
+    }
+
+    /// The cut ranges of the project session over this video, if any project has one — matched
+    /// by the session's source path (a video no project knows has no cuts, by construction).
+    static func cutRanges(forVideo url: URL, projectsRoot: URL = ProjectsModel.defaultLocation) -> [CutRange] {
+        let path = url.standardizedFileURL.resolvingSymlinksInPath().path
+        let fm = FileManager.default
+        guard let projects = try? fm.contentsOfDirectory(at: projectsRoot, includingPropertiesForKeys: nil) else { return [] }
+        for project in projects {
+            for session in DatasetStore(root: project).loadSessions() {
+                let source = URL(fileURLWithPath: session.sourcePath).standardizedFileURL.resolvingSymlinksInPath().path
+                if source == path || session.sourcePath == url.path { return session.cutRanges }
+            }
+        }
+        return []
     }
 
     static func write(_ export: Export, to url: URL) throws {
@@ -191,13 +209,16 @@ enum HeadlessTrainingExport {
             let baseline = EvidenceReplayer.decidedRanges(
                 evidence: evidence, duration: duration, config: ProcessorConfig(),
                 minRallySec: 1.1653, padded: false)   // RallyDecider's production default
+            let cuts = TrainingDataExporter.cutRanges(forVideo: video)
+            if !cuts.isEmpty { log("  \(video.lastPathComponent): \(String(format: "%.1f", cuts.seconds(within: duration))) s of cut ranges left out (D-030)") }
 
             let export = TrainingDataExporter.makeExport(
                 videoName: video.lastPathComponent,
                 duration: duration,
                 evidence: evidence,
                 labels: labeled.map { Interval(start: $0.startTime, end: $0.endTime) },
-                baselineRaw: baseline)
+                baselineRaw: baseline,
+                cuts: cuts)
 
             let outURL = TrainingDataExporter.exportURL(for: video)
             do {

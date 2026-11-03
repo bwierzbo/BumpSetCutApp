@@ -29,7 +29,9 @@ enum EventInventory {
         var withdrawnRallies: Int
         var spans: Int
         var coverageSec: Double
-        /// Reviewed coverage over the duration, 0…1; nil when the duration is unknown (no events file yet).
+        /// Seconds of cut ranges (not footage; D-030) within the duration; nil when the duration is unknown.
+        var cutSec: Double? = nil
+        /// Reviewed coverage over the duration less its cut ranges, 0…1; nil when the duration is unknown (no events file yet).
         var coverageFraction: Double?
         var unknownGaps: Int
         var stage1Complete: Bool
@@ -84,7 +86,8 @@ enum EventInventory {
                 row.withdrawnRallies = file.rallies.filter { $0.reviewState == .withdrawn }.count
                 row.spans = file.spans.count
                 row.coverageSec = EventReview.union(file.coverage).reduce(0) { $0 + ($1.end - $1.start) }
-                row.coverageFraction = min(1, row.coverageSec / file.durationSec)
+                row.cutSec = s.cutRanges.seconds(within: file.durationSec)
+                row.coverageFraction = min(1, row.coverageSec / max(file.durationSec - (row.cutSec ?? 0), 0.001))
                 row.unknownGaps = EventReview.gaps(in: file).count
                 row.stage1Complete = file.stage1Complete != nil
             }
@@ -102,12 +105,13 @@ enum EventInventory {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(report).write(to: json, options: .atomic)
-        var lines = ["name,split,withheld,legacyMarks,legacyUnverified,sourceMethod,eventsFile,reviewedRallies,withdrawnRallies,spans,coverageSec,coverageFraction,unknownGaps,stage1Complete,recordProblem"]
+        var lines = ["name,split,withheld,legacyMarks,legacyUnverified,sourceMethod,eventsFile,reviewedRallies,withdrawnRallies,spans,coverageSec,cutSec,coverageFraction,unknownGaps,stage1Complete,recordProblem"]
         for r in report.recordings {
             let marks = r.legacyMarks.map(String.init) ?? ""
             lines.append([r.name, r.split, r.withheld ? "yes" : "no", marks, marks, r.legacyMarks == nil ? "" : "legacy_unknown",
                           r.eventsFile ? "yes" : "no", String(r.reviewedRallies), String(r.withdrawnRallies), String(r.spans),
-                          String(format: "%.3f", r.coverageSec), r.coverageFraction.map { String(format: "%.4f", $0) } ?? "",
+                          String(format: "%.3f", r.coverageSec), r.cutSec.map { String(format: "%.3f", $0) } ?? "",
+                          r.coverageFraction.map { String(format: "%.4f", $0) } ?? "",
                           String(r.unknownGaps), r.stage1Complete ? "yes" : "no",
                           (r.recordProblem ?? "").replacingOccurrences(of: ",", with: ";").replacingOccurrences(of: "\n", with: " ")].joined(separator: ","))
         }

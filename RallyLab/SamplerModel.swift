@@ -488,11 +488,13 @@ final class SamplerModel {
             : labeled.map { Interval(start: $0.startTime, end: $0.endTime) }
 
         let settings = ingestSettings(name: name, split: split)
+        // A session ingested again keeps its cut ranges: nothing is sampled inside them (D-030).
+        let cuts = sessions.first { $0.name == name }?.cutRanges ?? []
         func planFrames(random: Int) -> [PlannedFrame] {
             Self.plan(rallies: rallies, evidence: evidence, duration: duration,
                       burstFPS: settings.burstFPS, padding: settings.padding,
                       includeMissed: settings.includeMissed, maxMissed: settings.maxMissed,
-                      randomCount: random)
+                      randomCount: random, cuts: cuts)
         }
         var plan = planFrames(random: settings.randomCount)
         // No rallies found (the ball was never seen): frames from across the
@@ -695,7 +697,8 @@ final class SamplerModel {
         padding: Double,
         includeMissed: Bool,
         maxMissed: Int,
-        randomCount: Int
+        randomCount: Int,
+        cuts: [CutRange] = []
     ) -> [PlannedFrame] {
         var planned: [PlannedFrame] = []
         let step = 1 / max(burstFPS, 0.5)
@@ -743,7 +746,8 @@ final class SamplerModel {
             }
             deduped.append(frame)
         }
-        return deduped
+        // A moment inside a cut range is not footage (D-030).
+        return cuts.isEmpty ? deduped : deduped.filter { !cuts.contains($0.time) }
     }
 
     // MARK: - Review

@@ -157,8 +157,20 @@ enum DeciderRetune {
     }
 
     /// The accounting of one video: `clips` delivered (padded, joined), `raw` their raw decided spans, `truth` the
-    /// marks, `kinds` each mark's kind in the same order (nil when the mark has none).
-    static func account(clips: [Interval], raw: [Interval], truth: [Interval], kinds: [RallyKind?], preservedShare: Double) -> Account {
+    /// marks, `kinds` each mark's kind in the same order (nil when the mark has none). `cuts`: the recording's cut
+    /// ranges (not footage; D-030) — kinds are lined up with the marks first, then every interval is taken outside
+    /// the cuts, each truth piece keeping its mark's kind.
+    static func account(clips: [Interval], raw: [Interval], truth: [Interval], kinds: [RallyKind?], preservedShare: Double,
+                        cuts: [CutRange] = []) -> Account {
+        var truth = truth, kinds = kinds, clips = clips, raw = raw
+        if !cuts.isEmpty {
+            var pieces: [Interval] = [], pieceKinds: [RallyKind?] = []
+            for (i, t) in truth.enumerated() {
+                for piece in [t].outside(cuts) { pieces.append(piece); pieceKinds.append(i < kinds.count ? kinds[i] : nil) }
+            }
+            truth = pieces; kinds = pieceKinds
+            clips = clips.outside(cuts); raw = raw.outside(cuts)
+        }
         var a = Account()
         a.rallies = truth.count
         a.clips = clips.count
@@ -438,7 +450,8 @@ enum DeciderRetune {
             let p = passes[model]![video]!
             let config = candidate.apply(to: configs[model]!)
             let (clips, raw) = replay(evidence: p.evidence, duration: p.duration, config: config, minRallySec: plan.minRallySec)
-            return Self.account(clips: clips, raw: raw, truth: p.video.truth, kinds: kinds[video] ?? [], preservedShare: plan.preservedShare)
+            return Self.account(clips: clips, raw: raw, truth: p.video.truth, kinds: kinds[video] ?? [], preservedShare: plan.preservedShare,
+                                cuts: p.video.cuts)
         }
         func condition(_ label: String, _ model: String, _ candidate: Candidate) -> Condition {
             Condition(label: label, model: model, candidate: candidate,

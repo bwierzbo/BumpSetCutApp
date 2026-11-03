@@ -1148,14 +1148,17 @@ enum HeadlessProjects {
             manifest = try DatasetSplitManifest.readStrict(from: NetInventory.manifestURL(in: root))
         } catch { log("❌ \(error.localizedDescription)"); return false }
         let rows = Dictionary((manifest?.videos ?? []).map { ($0.video, $0) }, uniquingKeysWith: { a, _ in a })
+        let cuts = Dictionary(uniqueKeysWithValues: projects.sampler.sessions.map { ($0.name, $0.cutRanges) })
         let candidates = project.clips.flatMap { clip in
             clip.videos.map { source -> NetAIPilot.Candidate in
                 let id = clip.videoId(of: source)
                 let row = rows[id] ?? rows[DatasetStore.safeName(id)]
-                return NetAIPilot.Candidate(video: id, clip: clip.id, camera: clip.camera, surface: row?.surface, aliasGroup: row?.aliasGroup,
-                                            url: URL(fileURLWithPath: source.clipFile),
-                                            fingerprint: inventory.fingerprint[id] ?? inventory.fingerprint[DatasetStore.safeName(id)],
-                                            fileFingerprint: ReservedVideos.effectiveFingerprint(source))
+                var candidate = NetAIPilot.Candidate(video: id, clip: clip.id, camera: clip.camera, surface: row?.surface, aliasGroup: row?.aliasGroup,
+                                                     url: URL(fileURLWithPath: source.clipFile),
+                                                     fingerprint: inventory.fingerprint[id] ?? inventory.fingerprint[DatasetStore.safeName(id)],
+                                                     fileFingerprint: ReservedVideos.effectiveFingerprint(source))
+                candidate.cuts = cuts[id] ?? []
+                return candidate
             }
         }
         let excluded = NetExclusionStore.excluded(exclusions) { id in candidates.first { $0.video == id }?.fingerprint }

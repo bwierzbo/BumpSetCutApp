@@ -89,10 +89,13 @@ final class NetLabelsModel {
         var stale: Bool
         /// This recording's label has a box but no corners (from before corners were marked): still to label.
         var boxOnly = false
+        /// The recording's cut ranges (not footage; D-030): the frame is taken outside them.
+        var cuts: [CutRange] = []
 
         func with(skip: NetLabels.Skip?) -> Item {
             var it = Item(video: video, clip: clip, camera: camera, url: url, fingerprint: fingerprint, skip: skip, labeled: labeled, stale: stale)
             it.boxOnly = boxOnly
+            it.cuts = cuts
             return it
         }
     }
@@ -236,13 +239,16 @@ final class NetLabelsModel {
         do { exclusions = try exclusionStore.load() } catch {
             blocked = "\(exclusionStore.url.lastPathComponent) unreadable: \(error.localizedDescription)"; status = blocked!; return
         }
+        let cuts = Dictionary(uniqueKeysWithValues: projects.sampler.sessions.map { ($0.name, $0.cutRanges) })
         let items = project.clips.flatMap { clip in
             clip.videos.map { video in
                 let id = clip.videoId(of: video)
                 let fingerprint = inventory.fingerprint[id] ?? inventory.fingerprint[DatasetStore.safeName(id)]
-                return Item(video: id, clip: clip.id, camera: clip.camera, url: URL(fileURLWithPath: video.clipFile), fingerprint: fingerprint,
-                            skip: NetLabels.skip(video: id, camera: clip.camera, withheld: inventory.withheld, fingerprint: fingerprint),
-                            labeled: false, stale: false)
+                var item = Item(video: id, clip: clip.id, camera: clip.camera, url: URL(fileURLWithPath: video.clipFile), fingerprint: fingerprint,
+                                skip: NetLabels.skip(video: id, camera: clip.camera, withheld: inventory.withheld, fingerprint: fingerprint),
+                                labeled: false, stale: false)
+                item.cuts = cuts[id] ?? []
+                return item
             }
         }
         install(items: items, labels: labels, store: store, aiProposals: aiProposals, aiStore: aiStore,
@@ -342,7 +348,7 @@ final class NetLabelsModel {
             if let ai = offeredAI(item) { t = ai.time } else {   // the frame the vision model saw
                 let marks = await footage.rallyMarks(for: item.url)
                 guard !Task.isCancelled else { return }
-                t = NetLabels.frameTime(duration: dur, rallies: marks)
+                t = NetLabels.frameTime(duration: dur, rallies: marks, cuts: item.cuts)
             }
             guard let frame = try? await footage.frame(of: item.url, at: t) else { continue }
             // A frame that took seconds to read is kept even if the read-ahead was paused
@@ -426,7 +432,7 @@ final class NetLabelsModel {
         } else {
             let marks = await footage.rallyMarks(for: item.url)
             guard !Task.isCancelled, selected == item.video else { return }
-            time = NetLabels.frameTime(duration: duration, rallies: marks)
+            time = NetLabels.frameTime(duration: duration, rallies: marks, cuts: item.cuts)
         }
         await decode(item, at: time)
         guard !Task.isCancelled, selected == item.video else { return }

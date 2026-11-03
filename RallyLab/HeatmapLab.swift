@@ -137,11 +137,14 @@ final class HeatmapLab {
         defer { isScoring = false }
         let root = sampler.datasetRoot.appendingPathComponent("scores", isDirectory: true)
         let jobs: [TestSetScore.Job]
-        do { jobs = try TestSetScore.jobs(export: export) } catch {
+        let insideCuts: Int
+        // Windows inside a recording's cut ranges are left out, whatever the export holds (D-030).
+        do { (jobs, insideCuts) = try TestSetScore.jobs(export: export, cuts: Self.cutRanges(sampler.sessions)) } catch {
             scoringLine = "Couldn't read \(export.lastPathComponent): \(error.localizedDescription)"
             log("❌ " + scoringLine)
             return false
         }
+        if insideCuts > 0 { log("  \(insideCuts) val window(s) inside cut ranges left out (D-030)") }
         // Reserved final-test clips (D-002) must never be scored, whatever export they sit in; fail closed.
         let reserved: Set<String>
         do { reserved = try PipelineTuner.ValidationSet.finalTestNames(in: sampler.datasetRoot) } catch {
@@ -164,7 +167,7 @@ final class HeatmapLab {
             log("❌ " + scoringLine)
             return false
         }
-        scoringLine = "\(jobs.count) frames in \(export.lastPathComponent)"
+        scoringLine = "\(jobs.count) frames in \(export.lastPathComponent)" + (insideCuts > 0 ? " (\(insideCuts) windows inside cut ranges left out)" : "")
         log(scoringLine)
         for model in models {
             if TestSetScore.cached(model: model.name, export: export, scores: root) != nil {
@@ -399,10 +402,11 @@ final class HeatmapLab {
         result = nil
         status = "Scoring \(model.name) on \(package.lastPathComponent)…"
         let yolo = sampler.prelabelModel
+        let cuts = Self.cutRanges(sampler.sessions)
         Task {
             defer { isBusy = false; progress = nil }
             let outcome = await Task.detached(priority: .userInitiated) {
-                HeatEvaluation.run(model: model.url, package: package, yolo: yolo) { done, total in
+                HeatEvaluation.run(model: model.url, package: package, yolo: yolo, cuts: cuts) { done, total in
                     Task { @MainActor [weak self] in self?.progress = "\(done)/\(total) windows" }
                 }
             }.value
@@ -410,10 +414,16 @@ final class HeatmapLab {
             case .success(let r):
                 result = r
                 status = "Scored \(r.windows) val windows (\(r.trackedWindows) from tracked rallies)."
+                    + (r.windowsInsideCuts > 0 ? " \(r.windowsInsideCuts) inside cut ranges left out (D-030)." : "")
             case .failure(let e):
                 status = e.message
             }
         }
+    }
+
+    /// Each recording's cut ranges (not footage; D-030), by name, for the ones that have any.
+    nonisolated static func cutRanges(_ sessions: [VideoSession]) -> [String: [CutRange]] {
+        Dictionary(uniqueKeysWithValues: sessions.compactMap { s in s.cutRanges.isEmpty ? nil : (s.name, s.cutRanges) })
     }
 }
 
@@ -438,6 +448,8 @@ enum HeatEvaluation {
         /// Balls in play on tracked rallies, by who found them.
         var both = 0, onlyYOLO = 0, onlyHeatmap = 0, neither = 0
         var windows = 0, trackedWindows = 0
+        /// Val windows left out as inside their recording's cut ranges (D-030).
+        var windowsInsideCuts = 0
         var yoloName = ""
     }
 
@@ -446,7 +458,8 @@ enum HeatEvaluation {
     /// Grey-level change around a ball over ±4 frames that means "in play".
     static let motion = 10.0
 
-    static func run(model: URL, package: URL, yolo: URL?,
+    /// `cuts`: each clip's cut ranges — a val window with a frame inside one is not scored (D-030).
+    static func run(model: URL, package: URL, yolo: URL?, cuts: [String: [CutRange]] = [:],
                     progress: @escaping @Sendable (Int, Int) -> Void) -> Swift.Result<Result, Failure> {
         guard let heat = HeatmapBallDetector(modelURL: model) else {
             return .failure(Failure(message: "Couldn't load \(model.lastPathComponent)."))
@@ -455,13 +468,15 @@ enum HeatEvaluation {
         guard let text = try? String(contentsOf: package.appendingPathComponent("windows.jsonl"), encoding: .utf8) else {
             return .failure(Failure(message: "No windows.jsonl in \(package.lastPathComponent)."))
         }
-        let windows = text.split(separator: "\n").compactMap { line -> Window? in
+        let val = text.split(separator: "\n").compactMap { line -> Window? in
             try? JSONDecoder().decode(Window.self, from: Data(line.utf8))
         }.filter { $0.split == "val" }
-        guard !windows.isEmpty else { return .failure(Failure(message: "No val windows in the package.")) }
+        let windows = val.filter { !TestSetScore.insideCut($0.frames, cuts: cuts[$0.clip] ?? []) }
+        guard !windows.isEmpty else { return .failure(Failure(message: "No val windows in the package" + (val.isEmpty ? "." : " outside cut ranges."))) }
 
         var result = Result()
         result.windows = windows.count
+        result.windowsInsideCuts = val.count - windows.count
         result.yoloName = yolo?.deletingPathExtension().lastPathComponent ?? "app's model"
         var cache: [String: HeatmapBallDetector.Frame] = [:]
         var cacheOrder: [String] = []

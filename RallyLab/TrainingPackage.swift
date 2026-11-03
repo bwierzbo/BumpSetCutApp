@@ -57,7 +57,9 @@ enum TrainingPackage {
         let finalTest = try PipelineTuner.ValidationSet.finalTestNames(in: store.root)
         let sessions = sessions.filter { !finalTest.contains($0.name) }
         let frames = sessions.flatMap { session in
-            session.frames.filter { $0.keep && $0.reviewed }.map { (session, $0) }
+            // A frame inside a cut range is not footage (D-030).
+            let cuts = session.cutRanges
+            return session.frames.filter { $0.keep && $0.reviewed && !cuts.contains($0.time) }.map { (session, $0) }
         }
         guard !frames.isEmpty else { throw PackageError.nothingReviewed }
         guard frames.contains(where: { $0.0.split == "val" }) else { throw PackageError.noValidation }

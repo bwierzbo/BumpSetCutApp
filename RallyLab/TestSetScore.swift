@@ -98,17 +98,31 @@ enum TestSetScore {
 
     // MARK: - Jobs
 
+    /// A frame file's moment, from its name (`frames/<clip>/<µs>.jpg`).
+    static func seconds(ofFrame path: String) -> Double? {
+        Int64(path.split(separator: "/").last.map { $0.dropLast(4) } ?? "").map { Double($0) / 1_000_000 }
+    }
+
+    /// Whether any of a window's frames lies inside its clip's cut ranges (not footage; D-030).
+    static func insideCut(_ frames: [String], cuts: [CutRange]) -> Bool {
+        !cuts.isEmpty && frames.contains { seconds(ofFrame: $0).map(cuts.contains) ?? false }
+    }
+
     /// One job per labelled val frame (and per dead-time frame), each with
-    /// the window it sits most centrally in.
-    static func jobs(export: URL) throws -> [Job] {
+    /// the window it sits most centrally in. `cuts`: each clip's cut ranges —
+    /// a window with a frame inside one is left out and counted, whatever
+    /// the export was written with (D-030).
+    static func jobs(export: URL, cuts: [String: [CutRange]] = [:]) throws -> (jobs: [Job], insideCuts: Int) {
         let text = try String(contentsOf: export.appendingPathComponent("windows.jsonl"), encoding: .utf8)
         var best: [String: (job: Job, distance: Int)] = [:]
+        var insideCuts = 0
         for line in text.split(separator: "\n") {
             guard let w = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
                   w["split"] as? String == "val",
                   let frames = w["frames"] as? [String], let size = w["size"] as? [Int], size.count == 2,
                   let clip = w["clip"] as? String, let target = w["target"] as? Int,
                   let time = (w["time"] as? NSNumber)?.doubleValue else { continue }
+            if insideCut(frames, cuts: cuts[clip] ?? []) { insideCuts += 1; continue }
             let portrait = size[1] > size[0]
             if w["dead"] as? Bool == true {
                 best["dead:" + frames[target]] = (Job(clip: clip, frames: frames, index: target, dead: true, balls: [],
@@ -130,7 +144,7 @@ enum TestSetScore {
                                  portrait: portrait, time: time + Double(i - target) / 30), distance)
             }
         }
-        return best.values.map(\.job).sorted { ($0.clip, $0.time) < ($1.clip, $1.time) }
+        return (best.values.map(\.job).sorted { ($0.clip, $0.time) < ($1.clip, $1.time) }, insideCuts)
     }
 
     // MARK: - Running a model

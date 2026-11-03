@@ -84,8 +84,10 @@ enum PreTracker {
             var tracks = session.tracks ?? []
             var changed = false
 
+            let cuts = session.cutRanges
             if redo {
-                for i in tracks.indices where tracks[i].isMachine && tracks[i].isRally != false {
+                // A pre-tracked rally inside a cut range is not footage (D-030): left as it is.
+                for i in tracks.indices where tracks[i].isMachine && tracks[i].isRally != false && !cuts.overlaps(tracks[i].start, tracks[i].end) {
                     let times = tracks[i].points.map(\.time)
                     guard let found = await TrackLabelModel.candidates(video: video, times: times, model: yolo, heatModel: heat,
                                                                        frames: nil, progress: { _ in }) else { return report }
@@ -97,7 +99,7 @@ enum PreTracker {
             }
 
             let rallies = TrackLabelModel.markedAndFound(session)
-            let open = TrackLabelModel.untracked(rallies.marked + rallies.found, tracks: tracks)
+            let open = Self.openSpans(session, tracks: tracks)
             // One said not to be a rally stays (so its time isn't picked
             // again) but doesn't count toward the video's pre-tracked rallies.
             let wanted = max(0, perVideo - tracks.filter { $0.isMachine && $0.isRally != false }.count)
@@ -136,6 +138,15 @@ enum PreTracker {
                 + "\(frames) frames, \(sure) sure, \(review) to review")
         }
         return report
+    }
+
+
+    /// The rallies a person marked or the Sampler found that no track covers yet, less any that
+    /// touches a cut range — not footage, nothing to track there (D-030).
+    static func openSpans(_ session: VideoSession, tracks: [TrackedRally]) -> [LabelRally] {
+        let rallies = TrackLabelModel.markedAndFound(session)
+        let cuts = session.cutRanges
+        return TrackLabelModel.untracked(rallies.marked + rallies.found, tracks: tracks).filter { !cuts.overlaps($0.start, $0.end) }
     }
 
     /// `count` of `rallies`, evenly through the list (so through the video).
