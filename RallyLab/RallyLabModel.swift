@@ -665,14 +665,14 @@ final class RallyLabModel {
             labels: labels.map { Interval(start: $0.start, end: $0.end) },
             baselineRaw: rawPredictions,
             cuts: cuts)
-        guard !export.frames.isEmpty else {
-            status = "Every frame lies inside a cut range (not footage) — nothing to export."
-            return
-        }
         let outURL = TrainingDataExporter.exportURL(for: videoURL)
         do {
+            // Empty when every frame lies inside a cut: written all the same, so an earlier export with
+            // the frames in it is replaced (the trainer skips an empty one).
             try TrainingDataExporter.write(export, to: outURL)
-            status = "Exported \(export.frames.count) frames + \(export.labels.count) labels → \(outURL.lastPathComponent)"
+            status = export.frames.isEmpty
+                ? "Every frame lies inside a cut range (not footage) — an empty export replaced \(outURL.lastPathComponent)."
+                : "Exported \(export.frames.count) frames + \(export.labels.count) labels → \(outURL.lastPathComponent)"
         } catch {
             status = "Training-data export failed: \(error.localizedDescription)"
         }

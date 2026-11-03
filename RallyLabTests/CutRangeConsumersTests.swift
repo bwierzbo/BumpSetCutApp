@@ -147,7 +147,16 @@ final class CutRangeConsumersTests: XCTestCase {
         XCTAssertEqual(export.cuts.map { [$0.start, $0.end] }, [[15, 35]], "the trainer masks its own decisions with them")
         let whole = TrainingDataExporter.makeExport(videoName: "v.mp4", duration: 100, evidence: stride(from: 0.0, to: 100, by: 1).map(frame),
                                                     labels: [iv(10, 20)], baselineRaw: [iv(9, 21)], cuts: [cut(0, 100)])
-        XCTAssertTrue(whole.frames.isEmpty && whole.labels.isEmpty && whole.baselineRaw.isEmpty, "a recording cut whole: nothing to export (the callers skip it)")
+        XCTAssertTrue(whole.frames.isEmpty && whole.labels.isEmpty && whole.baselineRaw.isEmpty, "a recording cut whole: nothing to train on")
+        // …and the empty export is still written, replacing an earlier one with the frames in it: the trainer
+        // reads sidecars without the project, so a stale one would train on the cut footage.
+        let sidecar = FileManager.default.temporaryDirectory.appendingPathComponent("v-\(UUID().uuidString).trainingdata.json")
+        defer { try? FileManager.default.removeItem(at: sidecar) }
+        try TrainingDataExporter.write(export, to: sidecar)
+        XCTAssertEqual(try JSONDecoder().decode(TrainingDataExporter.Export.self, from: Data(contentsOf: sidecar)).frames.count, 80)
+        try TrainingDataExporter.write(whole, to: sidecar)
+        let replaced = try JSONDecoder().decode(TrainingDataExporter.Export.self, from: Data(contentsOf: sidecar))
+        XCTAssertTrue(replaced.frames.isEmpty); XCTAssertEqual(replaced.cuts.map { [$0.start, $0.end] }, [[0, 100]])
 
         // The headless export walks a folder of videos; a video's cuts come from the project session over it.
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("projects-\(UUID().uuidString)")
