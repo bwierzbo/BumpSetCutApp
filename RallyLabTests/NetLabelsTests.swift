@@ -398,6 +398,40 @@ final class NetLabelsTests: XCTestCase {
         XCTAssertNotNil(model.frame)
     }
 
+    /// Stepping never lands inside a cut range: it goes on to the next frame outside the cuts, or
+    /// stays; a recording cut whole has no frame to step to or confirm (D-030).
+    @MainActor
+    func testSteppingSkipsTheCutRangesAndARecordingCutWholeHasNoFrame() async throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let footage = ScriptedFootage()
+        var cut = try item("c_cut", in: dir); cut.cuts = [CutRange(start: 40, end: 45), CutRange(start: 90, end: 100)]
+        var whole = try item("w_whole", in: dir); whole.cuts = [CutRange(start: 0, end: 100)]
+        let model = NetLabelsModel(items: [cut, whole], labels: [:], store: NetLabelStore(projectDir: dir), footage: footage) { _, _ in }
+        model.select("c_cut")
+        await settle()
+        XCTAssertEqual(model.frameTime, 67.5, "the middle of the longest stretch outside the cuts (45–90)")
+        model.step(seconds: -25)                    // 42.5 is inside the cut: on to just before it
+        await settle()
+        XCTAssertEqual(model.time, 39.9, accuracy: 1e-9); XCTAssertEqual(model.frameTime ?? -1, 39.9, accuracy: 1e-9)
+        model.step(seconds: 2)                      // 41.9 is inside the cut: on to its end
+        await settle()
+        XCTAssertEqual(model.time, 45); XCTAssertEqual(model.frameTime, 45)
+        model.step(seconds: 50)                     // 95 is inside the last cut, and nothing follows it
+        await settle()
+        XCTAssertEqual(model.time, 45, "stays")
+        XCTAssertTrue(model.status.contains("no frame outside the cut ranges after"), model.status)
+        XCTAssertTrue(model.canConfirm)
+        model.select("w_whole")
+        await settle()
+        XCTAssertTrue(model.status.contains("nothing to label"), model.status)
+        XCTAssertNil(model.frameTime)
+        model.step(seconds: 1)
+        await settle()
+        XCTAssertNil(model.frameTime); XCTAssertFalse(model.canConfirm); XCTAssertFalse(model.confirm())
+        XCTAssertTrue(footage.frameCalls.allSatisfy { $0.0 != "w_whole.mp4" }, "no frame of a recording cut whole is ever read: \(footage.frameCalls)")
+    }
+
     @MainActor
     func testConfirmSavesOnlyTheFrameOnScreenAtItsTime() async throws {
         let dir = try Self.tempDir()

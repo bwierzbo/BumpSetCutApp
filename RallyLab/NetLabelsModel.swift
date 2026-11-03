@@ -194,8 +194,9 @@ final class NetLabelsModel {
     /// The frame on screen is the one `time` names and nothing is still decoding.
     var frameIsCurrent: Bool { !loading && frame != nil && frameTime == time }
     var canConfirm: Bool {
-        guard let item = selectedItem, item.skip == nil, frameIsCurrent, let quad, quad.isUsable else { return false }
-        return blocked == nil
+        guard let item = selectedItem, item.skip == nil, frameIsCurrent, let quad, quad.isUsable, let frameTime else { return false }
+        // A frame inside a cut range is not footage (D-030): never a label.
+        return blocked == nil && !item.cuts.contains(frameTime)
     }
     private var summary: String {
         "\(labeledCount) labeled · \(toLabelCount) to label" + (boxOnlyCount > 0 ? " (\(boxOnlyCount) box-only, corners to mark)" : "")
@@ -546,9 +547,23 @@ final class NetLabelsModel {
     }
 
     /// Another frame of the same recording; the box stays where it is.
+    /// A step that lands inside a cut range (not footage; D-030) goes on to the next frame
+    /// outside the cuts in that direction, and stays put when there is none.
     func step(seconds: Double) {
         guard let item = selectedItem, item.skip == nil, duration > 0 else { return }
-        time = min(max(0, time + seconds), max(0, duration - 0.1))
+        let last = max(0, duration - 0.1)
+        var target = min(max(0, time + seconds), last)
+        if item.cuts.contains(target) {
+            let pieces = item.cuts.outside(0, last)
+            if seconds >= 0, let next = pieces.first(where: { $0.start > target }) { target = next.start }
+            else if seconds < 0, let previous = pieces.last(where: { $0.end <= target }) { target = max(previous.start, previous.end - 0.1) }
+            else {
+                status = pieces.isEmpty ? "\(item.video): every frame lies inside a cut range (not footage) — nothing to label."
+                    : "\(item.video): no frame outside the cut ranges \(seconds >= 0 ? "after" : "before") this one."
+                return
+            }
+        }
+        time = target
         loadTask?.cancel()
         prefetchTask?.cancel()   // this frame first
         let t = time
