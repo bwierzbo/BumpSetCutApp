@@ -167,11 +167,11 @@ struct LiveTagView: View {
                 Text(clockText(marker.playhead)).font(.callout.monospacedDigit()).foregroundStyle(.secondary)
                 if findingNet { ProgressView().controlSize(.mini); Text("Finding the net…").font(.caption).foregroundStyle(.secondary) }
                 else if tagger.net == nil { Text("No net found · sides are up to ⇧ far and ⌥ near").font(.caption).foregroundStyle(.secondary) }
-                if paths.building == session.name {
+                if paths.isBuilding(session) {
                     ProgressView().controlSize(.mini)
                     Text("Finding the ball… \(Int(paths.fraction * 100))%").font(.caption).foregroundStyle(.secondary)
                         .help("The pipeline is running over the video; once it's done, presses snap to where the ball changed course")
-                } else if let why = paths.refused[session.name] {
+                } else if let why = paths.refusal(for: session) {
                     Text(why).font(.caption).foregroundStyle(.secondary)
                 } else if marker.duration > 0 {
                     let covered = tagger.path.stretches.reduce(0) { $0 + $1.upperBound - $1.lowerBound }

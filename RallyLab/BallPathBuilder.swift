@@ -9,6 +9,18 @@
 //  footage has moved to the desktop. One video at a time: the one being
 //  marked first, then the next marking jobs, so they're ready in turn.
 //
+//  A job belongs to the dataset it was queued from, from the queue to its
+//  file: its footage and output path, the reservations it is checked
+//  against, the ledger its run goes on, and its failed/refused state are all
+//  that dataset's — two projects can hold a recording of the same name, and
+//  the open project can change while a job waits or runs. Policy on a
+//  switch: a job not yet started for a dataset that is no longer the open one
+//  is dropped (nothing was started for it, nothing recorded; opening that
+//  project again queues it afresh); the job already running finishes and
+//  saves into its own dataset's folder — its own footage's sightings, whose
+//  exposure its own ledger recorded when the run started — and nothing of it
+//  is ever read as, or written into, the dataset open by then.
+//
 
 import Foundation
 import Observation
@@ -17,21 +29,38 @@ import Observation
 @Observable
 final class BallPathBuilder {
 
+    /// One video, in the dataset it was queued from.
+    struct Job: Hashable, Sendable {
+        let root: URL
+        let name: String
+    }
+
+    private struct Queued {
+        let job: Job
+        let session: VideoSession
+    }
+
+    /// The run over one video: the footage to play, its session, a progress sink (0–1), and the sightings back.
+    /// The app's pipeline in RallyLab; a test's stand-in decides when the run ends.
+    typealias Runner = @MainActor (_ playback: URL, _ session: VideoSession, _ progress: @escaping @MainActor (Double) -> Void) async throws -> [BallPath.Sample]
+
     private let sampler: SamplerModel
+    private let runner: Runner
     private var datasetRoot: URL { sampler.datasetRoot }
     /// The video being run, and how far through it the pipeline is.
-    private(set) var building: String?
+    private(set) var building: Job?
     private(set) var fraction = 0.0
     /// Bumps when a path is finished, so an open marking screen picks it up.
     private(set) var finished = 0
-    private var waiting: [VideoSession] = []
-    private var failed: Set<String> = []
+    private var waiting: [Queued] = []
+    private var failed: Set<Job> = []
     /// Videos the pipeline was not run over, and why (reserved as final_test, or the ledger refused).
-    private(set) var refused: [String: String] = [:]
+    private var refused: [Job: String] = [:]
     private var running = false
 
-    init(sampler: SamplerModel) {
+    init(sampler: SamplerModel, runner: @escaping Runner = BallPathBuilder.pipeline) {
         self.sampler = sampler
+        self.runner = runner
     }
 
     static func url(for name: String, in datasetRoot: URL) -> URL {
@@ -45,15 +74,24 @@ final class BallPathBuilder {
         BallPathFile.load(url(for: session))?.samples
     }
 
-    /// Make the paths these videos don't have yet, in this order — the first
-    /// ahead of anything already waiting.
+    /// Whether this video of the open dataset is the one being run now.
+    func isBuilding(_ session: VideoSession) -> Bool { building == Job(root: datasetRoot, name: session.name) }
+
+    /// Why this video of the open dataset got no ball path, if it was refused.
+    func refusal(for session: VideoSession) -> String? { refused[Job(root: datasetRoot, name: session.name)] }
+
+    /// Make the paths these videos of the open dataset don't have yet, in this
+    /// order — the first ahead of anything already waiting.
     func ensure(_ sessions: [VideoSession]) {
-        let wanted = sessions.filter { s in
-            !FileManager.default.fileExists(atPath: url(for: s).path) && !failed.contains(s.name)
-                && s.playbackURL(in: datasetRoot) != nil
+        let root = datasetRoot
+        // Queued from a dataset that is no longer the open one: dropped, never started (see the policy above).
+        waiting.removeAll { $0.job.root != root }
+        let wanted = sessions.map { Queued(job: Job(root: root, name: $0.name), session: $0) }.filter { q in
+            !FileManager.default.fileExists(atPath: Self.url(for: q.job.name, in: root).path) && !failed.contains(q.job)
+                && q.session.playbackURL(in: root) != nil
         }
         guard !wanted.isEmpty else { return }
-        waiting.removeAll { w in wanted.contains { $0.name == w.name } }
+        waiting.removeAll { w in wanted.contains { $0.job == w.job } }
         waiting = wanted + waiting
         if !running { Task { await run() } }
     }
@@ -78,52 +116,59 @@ final class BallPathBuilder {
         running = true
         defer { running = false }
         while !waiting.isEmpty {
-            let session = waiting.removeFirst()
-            // The dataset this video belongs to, taken once: the project can be switched while the pipeline runs,
-            // and the path (its own data) then still goes into this dataset's folder — never the one open by then,
-            // whose same-named recording it would describe falsely and whose sync would send it up as its own.
-            // The exposure row goes on this dataset's ledger for the same reason.
-            let root = datasetRoot
-            let out = Self.url(for: session.name, in: root)
+            let queued = waiting.removeFirst()
+            let job = queued.job, root = job.root
+            // Everything of this job is its own dataset's (`root`): the footage, the reservations, the ledger, the
+            // file. Not started once that dataset is no longer the open one.
+            guard root == datasetRoot else { continue }
+            let out = Self.url(for: job.name, in: root)
             guard !FileManager.default.fileExists(atPath: out.path),
-                  let playback = session.playbackURL(in: root) else { continue }
-            if let why = Self.admission(of: session.name, in: root) {
-                refused[session.name] = why
-                failed.insert(session.name)
+                  let playback = queued.session.playbackURL(in: root) else { continue }
+            if let why = Self.admission(of: job.name, in: root) {
+                refused[job] = why
+                failed.insert(job)
                 continue
             }
-            building = session.name
+            building = job
             fraction = 0
-            let processor = VideoProcessor()
-            processor.config = ProcessorConfig().withCamera(of: session)
-            processor.collectFrameEvidence = true
-            let watch = Task { [weak self] in
-                while !Task.isCancelled {
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                    self?.fraction = processor.progress
-                }
-            }
             var ok = true
+            var samples: [BallPath.Sample] = []
             do {
-                _ = try await processor.processVideo(playback, videoId: UUID())
-            } catch ProcessingError.noRalliesDetected {
-                // Still saw the ball, most likely — the sightings are what we want.
+                samples = try await runner(playback, queued.session) { [weak self] p in self?.fraction = p }
             } catch {
                 ok = false
             }
-            watch.cancel()
             if ok {
-                let file = BallPathFile(samples: Self.samples(from: processor.frameEvidence))
                 do {
-                    try file.save(to: out)
+                    try BallPathFile(samples: samples).save(to: out)
                     finished += 1
                 } catch {
                     ok = false
                 }
             }
-            if !ok { failed.insert(session.name) }
+            if !ok { failed.insert(job) }
             building = nil
         }
+    }
+
+    /// The app's pipeline over the whole video, with the frame evidence kept.
+    static func pipeline(_ playback: URL, _ session: VideoSession, progress: @escaping @MainActor (Double) -> Void) async throws -> [BallPath.Sample] {
+        let processor = VideoProcessor()
+        processor.config = ProcessorConfig().withCamera(of: session)
+        processor.collectFrameEvidence = true
+        let watch = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                progress(processor.progress)
+            }
+        }
+        defer { watch.cancel() }
+        do {
+            _ = try await processor.processVideo(playback, videoId: UUID())
+        } catch ProcessingError.noRalliesDetected {
+            // Still saw the ball, most likely — the sightings are what we want.
+        }
+        return samples(from: processor.frameEvidence)
     }
 
     /// Where the ball was each frame: the track the pipeline followed when

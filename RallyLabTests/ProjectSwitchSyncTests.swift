@@ -757,6 +757,89 @@ final class ProjectSwitchSyncTests: XCTestCase {
         XCTAssertTrue(outcome31)
         XCTAssertEqual(server.states.map { ($0.project, $0.plan.count) }.map { "\($0.0):\($0.1)" }, ["A:0"], "A's own (empty) plan")
     }
+    // MARK: - Ball paths: jobs belong to the dataset they were queued from
+
+    private func reserve(_ names: [String], in project: String) throws {
+        let dir = base.appendingPathComponent("\(project)/pipeline_tuning", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try JSONEncoder().encode(PipelineTuner.ValidationSet(tune: [], holdout: [], finalTest: names)).write(to: dir.appendingPathComponent("validation.json"))
+    }
+
+    private func ballPathRows(_ project: String) -> [String] {
+        ExposureLog.read(in: base.appendingPathComponent(project, isDirectory: true)).filter { $0.kind == .ballPath }.map(\.video).sorted()
+    }
+
+    /// Waits (up to 5 s) for the builder to get there.
+    private func until(_ what: String, _ condition: @escaping () -> Bool) async throws {
+        for _ in 0..<200 {
+            if condition() { return }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        XCTFail("timed out waiting for: \(what)")
+    }
+
+    func testBallPathJobsBelongToTheDatasetTheyWereQueuedFromNotTheOneOpenWhenTheyRun() async throws {
+        // A and B each hold video_01 and video_02. B reserves video_02 as final test; A reserves video_03 (B has none).
+        try project("A", videos: ["video_01", "video_02", "video_03"]); try project("B", videos: ["video_01", "video_02"])
+        try reserve(["video_03"], in: "A"); try reserve(["video_02"], in: "B")
+        open("A")
+        let rootA = sampler.datasetRoot, rootB = base.appendingPathComponent("B", isDirectory: true).standardizedFileURL
+        let latch = Latch()   // the first run waits here until the test lets it finish
+        var runs: [String] = []
+        let builder = BallPathBuilder(sampler: sampler) { playback, _, _ in
+            runs.append(playback.path)
+            if runs.count == 1 { try await latch.wait() }
+            return [BallPath.Sample(time: 1, center: CGPoint(x: 0.5, y: 0.5), size: 0.02)]
+        }
+        let aSessions = sampler.sessions.sorted { $0.name < $1.name }
+        XCTAssertEqual(aSessions.map(\.name), ["video_01", "video_02", "video_03"])
+        // Three jobs queued from A; the first begins and is suspended.
+        builder.ensure(aSessions)
+        try await until("the first job began") { runs.count == 1 }
+        XCTAssertTrue(builder.isBuilding(aSessions[0]))
+        XCTAssertEqual(ballPathRows("A"), ["video_01"], "its run is on A's ledger before it starts")
+        // The person switches to B before the second job begins, then the first run ends.
+        open("B")
+        let bBefore = try snapshot("B")
+        XCTAssertFalse(builder.isBuilding(aSessions[0]), "B's same-named video_01 is not the one being built")
+        latch.open()
+        try await until("the queue drained") { builder.finished == 1 && builder.building == nil }
+        try await Task.sleep(for: .milliseconds(100))   // anything that would start, has
+        // Only A's first video ran; the second and third jobs, queued from A, were dropped — not run under B's
+        // root, not judged by B's reservations, not put on B's ledger.
+        XCTAssertEqual(runs, [footage("A").path])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: BallPathBuilder.url(for: "video_01", in: rootA).path), "A's path, in A's folder")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: BallPathBuilder.url(for: "video_01", in: rootB).path))
+        XCTAssertEqual(try snapshot("B"), bBefore, "nothing of A's jobs was written into B")
+        XCTAssertEqual(ballPathRows("A"), ["video_01"])
+        XCTAssertEqual(ballPathRows("B"), [])
+        XCTAssertNil(builder.refusal(for: aSessions[1]), "B's reservation of video_02 was never applied to A's job")
+        XCTAssertNil(builder.refusal(for: aSessions[2]))
+        // Back on A: the dropped jobs are queued afresh and judged by A's rules — video_02 (reserved only in B)
+        // runs, video_03 (reserved in A) is refused with A's reason.
+        open("A")
+        builder.ensure(sampler.sessions.sorted { $0.name < $1.name })
+        try await until("A's second video ran") { builder.finished == 2 && builder.building == nil }
+        XCTAssertEqual(runs, [footage("A").path, footage("A", "video_02").path])
+        XCTAssertEqual(ballPathRows("A"), ["video_01", "video_02"])
+        XCTAssertEqual(ballPathRows("B"), [])
+        XCTAssertNil(builder.refusal(for: aSessions[1]))
+        XCTAssertEqual(builder.refusal(for: aSessions[2])?.contains("reserved as final_test"), true)
+        // On B, its same-named video_02 is B's own job: refused by B's rule; its video_01 runs as B's, on B's ledger.
+        open("B")
+        let bSessions = sampler.sessions.sorted { $0.name < $1.name }
+        builder.ensure(bSessions)
+        try await until("B's first video ran") { builder.finished == 3 && builder.building == nil }
+        XCTAssertEqual(runs.last, footage("B").path)
+        XCTAssertEqual(builder.refusal(for: bSessions[1])?.contains("reserved as final_test"), true)
+        XCTAssertEqual(ballPathRows("B"), ["video_01"])
+        XCTAssertEqual(ballPathRows("A"), ["video_01", "video_02"], "A's ledger has nothing of B's runs")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: BallPathBuilder.url(for: "video_01", in: rootB).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: BallPathBuilder.url(for: "video_02", in: rootB).path))
+        // And A's video_02, by name the same as B's refused one, is still A's own, not refused.
+        open("A")
+        XCTAssertNil(builder.refusal(for: aSessions[1]))
+    }
 }
 
 // MARK: - The fake server
