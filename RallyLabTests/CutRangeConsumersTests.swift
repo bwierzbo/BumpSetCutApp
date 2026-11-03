@@ -71,14 +71,18 @@ final class CutRangeConsumersTests: XCTestCase {
     // MARK: - Sampling, net frame, test set
 
     func testSamplerPlansNoFrameInsideACut() {
+        // The burst alone (no random frames, which can land next to a burst frame and merge with it).
+        let burst = SamplerModel.plan(rallies: [iv(10, 20)], evidence: [], duration: 100, burstFPS: 2, padding: 0,
+                                      includeMissed: false, maxMissed: 0, randomCount: 0, cuts: [cut(14, 17)])
+        XCTAssertEqual(burst.map(\.time), [10, 10.5, 11, 11.5, 12, 12.5, 13, 13.5, 17, 17.5, 18, 18.5, 19, 19.5, 20], "14–16.5 are inside the cut")
+        let unmasked = SamplerModel.plan(rallies: [iv(10, 20)], evidence: [], duration: 100, burstFPS: 2, padding: 0,
+                                         includeMissed: false, maxMissed: 0, randomCount: 0)
+        XCTAssertEqual(unmasked.count, 21)
+        // With random frames too: still none inside a cut.
         let plan = SamplerModel.plan(rallies: [iv(10, 20)], evidence: [], duration: 100, burstFPS: 2, padding: 0,
                                      includeMissed: false, maxMissed: 0, randomCount: 20, cuts: [cut(14, 17), cut(50, 60)])
         XCTAssertFalse(plan.isEmpty)
         XCTAssertFalse(plan.contains { (14..<17).contains($0.time) || (50..<60).contains($0.time) })
-        XCTAssertTrue(plan.contains { $0.time == 10 } && plan.contains { $0.time == 20 })
-        let unmasked = SamplerModel.plan(rallies: [iv(10, 20)], evidence: [], duration: 100, burstFPS: 2, padding: 0,
-                                         includeMissed: false, maxMissed: 0, randomCount: 0)
-        XCTAssertEqual(unmasked.filter { $0.source != .random }.count, 21)
     }
 
     func testNetFrameComesFromOutsideTheCuts() {
@@ -149,7 +153,53 @@ final class CutRangeConsumersTests: XCTestCase {
         var session = VideoSession(name: "v", sourcePath: video.path, split: "train", addedAt: Date(), frames: [])
         session.cuts = [cut(1, 2)]
         try DatasetStore(root: project).save(session)
-        XCTAssertEqual(TrainingDataExporter.cutRanges(forVideo: video, projectsRoot: root), [cut(1, 2)])
-        XCTAssertEqual(TrainingDataExporter.cutRanges(forVideo: root.appendingPathComponent("footage/other.mp4"), projectsRoot: root), [])
+        XCTAssertEqual(TrainingDataExporter.cutRanges(forVideo: video, projectRoots: [project]), [cut(1, 2)])
+        XCTAssertEqual(TrainingDataExporter.cutRanges(forVideo: root.appendingPathComponent("footage/other.mp4"), projectRoots: [project]), [])
+        // A project anywhere on the Mac is searched when it is on the list, not only the default location.
+        let elsewhere = FileManager.default.temporaryDirectory.appendingPathComponent("elsewhere-\(UUID().uuidString)/Q", isDirectory: true)
+        try FileManager.default.createDirectory(at: elsewhere.appendingPathComponent("sessions"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: elsewhere.deletingLastPathComponent()) }
+        let far = elsewhere.deletingLastPathComponent().appendingPathComponent("far.mp4")
+        var farSession = VideoSession(name: "far", sourcePath: far.path, split: "train", addedAt: Date(), frames: [])
+        farSession.cuts = [cut(3, 4)]
+        try DatasetStore(root: elsewhere).save(farSession)
+        XCTAssertEqual(TrainingDataExporter.cutRanges(forVideo: far, projectRoots: [root]), [], "not on the list: unknown")
+        XCTAssertEqual(TrainingDataExporter.cutRanges(forVideo: far, projectRoots: [project, elsewhere]), [cut(3, 4)])
+    }
+
+    // MARK: - Pipeline comparison coverage and the Sampler's dataset
+
+    func testTrackedCoverageIsJudgedOnTheSpanOutsideTheCuts() {
+        // A track seen 10–60 with a cut 20–50 and perfect rallies on both retained pieces.
+        let perfect = [iv(10, 20), iv(50, 60)]
+        let covered = PipelineCompare.coverage(first: 10, last: 60, decided: perfect, cuts: [cut(20, 50)])
+        XCTAssertNotNil(covered)
+        XCTAssertEqual(covered?.start ?? -1, 0, accuracy: 1e-9); XCTAssertEqual(covered?.end ?? -1, 0, accuracy: 1e-9)
+        XCTAssertNil(PipelineCompare.coverage(first: 10, last: 60, decided: [iv(10, 14)], cuts: [cut(20, 50)]), "4 of 20 retained seconds")
+        XCTAssertNil(PipelineCompare.coverage(first: 10, last: 60, decided: perfect, cuts: [cut(5, 65)]), "nothing retained")
+        // Without cuts, as before: half the span.
+        let plain = PipelineCompare.coverage(first: 10, last: 60, decided: [iv(8, 36)], cuts: [])
+        XCTAssertEqual(plain?.start ?? 1, -2, accuracy: 1e-9); XCTAssertEqual(plain?.end ?? 1, -24, accuracy: 1e-9)
+    }
+
+    func testTheSamplersDatasetParksAFrameInsideACutAndBringsItBack() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ds-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = DatasetStore(root: root)
+        try store.prepare()
+        let frame = FrameRecord(id: UUID(), file: "images/train/v_12.jpg", time: 12, source: "random",
+                                boxes: [], keep: true, reviewed: true)   // a reviewed frame with no ball: an empty label file
+        let image = root.appendingPathComponent(frame.file), label = root.appendingPathComponent(frame.labelFile)
+        try FileManager.default.createDirectory(at: image.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("jpg".utf8).write(to: image)
+        try store.writeLabel(for: frame, reviewedOnly: true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: label.path))
+        try store.writeLabel(for: frame, reviewedOnly: true, inCut: true)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: image.path), "parked")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: label.path), "no label for a frame that is not footage")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("excluded").appendingPathComponent(frame.file).path))
+        try store.writeLabel(for: frame, reviewedOnly: true, inCut: false)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: image.path), "back when the cut goes")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: label.path))
     }
 }

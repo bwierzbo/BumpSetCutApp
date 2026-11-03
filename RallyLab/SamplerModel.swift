@@ -129,6 +129,8 @@ struct IngestJob: Identifiable, Equatable {
     var sessionName: String? = nil
     var split: String? = nil
     var framesPerRally: Int? = nil
+    /// The cut ranges of the session this job replaces (a re-pull; D-030): kept on the new one.
+    var cuts: [CutRange]? = nil
     var state: State = .pending
     /// How far through the job is, 0–1, while running: finding rallies is
     /// the first half, extracting and pre-labeling frames the rest.
@@ -316,9 +318,11 @@ final class SamplerModel {
             try store.prepare()
             var written = 0
             for session in sessions {
+                let cuts = session.cutRanges
                 for frame in session.frames {
-                    try store.writeLabel(for: frame, reviewedOnly: reviewedOnly)
-                    if frame.keep, !(reviewedOnly && !frame.reviewed) { written += 1 }
+                    let inCut = cuts.contains(frame.time)
+                    try store.writeLabel(for: frame, reviewedOnly: reviewedOnly, inCut: inCut)
+                    if frame.keep, !(reviewedOnly && !frame.reviewed), !inCut { written += 1 }
                 }
             }
             try store.writeDataYAML()
@@ -355,9 +359,9 @@ final class SamplerModel {
 
     /// Queue one project clip. The caller has already removed any earlier
     /// session with this name.
-    func enqueueClip(_ url: URL, sessionName: String, split: String?, framesPerRally: Int?) {
+    func enqueueClip(_ url: URL, sessionName: String, split: String?, framesPerRally: Int?, cuts: [CutRange]? = nil) {
         queue.append(IngestJob(url: url, kind: .video, sessionName: sessionName,
-                               split: split, framesPerRally: framesPerRally))
+                               split: split, framesPerRally: framesPerRally, cuts: cuts))
         Task { await processQueue() }
     }
 
@@ -418,9 +422,11 @@ final class SamplerModel {
             }
             records = records.enumerated().filter { keep.contains($0.offset) }.map(\.element)
         }
-        let session = VideoSession(name: name, sourcePath: job.url.path, split: split, addedAt: Date(), frames: records)
+        var session = VideoSession(name: name, sourcePath: job.url.path, split: split, addedAt: Date(), frames: records)
+        if let cuts = job.cuts, !cuts.isEmpty { session.cuts = cuts }
         try store.save(session)
-        for frame in records { try store.writeLabel(for: frame, reviewedOnly: reviewedOnly) }
+        let ranges = session.cutRanges
+        for frame in records { try store.writeLabel(for: frame, reviewedOnly: reviewedOnly, inCut: ranges.contains(frame.time)) }
         try store.writeDataYAML()
         return session
     }
@@ -488,8 +494,9 @@ final class SamplerModel {
             : labeled.map { Interval(start: $0.startTime, end: $0.endTime) }
 
         let settings = ingestSettings(name: name, split: split)
-        // A session ingested again keeps its cut ranges: nothing is sampled inside them (D-030).
-        let cuts = sessions.first { $0.name == name }?.cutRanges ?? []
+        // A session ingested again keeps its cut ranges — the job's (a re-pull deletes the old session
+        // first) or the session's: nothing is sampled inside them (D-030).
+        let cuts = (job.cuts ?? sessions.first { $0.name == name }?.cuts ?? []).normalised()
         func planFrames(random: Int) -> [PlannedFrame] {
             Self.plan(rallies: rallies, evidence: evidence, duration: duration,
                       burstFPS: settings.burstFPS, padding: settings.padding,
@@ -1169,7 +1176,7 @@ final class SamplerModel {
         }
         saveSession(session)
         do {
-            try store.writeLabel(for: record, reviewedOnly: reviewedOnly)
+            try store.writeLabel(for: record, reviewedOnly: reviewedOnly, inCut: session.cutRanges.contains(record.time))
         } catch {
             status = "Couldn't save: \(error.localizedDescription)"
         }
@@ -1194,9 +1201,18 @@ final class SamplerModel {
         modify(session: name) { $0.ralliesMarked = marked }
     }
 
-    /// Mark the rallies → X: the video's cut ranges, raw as marked (D-030).
+    /// Mark the rallies → X: the video's cut ranges, raw as marked (D-030). The Sampler's own
+    /// dataset (images/, labels/, data.yaml) follows: a sampled frame inside a cut is parked under
+    /// excluded/, one no longer inside comes back.
     func setCuts(_ cuts: [CutRange], session name: String) {
         modify(session: name) { $0.cuts = cuts.sorted { $0.start < $1.start } }
+        guard let session = sessions.first(where: { $0.name == name }) else { return }
+        let ranges = session.cutRanges
+        do {
+            for frame in session.frames { try store.writeLabel(for: frame, reviewedOnly: reviewedOnly, inCut: ranges.contains(frame.time)) }
+        } catch {
+            status = "Couldn't park the frames inside the cuts: \(error.localizedDescription)"
+        }
     }
 
     /// Label → Not a rally: the found rally starting at `start` isn't one.

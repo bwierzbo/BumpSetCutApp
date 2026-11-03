@@ -98,12 +98,12 @@ enum TrainingDataExporter {
     }
 
     /// The cut ranges of the project session over this video, if any project has one — matched
-    /// by the session's source path (a video no project knows has no cuts, by construction).
-    static func cutRanges(forVideo url: URL, projectsRoot: URL = ProjectsModel.defaultLocation) -> [CutRange] {
+    /// by the session's source path over every project this Mac knows (`ProjectsModel
+    /// .savedProjectRoots`: the remembered list, the last opened and the default location; a
+    /// project may live anywhere). A video no project knows has no cuts, by construction.
+    static func cutRanges(forVideo url: URL, projectRoots: [URL] = ProjectsModel.savedProjectRoots()) -> [CutRange] {
         let path = url.standardizedFileURL.resolvingSymlinksInPath().path
-        let fm = FileManager.default
-        guard let projects = try? fm.contentsOfDirectory(at: projectsRoot, includingPropertiesForKeys: nil) else { return [] }
-        for project in projects {
+        for project in projectRoots {
             for session in DatasetStore(root: project).loadSessions() {
                 let source = URL(fileURLWithPath: session.sourcePath).standardizedFileURL.resolvingSymlinksInPath().path
                 if source == path || session.sourcePath == url.path { return session.cutRanges }

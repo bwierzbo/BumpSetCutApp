@@ -101,15 +101,27 @@ enum PipelineCompare {
             let seen = rally.points.filter { $0.state == .visible && !cuts.contains($0.time) }.map(\.time)
             guard let first = seen.first, let last = seen.last, last > first else { continue }
             run.tracked += 1
-            let overlapping = decided.filter { min($0.end, last) - max($0.start, first) > 0 }
-            let overlap = overlapping.reduce(0) { $0 + min($1.end, last) - max($1.start, first) }
-            if overlap >= 0.5 * (last - first), let s = overlapping.first, let e = overlapping.last {
+            if let errors = Self.coverage(first: first, last: last, decided: decided, cuts: cuts) {
                 run.covered += 1
-                run.startError.append(s.start - first)
-                run.endError.append(e.end - last)
+                run.startError.append(errors.start)
+                run.endError.append(errors.end)
             }
         }
         return run
+    }
+
+    /// Whether the pipeline's rallies cover a tracked rally seen from `first` to `last`: the
+    /// span's pieces outside the cut ranges (D-030) are the footage to cover, and half of their
+    /// length has to be inside the decided rallies. The errors are the first covering rally's
+    /// start against the first piece's start, and the last one's end against the last piece's end.
+    static func coverage(first: Double, last: Double, decided: [Interval], cuts: [CutRange]) -> (start: Double, end: Double)? {
+        let pieces = [Interval(start: first, end: last)].outside(cuts)
+        guard let head = pieces.first, let tail = pieces.last else { return nil }
+        let retained = pieces.reduce(0) { $0 + $1.duration }
+        let overlapping = decided.filter { d in pieces.contains { min(d.end, $0.end) - max(d.start, $0.start) > 0 } }
+        let overlap = overlapping.reduce(0) { total, d in total + pieces.reduce(0) { $0 + max(0, min(d.end, $1.end) - max(d.start, $1.start)) } }
+        guard retained > 0, overlap >= 0.5 * retained, let s = overlapping.first, let e = overlapping.last else { return nil }
+        return (s.start - head.start, e.end - tail.end)
     }
 
     private static func nearest(_ t: Double, in times: [Double]) -> Int? {

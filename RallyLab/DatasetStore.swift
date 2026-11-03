@@ -241,10 +241,12 @@ final class DatasetStore: @unchecked Sendable {
     /// file removed so the trainer never sees it — Ultralytics skips images
     /// without a label file only when `keep` is false, so the image itself is
     /// moved aside too.
-    func writeLabel(for frame: FrameRecord, reviewedOnly: Bool) throws {
+    /// `inCut`: the frame lies inside one of its recording's cut ranges (not footage; D-030) —
+    /// parked like a discarded one, and back when the cut goes.
+    func writeLabel(for frame: FrameRecord, reviewedOnly: Bool, inCut: Bool = false) throws {
         let labelURL = root.appendingPathComponent(frame.labelFile)
         let imageURL = root.appendingPathComponent(frame.file)
-        let excluded = !frame.keep || (reviewedOnly && !frame.reviewed)
+        let excluded = !frame.keep || (reviewedOnly && !frame.reviewed) || inCut
         let parkedURL = parkedImageURL(for: frame)
 
         if excluded {

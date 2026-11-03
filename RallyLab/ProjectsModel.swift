@@ -182,6 +182,18 @@ final class ProjectsModel {
         .urls(for: .moviesDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("RallyLab/Projects", isDirectory: true)
     private static let knownProjectsKey = "RallyLab.projects"
+
+    /// Every project folder this Mac knows without opening one: the remembered list, the last
+    /// project opened and whatever sits in the default location — for a headless tool that has
+    /// to find the project session over a video (a project may live anywhere, `create(name:in:)`).
+    nonisolated static func savedProjectRoots() -> [URL] {
+        let defaults = UserDefaults.standard
+        var roots = (defaults.stringArray(forKey: knownProjectsKey) ?? []).map { URL(fileURLWithPath: $0, isDirectory: true) }
+        if let last = defaults.string(forKey: lastProjectKey) { roots.append(URL(fileURLWithPath: last, isDirectory: true)) }
+        roots += (try? FileManager.default.contentsOfDirectory(at: defaultLocation, includingPropertiesForKeys: nil)) ?? []
+        var seen = Set<String>()
+        return roots.map(\.standardizedFileURL).filter { seen.insert($0.path).inserted }
+    }
     private static let lastProjectKey = "RallyLab.lastProjectPath"
     private static let openedKey = "RallyLab.projectOpenedAt"
 
@@ -797,9 +809,11 @@ final class ProjectsModel {
     func repull(_ videoId: String, in clipId: String) {
         guard let clip = project?.clips.first(where: { $0.id == clipId }),
               let video = clip.videos.first(where: { clip.videoId(of: $0) == videoId }) else { return }
+        // The recording's cut ranges (D-030) are the owner's marks, not the sample: they stay with the re-pull.
+        let cuts = session(named: videoId)?.cuts
         if let old = session(named: videoId) { sampler.deleteSession(old) }
         sampler.enqueueClip(URL(fileURLWithPath: video.clipFile), sessionName: DatasetStore.safeName(videoId),
-                            split: clip.split, framesPerRally: video.frames ?? project?.framesPerRally)
+                            split: clip.split, framesPerRally: video.frames ?? project?.framesPerRally, cuts: cuts)
         status = "\(videoId): re-pulling \(video.frames ?? project?.framesPerRally ?? 0) frames per rally…"
     }
 
@@ -829,7 +843,7 @@ final class ProjectsModel {
         var newId: String?   // set below; the completion runs later on the main actor
         let started = addVideo(to: targetId, source: video.clipFile, start: 0, length: video.length + 1,
                                license: video.license, frames: video.frames, allowDuplicate: true,
-                               provenance: video) { [weak self] worked in
+                               provenance: video, cuts: session(named: videoId)?.cuts) { [weak self] worked in
             guard let self else { return }
             self.moving.remove(videoId)
             if worked {
@@ -887,9 +901,11 @@ final class ProjectsModel {
     /// origin, licence and fingerprint carry over, and `finished` hears
     /// whether the cut worked.
     @discardableResult
+    /// `cuts`: cut ranges (D-030) the new session starts with — a video moved to another card
+    /// keeps the ones marked on it, since it is the same footage.
     func addVideo(to clipId: String, source: String, start: Double, length: Double,
                   license: String, frames: Int? = nil, allowDuplicate: Bool = false,
-                  provenance: ClipSource? = nil, finished: ((Bool) -> Void)? = nil) -> String? {
+                  provenance: ClipSource? = nil, cuts: [CutRange]? = nil, finished: ((Bool) -> Void)? = nil) -> String? {
         guard project != nil, let dir = projectDir,
               let clip = project?.clips.first(where: { $0.id == clipId }) else { return nil }
         let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -945,7 +961,7 @@ final class ProjectsModel {
                 if let old = session(named: videoId) { sampler.deleteSession(old) }
                 let split = project?.clips.first(where: { $0.id == clipId })?.split
                 sampler.enqueueClip(URL(fileURLWithPath: result.file), sessionName: DatasetStore.safeName(videoId),
-                                    split: split, framesPerRally: frames ?? project?.framesPerRally)
+                                    split: split, framesPerRally: frames ?? project?.framesPerRally, cuts: cuts)
                 status = "\(videoId): cut \(Int(result.duration.rounded()))s, sampling…"
                 finished?(true)
             }
