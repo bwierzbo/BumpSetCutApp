@@ -90,6 +90,61 @@ final class TrackLabelModel {
         sampler.sessions.filter { FileManager.default.fileExists(atPath: $0.sourcePath) }
     }
 
+    // MARK: - Opening from another tab
+
+    /// A recording another tab asked to show in the ball-track editor (the Queue's "Open in
+    /// Track"), in the project it named. The Track tab takes it when it is on screen
+    /// (`takeRequest`) and switches to ball tracks for it, so a persisted "rally times" mode or
+    /// the tab's own saved recording is not what shows (Codex on #134).
+    struct Request: Equatable, Sendable {
+        let video: String
+        let root: URL
+    }
+    private(set) var requested: Request?
+
+    func request(_ video: String, in root: URL?) {
+        guard let root else { status = "Open a project."; return }
+        requested = Request(video: video, root: root.standardizedFileURL)
+    }
+
+    enum Resolution: Equatable {
+        case open(String)
+        case dropped(String)
+    }
+
+    /// What a request comes to against the project at `root` and its recordings with a video on
+    /// this Mac: opened when it names that project and one of them; dropped, with the reason to
+    /// show, when it named another project (a project change while it waited, or a stale request,
+    /// even if this project has a recording of the same name) or a recording that can't be tracked here.
+    nonisolated static func resolve(_ request: Request, root: URL, trackable: [VideoSession]) -> Resolution {
+        // The request carries ProjectsModel's standardised folder; the sampler holds the folder as opened.
+        // Compared as resolved paths, so a symlink (/var → /private/var) or a trailing slash does not part them.
+        func path(_ url: URL) -> String { url.standardizedFileURL.resolvingSymlinksInPath().path }
+        guard path(request.root) == path(root) else {
+            return .dropped("\(request.video) was asked for in \(request.root.lastPathComponent), not \(root.lastPathComponent): not opened.")
+        }
+        guard trackable.contains(where: { $0.name == request.video }) else {
+            return .dropped("\(request.video) isn't a recording of \(root.lastPathComponent) with its video on this Mac: not opened.")
+        }
+        return .open(request.video)
+    }
+
+    /// The Track tab takes the request, once: the recording is opened when `resolve` allows it,
+    /// and the reason shown when not. Returns the opened recording's name.
+    @discardableResult
+    func takeRequest() -> String? {
+        guard let request = requested else { return nil }
+        requested = nil
+        switch Self.resolve(request, root: sampler.datasetRoot, trackable: trackableSessions) {
+        case .open(let name):
+            open(sessionName: name)
+            return name
+        case .dropped(let why):
+            status = why
+            return nil
+        }
+    }
+
     // MARK: - Opening
 
     func open(sessionName name: String) {

@@ -47,6 +47,9 @@ struct TrackTabView: View {
             .simultaneousGesture(TapGesture().onEnded { searchFocused = false })
         }
         .onAppear {
+            // A recording asked for from another tab comes first: it sets the mode and the saved
+            // recording, so neither is restored over it below.
+            takeRequest()
             if tracker.sessionName == nil, !savedSession.isEmpty { tracker.open(sessionName: savedSession) }
             if mode == .rallies, !savedSession.isEmpty { marker.open(sessionName: savedSession) }
             // macOS hands the first text field the keyboard when the tab opens.
@@ -60,6 +63,18 @@ struct TrackTabView: View {
             tracker.stop()
             if marker.isPlaying { marker.togglePlay() }
         }
+        .onChange(of: tracker.requested) { _, request in if request != nil { takeRequest() } }
+    }
+
+    /// Another tab asked for a recording (the Queue's "Open in Track"): shown in the ball-track
+    /// editor, whatever mode the tab was left in, and remembered as the tab's recording.
+    private func takeRequest() {
+        guard let name = tracker.takeRequest() else { return }
+        if mode == .rallies {
+            if marker.isPlaying { marker.togglePlay() }
+            mode = .ball
+        }
+        savedSession = name
     }
 
     // MARK: - Sidebar

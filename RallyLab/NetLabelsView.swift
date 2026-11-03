@@ -27,7 +27,7 @@ struct NetLabelsView: View {
             .padding(12)
             .frame(minWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
         }
-        .onChange(of: isActive) { _, active in if active { model.reload() } }
+        .onChange(of: isActive, initial: true) { _, active in model.activate(active) }
     }
 
     // MARK: - Recordings

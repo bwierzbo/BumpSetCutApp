@@ -59,6 +59,14 @@
 //             rallies, spans, coverage and completion in <video>.rallyevents.json; withheld recordings named, not
 //             read. --event-inventory writes manifests/event-inventory-<stamp>.{json,csv}; --review-status prints
 //             the coverage table only. Neither writes a sidecar or a ledger row.)
+//    RallyLab --project v3 --work-queue [--json] | --reconcile-tasks   (RallyLab 2.0 work queue: every labeling task
+//             — Stage 1 rally boundaries, ball tracks, net corners — with its state from the annotation files
+//             (WorkQueueReconciler). --work-queue prints it, writing nothing; --reconcile-tasks also writes
+//             tasks/work-queue.json (created if missing; an unreadable one is refused, never overwritten).
+//             --json prints the queue as JSON. Withheld recordings' tasks are blocked; nothing is opened or labeled)
+//    RallyLab --project v3 --source-index                (every recording's identity, provenance, split, admission
+//             and exposure (SourceRegistry), from project.json, the sessions, validation.json and the ledger —
+//             no video file read; written to manifests/source-index-<stamp>.json and summarised)
 //    RallyLab --project v3 --export-net-dataset <dir>    (the net labels (Net labels tab): one upright JPEG and one
 //             YOLO line per labeled recording, data.yaml and net-dataset.json, into <dir> (must not exist); withheld
 //             and handheld recordings refused; the use goes in the exposure ledger first, or nothing is put in place)
@@ -237,6 +245,10 @@ enum HeadlessProjects {
             if ok, args.contains("--event-inventory") || args.contains("--review-status") {
                 ok = eventInventory(projects, write: args.contains("--event-inventory"))
             }
+            if ok, args.contains("--work-queue") || args.contains("--reconcile-tasks") {
+                ok = workQueue(projects, write: args.contains("--reconcile-tasks"), json: args.contains("--json"))
+            }
+            if ok, args.contains("--source-index") { ok = sourceIndex(projects) }
             if ok, let out = value(after: "--export-net-dataset", in: args) {
                 ok = await exportNetDataset(projects, to: URL(fileURLWithPath: (out as NSString).expandingTildeInPath, isDirectory: true))
             }
@@ -1206,6 +1218,52 @@ enum HeadlessProjects {
             log("✅ \(submissions.count) proposals → \(store.url.path) (\(by.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", "))). net-labels.json untouched.")
             return true
         } catch { log("❌ \(error.localizedDescription) Nothing imported."); return false }
+    }
+
+    /// `--work-queue` / `--reconcile-tasks`: the queue reconciled with the annotation files; written only with `write`.
+    @MainActor
+    private static func workQueue(_ projects: ProjectsModel, write: Bool, json: Bool) -> Bool {
+        guard let root = projects.projectDir, let project = projects.project?.name else { log("❌ No project folder."); return false }
+        do {
+            let store = WorkQueue.Store(root: root)
+            var file = try store.load() ?? WorkQueue.File(project: project, updatedAt: WorkQueue.stamp(Date()))
+            let inputs = try WorkQueueReconciler.gather(root: root, policy: file.policy)
+            let summary = WorkQueueReconciler.apply(inputs, to: &file)
+            if write { try store.save(file) }
+            if json {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                log(String(decoding: try encoder.encode(file), as: UTF8.self))
+            } else {
+                for line in WorkQueueReconciler.statusLines(file, summary: summary) { log(line) }
+                for t in file.tasks.sorted(by: { ($0.kind.rawValue, $0.video) < ($1.kind.rawValue, $1.video) }) {
+                    log("  \(t.kind.rawValue.padding(toLength: 16, withPad: " ", startingAt: 0)) \(t.state.rawValue.padding(toLength: 12, withPad: " ", startingAt: 0)) \(t.video): \(t.observed?.summary ?? "")" + (t.reason.map { " — \($0)" } ?? ""))
+                }
+            }
+            log(write ? "✅ Written: \(store.url.path)" : "(read-only: --reconcile-tasks writes \(store.url.path))")
+            return true
+        } catch {
+            log("❌ \(error.localizedDescription) Nothing written.")
+            return false
+        }
+    }
+
+    /// `--source-index`: the registry index written under manifests/ and summarised.
+    @MainActor
+    private static func sourceIndex(_ projects: ProjectsModel) -> Bool {
+        guard let root = projects.projectDir else { log("❌ No project folder."); return false }
+        do {
+            let now = Date()
+            let index = try SourceRegistry.load(root: root, now: now)
+            let url = SourceRegistry.url(in: root, stamp: EventReview.stamp(now).replacingOccurrences(of: ":", with: ""))
+            try SourceRegistry.write(index, to: url)
+            for line in SourceRegistry.summaryLines(index) { log(line) }
+            log("✅ Written: \(url.path)")
+            return true
+        } catch {
+            log("❌ \(error.localizedDescription) Nothing written.")
+            return false
+        }
     }
 
     /// Record a use, or say why it couldn't be and report failure (the command then fails).

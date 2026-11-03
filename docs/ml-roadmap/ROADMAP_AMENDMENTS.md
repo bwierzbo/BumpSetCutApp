@@ -2,7 +2,7 @@
 name: roadmap-amendments
 status: living (CI-BSC-021)
 created: 2026-10-22T02:29:29Z
-updated: 2026-10-22T02:29:29Z
+updated: 2026-11-03T02:42:42Z
 ---
 
 # Roadmap amendments
@@ -38,3 +38,4 @@ Decisions logged after the roadmap whose entries change the plan. The section co
 | D-018 | 2026-10-21 | not named in the entry (owner to confirm) | L2 training only from a manifest-generated package with a fail-closed preflight; preregistration from a fixed template is mandatory before any L2 training. |
 | D-019 | 2026-10-21 | not named in the entry (owner to confirm) | First L2 recipe approved with amendments (paired H1, label provenance, one seed); training and holdout evaluation each need separate authorisation. |
 | D-024 | 2026-10-23 | Phase 1A (event-boundary pilot); RallyLab review workflow and future classifier datasets | Stage 1 expands from the approved 24-rally calibration pilot to full eligible-video review of exact serve contact/dead ball, with simple missed-serve and non-rally ball-activity flags. An independently resumable, optional Stage 2 adds per-contact action/technique labels without redoing boundaries. Stage 3 player identities/stats are deferred; frozen L2 and protected footage controls remain unchanged. |
+| D-031 | 2026-11-02 | not named in the entry (owner to confirm); touches Phase 1 (dataset manifest), Phase 1A (review tooling) and the RallyLab workflow | RallyLab becomes the dataset-management and annotation platform: a derived source registry and a persistent labeling task queue over the existing stores, built in reviewable phases with stability fixes first; the roadmap's measurement-first ordering, reservations and training gates are unchanged. |

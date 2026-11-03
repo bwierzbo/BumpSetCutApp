@@ -17,6 +17,7 @@ struct ContentView: View {
     let marker: RallyMarkModel
     let boundaries: RallyBoundariesModel
     let netLabels: NetLabelsModel
+    let queue: WorkQueueModel
     let phone: LabelingSync
     @State private var showingImporter = false
     /// The tab you were on last time, so RallyLab reopens where you left off.
@@ -24,7 +25,7 @@ struct ContentView: View {
     /// Set by "Continue without a project" on the welcome window.
     @State private var workingWithoutProject = false
 
-    enum Tab: String, Hashable { case label, projects, sampler, track, review, netLabels, models, pipeline, net, compare, fsm }
+    enum Tab: String, Hashable { case label, projects, sampler, track, review, netLabels, queue, models, pipeline, net, compare, fsm }
 
     var body: some View {
         Group {
@@ -51,6 +52,7 @@ struct ContentView: View {
             // The review tab holds a recording of the old project: nothing of it stays open.
             boundaries.projectChanged()
             netLabels.reload()
+            queue.projectChanged()
         }
     }
 
@@ -103,6 +105,16 @@ struct ContentView: View {
             }
             .tabItem { Label("Net labels", systemImage: "rectangle.dashed.badge.record") }
             .tag(Tab.netLabels)
+            // RallyLab 2.0, phase 1: every labeling task by kind and state, from the annotation files (WorkQueueReconciler).
+            Group {
+                if projects.project != nil {
+                    WorkQueueView(model: queue, isActive: tab == .queue) { kind, video in openTask(kind, video) }
+                } else {
+                    ProjectWelcomeView(projects: projects) { tab = .pipeline }
+                }
+            }
+            .tabItem { Label("Queue", systemImage: "list.bullet.rectangle") }
+            .tag(Tab.queue)
             ModelsTabView(library: library) { sessionName, frame in
                 if let session = sampler.sessions.first(where: { $0.name == sessionName }) {
                     SamplerTabView.showStills(session, frame: frame, in: sampler)
@@ -130,6 +142,26 @@ struct ContentView: View {
         }
         .background(VideoDropView(model: model))
         .task { model.restoreLastSession() }
+    }
+
+    /// A task's "Open": the tab that labels its kind, on that recording.
+    private func openTask(_ kind: WorkQueue.Kind, _ video: String) {
+        switch kind {
+        case .rallyBoundaries:
+            tab = .review
+            Task { await boundaries.open(video) }
+        case .ballTracks:
+            // The Track tab takes the request when it is on screen: ball-track mode, this recording.
+            tracker.request(video, in: projects.projectDir)
+            tab = .track
+        case .netCorners:
+            // Asked for before the tab switch: the Net labels tab selects it after its activation
+            // reload, in the project as it is then (a stale request is dropped there).
+            netLabels.open(video, in: projects.projectDir)
+            tab = .netLabels
+        case .contactLabels:
+            break
+        }
     }
 
     private var pipelineTab: some View {

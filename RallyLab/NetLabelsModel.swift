@@ -97,7 +97,9 @@ final class NetLabelsModel {
         }
     }
 
-    private let projects: ProjectsModel?
+    /// The open project and its folder, as they are now; nil when none is open. The app reads
+    /// the ProjectsModel; a test hands in its own fixture and can switch it under the tab.
+    private let currentProject: () -> (project: Project, dir: URL)?
     private let footage: any NetLabelFootage
     /// Set with the project: records a proposal use before the model runs.
     private var recordProposal: NetProposalRecorder?
@@ -138,6 +140,21 @@ final class NetLabelsModel {
     private var loadTask: Task<Void, Never>?
     /// Counts decode requests; a decode publishes its frame only while it is the latest.
     private var decodeSerial = 0
+    /// The folder the listed recordings were read from; nil while nothing is listed (blocked, or no project).
+    private var inventoryRoot: URL?
+    /// Whether the tab is on screen (the view reports it): a request to show a recording is
+    /// applied only while it is, after the activation reload, which clears the selection.
+    private(set) var isActive = false
+    /// A recording another tab asked to show (the Queue's "Open in Net labels"), in the project it
+    /// named. Kept until this tab is active and lists that project — the activation reload resets
+    /// the selection, so selecting first would lose it — and dropped when the project changes
+    /// meanwhile. Applying it goes through `select`, so a withheld or skipped recording is named
+    /// and never opened, and one not in the project is reported.
+    struct Request: Equatable, Sendable {
+        let video: String
+        let root: URL
+    }
+    private(set) var pending: Request?
     /// Counts inventories (`reload`/`install`); a read-ahead keeps its frame only for the one it began in.
     private var inventory = 0
 
@@ -156,8 +173,13 @@ final class NetLabelsModel {
     /// The recordings whose frames are being read now.
     private(set) var prefetching: String?
 
-    init(projects: ProjectsModel, footage: any NetLabelFootage = RealNetLabelFootage(), prefetchAhead: Int = 8) {
-        self.projects = projects
+    convenience init(projects: ProjectsModel, footage: any NetLabelFootage = RealNetLabelFootage(), prefetchAhead: Int = 8) {
+        self.init(project: { projects.project.flatMap { p in projects.projectDir.map { (p, $0) } } }, footage: footage, prefetchAhead: prefetchAhead)
+    }
+
+    /// Over whatever `project` answers: the app's ProjectsModel, or a test's fixture.
+    init(project: @escaping () -> (project: Project, dir: URL)?, footage: any NetLabelFootage, prefetchAhead: Int = 8) {
+        currentProject = project
         self.footage = footage
         self.prefetchAhead = prefetchAhead
         reload()
@@ -168,7 +190,7 @@ final class NetLabelsModel {
          aiProposals: [String: NetAIProposal] = [:], aiStore: NetAIProposalStore? = nil, proposalFrames: [String: URL] = [:],
          exclusions: [String: NetExclusion] = [:], exclusionStore: NetExclusionStore? = nil,
          exposure: @escaping NetProposalRecorder) {
-        projects = nil
+        currentProject = { nil }
         self.footage = footage
         self.prefetchAhead = prefetchAhead
         recordProposal = exposure
@@ -198,14 +220,10 @@ final class NetLabelsModel {
 
     private static func marked(_ item: Item, labels: [String: NetLabel]) -> Item {
         var it = item
-        if let label = labels[item.video] {
-            let mine = item.fingerprint != nil && label.fingerprint == item.fingerprint
-            it.labeled = mine && label.corners != nil
-            it.boxOnly = mine && label.corners == nil
-            it.stale = !mine
-        } else {
-            it.labeled = false; it.stale = false; it.boxOnly = false
-        }
+        let status = NetLabels.status(of: labels[item.video], fingerprint: item.fingerprint)
+        it.labeled = status.labeled
+        it.boxOnly = status.boxOnly
+        it.stale = status.stale
         return it
     }
 
@@ -215,7 +233,9 @@ final class NetLabelsModel {
     /// a labels file that can't be read, blocks the tab.
     func reload() {
         clear()
-        guard let projects, let project = projects.project, let dir = projects.projectDir else { status = "Open a project."; return }
+        guard let current = currentProject() else { pending = nil; status = "Open a project."; return }
+        let project = current.project, dir = current.dir
+        defer { settle(in: dir) }
         let inventory: NetInventory
         do { inventory = try NetInventory.load(projectDir: dir) } catch {
             blocked = "Nothing can be labeled: \(error.localizedDescription)"; status = blocked!; return
@@ -248,6 +268,47 @@ final class NetLabelsModel {
         install(items: items, labels: labels, store: store, aiProposals: aiProposals, aiStore: aiStore,
                 proposalFrames: NetAIPilot.proposalFrames(projectDir: dir, proposals: aiProposals),
                 exclusions: exclusions, exclusionStore: exclusionStore)
+        inventoryRoot = dir
+    }
+
+    /// The view reports the tab coming on or off screen. Coming on, the project is read again
+    /// (labels and proposals may have changed on disk) and a pending request is applied to it.
+    func activate(_ active: Bool) {
+        isActive = active
+        if active { reload() }
+    }
+
+    /// Show `video` of the project at `root` once this tab is active and lists that project — at
+    /// once when it already does; otherwise after the activation reload (`activate`). Nothing is
+    /// selected before then: the reload would clear it.
+    func open(_ video: String, in root: URL?) {
+        guard let root else { status = "Open a project."; return }
+        pending = Request(video: video, root: root.standardizedFileURL)
+        guard isActive else { return }
+        if inventoryRoot == pending?.root { settle(in: root) } else { reload() }
+    }
+
+    /// Apply or drop the pending request against the project just read from `dir`: a request for
+    /// another project is dropped and said so; one for this project waits while the tab is off
+    /// screen and is otherwise consumed — selected when the recording is listed (a withheld or
+    /// skipped one is named, not opened, as `select` does), reported when it isn't, left to the
+    /// block's message when the tab is blocked.
+    private func settle(in dir: URL) {
+        guard let request = pending else { return }
+        let root = dir.standardizedFileURL
+        guard request.root == root else {
+            pending = nil
+            status = "\(request.video) was asked for in \(request.root.lastPathComponent), not \(root.lastPathComponent): not opened."
+            return
+        }
+        guard isActive else { return }
+        pending = nil
+        guard blocked == nil else { return }
+        guard items.contains(where: { $0.video == request.video }) else {
+            status = "\(request.video) isn't a recording of \(root.lastPathComponent): not opened."
+            return
+        }
+        select(request.video)
     }
 
     /// Nothing on screen, nothing in flight that can still land: a load or read-ahead started
@@ -258,6 +319,7 @@ final class NetLabelsModel {
         inventory += 1
         prefetched = [:]; prefetching = nil
         decodeSerial += 1
+        inventoryRoot = nil
         items = []; labels = [:]; aiProposals = [:]; aiStore = nil; proposalFrames = [:]; exclusions = [:]; exclusionStore = nil; selected = nil; frame = nil; frameTime = nil; quad = nil; proposal = nil; shownAI = nil; labelSource = nil; blocked = nil
     }
 
@@ -287,9 +349,9 @@ final class NetLabelsModel {
     /// own (never over a person's label, box-only included), not skipped, made on this file and
     /// not rejected. A manual-review answer is offered too: it names why the net wasn't placed.
     func offeredAI(_ item: Item) -> NetAIProposal? {
-        guard item.skip == nil, !item.labeled, !item.boxOnly, let fingerprint = item.fingerprint,
-              let ai = aiProposals[item.video], ai.fingerprint == fingerprint, ai.rejectedAt == nil else { return nil }
-        return ai
+        let ai = aiProposals[item.video]
+        let status = NetLabels.LabelStatus(labeled: item.labeled, boxOnly: item.boxOnly, stale: item.stale)
+        return NetLabels.isOffered(ai, skip: item.skip, fingerprint: item.fingerprint, status: status) ? ai : nil
     }
 
     /// The offered proposal and where its own frame lies on this Mac, if it does.
