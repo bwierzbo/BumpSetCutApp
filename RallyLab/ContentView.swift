@@ -151,8 +151,9 @@ struct ContentView: View {
             tab = .review
             Task { await boundaries.open(video) }
         case .ballTracks:
+            // The Track tab takes the request when it is on screen: ball-track mode, this recording.
+            tracker.request(video, in: projects.projectDir)
             tab = .track
-            tracker.open(sessionName: video)
         case .netCorners:
             // Asked for before the tab switch: the Net labels tab selects it after its activation
             // reload, in the project as it is then (a stale request is dropped there).
