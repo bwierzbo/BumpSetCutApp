@@ -74,8 +74,10 @@ RECORDING_TYPES = {"continuous", "edited", "unknown"}
 TB_TRAITS = {"slow_motion", "replay", "montage", "camera_angle_change"}
 STEP_KEYS = {"t", "tick", "seg", "f", "y", "w"}
 BASELINE_REPLAYER = "EvidenceReplayer.decidedRallies"
-BASELINE_SETTING_KEYS = {"prerollSec", "postrollSec", "joinSec", "minRallySec", "servePrimedStart"}
-BASELINE_RALLY_KEYS = {"rawStartTick", "rawEndTick", "startTick", "endTick", "serveContactTick"}
+BASELINE_SETTING_KEYS = {"prerollSec", "postrollSec", "joinSec", "minSegmentSec", "servePrimedStart"}
+BASELINE_CLIP_KEYS = {"rawSpans", "startTick", "endTick", "serveContactTick"}
+SHORT_RAW_SEC = 2.5         # SegmentBuilder.shortSegmentThreshold: a shorter raw rally gets at most…
+SHORT_PREROLL_SEC = 0.5     # …SegmentBuilder.maxPrerollForShort of pre-roll
 RECORDING_KEYS = {
     "recordingId", "sourceId", "fingerprint", "groupId", "split", "fold", "surface", "camera", "orientation",
     "originKind", "uploader", "durationSec", "frameRateNominal", "vfr", "aspect", "upright", "net",
@@ -296,8 +298,9 @@ def validate_steps(path: str, rec: dict, ignore_ticks: int, rep: Report) -> dict
 
 
 def validate_baseline(path: str, rec: dict, variant_names: set, rep: Report):
-    """Validate one baseline file (contract §3a): the FSM's raw and padded rallies per variant, as the exporter
-    replayed them on the full evidence. The trainer never re-runs the FSM; these are the R0 / R0' outputs."""
+    """Validate one baseline file (contract §3a): per variant, the FSM's clips as the exporter replayed them on
+    the full evidence — each with its pre-merge raw spans (SegmentBuilder.closedRawRanges) and its padded span.
+    The trainer never re-runs the FSM; these are the R0 / R0' outputs and the padding port's parity fixture."""
     rid = rec["recordingId"]
     where = f"{rid} baseline"
     try:
@@ -322,20 +325,35 @@ def validate_baseline(path: str, rec: dict, variant_names: set, rep: Report):
         prev_end = None
         for j, r in enumerate(rallies):
             rw = f"{vw}[{j}]"
-            if not isinstance(r, dict) or set(r) != BASELINE_RALLY_KEYS:
-                rep.error(f"{rw}: keys must be exactly {sorted(BASELINE_RALLY_KEYS)}")
+            if not isinstance(r, dict) or set(r) != BASELINE_CLIP_KEYS:
+                rep.error(f"{rw}: keys must be exactly {sorted(BASELINE_CLIP_KEYS)}")
                 continue
-            ints = {k: r[k] for k in ("rawStartTick", "rawEndTick", "startTick", "endTick")}
-            if any(isinstance(v, bool) or not isinstance(v, int) for v in ints.values()):
-                rep.error(f"{rw}: ticks must be integers")
+            if any(isinstance(r[k], bool) or not isinstance(r[k], int) for k in ("startTick", "endTick")):
+                rep.error(f"{rw}: startTick and endTick must be integers")
                 continue
-            if not (r["rawStartTick"] < r["rawEndTick"]):
-                rep.error(f"{rw}: raw span must have rawStartTick < rawEndTick")
-            if not (r["startTick"] <= r["rawStartTick"] and r["rawEndTick"] <= r["endTick"]):
-                rep.error(f"{rw}: the padded span [{r['startTick']}, {r['endTick']}) must contain the raw span "
-                          f"[{r['rawStartTick']}, {r['rawEndTick']})")
+            if not (r["startTick"] < r["endTick"]):
+                rep.error(f"{rw}: padded span must have startTick < endTick")
             if r["startTick"] < 0 or (duration_ticks is not None and r["endTick"] > duration_ticks):
                 rep.error(f"{rw}: padded span outside the recording [0, {duration_ticks})")
+            raws = r["rawSpans"]
+            if not isinstance(raws, list) or not raws:
+                rep.error(f"{rw}: rawSpans must be a non-empty list of the pre-merge raw spans")
+            else:
+                raw_prev_end = None
+                for k, q in enumerate(raws):
+                    qw = f"{rw}.rawSpans[{k}]"
+                    if not isinstance(q, dict) or set(q) != {"startTick", "endTick"} or \
+                            any(isinstance(q[x], bool) or not isinstance(q[x], int) for x in ("startTick", "endTick")):
+                        rep.error(f"{qw}: a raw span is {{startTick, endTick}} with integer ticks")
+                        continue
+                    if not (q["startTick"] < q["endTick"]):
+                        rep.error(f"{qw}: raw span must have startTick < endTick")
+                    if not (r["startTick"] <= q["startTick"] and q["endTick"] <= r["endTick"]):
+                        rep.error(f"{qw}: raw span [{q['startTick']}, {q['endTick']}) must lie inside the padded span "
+                                  f"[{r['startTick']}, {r['endTick']})")
+                    if raw_prev_end is not None and q["startTick"] < raw_prev_end:
+                        rep.error(f"{qw}: raw spans must be in time order and disjoint")
+                    raw_prev_end = q["endTick"]
             sc = r["serveContactTick"]
             if sc is not None and (isinstance(sc, bool) or not isinstance(sc, int) or not (r["startTick"] <= sc <= r["endTick"])):
                 rep.error(f"{rw}: serveContactTick must be null or an integer tick inside the padded span")
@@ -674,38 +692,57 @@ def _synthetic_recording(rng: random.Random, rid: str, group: str, split: str, f
 
 
 SYNTHETIC_BASELINE_VARIANTS = [
-    {"name": "r0", "settings": {"prerollSec": 2.0, "postrollSec": 0.5, "joinSec": 1.3513, "minRallySec": 2.6131, "servePrimedStart": True}},
-    {"name": "r0_prime", "settings": {"prerollSec": 2.0, "postrollSec": 1.0, "joinSec": 0.0, "minRallySec": 1.5, "servePrimedStart": True}},
+    {"name": "r0", "settings": {"prerollSec": 2.0, "postrollSec": 0.5, "joinSec": 1.3513, "minSegmentSec": 2.6131, "servePrimedStart": True}},
+    {"name": "r0_prime", "settings": {"prerollSec": 2.0, "postrollSec": 1.0, "joinSec": 0.0, "minSegmentSec": 1.5, "servePrimedStart": True}},
 ]
 
 
-def _synthetic_baseline(rng: random.Random, rec: dict) -> dict:
-    """A plausible FSM output per variant: raw spans near the truth rallies (one missed, one late), padded by the
-    variant's settings, joined when the padded gap is within joinSec, clipped to the recording."""
+def pad_and_merge(raw_spans, settings: dict, duration_ticks: int) -> list:
+    """SegmentBuilder.closeSegment + finalizeWithRaw in ticks: each raw span gets pre-roll (capped at 0.5 s when the
+    raw rally is shorter than 2.5 s) and post-roll, is clamped to [0, duration], merged with its predecessor when the
+    padded gap is within joinSec, and dropped when the padded clip is shorter than minSegmentSec. Returns clips of
+    {rawSpans, startTick, endTick} — the shape the baseline file stores, which is why the synthetic example and the
+    trainer's parity check share this function."""
+    pre_full, post = round(settings["prerollSec"] * TIMESCALE), round(settings["postrollSec"] * TIMESCALE)
+    join, min_len = round(settings["joinSec"] * TIMESCALE), round(settings["minSegmentSec"] * TIMESCALE)
+    clips = []
+    for a, b in sorted(raw_spans):
+        pre = min(pre_full, round(SHORT_PREROLL_SEC * TIMESCALE)) if (b - a) < round(SHORT_RAW_SEC * TIMESCALE) else pre_full
+        s, e = max(0, a - pre), min(duration_ticks, b + post)
+        if e <= s:
+            continue
+        a, b = max(s, a), min(e, b)
+        if clips and s - clips[-1]["endTick"] <= join:
+            clips[-1]["endTick"] = max(clips[-1]["endTick"], e)
+            clips[-1]["rawSpans"].append({"startTick": a, "endTick": b})
+        else:
+            clips.append({"rawSpans": [{"startTick": a, "endTick": b}], "startTick": s, "endTick": e})
+    return [c for c in clips if c["endTick"] - c["startTick"] >= min_len]
+
+
+def _synthetic_baseline(rng: random.Random, rec: dict, short_pair=None) -> dict:
+    """A plausible FSM output per variant: raw spans near the truth rallies (one missed, one late) and, when asked,
+    a pair of short raw rallies close enough to merge under r0's join — the short-segment merge case whose padded
+    span a port cannot rebuild from the raw union alone (Codex round 3 on PR #136)."""
     duration_ticks = round(rec["durationSec"] * TIMESCALE)
+    raws, contacts = [], {}
+    for j, r in enumerate(rec["rallies"]):
+        if j == 1 and len(rec["rallies"]) > 2:
+            continue                                            # one rally the FSM missed
+        a = max(0, r["startTick"] + rng.randint(-120, 240))
+        b = min(duration_ticks, r["endTick"] + rng.randint(-60, 300))
+        raws.append((a, b))
+        if j % 2 == 0:
+            contacts[a] = r["startTick"]
+    if short_pair:
+        raws += [(round(x * TIMESCALE), round(y * TIMESCALE)) for x, y in short_pair]
     out = {}
     for var in SYNTHETIC_BASELINE_VARIANTS:
-        st = var["settings"]
-        raw = []
-        for j, r in enumerate(rec["rallies"]):
-            if j == 1 and len(rec["rallies"]) > 2:
-                continue                                        # one rally the FSM missed
-            a = r["startTick"] + rng.randint(-120, 240)
-            b = r["endTick"] + rng.randint(-60, 300)
-            raw.append((max(0, a), min(duration_ticks, b), r["startTick"] if j % 2 == 0 else None))
-        rallies = []
-        for a, b, contact in raw:
-            s = max(0, a - round(st["prerollSec"] * TIMESCALE))
-            e = min(duration_ticks, b + round(st["postrollSec"] * TIMESCALE))
-            if rallies and s - rallies[-1]["endTick"] <= round(st["joinSec"] * TIMESCALE):
-                last = rallies[-1]
-                last["rawEndTick"], last["endTick"] = b, e
-                continue
-            if b - a < round(st["minRallySec"] * TIMESCALE):
-                continue
-            rallies.append({"rawStartTick": a, "rawEndTick": b, "startTick": s, "endTick": e,
-                            "serveContactTick": contact if contact is not None and s <= contact <= e else None})
-        out[var["name"]] = rallies
+        clips = pad_and_merge(raws, var["settings"], duration_ticks)
+        for c in clips:
+            sc = contacts.get(c["rawSpans"][0]["startTick"])
+            c["serveContactTick"] = sc if sc is not None and c["startTick"] <= sc <= c["endTick"] else None
+        out[var["name"]] = clips
     return {"recordingId": rec["recordingId"], "variants": out}
 
 
@@ -723,11 +760,12 @@ def write_synthetic(out_dir: str, seed: int = 0) -> str:
         dict(rid="syn_grs_b", group="g-syn-b", split="tune", fold=1, surface="grass", recording_type="edited", negatives="restricted",
              coverage="declared_complete", rallies=[(6, 15), (22, 30)], restricted_reasons=["edited recording: temporal windows only within confirmed continuous spans"]),
         dict(rid="syn_ind_c", group="g-syn-c", split="dev_val", fold=1, surface="indoor", recording_type="continuous", negatives="standard",
-             coverage="stage1_complete", rallies=[(4, 9), (18, 29)], nra=[(12, 15)], net=False),
+             coverage="stage1_complete", rallies=[(4, 9), (18, 29)], nra=[(12, 15)], net=False,
+             short_pair=[(40.0, 41.5), (43.5, 45.0)]),   # two short raws: r0 joins them (padded gap 1.0 s ≤ 1.3513), r0_prime (join 0, post-roll 1.0: gap 0.5 s) does not
     ]
     recordings = []
     for spec in specs:
-        rec, steps = _synthetic_recording(rng, **spec)
+        rec, steps = _synthetic_recording(rng, **{k: v for k, v in spec.items() if k != "short_pair"})
         path = os.path.join(out_dir, rec["stepsFile"])
         with open(path, "w", encoding="utf-8") as fh:
             for s in steps:
@@ -740,7 +778,7 @@ def write_synthetic(out_dir: str, seed: int = 0) -> str:
         rec["labelCounts"] = counts
         bpath = os.path.join(out_dir, rec["baselineFile"])
         with open(bpath, "w", encoding="utf-8") as fh:
-            json.dump(_synthetic_baseline(rng, rec), fh, indent=1)
+            json.dump(_synthetic_baseline(rng, rec, short_pair=spec.get("short_pair")), fh, indent=1)
         rec["baselineSha256"] = sha256_file(bpath)
         recordings.append(rec)
     names = ["withheld_syn_01", "withheld_syn_02"]

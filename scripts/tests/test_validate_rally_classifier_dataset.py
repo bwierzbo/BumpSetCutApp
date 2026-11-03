@@ -561,7 +561,7 @@ class SyntheticDataset(unittest.TestCase):
         m = self.manifest()
         rec = m["recordings"][0]
         b = self.baseline(rec)
-        b["variants"]["r0"][0]["rawEndTick"] += 1          # edit without refreshing the hash
+        b["variants"]["r0"][0]["rawSpans"][0]["endTick"] += 1          # edit without refreshing the hash
         with open(os.path.join(self.dataset, rec["baselineFile"]), "w") as fh:
             json.dump(b, fh)
         self.assertRefused("baselineSha256")
@@ -592,18 +592,34 @@ class SyntheticDataset(unittest.TestCase):
         rec = m["recordings"][0]
         b = self.baseline(rec)
         r = b["variants"]["r0"][0]
-        r["startTick"] = r["rawStartTick"] + 1               # padded span no longer contains the raw span
+        r["startTick"] = r["rawSpans"][0]["startTick"] + 1   # padded span no longer contains its raw span
         self.save_baseline(rec, b)
         self.save(m)
-        self.assertRefused("must contain the raw span")
+        self.assertRefused("must lie inside the padded span")
         m = self.manifest()
         rec = m["recordings"][0]
         b = self.baseline(rec)
         b["variants"]["r0"][1]["startTick"] = b["variants"]["r0"][0]["endTick"] - 1
-        b["variants"]["r0"][1]["rawStartTick"] = b["variants"]["r0"][1]["startTick"]
+        b["variants"]["r0"][1]["rawSpans"][0]["startTick"] = b["variants"]["r0"][1]["startTick"]
         self.save_baseline(rec, b)
         self.save(m)
         self.assertRefused("padded spans must be in time order and disjoint")
+        m = self.manifest()
+        rec = m["recordings"][0]
+        b = self.baseline(rec)
+        b["variants"]["r0"][0]["rawSpans"] = []
+        self.save_baseline(rec, b)
+        self.save(m)
+        self.assertRefused("rawSpans must be a non-empty list")
+        m = self.manifest()
+        rec = m["recordings"][2]
+        b = self.baseline(rec)
+        clip = b["variants"]["r0"][0]
+        clip["rawSpans"] = [{"startTick": clip["startTick"] + 10, "endTick": clip["endTick"] - 10},
+                            {"startTick": clip["startTick"] + 5, "endTick": clip["startTick"] + 20}]
+        self.save_baseline(rec, b)
+        self.save(m)
+        self.assertRefused("raw spans must be in time order and disjoint")
         m = self.manifest()
         rec = m["recordings"][0]
         b = self.baseline(rec)
@@ -624,7 +640,30 @@ class SyntheticDataset(unittest.TestCase):
         b["variants"]["r0"][0]["padded"] = True
         self.save_baseline(rec, b)
         self.save(m)
-        self.assertRefused("keys must be exactly ['endTick', 'rawEndTick', 'rawStartTick', 'serveContactTick', 'startTick']")
+        self.assertRefused("keys must be exactly ['endTick', 'rawSpans', 'serveContactTick', 'startTick']")
+
+    def test_baseline_fixture_holds_a_short_segment_merge_the_raw_union_cannot_rebuild(self):
+        # Codex round 3 on PR #136: SegmentBuilder caps the pre-roll at 0.5 s for a raw rally under 2.5 s *before*
+        # merging, so a merged clip's padded start follows its first short raw, not the raw union's length. The
+        # fixture keeps the pre-merge raws so a padding port can be checked on exactly this case.
+        m = self.manifest()
+        rec = next(r for r in m["recordings"] if r["recordingId"] == "syn_ind_c")
+        b = self.baseline(rec)
+        merged = [c for c in b["variants"]["r0"] if len(c["rawSpans"]) == 2]
+        self.assertEqual(len(merged), 1)
+        clip = merged[0]
+        first, second = clip["rawSpans"]
+        self.assertEqual((first["startTick"], first["endTick"]), (24000, 24900))      # 40.0–41.5 s: shorter than 2.5 s
+        self.assertEqual((second["startTick"], second["endTick"]), (26100, 27000))    # 43.5–45.0 s
+        self.assertEqual(clip["startTick"], first["startTick"] - 300)               # 0.5 s capped pre-roll, not 2.0 s
+        self.assertEqual(clip["endTick"], second["endTick"] + 300)                  # 0.5 s post-roll
+        self.assertEqual(v.pad_and_merge([(24000, 24900), (26100, 27000)], v.SYNTHETIC_BASELINE_VARIANTS[0]["settings"], 36000),
+                         [{"rawSpans": clip["rawSpans"], "startTick": clip["startTick"], "endTick": clip["endTick"]}])
+        # the raw union alone would get the full 2 s pre-roll: a port fed only the union fails the parity check
+        self.assertEqual(v.pad_and_merge([(24000, 27000)], v.SYNTHETIC_BASELINE_VARIANTS[0]["settings"], 36000)[0]["startTick"], 24000 - 1200)
+        # r0_prime joins nothing (joinSec 0) and keeps the two short clips apart
+        prime = [c for c in b["variants"]["r0_prime"] if c["rawSpans"][0]["startTick"] in (24000, 26100)]
+        self.assertEqual([len(c["rawSpans"]) for c in prime], [1, 1])
 
     # the label rule itself -----------------------------------------------------------------
     def test_expected_state_precedence(self):
