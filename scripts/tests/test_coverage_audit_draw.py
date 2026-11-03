@@ -48,8 +48,8 @@ class Intervals(unittest.TestCase):
     def test_edges_and_gaps(self):
         ivs = d.unmarked_intervals([{"start": 10, "end": 20}, {"start": 40, "end": 55}], 100.0)
         self.assertEqual([(iv["start"], iv["end"]) for iv in ivs], [(0.0, 10.0), (20.0, 40.0), (55.0, 100.0)])
-        self.assertTrue(all(iv["review"] for iv in ivs))
         self.assertEqual([iv["index"] for iv in ivs], [0, 1, 2])
+        self.assertEqual(set(ivs[0]), {"index", "start", "end", "durationSec"})
 
     def test_overlapping_and_touching_marks_merge_and_every_kind_counts(self):
         marks = [{"start": 10, "end": 20, "kind": "rally"}, {"start": 18, "end": 25, "kind": "missedServe"},
@@ -57,9 +57,14 @@ class Intervals(unittest.TestCase):
         ivs = d.unmarked_intervals(marks, 60.0)
         self.assertEqual([(iv["start"], iv["end"]) for iv in ivs], [(0.0, 10.0), (30.0, 60.0)])
 
-    def test_short_intervals_are_listed_but_not_reviewed(self):
-        ivs = d.unmarked_intervals([{"start": 0, "end": 20}, {"start": 20.5, "end": 30}, {"start": 31.0, "end": 40}], 40.0)
-        self.assertEqual([(iv["durationSec"], iv["review"], iv["reason"]) for iv in ivs], [(0.5, False, "too_short"), (1.0, True, None)])
+    def test_sub_second_and_edge_intervals_are_reviewed_like_any_other(self):
+        # Codex on PR #138: a sub-second interval can hold a missed serve and an edge interval a clipped rally, so
+        # "too short for a rally" certifies nothing — every interval is listed for review, none is exempt.
+        ivs = d.unmarked_intervals([{"start": 0.4, "end": 20}, {"start": 20.5, "end": 30}, {"start": 31.0, "end": 39.7}], 40.0)
+        self.assertEqual([(iv["start"], iv["end"], iv["durationSec"]) for iv in ivs],
+                         [(0.0, 0.4, 0.4), (20.0, 20.5, 0.5), (30.0, 31.0, 1.0), (39.7, 40.0, 0.3)])
+        rng = __import__("random").Random(0)
+        self.assertEqual(len(d.draw_repeat(ivs, 0.2, 2, rng)), 2)
 
     def test_marks_are_clamped_to_the_recording(self):
         ivs = d.unmarked_intervals([{"start": -5, "end": 3}, {"start": 95, "end": 130}], 100.0)
@@ -67,7 +72,7 @@ class Intervals(unittest.TestCase):
 
     def test_no_marks_is_one_interval(self):
         ivs = d.unmarked_intervals([], 30.0)
-        self.assertEqual([(iv["start"], iv["end"], iv["review"]) for iv in ivs], [(0.0, 30.0, True)])
+        self.assertEqual([(iv["start"], iv["end"]) for iv in ivs], [(0.0, 30.0)])
 
 
 class Draws(unittest.TestCase):
@@ -117,7 +122,7 @@ class Draws(unittest.TestCase):
     def test_repeat_set_is_a_fifth_with_a_minimum_of_two(self):
         draw = d.build_draw(self.inv_path, exclude=["beach_dev"], now="2026-11-03T00:00:00Z")
         for r in draw["recordings"]:
-            reviewed = [iv["index"] for iv in r["intervals"] if iv["review"]]
+            reviewed = [iv["index"] for iv in r["intervals"]]
             self.assertEqual(len(r["repeatIndices"]), min(len(reviewed), max(2, -(-len(reviewed) // 5))))
             self.assertTrue(set(r["repeatIndices"]) <= set(reviewed))
             self.assertEqual(r["repeatIndices"], sorted(r["repeatIndices"]))

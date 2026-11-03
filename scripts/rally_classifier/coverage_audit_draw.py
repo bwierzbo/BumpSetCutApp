@@ -3,7 +3,8 @@
 
 Reads a frozen inventory (``coverage_audit_inventory_v1``: recordings with their rally marks, the split-manifest
 hashes and the withheld closure; produced by an adapter that reads metadata only, never a video), computes every
-unmarked interval per recording, draws stage 1 (``--per-surface`` recordings per surface, at most one per recording
+unmarked interval per recording (edges and sub-second intervals included: all of them are reviewed, since a short
+interval can hold a missed serve and an edge interval a clipped rally), draws stage 1 (``--per-surface`` recordings per surface, at most one per recording
 group, at least one ``train`` and one ``tune`` recording per surface) with a fixed seed, draws the blind-repeat set
 (``--repeat-fraction`` of the reviewed intervals, at least ``--repeat-min`` per recording), and writes the draw with
 the inventory's SHA-256 so the sample is frozen before anyone opens a video. Refuses the withheld closure by name,
@@ -29,7 +30,6 @@ import sys
 
 INVENTORY_VERSION = "coverage_audit_inventory_v1"
 DRAW_VERSION = "coverage_audit_draw_v1"
-MIN_REVIEW_SEC = 1.0           # an unmarked interval shorter than this cannot hold a rally: listed, not reviewed
 DEFAULT_SEED = 20261103
 MAX_SHUFFLES = 10000
 REQUIRED_SPLITS = ("train", "tune")
@@ -106,10 +106,10 @@ def load_inventory(path: str) -> dict:
 
 # ----------------------------------------------------------------------------- intervals
 
-def unmarked_intervals(marks, duration: float, min_review_sec: float = MIN_REVIEW_SEC) -> list:
+def unmarked_intervals(marks, duration: float) -> list:
     """The maximal intervals of [0, duration) that no mark covers (every kind counts as marked; overlapping marks are
-    merged; a mark with end <= start is ignored; marks are clamped to the recording). Each interval carries whether it
-    is reviewed (length >= min_review_sec) and why not."""
+    merged; a mark with end <= start is ignored; marks are clamped to the recording). Every interval is reviewed,
+    whatever its length."""
     spans = sorted((max(0.0, float(m["start"])), min(duration, float(m["end"]))) for m in marks)
     merged: list = []
     for s, e in spans:
@@ -124,8 +124,7 @@ def unmarked_intervals(marks, duration: float, min_review_sec: float = MIN_REVIE
     for s, e in merged + [[duration, duration]]:
         if s > cursor:
             length = s - cursor
-            out.append({"index": len(out), "start": round(cursor, 3), "end": round(s, 3), "durationSec": round(length, 3),
-                        "review": length >= min_review_sec, "reason": None if length >= min_review_sec else "too_short"})
+            out.append({"index": len(out), "start": round(cursor, 3), "end": round(s, 3), "durationSec": round(length, 3)})
         cursor = max(cursor, e)
     return out
 
@@ -164,11 +163,11 @@ def draw_stage1(recordings: list, per_surface: int, rng: random.Random) -> list:
 
 
 def draw_repeat(intervals: list, fraction: float, minimum: int, rng: random.Random) -> list:
-    reviewed = [iv["index"] for iv in intervals if iv["review"]]
-    if not reviewed:
+    indices = [iv["index"] for iv in intervals]
+    if not indices:
         return []
-    k = min(len(reviewed), max(minimum, int(math.ceil(fraction * len(reviewed)))))
-    return sorted(rng.sample(reviewed, k))
+    k = min(len(indices), max(minimum, int(math.ceil(fraction * len(indices)))))
+    return sorted(rng.sample(indices, k))
 
 
 def build_draw(inventory_path: str, *, seed: int = DEFAULT_SEED, per_surface: int = 4, exclude=(), all_recordings: bool = False,
@@ -184,7 +183,7 @@ def build_draw(inventory_path: str, *, seed: int = DEFAULT_SEED, per_surface: in
         raise DrawError("no eligible recording after exclusions")
     rng = random.Random(seed)
     picked = sorted(eligible, key=lambda r: r["recordingId"]) if all_recordings else draw_stage1(eligible, per_surface, rng)
-    out_recs, totals = [], {"recordings": 0, "intervals": 0, "reviewedIntervals": 0, "reviewSeconds": 0.0, "rallyMarks": 0, "marks": 0}
+    out_recs, totals = [], {"recordings": 0, "intervals": 0, "reviewSeconds": 0.0, "rallyMarks": 0, "marks": 0}
     for r in picked:
         ivs = unmarked_intervals(r["marks"], float(r["durationSec"]))
         rep = draw_repeat(ivs, repeat_fraction, repeat_min, rng)
@@ -194,8 +193,7 @@ def build_draw(inventory_path: str, *, seed: int = DEFAULT_SEED, per_surface: in
                          "intervals": ivs, "repeatIndices": rep})
         totals["recordings"] += 1
         totals["intervals"] += len(ivs)
-        totals["reviewedIntervals"] += sum(1 for iv in ivs if iv["review"])
-        totals["reviewSeconds"] = round(totals["reviewSeconds"] + sum(iv["durationSec"] for iv in ivs if iv["review"]), 3)
+        totals["reviewSeconds"] = round(totals["reviewSeconds"] + sum(iv["durationSec"] for iv in ivs), 3)
         totals["rallyMarks"] += out_recs[-1]["rallyMarks"]
         totals["marks"] += len(r["marks"])
     created = now or _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -204,7 +202,7 @@ def build_draw(inventory_path: str, *, seed: int = DEFAULT_SEED, per_surface: in
         "drawId": f"coverage-audit-{created.replace(':', '').replace('-', '')}-seed{seed}",
         "stage": "all" if all_recordings else "stage1",
         "seed": seed, "perSurface": None if all_recordings else per_surface, "repeatFraction": repeat_fraction, "repeatMin": repeat_min,
-        "minReviewSec": MIN_REVIEW_SEC, "excluded": excluded,
+        "everyIntervalReviewed": True, "excluded": excluded,
         "inventory": {"path": os.path.basename(inventory_path), "sha256": sha256_file(inventory_path), "project": inv["project"],
                       "splitManifest": inv["splitManifest"], "withheld": {k: len(inv["withheld"][k]) for k in ("names", "sourceIds", "fingerprints")}},
         "recordings": out_recs, "totals": totals,
@@ -242,7 +240,7 @@ def main(argv=None) -> int:
         print(f"error: {e}")
         return 1
     t = draw["totals"]
-    print(f"wrote {args.out}: {draw['drawId']}; {t['recordings']} recording(s), {t['reviewedIntervals']} interval(s) to review "
+    print(f"wrote {args.out}: {draw['drawId']}; {t['recordings']} recording(s), {t['intervals']} interval(s) to review "
           f"({t['reviewSeconds']} s), {t['rallyMarks']} rally marks; inventory sha256 {draw['inventory']['sha256'][:16]}…")
     return 0
 
