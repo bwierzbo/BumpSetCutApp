@@ -698,26 +698,30 @@ SYNTHETIC_BASELINE_VARIANTS = [
 
 
 def pad_and_merge(raw_spans, settings: dict, duration_ticks: int) -> list:
-    """SegmentBuilder.closeSegment + finalizeWithRaw in ticks: each raw span gets pre-roll (capped at 0.5 s when the
-    raw rally is shorter than 2.5 s) and post-roll, is clamped to [0, duration], merged with its predecessor when the
-    padded gap is within joinSec, and dropped when the padded clip is shorter than minSegmentSec. Returns clips of
-    {rawSpans, startTick, endTick} — the shape the baseline file stores, which is why the synthetic example and the
-    trainer's parity check share this function."""
+    """SegmentBuilder.closeSegment + finalizeWithRaw in ticks, with every threshold compared in seconds exactly as
+    the builder compares it: each raw span gets pre-roll (capped at 0.5 s when the raw rally is shorter than 2.5 s)
+    and post-roll and is clamped to [0, duration]; the padded clips are then **sorted by padded start** (a short raw
+    rally before a longer one can pad to a later start than its successor) and merged when the padded gap in
+    seconds is within joinSec; a clip whose padded length in seconds is under minSegmentSec is dropped. Returns clips
+    of {rawSpans (pre-merge, in time order), startTick, endTick} — the shape the baseline file stores, which is why
+    the synthetic example and the trainer's parity check share this function."""
     pre_full, post = round(settings["prerollSec"] * TIMESCALE), round(settings["postrollSec"] * TIMESCALE)
-    join, min_len = round(settings["joinSec"] * TIMESCALE), round(settings["minSegmentSec"] * TIMESCALE)
-    clips = []
+    pre_short = min(pre_full, round(SHORT_PREROLL_SEC * TIMESCALE))
+    padded = []
     for a, b in sorted(raw_spans):
-        pre = min(pre_full, round(SHORT_PREROLL_SEC * TIMESCALE)) if (b - a) < round(SHORT_RAW_SEC * TIMESCALE) else pre_full
+        pre = pre_short if (b - a) / TIMESCALE < SHORT_RAW_SEC else pre_full
         s, e = max(0, a - pre), min(duration_ticks, b + post)
         if e <= s:
             continue
-        a, b = max(s, a), min(e, b)
-        if clips and s - clips[-1]["endTick"] <= join:
-            clips[-1]["endTick"] = max(clips[-1]["endTick"], e)
-            clips[-1]["rawSpans"].append({"startTick": a, "endTick": b})
+        padded.append({"rawSpans": [{"startTick": max(s, a), "endTick": min(e, b)}], "startTick": s, "endTick": e})
+    clips = []
+    for c in sorted(padded, key=lambda c: c["startTick"]):
+        if clips and (c["startTick"] - clips[-1]["endTick"]) / TIMESCALE <= settings["joinSec"]:
+            clips[-1]["endTick"] = max(clips[-1]["endTick"], c["endTick"])
+            clips[-1]["rawSpans"] = sorted(clips[-1]["rawSpans"] + c["rawSpans"], key=lambda q: q["startTick"])
         else:
-            clips.append({"rawSpans": [{"startTick": a, "endTick": b}], "startTick": s, "endTick": e})
-    return [c for c in clips if c["endTick"] - c["startTick"] >= min_len]
+            clips.append(c)
+    return [c for c in clips if (c["endTick"] - c["startTick"]) / TIMESCALE >= settings["minSegmentSec"]]
 
 
 def _synthetic_baseline(rng: random.Random, rec: dict, short_pair=None) -> dict:

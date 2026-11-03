@@ -2,7 +2,7 @@
 name: experiment-registry
 status: authoritative
 created: 2026-10-20T22:12:44Z
-updated: 2026-11-03T21:52:00Z
+updated: 2026-11-03T22:05:00Z
 ---
 
 # Experiment registry

@@ -661,6 +661,21 @@ class SyntheticDataset(unittest.TestCase):
                          [{"rawSpans": clip["rawSpans"], "startTick": clip["startTick"], "endTick": clip["endTick"]}])
         # the raw union alone would get the full 2 s pre-roll: a port fed only the union fails the parity check
         self.assertEqual(v.pad_and_merge([(24000, 27000)], v.SYNTHETIC_BASELINE_VARIANTS[0]["settings"], 36000)[0]["startTick"], 24000 - 1200)
+        # Codex round 4: a short raw rally before a longer one pads to a later start than its successor
+        # (0.5 s cap vs 2 s); the builder sorts by padded start before merging, so the clip starts at the
+        # longer rally's padded start and the raw spans stay in time order.
+        r0 = v.SYNTHETIC_BASELINE_VARIANTS[0]["settings"]
+        self.assertEqual(v.pad_and_merge([(6000, 6720), (6840, 9000)], r0, 36000),
+                         [{"rawSpans": [{"startTick": 6000, "endTick": 6720}, {"startTick": 6840, "endTick": 9000}],
+                           "startTick": 5640, "endTick": 9300}])
+        # Codex round 4: joinSec is compared in seconds, as finalizeWithRaw compares gapSec — 1.3513 s is not 811 ticks:
+        # a padded gap of 811 ticks (1.35167 s) keeps two clips, 810 ticks (1.35 s) joins them.
+        self.assertEqual([c["startTick"] for c in v.pad_and_merge([(6000, 7800), (10111, 12000)], r0, 36000)], [4800, 8911])
+        self.assertEqual([c["startTick"] for c in v.pad_and_merge([(6000, 7800), (10110, 12000)], r0, 36000)], [4800])
+        # and minSegmentSec likewise: a 2.6131 s minimum keeps a 1568-tick padded clip (2.6133 s) and drops 1567
+        # (2.6117 s) — a short raw of 968 ticks pads by 300 + 300
+        self.assertEqual(len(v.pad_and_merge([(1200, 2168)], r0, 36000)), 1)
+        self.assertEqual(len(v.pad_and_merge([(1200, 2167)], r0, 36000)), 0)
         # r0_prime joins nothing (joinSec 0) and keeps the two short clips apart
         prime = [c for c in b["variants"]["r0_prime"] if c["rawSpans"][0]["startTick"] in (24000, 26100)]
         self.assertEqual([len(c["rawSpans"]) for c in prime], [1, 1])
