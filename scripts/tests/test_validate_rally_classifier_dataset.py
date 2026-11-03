@@ -70,6 +70,7 @@ class SyntheticDataset(unittest.TestCase):
         self.assertEqual(rep.info["recordings"], 4)
         self.assertEqual(rep.info["groups"], 3)
         self.assertEqual(rep.info["restricted"], ["syn_grs_b"])
+        self.assertEqual(rep.info["baselineVariants"], ["r0", "r0_prime"])
         counts = rep.info["labelCounts"]
         for name in ("ACTIVE_RALLY", "NON_RALLY", "TRANSITION", "EXCLUDED", "UNKNOWN", "NON_RALLY_ACTIVITY"):
             self.assertGreater(counts[name], 0, name)
@@ -211,6 +212,18 @@ class SyntheticDataset(unittest.TestCase):
         m["recordings"][0]["recordingType"] = "unknown"
         self.save(m)
         self.assertRefused("unknown recording type cannot have standard full-video negatives")
+
+    def test_edited_type_cannot_have_standard_negatives(self):
+        # Codex round 2 on PR #136: TrainingEligibility makes an edited recording's full-video negatives
+        # restricted; a manifest that says otherwise is an inconsistent exporter verdict and must be refused
+        # even though every step label is self-consistent.
+        m = self.manifest()
+        self.assertEqual(m["recordings"][0]["recordingType"], "continuous")
+        self.assertEqual(m["recordings"][0]["eligibility"]["fullVideoNegatives"], "standard")
+        self.assertGreater(m["recordings"][0]["labelCounts"]["NON_RALLY"], 0)
+        m["recordings"][0]["recordingType"] = "edited"
+        self.save(m)
+        self.assertRefused("an edited recording type cannot have standard full-video negatives")
 
     def test_negatives_not_standard_makes_non_rally_time_unknown(self):
         # Flip the first recording's negatives verdict: every NON_RALLY step must now be UNKNOWN,
@@ -509,6 +522,109 @@ class SyntheticDataset(unittest.TestCase):
         m = self.manifest()
         os.remove(os.path.join(self.dataset, m["recordings"][0]["stepsFile"]))
         self.assertRefused("steps file")
+
+    # baseline outputs (contract §3a) ---------------------------------------------------------
+    def baseline(self, rec):
+        with open(os.path.join(self.dataset, rec["baselineFile"])) as fh:
+            return json.load(fh)
+
+    def save_baseline(self, rec, b):
+        path = os.path.join(self.dataset, rec["baselineFile"])
+        with open(path, "w") as fh:
+            json.dump(b, fh)
+        rec["baselineSha256"] = v.sha256_file(path)
+
+    def test_baseline_block_is_required_and_r0_must_be_the_committed_config(self):
+        orig = self.manifest()
+        m = copy.deepcopy(orig)
+        m["baseline"]["replayer"] = "RallyDecider"
+        self.save(m)
+        self.assertRefused("baseline must carry replayer 'EvidenceReplayer.decidedRallies'")
+        m = copy.deepcopy(orig)
+        m["baseline"]["variants"][0]["configSha256"] = m["baseline"]["variants"][1]["configSha256"]
+        self.save(m)
+        self.assertRefused("baseline variant r0 must be replayed at the dataset's pipelineConfigSha256")
+        m = copy.deepcopy(orig)
+        m["baseline"]["variants"][0]["name"] = "r0_retuned"
+        self.save(m)
+        self.assertRefused("baseline must include the variant r0")
+        m = copy.deepcopy(orig)
+        m["baseline"]["variants"][1]["settings"].pop("joinSec")
+        self.save(m)
+        self.assertRefused("settings must carry exactly")
+        m = copy.deepcopy(orig)
+        del m["baseline"]
+        self.save(m)
+        self.assertRefused("manifest missing keys ['baseline']")
+
+    def test_baseline_file_hash_and_variants_are_checked(self):
+        m = self.manifest()
+        rec = m["recordings"][0]
+        b = self.baseline(rec)
+        b["variants"]["r0"][0]["rawEndTick"] += 1          # edit without refreshing the hash
+        with open(os.path.join(self.dataset, rec["baselineFile"]), "w") as fh:
+            json.dump(b, fh)
+        self.assertRefused("baselineSha256")
+        m = self.manifest()
+        rec = m["recordings"][0]
+        b = self.baseline(rec)
+        del b["variants"]["r0_prime"]
+        self.save_baseline(rec, b)
+        self.save(m)
+        self.assertRefused("variants ['r0'] != the manifest's ['r0', 'r0_prime']")
+        m = self.manifest()
+        rec = m["recordings"][0]
+        b = self.baseline(rec)
+        b["recordingId"] = "someone_else"
+        self.save_baseline(rec, b)
+        self.save(m)
+        self.assertRefused("recordingId 'someone_else' != 'syn_bch_a'")
+        m = self.manifest()
+        os.remove(os.path.join(self.dataset, m["recordings"][0]["baselineFile"]))
+        self.assertRefused("baseline file 'baseline/syn_bch_a.json' missing")
+        m = self.manifest()
+        m["recordings"][0]["baselineFile"] = "steps/syn_bch_a.json"
+        self.save(m)
+        self.assertRefused("missing or outside baseline/")
+
+    def test_baseline_rallies_must_be_well_formed(self):
+        m = self.manifest()
+        rec = m["recordings"][0]
+        b = self.baseline(rec)
+        r = b["variants"]["r0"][0]
+        r["startTick"] = r["rawStartTick"] + 1               # padded span no longer contains the raw span
+        self.save_baseline(rec, b)
+        self.save(m)
+        self.assertRefused("must contain the raw span")
+        m = self.manifest()
+        rec = m["recordings"][0]
+        b = self.baseline(rec)
+        b["variants"]["r0"][1]["startTick"] = b["variants"]["r0"][0]["endTick"] - 1
+        b["variants"]["r0"][1]["rawStartTick"] = b["variants"]["r0"][1]["startTick"]
+        self.save_baseline(rec, b)
+        self.save(m)
+        self.assertRefused("padded spans must be in time order and disjoint")
+        m = self.manifest()
+        rec = m["recordings"][0]
+        b = self.baseline(rec)
+        b["variants"]["r0"][0]["serveContactTick"] = b["variants"]["r0"][0]["endTick"] + 600
+        self.save_baseline(rec, b)
+        self.save(m)
+        self.assertRefused("serveContactTick must be null or an integer tick inside the padded span")
+        m = self.manifest()
+        rec = m["recordings"][0]
+        b = self.baseline(rec)
+        b["variants"]["r0"][-1]["endTick"] = round(rec["durationSec"] * v.TIMESCALE) + 1
+        self.save_baseline(rec, b)
+        self.save(m)
+        self.assertRefused("padded span outside the recording")
+        m = self.manifest()
+        rec = m["recordings"][0]
+        b = self.baseline(rec)
+        b["variants"]["r0"][0]["padded"] = True
+        self.save_baseline(rec, b)
+        self.save(m)
+        self.assertRefused("keys must be exactly ['endTick', 'rawEndTick', 'rawStartTick', 'serveContactTick', 'startTick']")
 
     # the label rule itself -----------------------------------------------------------------
     def test_expected_state_precedence(self):

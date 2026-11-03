@@ -4,8 +4,9 @@
 The contract is docs/ml-roadmap/RALLY_CLASSIFIER_DATASET_CONTRACT.md. This tool is
 the fail-closed backstop a trainer runs before reading a dataset: it checks the
 manifest, every steps file, the feature and label schemas, the label states
-against the recording's rallies and spans, group/split integrity, and — first of
-all — that no withheld recording is present. Standard library only; it reads only
+against the recording's rallies and spans, the stored FSM baseline outputs per
+recording, group/split integrity, and — first of all — that no withheld
+recording is present. Standard library only; it reads only
 the dataset folder (and, optionally, a withheld-closure file) and writes nothing
 unless asked to write the synthetic example.
 
@@ -72,16 +73,19 @@ EXCLUDED_KINDS = {"missedServe", "other"}
 RECORDING_TYPES = {"continuous", "edited", "unknown"}
 TB_TRAITS = {"slow_motion", "replay", "montage", "camera_angle_change"}
 STEP_KEYS = {"t", "tick", "seg", "f", "y", "w"}
+BASELINE_REPLAYER = "EvidenceReplayer.decidedRallies"
+BASELINE_SETTING_KEYS = {"prerollSec", "postrollSec", "joinSec", "minRallySec", "servePrimedStart"}
+BASELINE_RALLY_KEYS = {"rawStartTick", "rawEndTick", "startTick", "endTick", "serveContactTick"}
 RECORDING_KEYS = {
     "recordingId", "sourceId", "fingerprint", "groupId", "split", "fold", "surface", "camera", "orientation",
     "originKind", "uploader", "durationSec", "frameRateNominal", "vfr", "aspect", "upright", "net",
     "recordingType", "eligibility", "restrictedUse", "coverage", "labelProvenance", "rallies", "excludedSpans",
     "cutRanges", "timeBreakingSpans", "nonRallyActivitySpans", "exposure", "stepsFile", "stepsSha256",
-    "stepCount", "labelCounts",
+    "stepCount", "labelCounts", "baselineFile", "baselineSha256",
 }
 MANIFEST_KEYS = {
     "schemaVersion", "createdAt", "generator", "project", "splitManifest", "withheld", "detector",
-    "pipelineConfigSha256", "timescale", "samplingHzNominal", "featureSchema", "labelSchema", "recordings",
+    "pipelineConfigSha256", "timescale", "samplingHzNominal", "featureSchema", "labelSchema", "baseline", "recordings",
 }
 
 
@@ -291,6 +295,55 @@ def validate_steps(path: str, rec: dict, ignore_ticks: int, rep: Report) -> dict
     return {"counts": counts, "lines": n}
 
 
+def validate_baseline(path: str, rec: dict, variant_names: set, rep: Report):
+    """Validate one baseline file (contract §3a): the FSM's raw and padded rallies per variant, as the exporter
+    replayed them on the full evidence. The trainer never re-runs the FSM; these are the R0 / R0' outputs."""
+    rid = rec["recordingId"]
+    where = f"{rid} baseline"
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            b = json.load(fh)
+    except (OSError, json.JSONDecodeError) as e:
+        rep.error(f"{where}: unreadable ({e})")
+        return
+    if not isinstance(b, dict) or set(b) != {"recordingId", "variants"} or not isinstance(b["variants"], dict):
+        rep.error(f"{where}: must be an object with exactly recordingId and variants (an object per variant name)")
+        return
+    if b["recordingId"] != rid:
+        rep.error(f"{where}: recordingId {b['recordingId']!r} != {rid!r}")
+    if set(b["variants"]) != variant_names:
+        rep.error(f"{where}: variants {sorted(b['variants'])} != the manifest's {sorted(variant_names)}")
+    duration_ticks = round(rec["durationSec"] * TIMESCALE) if isinstance(rec.get("durationSec"), (int, float)) else None
+    for name, rallies in b["variants"].items():
+        vw = f"{where}.{name}"
+        if not isinstance(rallies, list):
+            rep.error(f"{vw}: must be a list of rallies")
+            continue
+        prev_end = None
+        for j, r in enumerate(rallies):
+            rw = f"{vw}[{j}]"
+            if not isinstance(r, dict) or set(r) != BASELINE_RALLY_KEYS:
+                rep.error(f"{rw}: keys must be exactly {sorted(BASELINE_RALLY_KEYS)}")
+                continue
+            ints = {k: r[k] for k in ("rawStartTick", "rawEndTick", "startTick", "endTick")}
+            if any(isinstance(v, bool) or not isinstance(v, int) for v in ints.values()):
+                rep.error(f"{rw}: ticks must be integers")
+                continue
+            if not (r["rawStartTick"] < r["rawEndTick"]):
+                rep.error(f"{rw}: raw span must have rawStartTick < rawEndTick")
+            if not (r["startTick"] <= r["rawStartTick"] and r["rawEndTick"] <= r["endTick"]):
+                rep.error(f"{rw}: the padded span [{r['startTick']}, {r['endTick']}) must contain the raw span "
+                          f"[{r['rawStartTick']}, {r['rawEndTick']})")
+            if r["startTick"] < 0 or (duration_ticks is not None and r["endTick"] > duration_ticks):
+                rep.error(f"{rw}: padded span outside the recording [0, {duration_ticks})")
+            sc = r["serveContactTick"]
+            if sc is not None and (isinstance(sc, bool) or not isinstance(sc, int) or not (r["startTick"] <= sc <= r["endTick"])):
+                rep.error(f"{rw}: serveContactTick must be null or an integer tick inside the padded span")
+            if prev_end is not None and r["startTick"] < prev_end:
+                rep.error(f"{rw}: padded spans must be in time order and disjoint (starts at {r['startTick']} before the previous end {prev_end})")
+            prev_end = max(prev_end or 0, r["endTick"])
+
+
 def validate_recording(rec, i: int, m: dict, dataset_dir: str, rep: Report, withheld: dict, groups: dict, seen_ids: dict):
     where = f"recordings[{i}]"
     if not isinstance(rec, dict):
@@ -329,8 +382,9 @@ def validate_recording(rec, i: int, m: dict, dataset_dir: str, rep: Report, with
         rep.error(f"{where}: restrictedUse must be false for a standard recording")
     if rec["recordingType"] not in RECORDING_TYPES:
         rep.error(f"{where}: recordingType {rec['recordingType']!r}")
-    if rec["recordingType"] == "unknown" and el["fullVideoNegatives"] == "standard":
-        rep.error(f"{where}: an unknown recording type cannot have standard full-video negatives")
+    if rec["recordingType"] != "continuous" and el["fullVideoNegatives"] == "standard":
+        rep.error(f"{where}: an {rec['recordingType']} recording type cannot have standard full-video negatives "
+                  f"(only a confirmed continuous recording can; TrainingEligibility makes an edited recording's restricted)")
     cov = rec["coverage"]
     if not isinstance(cov, dict) or cov.get("state") not in COVERAGE:
         rep.error(f"{where}: coverage.state must be one of {sorted(COVERAGE)}")
@@ -387,6 +441,15 @@ def validate_recording(rec, i: int, m: dict, dataset_dir: str, rep: Report, with
         rep.error(f"{where}: labelCounts {rec['labelCounts']} != counted {result['counts']}")
     if rec["labelCounts"].get("ACTIVE_RALLY", 0) == 0:
         rep.warn(f"{where}: no ACTIVE_RALLY step")
+    # baseline file (the FSM's outputs at export; contract §3a)
+    base_path = os.path.join(dataset_dir, rec["baselineFile"]) if isinstance(rec["baselineFile"], str) else ""
+    if not isinstance(rec["baselineFile"], str) or not rec["baselineFile"].startswith("baseline/") or not os.path.isfile(base_path):
+        rep.error(f"{where}: baseline file {rec['baselineFile']!r} missing or outside baseline/")
+        return
+    actual = sha256_file(base_path)
+    if actual != rec["baselineSha256"]:
+        rep.error(f"{where}: baselineSha256 {str(rec['baselineSha256'])[:16]}… != file {actual[:16]}…")
+    validate_baseline(base_path, rec, m["_baselineVariantNames"], rep)
 
 
 def validate(dataset_dir: str, withheld_path: str | None = None) -> Report:
@@ -429,6 +492,29 @@ def validate(dataset_dir: str, withheld_path: str | None = None) -> Report:
         rep.error("detector needs name and canonicalDigest")
     if not _is_sha(m["pipelineConfigSha256"]):
         rep.error("pipelineConfigSha256 must be a SHA-256 hex")
+    # baseline block: the FSM variants the exporter replayed, r0 at the committed config
+    bl = m["baseline"]
+    variant_names: set = set()
+    if not isinstance(bl, dict) or bl.get("replayer") != BASELINE_REPLAYER or not isinstance(bl.get("variants"), list) or not bl["variants"]:
+        rep.error(f"baseline must carry replayer {BASELINE_REPLAYER!r} and a non-empty variants list")
+    else:
+        for j, var in enumerate(bl["variants"]):
+            if not isinstance(var, dict) or not {"name", "configSha256", "settings"} <= set(var) or not isinstance(var.get("name"), str):
+                rep.error(f"baseline.variants[{j}]: needs name, configSha256 and settings")
+                continue
+            if var["name"] in variant_names:
+                rep.error(f"baseline.variants[{j}]: duplicate variant name {var['name']!r}")
+            variant_names.add(var["name"])
+            if not _is_sha(var["configSha256"]):
+                rep.error(f"baseline.variants[{j}] ({var['name']}): configSha256 must be a SHA-256 hex")
+            if not isinstance(var["settings"], dict) or set(var["settings"]) != BASELINE_SETTING_KEYS:
+                rep.error(f"baseline.variants[{j}] ({var['name']}): settings must carry exactly {sorted(BASELINE_SETTING_KEYS)}")
+            if var["name"] == "r0" and var["configSha256"] != m["pipelineConfigSha256"]:
+                rep.error("baseline variant r0 must be replayed at the dataset's pipelineConfigSha256 (the committed ProcessorConfig): "
+                          "the benchmark is the shipped decider, not a retune")
+        if "r0" not in variant_names:
+            rep.error("baseline must include the variant r0 (the committed decider) — H1's benchmark")
+    m["_baselineVariantNames"] = variant_names
     # withheld closure: fail closed
     wh = m["withheld"]
     withheld = {"names": set(), "sourceIds": set(), "fingerprints": set()}
@@ -467,6 +553,7 @@ def validate(dataset_dir: str, withheld_path: str | None = None) -> Report:
         if isinstance(rec, dict):
             seen_rids.add(rec.get("recordingId"))
             referenced.add(rec.get("stepsFile"))
+            referenced.add(rec.get("baselineFile"))
         validate_recording(rec, i, m, dataset_dir, rep, withheld, groups, seen_ids)
     for gid, g in groups.items():
         if len(g["splits"]) > 1:
@@ -479,13 +566,14 @@ def validate(dataset_dir: str, withheld_path: str | None = None) -> Report:
             rel = os.path.relpath(os.path.join(root, name), dataset_dir)
             if rel == "dataset-manifest.json" or rel in referenced:
                 continue
-            rep.error(f"stray file {rel!r}: a dataset holds only its manifest and the referenced steps files")
+            rep.error(f"stray file {rel!r}: a dataset holds only its manifest and the referenced steps and baseline files")
     rep.info = {
         "recordings": len(recs), "groups": len(groups),
         "withheld": {k: len(v) for k, v in withheld.items()},
         "labelCounts": _sum_counts(recs),
         "bySplit": _count_by(recs, "split"), "bySurface": _count_by(recs, "surface"),
         "restricted": sorted(r["recordingId"] for r in recs if isinstance(r, dict) and r.get("restrictedUse") is True),
+        "baselineVariants": sorted(variant_names),
     }
     return rep
 
@@ -539,6 +627,7 @@ def _synthetic_recording(rng: random.Random, rid: str, group: str, split: str, f
         "nonRallyActivitySpans": [{"startTick": round(s * TIMESCALE), "endTick": round(e * TIMESCALE)} for s, e in nra],
         "exposure": [{"date": "2026-11-03", "kind": "training_package", "ref": "synthetic"}],
         "stepsFile": f"steps/{rid}.jsonl", "stepsSha256": "", "stepCount": 0, "labelCounts": {},
+        "baselineFile": f"baseline/{rid}.json", "baselineSha256": "",
     }
     ignore_ticks = int(round(0.5 * TIMESCALE))
     steps = []
@@ -584,10 +673,47 @@ def _synthetic_recording(rng: random.Random, rid: str, group: str, split: str, f
     return rec, steps
 
 
+SYNTHETIC_BASELINE_VARIANTS = [
+    {"name": "r0", "settings": {"prerollSec": 2.0, "postrollSec": 0.5, "joinSec": 1.3513, "minRallySec": 2.6131, "servePrimedStart": True}},
+    {"name": "r0_prime", "settings": {"prerollSec": 2.0, "postrollSec": 1.0, "joinSec": 0.0, "minRallySec": 1.5, "servePrimedStart": True}},
+]
+
+
+def _synthetic_baseline(rng: random.Random, rec: dict) -> dict:
+    """A plausible FSM output per variant: raw spans near the truth rallies (one missed, one late), padded by the
+    variant's settings, joined when the padded gap is within joinSec, clipped to the recording."""
+    duration_ticks = round(rec["durationSec"] * TIMESCALE)
+    out = {}
+    for var in SYNTHETIC_BASELINE_VARIANTS:
+        st = var["settings"]
+        raw = []
+        for j, r in enumerate(rec["rallies"]):
+            if j == 1 and len(rec["rallies"]) > 2:
+                continue                                        # one rally the FSM missed
+            a = r["startTick"] + rng.randint(-120, 240)
+            b = r["endTick"] + rng.randint(-60, 300)
+            raw.append((max(0, a), min(duration_ticks, b), r["startTick"] if j % 2 == 0 else None))
+        rallies = []
+        for a, b, contact in raw:
+            s = max(0, a - round(st["prerollSec"] * TIMESCALE))
+            e = min(duration_ticks, b + round(st["postrollSec"] * TIMESCALE))
+            if rallies and s - rallies[-1]["endTick"] <= round(st["joinSec"] * TIMESCALE):
+                last = rallies[-1]
+                last["rawEndTick"], last["endTick"] = b, e
+                continue
+            if b - a < round(st["minRallySec"] * TIMESCALE):
+                continue
+            rallies.append({"rawStartTick": a, "rawEndTick": b, "startTick": s, "endTick": e,
+                            "serveContactTick": contact if contact is not None and s <= contact <= e else None})
+        out[var["name"]] = rallies
+    return {"recordingId": rec["recordingId"], "variants": out}
+
+
 def write_synthetic(out_dir: str, seed: int = 0) -> str:
     """Write a complete, valid v1 dataset of four recordings in two groups (two folds)."""
     rng = random.Random(seed)
     os.makedirs(os.path.join(out_dir, "steps"), exist_ok=False)
+    os.makedirs(os.path.join(out_dir, "baseline"))
     specs = [
         dict(rid="syn_bch_a", group="g-syn-a", split="train", fold=0, surface="beach", recording_type="continuous", negatives="standard",
              coverage="declared_complete", rallies=[(5, 12), (20, 31), (40, 48)], excluded=[(34, 36, "missedServe")],
@@ -612,6 +738,10 @@ def write_synthetic(out_dir: str, seed: int = 0) -> str:
         rec["stepsSha256"] = sha256_file(path)
         rec["stepCount"] = len(steps)
         rec["labelCounts"] = counts
+        bpath = os.path.join(out_dir, rec["baselineFile"])
+        with open(bpath, "w", encoding="utf-8") as fh:
+            json.dump(_synthetic_baseline(rng, rec), fh, indent=1)
+        rec["baselineSha256"] = sha256_file(bpath)
         recordings.append(rec)
     names = ["withheld_syn_01", "withheld_syn_02"]
     source_ids = ["youtube:withheld_syn_01"]
@@ -626,6 +756,9 @@ def write_synthetic(out_dir: str, seed: int = 0) -> str:
         "pipelineConfigSha256": hashlib.sha256(b"synthetic:config").hexdigest(),
         "timescale": TIMESCALE, "samplingHzNominal": 30,
         "featureSchema": feature_schema(), "labelSchema": label_schema(0.5),
+        "baseline": {"replayer": BASELINE_REPLAYER,
+                     "variants": [{**var, "configSha256": hashlib.sha256(b"synthetic:config" if var["name"] == "r0" else b"synthetic:config:d029").hexdigest()}
+                                  for var in SYNTHETIC_BASELINE_VARIANTS]},
         "recordings": recordings,
     }
     mpath = os.path.join(out_dir, "dataset-manifest.json")

@@ -16,6 +16,7 @@ The shape of a training/evaluation dataset for the learned temporal rally classi
 <name>/                               e.g. Scratch-rally-classifier-20261110-1200
   dataset-manifest.json               §2
   steps/<recordingId>.jsonl           §3, one line per processed frame
+  baseline/<recordingId>.json         §3a, the deterministic decider's output per variant (R0, R0′)
 ```
 
 Nothing else may be in the folder (a stray file fails validation, as in the L2 preflight). The folder's name is the dataset's name; its **digest** is the SHA-256 over the sorted `"<sha256>  ./<relative path>"` lines of every file except `dataset-manifest.json` (the registry's canonical directory digest), recorded in the experiment record together with the manifest's own SHA-256.
@@ -36,6 +37,7 @@ Nothing else may be in the folder (a stray file fails validation, as in the L2 p
 | `samplingHzNominal` | number | 30 for multi-frame-only processing; informative — `dt` per step is the truth |
 | `featureSchema` | `{version: "rcf_v1", features: [{name, unit, nullable, kind, lookaheadSec}]}` | §4; the order of `features` is the order of `f` in every step |
 | `labelSchema` | `{version: "rally_activity_truth_v1", states: {...}, boundaryIgnoreSec, weights: {...}}` | §5 |
+| `baseline` | `{replayer: "EvidenceReplayer.decidedRallies", variants: [{name, configSha256, settings: {prerollSec, postrollSec, joinSec, minRallySec, servePrimedStart}}]}` | §3a; the variant `r0` is required and its `configSha256` must equal `pipelineConfigSha256` (the committed decider is the benchmark, never a retune); further variants (e.g. `r0_prime`, the D-029 settings) carry their own config hash; names are unique |
 | `recordings` | array of §2.1 | one per recording in the dataset |
 
 ### 2.1 A recording record
@@ -53,7 +55,7 @@ Nothing else may be in the folder (a stray file fails validation, as in the L2 p
 | `upright` | bool | coordinates are in the rotation-applied frame (`FrameEvidence.upright`) |
 | `net` | `{x, y, w, h, confidence}` or null | the pipeline's frozen per-video net box (Vision coordinates), null when none was found; `hasNet` is `net != null` |
 | `recordingType` | `continuous` · `edited` · `unknown` | from the footage-properties record **as a person confirmed it**; `unknown` when no record exists |
-| `eligibility` | `{rallyClassifier: level, fullVideoNegatives: level, reasons: [..]}` | `TrainingEligibility.assess` for this recording at export time; levels `standard` · `restricted` · `not_assessed` · `quarantined` · `ineligible`. **A recording may be in the dataset only with `rallyClassifier ∈ {standard, restricted}`**; `restricted` requires at least one reason and sets `restrictedUse: true` below |
+| `eligibility` | `{rallyClassifier: level, fullVideoNegatives: level, reasons: [..]}` | `TrainingEligibility.assess` for this recording at export time; levels `standard` · `restricted` · `not_assessed` · `quarantined` · `ineligible`. **A recording may be in the dataset only with `rallyClassifier ∈ {standard, restricted}`**; `restricted` requires at least one reason and sets `restrictedUse: true` below. **`fullVideoNegatives: standard` is allowed only when `recordingType == continuous`** — `TrainingEligibility.assess` makes an edited recording's negatives `restricted` and an unknown one's `not_assessed`, so any other combination is an inconsistent exporter verdict and the validator refuses the dataset |
 | `restrictedUse` | bool | true when `rallyClassifier == restricted`; the trainer keeps such recordings out of headline validation numbers (reported apart) |
 | `coverage` | `{state, verifiedCoverageSec}` | `state ∈ {declared_complete, stage1_complete, partial, none}`; `verifiedCoverageSec` from the Stage 1 record (null otherwise) |
 | `labelProvenance` | `{method, marksSha256, rallyEventsSha256}` | `method ∈ {legacy_declared, stage1_verified}`; the SHA-256 of `<video>.rallylabels.json` and, when present, of `<video>.rallyevents.json` |
@@ -64,6 +66,7 @@ Nothing else may be in the folder (a stray file fails validation, as in the L2 p
 | `nonRallyActivitySpans` | array of `{startTick, endTick}` | Stage 1 `nonRallyActivity` spans (empty today) |
 | `exposure` | array of `{date, kind, ref}` | the recording's ledger rows at export time (may be empty, key required) |
 | `stepsFile`, `stepsSha256`, `stepCount` | string, hex, integer | the steps file and its hash and line count |
+| `baselineFile`, `baselineSha256` | string, hex | the §3a file (`baseline/<recordingId>.json`) and its hash |
 | `labelCounts` | `{NON_RALLY, ACTIVE_RALLY, TRANSITION, UNKNOWN, EXCLUDED, NON_RALLY_ACTIVITY}` | integers, must match the steps file |
 
 ## 3. `steps/<recordingId>.jsonl`
@@ -84,6 +87,18 @@ One JSON object per line, one line per **processed frame** in time order (the fr
 | `w` | the loss weight: `1.0` for `NON_RALLY`, `ACTIVE_RALLY`, `NON_RALLY_ACTIVITY`; `0.0` for `TRANSITION`, `UNKNOWN`, `EXCLUDED` (the manifest's `labelSchema.weights` states this table and the validator enforces it) |
 
 No derived feature is stored (§4.2): the trainer computes windows from the sequence, within one `seg`, and the Swift extractor computes the same function.
+
+## 3a. `baseline/<recordingId>.json` — the deterministic decider's output
+
+`rcf_v1` keeps aggregate measurements per step, not the per-detection bounding boxes `ServeWatch` consumes nor a serve's toss and end times that `RallyDecider.noteServe` uses to prime and backdate a rally start, so **the FSM cannot be re-run from the steps** (Codex round 2 on PR #136). The benchmark R0 is therefore computed **by the exporter at export time**, with `EvidenceReplayer.decidedRallies` on the full `FrameEvidence` it holds (the same replayer RallyLab scores with; parity with the pipeline within 0.2 s, EXP-20261031 §7), and stored — once per recording, once per variant — so the trainer compares against the shipped decider's actual output and never re-implements it:
+
+```json
+{"recordingId": "<id>",
+ "variants": {"r0":       [{"rawStartTick": 2975, "rawEndTick": 7296, "startTick": 1775, "endTick": 7596, "serveContactTick": 3000}, …],
+              "r0_prime": [ … ]}}
+```
+
+One entry per exported clip: `[rawStartTick, rawEndTick)` is the decider's raw span (the union of the spans `SegmentBuilder` joined), `[startTick, endTick)` the padded clip, `serveContactTick` the contact tick of the serve the rally started on or null. Rules the validator enforces: the variant names equal the manifest's; keys exactly these five; integer ticks; raw start < raw end; the padded span contains the raw span; padded spans in time order and disjoint; within `[0, durationSec × 600]`; `serveContactTick` null or inside the padded span; `baselineSha256` matches. Storing raw and padded pairs also gives the trainer a parity fixture for its port of `SegmentBuilder.finalizeWithRaw`: fed the stored raw spans at the variant's settings, the port must reproduce the stored padded spans exactly before it is used on the learned decoder's intervals. Why outputs rather than lossless replay evidence: the boxes and serve events are exactly `FrameEvidence`, a far larger artefact with its own storage rules (`StoredFrameEvidence` drops candidates); a second dataset version may add it if a reviewer needs to re-run the FSM offline.
 
 ## 4. Feature schema `rcf_v1` (raw measurements)
 
@@ -120,12 +135,23 @@ Computed by the trainer and by the Swift extractor from the stored steps, within
 
 `movementType` one-hots (airborne ≡ projectile after the gate; carried/rolling never pass it), frame-level `rejectionReason` (always nil), `fromHeatmap` (always true in multi-frame mode), the Kalman `estimatedVelocity` and the gate's internal fit quantities (not in `FrameEvidence`; a later `rcf_v2` once the shared pipeline exposes them), any per-frame camera-motion measure (none exists).
 
+### 4.4 The uniform-grid view (derived, not stored) for step-indexed models
+
+A convolutional or recurrent model's receptive field is counted in steps, but the steps are processed frames at irregular spacing (§7), so a step count is not a time bound: a stretch sampled every 0.1 s would put 62 "future" steps 6.2 s ahead (Codex round 2 on PR #136). Every model whose context is step-indexed therefore consumes a **uniform-grid view** of each segment, built by the trainer and by the Swift runner from the same function (`grid_v1`, versioned with `derived_v1`):
+
+- within one `seg`, cells `k = 0, 1, …` at `t_k = t_first + k / samplingHzNominal` (30 Hz → 1/30 s) up to the segment's last step; a cell holds the **last** step with `t_k ≤ t < t_{k+1}`, never a step of another segment;
+- an empty cell (a dropped or undecodable frame) is a *missing row*: every nullable column null, binary columns 0, counts 0, `dt` = the cell period, plus a derived indicator `cell_missing = 1`; its label is `UNKNOWN` with `w = 0`. Because a gap over 0.5 s breaks the segment, at most 15 consecutive cells can be missing;
+- a cell with a step takes that step's `y` and `w`; a prediction for a raw step is the prediction of the cell that holds it, so scoring stays per processed frame;
+- the pipeline's feed spacing is `1/30 − 0.004` s (research document §1), so about one step in eight shares a cell with its predecessor and is not seen by the step-indexed model (the cell keeps the later one). Timestamp-windowed models (the logistic candidate) see every step; this asymmetry is a stated limitation of the comparison, not hidden by resampling the stored data.
+
+With the grid, a receptive field of 125 cells is ±2.07 s **of time** in every segment, under the declared `lookaheadSec` 2.1 whatever the processed-frame spacing; the stored steps stay raw (§7: nothing is resampled in the dataset).
+
 ## 5. Label schema `rally_activity_truth_v1`
 
 | Code | State | Loss weight | Definition (ticks at 600/s; intervals half-open `[start, end)`; a step with tick `k` is "inside" when `start ≤ k < end`) |
 |---|---|---|---|
 | 1 | `ACTIVE_RALLY` | 1 | inside a truth rally's `[startTick, endTick)`, outside the ignore band |
-| 0 | `NON_RALLY` | 1 | not inside any rally, excluded span, cut, time-breaking span, non-rally-activity span or ignore band, **and** the recording's `eligibility.fullVideoNegatives == standard` **and** `coverage.state ∈ {declared_complete, stage1_complete}` |
+| 0 | `NON_RALLY` | 1 | not inside any rally, excluded span, cut, time-breaking span, non-rally-activity span or ignore band, **and** the recording's `eligibility.fullVideoNegatives == standard` (which the manifest rule admits only for a confirmed `continuous` recording, §2.1) **and** `coverage.state ∈ {declared_complete, stage1_complete}` |
 | 5 | `NON_RALLY_ACTIVITY` | 1 | inside a Stage 1 `nonRallyActivity` span (trained as a negative; reported as its own class) |
 | 2 | `TRANSITION` | 0 | within `boundaryIgnoreSec` (default 0.5 s, manifest field) of a rally start or end, or within a Stage 1 event's `[earliest, latest]` widened by one frame; also the ignore band around an excluded span's edges |
 | 4 | `EXCLUDED` | 0 | inside a `missedServe` / `other` span, a cut range or a time-breaking span |
@@ -139,7 +165,7 @@ Precedence when a step satisfies several: `EXCLUDED` > `TRANSITION` > `ACTIVE_RA
 
 ## 7. Variable frame rates, alignment, camera motion, resolution
 
-- **Frame rate.** Steps are the processed frames at their presentation times; `dt` carries the real spacing (VFR footage, the ≈ 30 Hz feed, dropped or undecodable frames). A gap over 0.5 s breaks the segment so no window spans it. Nothing is resampled.
+- **Frame rate.** Steps are the processed frames at their presentation times; `dt` carries the real spacing (VFR footage, the ≈ 30 Hz feed, dropped or undecodable frames). A gap over 0.5 s breaks the segment so no window spans it. Nothing is resampled in the dataset; a step-indexed model reads the grid view of §4.4 so its context is bounded in seconds.
 - **Alignment.** Labels are converted to ticks exactly as the scoring contract converts marks (`round(seconds × 600)`), on the same presentation timeline the evidence uses (`CMSampleBufferGetPresentationTimeStamp`, VP:959). A legacy mark made on a scrub proxy of VFR footage may be offset; the ignore band absorbs offsets up to `boundaryIgnoreSec` and the recording's `vfr` flag lets the trainer report VFR recordings apart.
 - **Camera motion.** No per-step measure exists; `camera` (card) and the `handheld` trait in `eligibility.reasons` are the only indicators; handheld recordings are `restricted`.
 - **Resolution and orientation.** All coordinates are normalised; `aspect` and `upright` let the trainer correct `sel_size` and interpret `y`.
