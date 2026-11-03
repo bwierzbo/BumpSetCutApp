@@ -48,8 +48,9 @@ enum TrainingDataExporter {
         let duration: Double
         let netTopY: Double?    // Vision-normalized net box top (1 = frame top)
         let netBottomY: Double?
-        let labels: [IntervalDTO]       // ground truth (raw boundaries)
-        let baselineRaw: [IntervalDTO]  // rule pipeline, raw decided boundaries
+        let labels: [IntervalDTO]       // ground truth (raw boundaries), outside the cuts
+        let baselineRaw: [IntervalDTO]  // rule pipeline, raw decided boundaries, outside the cuts
+        let cuts: [IntervalDTO]         // cut ranges (not footage; D-030): no frame inside, and the trainer masks its own decisions with them
         let frames: [FrameRow]
     }
 
@@ -91,6 +92,7 @@ enum TrainingDataExporter {
             netBottomY: net.map { Double($0.box.minY) },
             labels: labels.outside(cuts).map { IntervalDTO(start: $0.start, end: $0.end) },
             baselineRaw: baselineRaw.outside(cuts).map { IntervalDTO(start: $0.start, end: $0.end) },
+            cuts: cuts.map { IntervalDTO(start: $0.start, end: $0.end) },
             frames: frames
         )
     }

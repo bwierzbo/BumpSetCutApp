@@ -55,6 +55,9 @@ enum TestSetScore {
         let export: String
         let ms: Double
         let items: [Item]
+        /// `jobsKey` of the jobs this was scored on; nil in results from before cut ranges (D-030),
+        /// which were scored on every val window.
+        var jobsKey: String? = nil
     }
 
     /// What the comparison page and the leaderboard show.
@@ -150,6 +153,13 @@ enum TestSetScore {
     // MARK: - Running a model
 
     /// The model's peaks on every job it can see whole, and its ms a window.
+    /// What the jobs are, as a digest: the export's name and every job's frame, so a result scored
+    /// on another set of jobs (an export whose recordings since gained cut ranges) is told apart.
+    static func jobsKey(_ jobs: [Job], export: URL) -> String {
+        let lines = jobs.map { "\($0.clip)|\($0.frames[$0.index])|\($0.dead ? "dead" : "label")" }.sorted()
+        return ExportJournal.sha256(Data((export.lastPathComponent + "\n" + lines.joined(separator: "\n")).utf8))
+    }
+
     static func run(model url: URL, name: String, jobs: [Job], export: URL,
                     progress: (Int, Int) -> Void) -> ModelResult? {
         guard let detector = HeatmapBallDetector(modelURL: url) else { return nil }
@@ -189,7 +199,8 @@ enum TestSetScore {
             }
             if n % 200 == 0 { progress(n, jobs.count) }
         }
-        return ModelResult(model: name, export: export.lastPathComponent, ms: ms / Double(max(1, runs)), items: items)
+        return ModelResult(model: name, export: export.lastPathComponent, ms: ms / Double(max(1, runs)), items: items,
+                           jobsKey: jobsKey(jobs, export: export))
     }
 
     /// Blobs of the heat at `threshold`: 8-connected, two pixels or more,
@@ -228,9 +239,14 @@ enum TestSetScore {
         scores.appendingPathComponent(export.lastPathComponent, isDirectory: true).appendingPathComponent("\(model).json")
     }
 
-    static func cached(model: String, export: URL, scores: URL) -> ModelResult? {
-        (try? Data(contentsOf: cacheFile(model: model, export: export, scores: scores)))
-            .flatMap { try? JSONDecoder().decode(ModelResult.self, from: $0) }
+    /// A kept result, only when it was scored on these jobs: a result from before cut ranges
+    /// (no `jobsKey`) counts only while no window is left out as inside a cut (`insideCuts == 0`),
+    /// since it was scored on every val window.
+    static func cached(model: String, export: URL, scores: URL, jobsKey: String, insideCuts: Int) -> ModelResult? {
+        guard let result = (try? Data(contentsOf: cacheFile(model: model, export: export, scores: scores)))
+            .flatMap({ try? JSONDecoder().decode(ModelResult.self, from: $0) }) else { return nil }
+        if let key = result.jobsKey { return key == jobsKey ? result : nil }
+        return insideCuts == 0 ? result : nil
     }
 
     static func store(_ result: ModelResult, export: URL, scores: URL) throws {

@@ -196,6 +196,22 @@ final class LiveTaggerTests: XCTestCase {
         XCTAssertEqual(tagger.open, 38)
     }
 
+    /// The Mac restores a mark under a fresh id: undoing past the cut must still delete the restored mark.
+    func testUndoPastARestoredRallyDeletesTheRestoredMark() {
+        let store = Store()
+        let tagger = LiveTagger(tracks: [], store: store)
+        tagger.serve(paused(10)); tagger.close(as: .rally, paused(20))   // handle 1
+        tagger.cut(paused(12)); tagger.cut(paused(30))                  // takes it
+        XCTAssertTrue(store.marks.isEmpty)
+        tagger.undo()                                                   // cut reopens, mark back as handle 2
+        XCTAssertEqual(store.marks, [Marked(start: 10, end: 20, kind: .rally)])
+        tagger.undo()                                                   // cut start dropped
+        tagger.undo()                                                   // the rally reopens: its restored mark goes
+        XCTAssertEqual(tagger.open, 10)
+        XCTAssertTrue(store.marks.isEmpty, "the restored mark, not the stale handle, was deleted")
+        XCTAssertEqual(store.deleted, 2)
+    }
+
     func testEscapeDropsAnOpenCutBeforeAnOpenRally() {
         let store = Store()
         let tagger = LiveTagger(tracks: [], store: store)

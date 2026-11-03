@@ -286,7 +286,15 @@ def score(fixture: dict) -> dict:
     raw = [(tick(s), tick(e)) for s, e in fixture.get("raw", [])]
     padded = [(tick(s), tick(e)) for s, e in fixture.get("padded", [])]
     # Cut ranges (D-030): stretches marked as not footage, in the excluded union with the non-rally marks.
+    # Truth is masked like a prediction: each mark keeps its pieces outside the cuts (a mark cut whole is
+    # gone); a piece's serve contact is the mark's when the piece holds it, else the piece's own start.
     cuts = normalise([(tick(s), tick(e)) for s, e in fixture.get("cuts", [])])
+    if cuts:
+        pieces = []
+        for t in truth:
+            for (s, e) in subtract([(t["s"], t["e"])], cuts):
+                pieces.append({**t, "s": s, "e": e, "contact": t["contact"] if s <= t["contact"] < e else s})
+        truth = pieces
     return {"contract": "SCORING_CONTRACT v1", "params": p,
             "rawBoundary": raw_boundary_score(truth, raw, p, cuts),
             "paddedExport": padded_export_score(truth, padded, tick(fixture["duration"]), p, fixture.get("fullyMarked") is True, cuts)}

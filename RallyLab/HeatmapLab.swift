@@ -145,6 +145,8 @@ final class HeatmapLab {
             return false
         }
         if insideCuts > 0 { log("  \(insideCuts) val window(s) inside cut ranges left out (D-030)") }
+        // A kept result counts only for these jobs: one scored on windows now inside a cut is scored again.
+        let jobsKey = TestSetScore.jobsKey(jobs, export: export)
         // Reserved final-test clips (D-002) must never be scored, whatever export they sit in; fail closed.
         let reserved: Set<String>
         do { reserved = try PipelineTuner.ValidationSet.finalTestNames(in: sampler.datasetRoot) } catch {
@@ -170,8 +172,8 @@ final class HeatmapLab {
         scoringLine = "\(jobs.count) frames in \(export.lastPathComponent)" + (insideCuts > 0 ? " (\(insideCuts) windows inside cut ranges left out)" : "")
         log(scoringLine)
         for model in models {
-            if TestSetScore.cached(model: model.name, export: export, scores: root) != nil {
-                log("  \(model.name): scored before")
+            if TestSetScore.cached(model: model.name, export: export, scores: root, jobsKey: jobsKey, insideCuts: insideCuts) != nil {
+                log("  \(model.name): scored before on these frames")
                 continue
             }
             scoringLine = "\(model.name): 0/\(jobs.count)"
@@ -190,7 +192,7 @@ final class HeatmapLab {
             log(String(format: "  %@: %d frames, %.0f ms a window", model.name, result.items.count, result.ms))
         }
         // Everything scored on this export, newest model first (as the models list).
-        let results = self.models.compactMap { TestSetScore.cached(model: $0.name, export: export, scores: root) }
+        let results = self.models.compactMap { TestSetScore.cached(model: $0.name, export: export, scores: root, jobsKey: jobsKey, insideCuts: insideCuts) }
         guard !results.isEmpty else { scoringLine = "Nothing scored."; return false }
         scoringLine = "Comparing \(results.count) models…"
         let scores = await Task.detached(priority: .userInitiated) { TestSetScore.score(results) }.value

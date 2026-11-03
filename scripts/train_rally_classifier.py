@@ -250,6 +250,44 @@ def hysteresis_decode(times, probs, enter, exit_, enter_sustain, exit_sustain):
             if e - s >= max(MIN_SEGMENT_LENGTH, MIN_RALLY_SEC)]
 
 
+def subtract_cuts(intervals, cuts, min_piece=0.1):
+    """Each interval's pieces outside the cut ranges (not footage; D-030), slivers dropped."""
+    out = []
+    for (s, e) in intervals:
+        pieces = [(s, e)]
+        for (cs, ce) in cuts:
+            nxt = []
+            for (a, b) in pieces:
+                if ce <= a or cs >= b:
+                    nxt.append((a, b))
+                else:
+                    if cs > a:
+                        nxt.append((a, cs))
+                    if ce < b:
+                        nxt.append((ce, b))
+            pieces = nxt
+        out.extend((a, b) for (a, b) in pieces if b - a >= min_piece)
+    return out
+
+
+def decode_outside_cuts(times, probs, cuts, *args):
+    """Hysteresis per uncut stretch, so a decision never bridges a cut range (the frames inside
+    one are not in the export), then its pieces outside the cuts."""
+    if not cuts:
+        return hysteresis_decode(times, probs, *args)
+    runs, start = [], 0
+    for i in range(1, len(times)):
+        if any(times[i - 1] < cs and times[i] >= ce for (cs, ce) in cuts):
+            runs.append((start, i))
+            start = i
+    runs.append((start, len(times)))
+    decoded = []
+    for (a, b) in runs:
+        if b > a:
+            decoded.extend(hysteresis_decode(times[a:b], probs[a:b], *args))
+    return subtract_cuts(decoded, cuts)
+
+
 # ---------------------------------------------------------------- scoring
 
 def iou(a, b):
@@ -348,12 +386,14 @@ def main():
 
     for path, ex in exports:
         X, names, times, y = build_features(ex)
-        labels = [(l["start"], l["end"]) for l in ex["labels"]]
-        baseline = [(b["start"], b["end"]) for b in ex["baselineRaw"]]
+        cuts = [(c["start"], c["end"]) for c in ex.get("cuts", [])]   # not footage (D-030); absent in exports from before
+        labels = subtract_cuts([(l["start"], l["end"]) for l in ex["labels"]], cuts)
+        baseline = subtract_cuts([(b["start"], b["end"]) for b in ex["baselineRaw"]], cuts)
 
         print(f"=== {ex['video']} ===")
         print(f"frames {len(times)}  duration {ex['duration']:.1f}s  "
-              f"labels {len(labels)}  in-rally frames {int(y.sum())} ({y.mean() * 100:.1f}%)")
+              f"labels {len(labels)}  in-rally frames {int(y.sum())} ({y.mean() * 100:.1f}%)"
+              + (f"  cut ranges {len(cuts)} ({sum(e - s for s, e in cuts):.1f}s not footage)" if cuts else ""))
 
         probs = out_of_fold_probs(X, y, times, labels)
         auc = frame_auc(y, probs)
@@ -361,8 +401,8 @@ def main():
         print(f"frame-level (out-of-fold): AUC {auc:.4f}  acc@0.5 {acc:.3f}")
 
         h = HYST_DEFAULT
-        learned = hysteresis_decode(times, probs, h["enter"], h["exit"],
-                                    h["enter_sustain"], h["exit_sustain"])
+        learned = decode_outside_cuts(times, probs, cuts, h["enter"], h["exit"],
+                                      h["enter_sustain"], h["exit_sustain"])
         s_learned = score_intervals(learned, labels)
         s_baseline = score_intervals(baseline, labels)
         print(f"baseline (rule decider) : {fmt(s_baseline)}")
@@ -373,7 +413,7 @@ def main():
         for enter in (0.6, 0.7, 0.8):
             for exit_ in (0.2, 0.3, 0.4):
                 for ex_sus in (0.5, 0.8, 1.2):
-                    cand = hysteresis_decode(times, probs, enter, exit_, 0.2, ex_sus)
+                    cand = decode_outside_cuts(times, probs, cuts, enter, exit_, 0.2, ex_sus)
                     sc = score_intervals(cand, labels)
                     key = (sc["f1"], -(sc["start_mae"] + sc["end_mae"]))
                     if best is None or key > best[0]:

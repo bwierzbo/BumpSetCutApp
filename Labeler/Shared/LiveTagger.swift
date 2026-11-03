@@ -58,7 +58,8 @@ final class LiveTagger {
 
     /// A rally closed this sitting, with what confirming it changed.
     struct Closed {
-        let mark: AnyHashable
+        /// The store's handle — replaced when a cut took the mark and undo put it back under a new one.
+        var mark: AnyHashable
         let start: Double
         let end: Double
         let kind: RallyKind
@@ -228,7 +229,15 @@ final class LiveTagger {
             note("Reopened the rally at \(clockText(r.start))")
         case .cut(let c):
             store.uncut(c.handle)
-            for m in c.removed { _ = store.restoreMark(m) }
+            // A restored mark may come back under a new handle (the Mac mints a fresh id): the
+            // rally entries still in the history must point at it, or a later undo misses the mark.
+            for m in c.removed {
+                let handle = store.restoreMark(m)
+                guard handle != m.handle else { continue }
+                for i in done.indices {
+                    if case .rally(var r) = done[i], r.mark == m.handle { r.mark = handle; done[i] = .rally(r) }
+                }
+            }
             cutFrom = c.start
             note("Reopened the cut from \(clockText(c.start))" + (c.removed.isEmpty ? "" : " · \(c.removed.count) rall\(c.removed.count == 1 ? "y" : "ies") back"))
         }

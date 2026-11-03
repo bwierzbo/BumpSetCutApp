@@ -138,6 +138,7 @@ final class CutRangeConsumersTests: XCTestCase {
         XCTAssertFalse(export.frames.contains { (15..<35).contains($0.t) })
         XCTAssertEqual(export.labels.map { [$0.start, $0.end] }, [[10, 15], [35, 40]])
         XCTAssertEqual(export.baselineRaw.map { [$0.start, $0.end] }, [[9, 15], [35, 39]])
+        XCTAssertEqual(export.cuts.map { [$0.start, $0.end] }, [[15, 35]], "the trainer masks its own decisions with them")
 
         // The headless export walks a folder of videos; a video's cuts come from the project session over it.
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("projects-\(UUID().uuidString)")
