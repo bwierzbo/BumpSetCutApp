@@ -51,13 +51,18 @@ final class WorkQueueReconcilerTests: XCTestCase {
 
     // MARK: - Stage 1 rally boundaries
 
-    func testDeclaredCompletionIsNotVerifiedCoverage() {
+    func testDeclaredCompletionCompletesTheTaskButIsNotVerifiedCoverage() {
         let v = WorkQueueReconciler.verdicts(inputs(sessions: [session("v", marked: true)], events: [recording("v", legacy: 12)]))
         let rb = v[.rallyBoundaries]!["v"]!
-        XCTAssertEqual(rb.state, .ready, "legacy marks declared complete do not complete a Stage 1 task")
+        XCTAssertEqual(rb.state, .complete, "the owner's declaration stands (2026-11-03 §9): nothing is to be redone")
         XCTAssertEqual(rb.observed.declaredComplete, true)
-        XCTAssertNil(rb.observed.verifiedCoverage)
-        XCTAssertTrue(rb.observed.summary.contains("unverified"))
+        XCTAssertNil(rb.observed.verifiedCoverage, "but coverage is not verified")
+        XCTAssertTrue(rb.observed.summary.contains("not verified"))
+        // A Stage 1 record in progress on a declared-complete recording: in progress, verified coverage shown.
+        let v2 = WorkQueueReconciler.verdicts(inputs(sessions: [session("v", marked: true)], events: [recording("v", eventsFile: true, coverage: 0.3, reviewed: 1, gaps: 1, legacy: 12)]))
+        XCTAssertEqual(v2[.rallyBoundaries]!["v"]?.state, .inProgress)
+        XCTAssertEqual(v2[.rallyBoundaries]!["v"]?.observed.verifiedCoverage, 0.3)
+        XCTAssertEqual(v2[.rallyBoundaries]!["v"]?.observed.declaredComplete, true)
     }
 
     func testStage1States() {
@@ -131,6 +136,14 @@ final class WorkQueueReconcilerTests: XCTestCase {
         XCTAssertEqual(nc["w"]?.state, .blocked, "withheld even with a label on file")
         XCTAssertEqual(nc["n"]?.state, .ready)
         XCTAssertEqual(nc["nocard"]?.state, .blocked)
+        // Withheld by file or content (the inventory's judgement), labelable by the manifest's identities: blocked (Codex, PR #134).
+        let byFile = WorkQueueReconciler.verdicts(inputs(sessions: [session("x")], events: [recording("x", withheld: true)],
+                                                         net: ["x": N(skip: nil, status: .init(labeled: true), proposalPending: false)]))
+        XCTAssertEqual(byFile[.netCorners]!["x"]?.state, .blocked)
+        XCTAssertNotNil(byFile[.netCorners]!["x"]?.reason)
+        let byClosure = WorkQueueReconciler.verdicts(inputs(sessions: [session("y")], withheld: ["y"],
+                                                            net: ["y": N(skip: nil, status: .init(), proposalPending: true)]))
+        XCTAssertEqual(byClosure[.netCorners]!["y"]?.state, .blocked)
         let none = WorkQueueReconciler.verdicts(inputs(sessions: [session("l")], net: nil, netProblem: "stale manifest"))
         XCTAssertNil(none[.netCorners], "no net inventory: no net verdicts")
     }
@@ -193,8 +206,9 @@ final class WorkQueueReconcilerTests: XCTestCase {
         let (file, summary) = try WorkQueueReconciler.run(root: root, project: "Fixture", now: now)
         XCTAssertEqual(summary.skipped.keys.map(\.rawValue), ["net_corners"])
         XCTAssertEqual(file.tasks.count, 4)
-        XCTAssertEqual(file.task("rally_boundaries:a")?.state, .ready)
+        XCTAssertEqual(file.task("rally_boundaries:a")?.state, .complete, "complete by declaration")
         XCTAssertEqual(file.task("rally_boundaries:a")?.observed?.declaredComplete, true)
+        XCTAssertNil(file.task("rally_boundaries:a")?.observed?.verifiedCoverage)
         XCTAssertEqual(file.task("ball_tracks:a")?.state, .inProgress)
         XCTAssertEqual(file.task("ball_tracks:a")?.identityKey, "fp:file:aaa")
         XCTAssertEqual(file.task("rally_boundaries:w")?.state, .blocked, "the legacy holdout is withheld (D-017)")

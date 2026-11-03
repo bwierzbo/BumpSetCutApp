@@ -21,6 +21,14 @@
 //  reservation; TrainingEligibility reads it to say what each model may use.
 //  No detector writes it yet (phase 2): this is the record and its rules.
 //
+//  Ownership (owner, 2026-11-03 §3): this record is authoritative for
+//  *characterising* the footage; the effective exclusions every consumer of a
+//  recording's time applies are the cut ranges (CutRange, PR #135: marked in
+//  the live pass, kept on the session and in label_rally_times.cuts). A
+//  confirmed time-breaking span here is a reason to mark a cut range there,
+//  never a second mask; and a cut range for a clip that starts mid-rally says
+//  nothing about edited footage.
+//
 
 import Foundation
 

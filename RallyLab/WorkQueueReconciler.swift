@@ -83,10 +83,14 @@ enum WorkQueueReconciler {
                 } else if let e, e.eventsFile {
                     o.summary = String(format: "Stage 1 in progress: %.0f%% reviewed, %d rallies, %d unknown gap(s)", (e.coverageFraction ?? 0) * 100, e.reviewedRallies, e.unknownGaps)
                     verdict = Verdict(state: .inProgress, reason: nil, observed: o)
+                } else if s.ralliesMarked ?? false {
+                    // The owner's declaration that every rally is marked stands as development-label evidence (owner,
+                    // 2026-11-03 §9): the task is complete by declaration, nothing is to be redone; whether the
+                    // timeline's coverage was verified is a separate fact (verifiedCoverage), kept nil here.
+                    o.summary = "complete by the legacy declaration (every rally marked, \(e?.legacyMarks ?? 0) marks); coverage not verified by a Stage 1 record"
+                    verdict = Verdict(state: .complete, reason: nil, observed: o)
                 } else {
-                    o.summary = (s.ralliesMarked ?? false)
-                        ? "not started; legacy marks declared complete (\(e?.legacyMarks ?? 0) marks, unverified)"
-                        : "not started" + (e?.legacyMarks.map { "; \($0) legacy mark(s), unverified" } ?? "")
+                    o.summary = "not started" + (e?.legacyMarks.map { "; \($0) legacy mark(s), unverified" } ?? "")
                     verdict = Verdict(state: .ready, reason: nil, observed: o)
                 }
                 out[.rallyBoundaries]![s.name] = verdict
@@ -123,11 +127,16 @@ enum WorkQueueReconciler {
                 out[.ballTracks]![s.name] = verdict
             }
 
-            // Net corners.
+            // Net corners. The withheld closure (by name, file and content, as EventInventory judges it) is applied
+            // before any net observation: the net inventory knows only the manifest's identities, so a recording it
+            // lists as labelable can still be a withheld recording's file (Codex, PR #134).
             if let net = inputs.net {
                 var o = WorkQueue.Observed(at: at, summary: "")
                 let verdict: Verdict
-                if let n = net[s.name] {
+                if withheld {
+                    o.summary = "withheld"
+                    verdict = Verdict(state: .blocked, reason: withheldReason, observed: o)
+                } else if let n = net[s.name] {
                     o.proposalPending = n.proposalPending
                     if let skip = n.skip {
                         o.summary = "skipped: \(skip.rawValue)"
@@ -145,9 +154,6 @@ enum WorkQueueReconciler {
                         o.summary = n.status.stale ? "the label on file is another recording's; label again" : "not labeled"
                         verdict = Verdict(state: .ready, reason: nil, observed: o)
                     }
-                } else if withheld {
-                    o.summary = "withheld"
-                    verdict = Verdict(state: .blocked, reason: withheldReason, observed: o)
                 } else {
                     o.summary = "not on a project card"
                     verdict = Verdict(state: .blocked, reason: "no project card: the net inventory knows only card videos", observed: o)

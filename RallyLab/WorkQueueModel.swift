@@ -4,16 +4,28 @@
 //
 //  The Queue tab's state: the project's work queue (WorkQueue.File), the
 //  source index beside it, and the reconciler run on request. Every read of
-//  the project and every write of the queue happens off the main actor; a
-//  refresh started before the project changed lands nowhere.
+//  the project happens off the main actor, and every read-modify-write of
+//  the queue file goes through one actor in order (WorkQueueFileAccess), so
+//  a refresh and a person's change can never interleave: each sees the file
+//  the previous one wrote, and a refresh that began before a cancel can't
+//  save its older snapshot over it (Codex, PR #134). A person's action is
+//  allowed while a refresh runs; the refresh's "refreshing" flag is cleared
+//  when the refresh finishes whatever else happened. Work started before the
+//  project changed lands nowhere.
 //
 
 import Foundation
 import Observation
 
+/// Serialises every read-modify-write of one project's queue file within this process.
+actor WorkQueueFileAccess {
+    func perform<T: Sendable>(_ operation: @Sendable () throws -> T) throws -> T { try operation() }
+}
+
 @MainActor @Observable
 final class WorkQueueModel {
-    let projects: ProjectsModel
+    /// Where the queue lives: the open project's folder and name, nil without a project.
+    private let location: () -> (root: URL, project: String)?
     private(set) var file: WorkQueue.File?
     private(set) var index: SourceRegistry.Index?
     private(set) var summary: WorkQueueReconciler.Summary?
@@ -25,15 +37,25 @@ final class WorkQueueModel {
     var filterKind: WorkQueue.Kind?
     var filterState: WorkQueue.State?
     var search = ""
-    private var work: Task<Void, Never>?
-    /// Bumped on every project change: work started before lands nowhere.
+    private let access = WorkQueueFileAccess()
+    /// Every operation in flight, so a test (or a project change) can wait for them.
+    private var operations: [UUID: Task<Void, Never>] = [:]
+    /// Bumped on every project change: an operation started before lands nowhere.
     private var generation = 0
 
     init(projects: ProjectsModel) {
-        self.projects = projects
+        location = { [weak projects] in
+            guard let projects, let root = projects.projectDir, let name = projects.project?.name else { return nil }
+            return (root, name)
+        }
     }
 
-    var root: URL? { projects.projectDir }
+    /// For tests and headless use: a fixed project folder, no ProjectsModel (and so no preference written).
+    init(root: URL, project: String) {
+        location = { (root, project) }
+    }
+
+    var root: URL? { location()?.root }
 
     var visible: [WorkQueue.Task] {
         let needle = search.trimmingCharacters(in: .whitespaces).lowercased()
@@ -48,16 +70,35 @@ final class WorkQueueModel {
 
     func source(of task: WorkQueue.Task) -> SourceRegistry.Source? { index?.byVideo[task.video] }
 
+    /// Waits for every operation in flight (tests).
+    func settle() async {
+        while let task = operations.values.first { await task.value }
+    }
+
+    /// Runs `work` as one operation off the main actor (its file access through `access`, in order with every
+    /// other operation's); its result is published only while the project is still the one it started on. `done`
+    /// runs on the main actor with the result, after the operation's own bookkeeping.
+    private func operation<T: Sendable>(_ work: @escaping @Sendable () async throws -> T, done: @escaping @MainActor (Result<T, Error>) -> Void) {
+        let mine = generation
+        let id = UUID()
+        operations[id] = Task { [weak self] in
+            let result: Result<T, Error> = await Task.detached(priority: .userInitiated) {
+                do { return .success(try await work()) } catch { return .failure(error) }
+            }.value
+            guard let self else { return }
+            self.operations.removeValue(forKey: id)
+            guard mine == self.generation else { return }
+            done(result)
+        }
+    }
+
     /// The queue as written, without reconciling: quick, so the tab shows the last state at once.
     func load() {
-        guard let root else { file = nil; index = nil; status = "Open a project."; return }
-        work?.cancel()
-        generation += 1
-        let mine = generation
-        work = Task { [weak self] in
-            let loaded: Result<WorkQueue.File?, Error> = await Task.detached(priority: .userInitiated) { Result { try WorkQueue.Store(root: root).load() } }.value
-            guard let self, mine == self.generation else { return }
-            switch loaded {
+        guard let (root, _) = location() else { file = nil; index = nil; status = "Open a project."; return }
+        let access = self.access
+        operation({ try await access.perform { try WorkQueue.Store(root: root).load() } }) { [weak self] result in
+            guard let self else { return }
+            switch result {
             case .success(let f):
                 self.file = f
                 self.problem = nil
@@ -70,24 +111,29 @@ final class WorkQueueModel {
         }
     }
 
-    /// Reconcile the queue with the annotation files and the source index, then write it. Nothing is written when
-    /// an input can't be read (the reconciler fails closed).
+    /// Reconcile the queue with the annotation files and the source index, then write it. The slow part (reading
+    /// the project) runs first; the queue file is then read, reconciled and written as one serialised operation,
+    /// so a change made meanwhile is reconciled, never overwritten. Nothing is written when an input can't be read.
     func refresh() {
-        guard let root, let project = projects.project?.name else { return }
-        work?.cancel()
-        generation += 1
-        let mine = generation
+        guard let (root, project) = location(), !refreshing else { return }
         refreshing = true
         status = "Reconciling the queue with the project's annotations…"
-        work = Task { [weak self] in
-            let result: Result<(WorkQueue.File, WorkQueueReconciler.Summary, SourceRegistry.Index), Error> = await Task.detached(priority: .userInitiated) {
-                Result {
-                    let (file, summary) = try WorkQueueReconciler.run(root: root, project: project)
-                    let index = try SourceRegistry.load(root: root)
-                    return (file, summary, index)
-                }
-            }.value
-            guard let self, mine == self.generation else { return }
+        let access = self.access
+        operation({ () async throws -> (WorkQueue.File, WorkQueueReconciler.Summary, SourceRegistry.Index) in
+            let policy = try await access.perform { try WorkQueue.Store(root: root).load()?.policy } ?? WorkQueue.Policy()
+            // The slow part — every session, the inventory, the index — outside the serialised access.
+            let inputs = try WorkQueueReconciler.gather(root: root, policy: policy)
+            let index = try SourceRegistry.load(root: root)
+            let (file, summary) = try await access.perform {
+                let store = WorkQueue.Store(root: root)
+                var file = try store.load() ?? WorkQueue.File(project: project, updatedAt: WorkQueue.stamp(inputs.now))
+                let summary = WorkQueueReconciler.apply(inputs, to: &file)
+                try store.save(file)
+                return (file, summary)
+            }
+            return (file, summary, index)
+        }) { [weak self] result in
+            guard let self else { return }
             self.refreshing = false
             switch result {
             case .success(let (file, summary, index)):
@@ -108,23 +154,19 @@ final class WorkQueueModel {
     func cancel(_ id: String) { mutate("cancel") { try $0.cancel(id, now: Date()) } }
     func reopen(_ id: String) { mutate("reopen") { try $0.reopen(id, now: Date()) } }
 
-    /// A person's change: the queue is read from disk again, changed, and written back, so a headless run in between
-    /// is not overwritten; an unreadable file refuses the change.
+    /// A person's change: the queue is read from disk, changed and written back as one serialised operation, so
+    /// neither a refresh nor a headless run in between is overwritten; an unreadable file refuses the change.
     private func mutate(_ what: String, _ change: @escaping @Sendable (inout WorkQueue.File) throws -> Void) {
-        guard let root else { return }
-        generation += 1
-        let mine = generation
-        work = Task { [weak self] in
-            let result: Result<WorkQueue.File, Error> = await Task.detached(priority: .userInitiated) {
-                Result {
-                    let store = WorkQueue.Store(root: root)
-                    guard var file = try store.load() else { throw WorkQueue.Failure.invalid("no queue on disk to \(what)") }
-                    try change(&file)
-                    try store.save(file)
-                    return file
-                }
-            }.value
-            guard let self, mine == self.generation else { return }
+        guard let (root, _) = location() else { return }
+        let access = self.access
+        operation({ try await access.perform { () throws -> WorkQueue.File in
+            let store = WorkQueue.Store(root: root)
+            guard var file = try store.load() else { throw WorkQueue.Failure.invalid("no queue on disk to \(what)") }
+            try change(&file)
+            try store.save(file)
+            return file
+        } }) { [weak self] result in
+            guard let self else { return }
             switch result {
             case .success(let file): self.file = file; self.problem = nil; self.status = "\(what): saved."
             case .failure(let e): self.problem = e.localizedDescription
@@ -134,7 +176,6 @@ final class WorkQueueModel {
 
     /// The project changed or closed: nothing of the old one stays, and work in flight lands nowhere.
     func projectChanged() {
-        work?.cancel()
         generation += 1
         refreshing = false
         file = nil; index = nil; summary = nil; problem = nil; lastRefreshed = nil

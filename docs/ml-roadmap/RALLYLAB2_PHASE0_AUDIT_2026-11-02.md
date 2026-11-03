@@ -2,7 +2,7 @@
 name: rallylab2-phase0-audit
 status: living (CF-BSC-006); Phase 0 of the RallyLab 2.0 overhaul (owner direction 2026-11-02; D-031 proposed)
 created: 2026-11-03T02:42:42Z
-updated: 2026-11-03T03:30:00Z
+updated: 2026-11-03T04:40:00Z
 decision: D-031 (proposed)
 ---
 
@@ -67,7 +67,7 @@ Phase 1's rule for the registry and the queue follows from this: **they own no a
 | The direction's checkpoint | Now | Note |
 |---|---|---|
 | 167 clips | 167 videos on 121 cards; 167 sessions | all with a stored file fingerprint; 73 links, 94 files |
-| 145 eligible | 146 admitted (21 withheld: 16 lineage holdout + 5 legacy holdout, no aliases beyond them) | |
+| 145 eligible | 146 admitted = 167 sessions − 21 withheld (16 lineage holdout + 5 legacy holdout; the closure adds no alias). The newest sessions were added 2026-10-17, so the difference is not a later import; 145 most likely counted one recording out for another reason at that checkpoint (not derivable from the files). **Admitted is not per-model eligible:** net export: 146 − 8 handheld − 6 side-view exclusions = **132** labelable; L2 package: 88 admitted recordings have ≥ 1 human-labeled rally today, and only human-labeled rallies enter (D-023); rally classifier: 30 declared-complete recordings (legacy marks) and 0 Stage 1 records; and every recording's per-model footage eligibility is `not_assessed` until it has a footage-properties record (§11) — explicitly unknown, never a pass | verified on the metadata copy, 2026-11-03 |
 | 30 eligible clips declared fully marked | 30 (33 sessions carry `ralliesMarked`, 3 of them withheld) | a declaration (`session.ralliesMarked`); **0** `rallyevents.json` records exist on the Mac, so Stage 1 verified coverage is 0 for every recording |
 | 25 independent recording groups | 156 alias groups over 167 videos by the manifest's identities (shared file or confirmed source/session/venue); 75 confirmed `sourceId`, 18 `sessionId`, 20 `venueId` | 25 counted groups by venue is not derivable from the files: 144 recordings have no confirmed venue or session (D-017 §5) |
 | 466 rallies, 40 missed serves | not recounted here (legacy marks; `--event-inventory` counts them) | |
@@ -150,11 +150,11 @@ The headless `--source-index` and `--work-queue` commands were run on a **metada
 
 | Kind | ready | in progress | needs review | complete | blocked |
 |---|---|---|---|---|---|
-| Rally boundaries (Stage 1) | 146 | 0 | 0 | 0 | 21 |
+| Rally boundaries (Stage 1) | 116 | 0 | 0 | 30 (by declaration) | 21 |
 | Ball tracks (target 2 human-labeled rallies) | 13 | 23 | 43 | 67 | 21 |
 | Net corners | left as they were: the copy's rewritten `project.json` no longer matches the split manifest's hash (the tab's own stale-manifest refusal; on the live project the manifest matches) | | | | |
 
-30 of the 146 Stage 1 tasks carry `declaredComplete` from the legacy marks; none is complete. Source index: 167 sources, 156 alias groups, 146 admitted, 21 withheld, 75 confirmed identities, 92 inferred from the file, 0 unknown, 0 exact duplicates, 2 same-source variants. `--source-index` ran in 7.3 s, `--work-queue` in 12.6 s (167 sessions, no share).
+30 of the 146 Stage 1 tasks are complete by the legacy declaration (`declaredComplete`, coverage not verified; owner 2026-11-03 §9); none has a Stage 1 record. Source index: 167 sources, 156 alias groups, 146 admitted, 21 withheld, 75 confirmed identities, 92 inferred from the file, 0 unknown, 0 exact duplicates, 2 same-source variants. `--source-index` ran in 7.3 s, `--work-queue` in 12.6 s (167 sessions, no share).
 
 **Tests:** `RallyLabTests` 262 executed, 0 failures, 1 skipped (the pre-existing resume benchmark); of these 25 are new (`WorkQueueTests`, `WorkQueueReconcilerTests`, `SourceRegistryTests`, `FileFingerprintCacheTests`). `scripts/build.sh mac` succeeds. `BumpSetCutTests` not run: no iOS or shared file changed.
 
@@ -174,7 +174,7 @@ Stability (owner's build, a normal labeling session, the share mounted):
 
 Queue:
 - `--reconcile-tasks` twice in a row: the second reports 0 created, 0 changed.
-- A pre-tracked rally confirmed as a rally with no checked frame never counts; a confirmed Stage 1 completion sets the task complete on the next refresh; a withheld recording's tasks are blocked in every kind.
+- A pre-tracked rally confirmed as a rally with no checked frame never counts; a legacy declaration completes the boundary task with `verifiedCoverage` nil, a Stage 1 completion with it set; a withheld recording's tasks are blocked in every kind, net corners included, whatever the manifest says.
 - `--work-queue` on the live project reads no video bytes after the first pass of the fingerprint cache (second run time ≈ the copy's 12.6 s).
 
 ## 10. Remaining work and decisions for the owner
@@ -206,9 +206,33 @@ The second direction ([verbatim](../decisions/2026-11-02-rallylab2-edited-footag
 
 Phase 2: the detection job (scene cuts from frame differencing, duplicate-frame runs from the frame-time digest, zoom from global motion; bounded, cancelable, resumable; writes `proposed` spans only), the import of the 2026-11-02 scan as proposals, and the properties UI (§9 of the direction: type, camera, cuts, replays, slow motion, zoom, completion, per-model eligibility with reasons; a labeler reviews only uncertain or consequential proposals). Phase 3: `derivedFrom` becomes an identity edge in the guard closure (`ReservedVideos.identities`) so a derivative of a withheld recording is withheld by every consumer, not only quarantined in the index — a change to the D-017 closure, so an owner decision. Phase 4: exporters read the spans (no L2 window inside or across a time-breaking span; slow-motion frames only into a single-frame dataset; net labels carry the crop geometry; negatives only where `fullVideoNegatives` is `standard` and Stage 1 is complete).
 
-### 11.4 Unresolved decisions
+### 11.4 Decided by the owner on 2026-11-03
 
-1. One owner for "this stretch is not real time": the other instance's `CutRange` (marked in the live pass) or confirmed spans of the footage record (characterised, confirmable, with provenance). Recommendation: the footage record owns the characterisation and its confirmed time-breaking spans *are* the cut ranges every consumer reads; the live-pass X key writes a confirmed `replay`/`montage` span. Needs both PRs reconciled before Phase 2.
-2. Whether `handheld` restricts the temporal models initially (the policy says yes, matching the net rule and the product's "handheld unsupported") or counts as natural camera motion.
-3. The 12 edited YouTube recordings the other instance found: whether their existing L2 windows and tuning use are documented as a limitation (recommended; nothing is rewritten) and whether their confirmed spans are entered by the owner before Phase 2's detector exists.
-4. Whether `fullVideoNegatives` for a `continuous` recording also requires a confirmed `normal_speed` span, or whether the confirmed type suffices (the policy takes the type).
+- **Ownership.** `FootageProperties` is authoritative for characterising source media; `CutRange` (PR #135) is authoritative for the effective timeline exclusions every consumer applies. One exclusion mechanism: a confirmed time-breaking span is a reason to mark a cut range, never a second mask; the existing cut-range schema is kept; a manual exclusion of a clip's initial partial rally is not a classification as edited footage. Coordination with PR #135 before Phase 2.
+- **Handheld and heavily panned footage** stays restricted for initial temporal training, not discarded (the policy's current rules).
+- **L2 target:** 2 fully human-reviewed rallies per eligible recording, configurable; a third allowed for model difficulty and dataset diversity (Phase 2's selector).
+- **"Marked every rally"** declarations remain valid development-label evidence under the conditions already defined; the owner does not redo them to adopt Stage 1 completion. The boundary task is complete by declaration, `verifiedCoverage` stays a separate fact.
+
+### 11.5 Historical experiments and the edited recordings (documented, nothing modified)
+
+The other instance's scan of 2026-11-02 found editor-added slow-motion replays and zooms inside YouTube-sourced files: clear — `grs_gnd_shade_land_self_02_v2` (half-speed replays at about 83–85, 91–94, 115–125, 142–157 s), `grs_sid_sun_port_self_01_v2`, `grs_ele_sun_land_self_01_v4`, `grs_onl_sun_land_onl_04_v2`, `bch_gnd_sun_land_self_02_v4`, `bch_gnd_sun_land_self_02_v6`, `bch_ele_sun_port_self_03` (dev_val), `grs_tri_sun_land_self_01_v2`, `grs_ele_shade_land_self_02`; borderline — `grs_ele_dusk_port_self_03`, `grs_onl_dusk_land_onl_03`, `bch_gnd_sun_land_self_02_v5`, `grs_sid_shade_land_self_02`. These are scanner findings, not confirmed spans. Most of the clear ones are in the L2 package `Scratch-L2-multiframe-20261021-1917` (EXP-20261021-l2-scratch-prereg) and some in the tuner's pools, so those experiments' windows may include replayed or zoomed frames and their timing: a **limitation of the historical results**, recorded here; the frozen records, the package, the labels and the splits are not modified (owner, 2026-11-03 §6). The experiment registry's rows are left as they are; a docs PR may add the same limitation sentence to the registry if the owner wants it there.
+
+### 11.6 Unresolved decisions
+
+1. How a confirmed time-breaking span becomes a cut range (Phase 2): written by the same confirmation, or proposed to the live pass for the owner's X — and the reverse, whether an X-marked replay also records a `replay` span (it should, with origin `confirmed`), so the two files agree without either copying the other's authority.
+2. Whether the 13 edited recordings' spans are entered by hand before Phase 2's detector exists (the scan's segments as `proposed` spans are a ready import).
+3. Whether `fullVideoNegatives` for a `continuous` recording also requires a confirmed `normal_speed` span, or whether the confirmed type suffices (the policy takes the type).
+
+## 12. Owner decisions of 2026-11-03 on PR #134, and what was done
+
+| # | Decision | Done in this PR |
+|---|---|---|
+| 1 | D-031's architecture and the two verbatim documents accepted as the intended direction; not permission to merge or deploy | D-031 marked accepted (direction) with the owner's words |
+| 2 | PR held pending Codex's two findings at `3587fce`: serialise queue refreshes and mutations; apply withheld checks to every task type before making tasks actionable; regression tests; rerun validation; new independent review | `WorkQueueFileAccess` actor serialises every queue-file read-modify-write; a person's action no longer invalidates a refresh and `refreshing` clears regardless; the reconciler applies the withheld verdict before any net observation. Tests: `WorkQueueModelTests` (3), `WorkQueueReconcilerTests` extended. Validation rerun (§7); `@codex review` requested |
+| 3 | `FootageProperties` authoritative for characterisation, `CutRange` for effective exclusions; coordinate with PR #135; no duplicate masks; keep the cut-range schema; a manual initial-partial-rally exclusion is not "edited" | Recorded in D-031 and §11.4; `FootageProperties` says so in its header; no mask added here; coordination before Phase 2 |
+| 4 | L2 default 2 fully human-reviewed rallies per eligible recording, configurable, third allowed by difficulty and diversity | The policy's default (2, in `tasks/work-queue.json`); the third is Phase 2's selector |
+| 5 | Before Phase 2, separate reviewed fixes: project-switch-during-sync writes and cancellation; expensive filesystem work in view bodies | Not in this PR; next two PRs after this one is settled |
+| 6 | Handheld and heavily panned footage restricted, not discarded; document the edited recordings as limitations of historical experiments without modifying frozen records or labels | Policy unchanged (restricted); §11.5 |
+| 7 | Verify 145 vs 146, and whether admitted footage is eligible per model-specific export | §3.3: 146 = 167 − 21; per-model counts (net 132, L2 88 with human labels today, rally classifier 30 declared) |
+| 8 | PR #135's migration 051: confirm deployment, old-client compatibility, rollout and rollback; no further backend changes | Read-only check: `label_rally_times_cuts` (version `20261103033340`) **is applied** on the live project as of 2026-11-03T03:33Z. The compatibility test and the rollout/rollback record belong to PR #135; nothing changed here |
+| 9 | Preserve "Marked Every Rally" declarations as valid development-label evidence; no redoing of annotations | The boundary task is complete by declaration (§11.4); 30 recordings now show complete, coverage unverified |
