@@ -209,13 +209,14 @@ enum NetLabels {
     /// Where to take the frame: the middle of the first marked rally at least
     /// `minRally` seconds long that touches no cut range, else the middle of the
     /// longest stretch outside the cut ranges (the whole video when there are
-    /// none). A cut range is not footage — a replay may be shot from elsewhere (D-030).
-    static func frameTime(duration: Double, rallies: [(start: Double, end: Double)], minRally: Double = 2, cuts: [CutRange] = []) -> Double {
+    /// none). A cut range is not footage — a replay may be shot from elsewhere
+    /// (D-030) — so a recording cut whole has no frame to take: nil.
+    static func frameTime(duration: Double, rallies: [(start: Double, end: Double)], minRally: Double = 2, cuts: [CutRange] = []) -> Double? {
         if let r = rallies.sorted(by: { $0.start < $1.start })
             .first(where: { $0.end - $0.start >= minRally && $0.end <= duration && !cuts.overlaps($0.start, $0.end) }) {
             return (r.start + r.end) / 2
         }
-        guard let longest = cuts.outside(0, duration).max(by: { $0.end - $0.start < $1.end - $1.start }) else { return duration / 2 }
+        guard let longest = cuts.outside(0, duration).max(by: { $0.end - $0.start < $1.end - $1.start }) else { return nil }
         return (longest.start + longest.end) / 2
     }
 

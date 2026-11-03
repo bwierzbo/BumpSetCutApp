@@ -91,6 +91,8 @@ final class CutRangeConsumersTests: XCTestCase {
         XCTAssertEqual(NetLabels.frameTime(duration: 100, rallies: rallies, cuts: [cut(0, 10)]), 25, "the first rally touches the cut")
         XCTAssertEqual(NetLabels.frameTime(duration: 100, rallies: [], cuts: [cut(0, 10), cut(40, 100)]), 25, "the middle of the longest uncut stretch")
         XCTAssertEqual(NetLabels.frameTime(duration: 100, rallies: [], cuts: []), 50)
+        XCTAssertNil(NetLabels.frameTime(duration: 100, rallies: [(start: 5.0, end: 9.0)], cuts: [cut(0, 100)]), "cut whole: no frame to take")
+        XCTAssertNil(NetLabels.frameTime(duration: 100, rallies: [], cuts: [cut(0, 60), cut(60, 120)]))
     }
 
     func testTestSetJobsLeaveOutAWindowWithAFrameInsideACut() throws {

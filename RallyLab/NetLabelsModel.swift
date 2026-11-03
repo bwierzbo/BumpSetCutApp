@@ -361,7 +361,8 @@ final class NetLabelsModel {
             if let ai = offeredAI(item) { t = ai.time } else {   // the frame the vision model saw
                 let marks = await footage.rallyMarks(for: item.url)
                 guard !Task.isCancelled else { return }
-                t = NetLabels.frameTime(duration: dur, rallies: marks, cuts: item.cuts)
+                guard let outside = NetLabels.frameTime(duration: dur, rallies: marks, cuts: item.cuts) else { continue }   // cut whole: nothing to label
+                t = outside
             }
             guard let frame = try? await footage.frame(of: item.url, at: t) else { continue }
             // A frame that took seconds to read is kept even if the read-ahead was paused
@@ -445,7 +446,10 @@ final class NetLabelsModel {
         } else {
             let marks = await footage.rallyMarks(for: item.url)
             guard !Task.isCancelled, selected == item.video else { return }
-            time = NetLabels.frameTime(duration: duration, rallies: marks, cuts: item.cuts)
+            guard let outside = NetLabels.frameTime(duration: duration, rallies: marks, cuts: item.cuts) else {
+                status = "\(item.video): every frame lies inside a cut range (not footage) — nothing to label."; return
+            }
+            time = outside
         }
         await decode(item, at: time)
         guard !Task.isCancelled, selected == item.video else { return }
