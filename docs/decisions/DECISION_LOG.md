@@ -2,7 +2,7 @@
 name: decision-log
 status: authoritative
 created: 2026-10-20T22:12:44Z
-updated: 2026-11-04T14:38:29Z
+updated: 2026-11-04T19:53:00Z
 ---
 
 # Decision log
@@ -444,3 +444,5 @@ The authoritative record of product, architecture, data and process decisions fo
 **Source.** Owner authorisation of 2026-11-03; D-032; the PRs carrying this entry.
 
 **Status 2026-11-04.** Accepted by the owner ("Owner Approval — PR #141 and #142 Recording-Type Synchronization", 2026-11-04: "D-033 is accepted as part of the owner's prior authorization of the recording-type claims architecture and PR #141 merge"). Merged: #141 → `5456e64` (migration 052 as a file, not applied), #142 → `72a947c` (phone and Mac), #143 → `982856c` (refusal persistence). Applying migration 052, the synthetic acceptance run and any TestFlight distribution remain separate owner decisions.
+
+**Amendment (PR #148, 2026-11-04).** The synthetic acceptance of 2026-11-04 (project `Accept-052`, guarded RallyLab run) found that §2's "the claim's fingerprint is the card's current fingerprint" was implemented as a comparison with the card, while the identity the phone holds is another file's. The owner's decision of 2026-11-04 ("Owner Decision — Approve PR #148 and Continue Synthetic Acceptance") settles the identities as follows, implemented in PR #148 (`06bc934`): (1) *Published clip identity* — `label_videos.source_fingerprint` identifies the session recording published to the phone (the cut clip's fingerprint, as `publishVideos` / `publishIdentities` send it); the claim copies this fingerprint. (2) *Claim validation* — RallyLab compares the claim with the current fingerprint of the session clip (`ProjectsModel.fileFingerprint` of the session's source file), not with the project card. (3) *Authoritative record identity* — the footage-properties record stays bound to the original source fingerprint stored on the project card (`ReservedVideos.effectiveFingerprint`), as the Mac's own confirmation binds it. (4) *Replacement behaviour* — a changed published clip declines a stale claim ("the recording's file changed since this was sent — confirm again"); a clip the Mac cannot read defers the claim to the next round; a changed source origin and a changed published clip are distinct identity events. (5) *Unchanged authority* — the Mac's footage-properties record remains the one authority; neither the phone nor the server gains any authority over the type or over training eligibility. The broader alternative — publishing the origin's fingerprint as the server identity — was rejected. §2's wording is left as written and read with this amendment.
