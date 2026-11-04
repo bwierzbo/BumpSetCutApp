@@ -164,6 +164,22 @@ final class RecordingTypeClaimsTests: XCTestCase {
         XCTAssertEqual(RecordingTypeClaims.Display.pending(corrected).statusText(), "Continuous recording: saved on this phone, sends when online.")
     }
 
+    /// A refusal written on the choice it refused, and only that one (owner's pre-release hardening: the phone saves the
+    /// outbox at once when a refusal arrives, through this rule); a refusal for a choice no longer there changes nothing.
+    func testARefusalIsWrittenOnTheChoiceItRefusedAndNothingElse() {
+        let a = RecordingTypeClaims.Pending(id: UUID(), videoId: UUID(), sourceFingerprint: "file:a", kind: .edited, madeAt: t0)
+        let b = RecordingTypeClaims.Pending(id: UUID(), videoId: UUID(), sourceFingerprint: "file:b", kind: .continuous, madeAt: t0)
+        let refused = RecordingTypeClaims.refusing([a.id: a, b.id: b], id: a.id, reason: "identity: the claim is about footage file:a, but v is file:x")
+        XCTAssertEqual(refused[a.id]?.refusal, "identity: the claim is about footage file:a, but v is file:x")
+        XCTAssertEqual(refused[b.id], b, "the other choice untouched")
+        XCTAssertEqual(RecordingTypeClaims.toSend(refused).map(\.id), [b.id])
+        XCTAssertEqual(RecordingTypeClaims.refusing(refused, id: UUID(), reason: "x"), refused, "a choice no longer there: nothing")
+        // Durable as written: the outbox encoded and read back carries it.
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        XCTAssertEqual(try decoder.decode([UUID: RecordingTypeClaims.Pending].self, from: try encoder.encode(refused)), refused)
+    }
+
     /// Clearing a published type sends explicit JSON nulls for both columns and dates the row (a synthesized encoder
     /// would leave nil optionals out, and the server would read the omission as "unchanged"). Owner review of #142, finding 1.
     func testClearingThePublishedTypeSendsExplicitNullsAndTheDate() throws {
