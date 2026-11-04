@@ -205,16 +205,18 @@ enum RecordingTypeClaims {
         by?.hasSuffix("claim \(claim.id.uuidString.lowercased())") == true
     }
 
-    /// The Mac's decision on a submitted claim, from the project as it is: `cardFingerprint` is the recording's
-    /// current identity on its project card (nil: none), `withheld` whether it is in the withheld closure, `record`
-    /// the footage-properties record on file. Order: what is wrong with the claim is rejected before anything is
+    /// The Mac's decision on a submitted claim, from the project as it is: `publishedFingerprint` is the current
+    /// fingerprint of the session's file — the identity the Mac publishes as `label_videos.source_fingerprint` and
+    /// the phone copies into its claim (nil: the file can't be read; a card's fingerprint is the origin's and may
+    /// differ from a cut clip's), `withheld` whether it is in the withheld closure, `record` the footage-properties
+    /// record on file. Order: what is wrong with the claim is rejected before anything is
     /// written; what is wrong on the Mac is deferred; a newer decision on the Mac wins over the claim; the claim
     /// already on file is acknowledged without a second write.
-    static func decide(claim: RecordingTypeClaim, cardFingerprint: String?, withheld: Bool, record: RecordState) -> Decision {
+    static func decide(claim: RecordingTypeClaim, publishedFingerprint: String?, withheld: Bool, record: RecordState) -> Decision {
         guard claim.kind != nil else { return .reject("the choice \"\(claim.recordingType)\" is not one this Mac knows") }
         if withheld { return .reject("this recording is withheld from labeling on the Mac") }
-        guard let card = cardFingerprint else { return .reject("the recording has no file identity on the Mac") }
-        if card != claim.sourceFingerprint { return .reject("the recording's file changed since this was sent — confirm again") }
+        guard let published = publishedFingerprint else { return .reject("the recording has no file identity on the Mac") }
+        if published != claim.sourceFingerprint { return .reject("the recording's file changed since this was sent — confirm again") }
         switch record {
         case .unreadable(let why):
             return .defer("the recording's footage record can't be read on the Mac: \(why)")
