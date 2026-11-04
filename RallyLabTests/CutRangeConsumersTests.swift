@@ -156,6 +156,14 @@ final class CutRangeConsumersTests: XCTestCase {
         XCTAssertEqual(PreTracker.openSpans(session, tracks: []).map(\.start), [10, 30, 50])
         session.cuts = [cut(35, 52)]
         XCTAssertEqual(PreTracker.openSpans(session, tracks: []).map(\.start), [10], "the second mark and the found rally touch the cut")
+        // The quota: a machine track inside a cut no longer counts (it stays, for undo), nor one said not to be a rally.
+        func machine(_ a: Double, _ b: Double, isRally: Bool? = nil) -> TrackedRally {
+            var t = SourceRegistryTests.rally(done: true, machine: true, isRally: isRally); t.start = a; t.end = b; return t
+        }
+        let tracks = [machine(10, 20), machine(30, 40), machine(70, 80, isRally: false)]
+        XCTAssertEqual(PreTracker.wanted(perVideo: 2, tracks: tracks, cuts: []), 0)
+        XCTAssertEqual(PreTracker.wanted(perVideo: 2, tracks: tracks, cuts: [cut(35, 52)]), 1, "the 30–40 track touches the cut: one place free")
+        XCTAssertEqual(PreTracker.wanted(perVideo: 3, tracks: tracks, cuts: [cut(0, 100)]), 3)
     }
 
     /// A recording cut whole leaves nothing to sample: the ingest ends with an empty session that keeps the cuts
