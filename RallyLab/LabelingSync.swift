@@ -116,12 +116,18 @@ final class LabelingSync {
     /// acceptance) never does: the uploads a lead can see are real footage, and importing one would move it into the
     /// test project's namespace.
     private let importsPhoneUploads: Bool
+    /// Fault injection for the lost-acknowledgement case (guarded acceptance runs only): the first settlement that
+    /// follows a written and read-back record is dropped as if the network had failed after the write. The record is
+    /// on disk, the claim stays submitted, and the next round must acknowledge it without writing again.
+    private let dropFirstSettlement: Bool
+    private var settlementDropped = false
 
     /// `client` and `pendingDirectory` are for tests: a fake server, and a folder of their own for the queued
     /// decisions, so a test never sends or touches the person's. `importsPhoneUploads: false` is the guarded run's.
     init(projects: ProjectsModel, client: any LabelingService = LabelingClient.shared, pendingDirectory: URL = Pending.defaultDirectory,
-         importsPhoneUploads: Bool = true) {
+         importsPhoneUploads: Bool = true, dropFirstSettlement: Bool = false) {
         self.importsPhoneUploads = importsPhoneUploads
+        self.dropFirstSettlement = dropFirstSettlement
         let pending = Pending(directory: pendingDirectory)
         var notes: [String] = []
         self.projects = projects
@@ -1052,6 +1058,10 @@ final class LabelingSync {
                         break
                     }
                     do {
+                        if dropFirstSettlement, !settlementDropped {
+                            settlementDropped = true
+                            throw URLError(.networkConnectionLost)   // the acknowledgement lost after the write (fault injection)
+                        }
                         _ = try await client.settleRecordingTypeClaim(claim.id, status: .accepted, reason: nil, confirmedAt: RecordingTypeClaims.parse(at))
                         accepted += 1
                     } catch LabelingClient.Failure.server(_, let message) where message.hasPrefix("conflict:") {

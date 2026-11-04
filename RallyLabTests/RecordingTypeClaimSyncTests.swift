@@ -231,6 +231,30 @@ final class RecordingTypeClaimSyncTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(try record("C")).sourceFingerprint, origin)
     }
 
+    func testALostAcknowledgementIsRecoveredByTheNextRoundWithoutASecondWrite() async throws {
+        // Fault injection: the settlement after the write is dropped (network lost). The record is on disk, the claim
+        // stays submitted; the next round recognises the record and settles without writing again.
+        let (_, row, origin, _) = try cutProject("C")
+        open("C")
+        let claim = submit("continuous", for: row)
+        let faulty = LabelingSync(projects: projects, client: server, pendingDirectory: base.appendingPathComponent("pending"), dropFirstSettlement: true)
+        let first = await faulty.sync(videos: false)
+        XCTAssertFalse(first, faulty.status)
+        XCTAssertTrue(faulty.status.hasPrefix("Sync stopped"), faulty.status)
+        XCTAssertEqual(settlements().count, 0, "no settlement reached the server")
+        XCTAssertEqual(server.claims[claim.id]?.status, .submitted)
+        let written = try XCTUnwrap(try record("C"))
+        XCTAssertTrue(RecordingTypeClaims.isAttributed(written.recordingTypeBy, to: claim), "the write happened before the ack was lost")
+        let before = try snapshot("C")
+        // The next round (a fresh sync, as a relaunch would be).
+        let second = await sync.sync(videos: false)
+        XCTAssertTrue(second)
+        XCTAssertEqual(settlements().map(\.status), [.accepted])
+        XCTAssertEqual(server.settled.last?.confirmedAt, RecordingTypeClaims.parse(written.recordingTypeAt!))
+        XCTAssertEqual(try snapshot("C"), before, "nothing written again")
+        XCTAssertEqual(try XCTUnwrap(try record("C")).sourceFingerprint, origin)
+    }
+
     func testAnExplicitUnknownIsAcceptedAndEstablishesNothing() async throws {
         let (_, row) = try project("A")
         open("A")
