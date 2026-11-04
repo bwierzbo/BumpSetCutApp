@@ -10,13 +10,13 @@
 //     `RallyLab --status` without `--project` did exactly that, for 27 minutes, on the owner's project).
 //  2. `--project-root <absolute dir>` is guarded mode, for synthetic acceptance and automation only. Everything is
 //     validated here, and refused before a sampler, exporter, project or client exists:
-//     - the only operations are --status, --phone-sign-in <email>, --sign-out, --publish-identities, --sync-phone
-//       [--labels-only], and --create [--add-extras <env> <files…>]; any other flag (--sample, --export-training-data,
-//       --pretrack, …) is refused;
+//     - exactly one primary operation per launch — --status, --phone-sign-in <email>, --sign-out, --publish-identities,
+//       --sync-phone [--labels-only], or --create [--add-extras <env> <files…>] — and any other flag (--sample,
+//       --export-training-data, --pretrack, …) is refused;
 //     - --project is an absolute path under the resolved root (symlinks followed), never itself a symlink, never the
 //       default project location (~/Movies/RallyLab/Projects), never a folder named Scratch; without --create it must
-//       hold project.json, with --create it must not; --add-extras files are absolute, existing regular files under
-//       the root (test-only inputs), and only with --create;
+//       hold project.json, with --create the folder must not exist at all; --add-extras files are absolute, existing
+//       regular files under the root (test-only inputs);
 //     - --defaults-suite is required and must begin with `rallylab.test.`; --pending-dir is required, absolute, no
 //       symlink, resolving under the root. Neither ever falls back to the person's preferences or pending folder;
 //     - the labeling session is kept under its own Keychain service (acceptanceKeychainService), never the app's;
@@ -38,6 +38,8 @@ enum LaunchGuard {
     static let guardedFlags: Set<String> = ["--project", "--project-root", "--defaults-suite", "--pending-dir",
                                             "--create", "--add-extras", "--status", "--phone-sign-in", "--sign-out",
                                             "--publish-identities", "--sync-phone", "--labels-only"]
+    /// A guarded launch does exactly one of these; --add-extras belongs to --create and --labels-only to --sync-phone.
+    static let primaryOperations: Set<String> = ["--create", "--status", "--phone-sign-in", "--sign-out", "--publish-identities", "--sync-phone"]
     static let testSuitePrefix = "rallylab.test."
     /// A guarded project's name — the folder's name and the name project.json declares — begins with this, so the
     /// server namespace it publishes to (withheld list, rows, plan) can only ever be a test namespace.
@@ -110,6 +112,17 @@ enum LaunchGuard {
         if let other = flags.first(where: { !guardedFlags.contains($0) }) {
             return .failure(Refusal(message: "\(other) is not an operation of guarded mode (allowed: \(guardedFlags.sorted().joined(separator: " ")))"))
         }
+        // One primary operation per launch: creation, authentication and synchronisation never share a process.
+        let primaries = Set(flags).intersection(primaryOperations).sorted()
+        guard primaries.count == 1 else {
+            return .failure(Refusal(message: "a guarded launch does exactly one of \(primaryOperations.sorted().joined(separator: ", ")); this one has \(primaries.isEmpty ? "none" : primaries.joined(separator: " "))"))
+        }
+        if flags.contains("--add-extras"), primaries[0] != "--create" {
+            return .failure(Refusal(message: "--add-extras is only part of --create"))
+        }
+        if flags.contains("--labels-only"), primaries[0] != "--sync-phone" {
+            return .failure(Refusal(message: "--labels-only is only part of --sync-phone"))
+        }
         guard let root = value(after: "--project-root", in: arguments) else {
             return .failure(Refusal(message: "--project-root needs a directory"))
         }
@@ -154,8 +167,12 @@ enum LaunchGuard {
         let projectJSON = resolved.appendingPathComponent("project.json")
         let hasProjectJSON = files.exists(projectJSON)
         if create {
+            // The destination must not exist at all: not a project, not an empty folder, not a folder of anything.
             if hasProjectJSON {
                 return .failure(Refusal(message: "\(resolved.path) already holds a project (project.json): --create refuses to touch it"))
+            }
+            if files.exists(resolved) {
+                return .failure(Refusal(message: "\(resolved.path) already exists: --create makes a new folder only, never writes into one that is there"))
             }
             if !files.exists(resolvedRoot) {
                 return .failure(Refusal(message: "--project-root \(resolvedRoot.path) does not exist: --create makes the project, not the root"))
@@ -204,9 +221,6 @@ enum LaunchGuard {
         // Inputs for creation: test-only files under the root.
         var extras: [URL] = []
         if let i = arguments.firstIndex(of: "--add-extras") {
-            guard create else {
-                return .failure(Refusal(message: "--add-extras is only part of --create in guarded mode"))
-            }
             guard arguments.indices.contains(i + 1), extraEnvironments.contains(arguments[i + 1]) else {
                 return .failure(Refusal(message: "--add-extras needs <Indoor|Beach|Grass> <absolute files…>"))
             }

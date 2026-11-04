@@ -79,7 +79,24 @@ final class LaunchGuardTests: XCTestCase {
         XCTAssertNil(refusal(guarded(["--sign-out"])))
         XCTAssertNil(refusal(guarded(["--publish-identities"])))
         XCTAssertNil(refusal(guarded(["--sync-phone", "--labels-only"])))
-        XCTAssertNil(refusal(guarded([])), "opening alone is allowed")
+        XCTAssertNil(refusal(guarded(["--create"], project: "/t/root/Accept-new")))
+        XCTAssertNotNil(refusal(guarded([])), "a launch with no primary operation has no purpose and is refused")
+    }
+
+    func testGuardedModeRunsExactlyOnePrimaryOperation() {
+        XCTAssertNotNil(refusal(guarded(["--create", "--phone-sign-in", "lead@example.com"], project: "/t/root/Accept-new")), "creation + authentication")
+        XCTAssertNotNil(refusal(guarded(["--phone-sign-in", "lead@example.com", "--sync-phone"])), "authentication + synchronisation")
+        XCTAssertNotNil(refusal(guarded(["--create", "--sync-phone"], project: "/t/root/Accept-new")), "creation + synchronisation")
+        XCTAssertNotNil(refusal(guarded(["--status", "--sync-phone"])))
+        XCTAssertNotNil(refusal(guarded(["--sign-out", "--publish-identities"])))
+        XCTAssertNotNil(refusal(guarded(["--publish-identities", "--sync-phone", "--labels-only"])))
+        XCTAssertNotNil(refusal(guarded(["--labels-only"])), "--labels-only is only part of --sync-phone")
+        XCTAssertNotNil(refusal(guarded(["--status", "--labels-only"])))
+        XCTAssertNotNil(refusal(guarded(["--sync-phone", "--add-extras", "Beach", "/t/root/media/A.mov"])), "--add-extras is only part of --create")
+        for op in [["--status"], ["--phone-sign-in", "lead@example.com"], ["--sign-out"], ["--publish-identities"], ["--sync-phone"], ["--sync-phone", "--labels-only"]] {
+            XCTAssertNil(refusal(guarded(op)), op.joined(separator: " "))
+        }
+        XCTAssertNil(refusal(guarded(["--create", "--add-extras", "Beach", "/t/root/media/A.mov"], project: "/t/root/Accept-new")))
     }
 
     func testGuardedModeRefusesOtherRunnersAndOperations() {
@@ -105,31 +122,31 @@ final class LaunchGuardTests: XCTestCase {
     }
 
     func testGuardedModeRequiresAbsolutePathsAndAnExistingProject() {
-        XCTAssertNotNil(refusal(guarded([], project: "Accept-052")), "a bare name is never guarded")
-        XCTAssertNotNil(refusal(guarded([], root: "t/root")))
-        XCTAssertNotNil(refusal(guarded([], project: "/t/root/Accept-other")), "no project.json: nothing is created without --create")
-        XCTAssertNotNil(refusal(guarded([], project: "/t/root")), "the root itself is not a project under it")
+        XCTAssertNotNil(refusal(guarded(["--status"], project: "Accept-052")), "a bare name is never guarded")
+        XCTAssertNotNil(refusal(guarded(["--status"], root: "t/root")))
+        XCTAssertNotNil(refusal(guarded(["--status"], project: "/t/root/Accept-other")), "no project.json: nothing is created without --create")
+        XCTAssertNotNil(refusal(guarded(["--status"], project: "/t/root")), "the root itself is not a project under it")
     }
 
     func testGuardedModeRefusesTheDefaultLocationAndScratchAnywhere() {
         let files = self.files(existing: ["/Users/someone/Movies/RallyLab/Projects/Scratch/project.json", "/Users/someone/Movies/RallyLab/Projects",
                                           "/Users/someone/Movies", "/t/root", "/t/root/Scratch/project.json", "/t/root/Accept-x/project.json"])
-        XCTAssertNotNil(refusal(guarded([], project: "/Users/someone/Movies/RallyLab/Projects/Scratch", root: "/Users/someone/Movies/RallyLab/Projects",
+        XCTAssertNotNil(refusal(guarded(["--status"], project: "/Users/someone/Movies/RallyLab/Projects/Scratch", root: "/Users/someone/Movies/RallyLab/Projects",
                                         iso: ["--defaults-suite", "rallylab.test.x", "--pending-dir", "/Users/someone/Movies/RallyLab/Projects/p"]), files))
-        XCTAssertNotNil(refusal(guarded([], project: "/Users/someone/Movies/RallyLab/Projects/Scratch", root: "/Users/someone/Movies",
+        XCTAssertNotNil(refusal(guarded(["--status"], project: "/Users/someone/Movies/RallyLab/Projects/Scratch", root: "/Users/someone/Movies",
                                         iso: ["--defaults-suite", "rallylab.test.x", "--pending-dir", "/Users/someone/Movies/p"]), files),
                         "a root above the default location is refused too")
-        XCTAssertNotNil(refusal(guarded([], project: "/t/root/Scratch"), files), "a folder named Scratch is refused wherever it is")
-        XCTAssertNil(refusal(guarded([], project: "/t/root/Accept-x"), files))
+        XCTAssertNotNil(refusal(guarded(["--status"], project: "/t/root/Scratch"), files), "a folder named Scratch is refused wherever it is")
+        XCTAssertNil(refusal(guarded(["--status"], project: "/t/root/Accept-x"), files))
     }
 
     func testGuardedModeFollowsSymlinksForContainmentAndRefusesALinkedProject() {
         let files = self.files(existing: ["/t/root", "/elsewhere/Accept-052/project.json", "/t/root/Accept-real/project.json"],
                                symlinks: ["/t/root/alias"],
                                resolved: ["/t/root/link": "/elsewhere/Accept-052"])
-        XCTAssertNotNil(refusal(guarded([], project: "/t/root/link"), files), "resolves outside the root")
-        XCTAssertNotNil(refusal(guarded([], project: "/t/root/alias"), files), "the project path itself is a link")
-        XCTAssertNil(refusal(guarded([], project: "/t/root/Accept-real"), files))
+        XCTAssertNotNil(refusal(guarded(["--status"], project: "/t/root/link"), files), "resolves outside the root")
+        XCTAssertNotNil(refusal(guarded(["--status"], project: "/t/root/alias"), files), "the project path itself is a link")
+        XCTAssertNil(refusal(guarded(["--status"], project: "/t/root/Accept-real"), files))
     }
 
     // MARK: - Guarded mode: the identity the server will see
@@ -147,8 +164,8 @@ final class LaunchGuardTests: XCTestCase {
 
     func testGuardedProjectsMustBeNamedInTheTestNamespace() {
         let prod = files(existing: ["/t/root", "/t/root/Scratch2/project.json", "/t/root/Test1/project.json", "/t/root/Mine/project.json"])
-        XCTAssertNotNil(refusal(guarded([], project: "/t/root/Mine"), prod), "no Accept- prefix")
-        XCTAssertNotNil(refusal(guarded([], project: "/t/root/Test1"), prod), "a production name")
+        XCTAssertNotNil(refusal(guarded(["--status"], project: "/t/root/Mine"), prod), "no Accept- prefix")
+        XCTAssertNotNil(refusal(guarded(["--status"], project: "/t/root/Test1"), prod), "a production name")
         XCTAssertNotNil(refusal(guarded(["--create"], project: "/t/root/Mine-new"), prod), "creation outside the namespace")
         XCTAssertTrue(LaunchGuard.isTestNamespace("Accept-052"))
         XCTAssertFalse(LaunchGuard.isTestNamespace("Scratch"))
@@ -190,6 +207,10 @@ final class LaunchGuardTests: XCTestCase {
         XCTAssertEqual(g.extras.map(\.path), ["/t/root/media/A.mov"])
         XCTAssertNil(refusal(guarded(["--create"], project: "/t/root/Accept-new")), "creation without footage is allowed")
         XCTAssertNotNil(refusal(guarded(["--create"])), "an existing project is never re-created")
+        let occupied = files(existing: ["/t/root", "/t/root/Accept-empty", "/t/root/Accept-full", "/t/root/Accept-full/notes.txt", "/t/root/media/A.mov"], regular: ["/t/root/Accept-full/notes.txt", "/t/root/media/A.mov"])
+        XCTAssertNotNil(refusal(guarded(["--create"], project: "/t/root/Accept-empty"), occupied), "an existing empty folder is not a new folder")
+        XCTAssertNotNil(refusal(guarded(["--create"], project: "/t/root/Accept-full"), occupied), "an existing folder with other files")
+        XCTAssertNil(refusal(guarded(["--create"], project: "/t/root/Accept-absent"), occupied), "a genuinely absent folder")
         XCTAssertNotNil(refusal(guarded(["--create"], project: "/t/missing/Accept-new", root: "/t/missing",
                                         iso: ["--defaults-suite", "rallylab.test.x", "--pending-dir", "/t/missing/p"])), "the root must exist")
         XCTAssertNotNil(refusal(guarded(["--create", "--add-extras", "Beach", "/elsewhere/B.mov"], project: "/t/root/Accept-new")), "an input outside the root")
@@ -229,9 +250,15 @@ final class LaunchGuardTests: XCTestCase {
         XCTAssertEqual(opened.pendingDirectory.path, pending.resolvingSymlinksInPath().standardizedFileURL.path)
         XCTAssertNotNil(LaunchGuard.refusal(for: args(empty, pending, ["--status"]), home: home), "no project.json")
         XCTAssertNotNil(LaunchGuard.refusal(for: args(copied, pending, ["--publish-identities"]), home: home), "project.json declares Scratch")
-        XCTAssertNotNil(LaunchGuard.refusal(for: args(root.appendingPathComponent("link"), pending, []), home: home), "a symlink escaping the root")
-        XCTAssertNotNil(LaunchGuard.refusal(for: args(outside, pending, []), home: home), "outside the root")
-        XCTAssertNotNil(LaunchGuard.refusal(for: args(project, root.appendingPathComponent("plink"), []), home: home), "a pending folder escaping through a link")
+        XCTAssertNotNil(LaunchGuard.refusal(for: args(root.appendingPathComponent("link"), pending, ["--status"]), home: home), "a symlink escaping the root")
+        XCTAssertNotNil(LaunchGuard.refusal(for: args(outside, pending, ["--status"]), home: home), "outside the root")
+        XCTAssertNotNil(LaunchGuard.refusal(for: args(project, root.appendingPathComponent("plink"), ["--status"]), home: home), "a pending folder escaping through a link")
+        XCTAssertNotNil(LaunchGuard.refusal(for: args(empty, pending, ["--create"]), home: home), "an existing empty folder is refused for --create")
+        let populated = root.appendingPathComponent("Accept-populated", isDirectory: true)
+        try FileManager.default.createDirectory(at: populated, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: populated.appendingPathComponent("notes.txt"))
+        XCTAssertNotNil(LaunchGuard.refusal(for: args(populated, pending, ["--create"]), home: home), "an existing populated folder is refused for --create")
+        XCTAssertNotNil(LaunchGuard.refusal(for: args(project, pending, ["--create"]), home: home), "an existing project is refused for --create")
         let created = try LaunchGuard.guarded(arguments: args(root.appendingPathComponent("Accept-new"), pending, ["--create", "--add-extras", "Beach", root.appendingPathComponent("media/A.mov").path]), home: home).get()
         XCTAssertTrue(created.create)
         XCTAssertEqual(created.extras.count, 1)
