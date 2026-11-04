@@ -29,10 +29,11 @@ struct RallyTimesBar: View {
                     ctx.fill(Path(roundedRect: CGRect(x: a / d * w, y: y, width: max(2, (b - a) / d * w), height: h), cornerRadius: h / 2),
                              with: .color(c))
                 }
-                for c in cuts { ctx.fill(Path(CGRect(x: c[0] / d * w, y: 0, width: max(2, (c[1] - c[0]) / d * w), height: size.height)), with: .color(.black.opacity(0.45))) }
+                // Cuts in red: on the phone the former dark band read as nothing (owner, device walkthrough 2026-11-04).
+                for c in cuts { ctx.fill(Path(CGRect(x: c[0] / d * w, y: 0, width: max(2, (c[1] - c[0]) / d * w), height: size.height)), with: .color(.red.opacity(0.4))) }
                 if let pendingCut {
                     ctx.fill(Path(CGRect(x: pendingCut / d * w, y: 0, width: max(2, (max(time, pendingCut) - pendingCut) / d * w), height: size.height)),
-                             with: .color(.black.opacity(0.25)))
+                             with: .color(.red.opacity(0.22)))
                 }
                 ctx.fill(Path(CGRect(x: 0, y: 10, width: w, height: 2)), with: .color(.secondary.opacity(0.3)))
                 for f in found { bar(f[0], f[1], 2, 5, .secondary.opacity(0.5)) }
