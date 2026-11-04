@@ -57,47 +57,47 @@ final class RecordingTypeClaimsTests: XCTestCase {
 
     func testTheMacDeclinesWhatIsWrongWithTheClaimBeforeAnythingIsWritten() {
         let c = claim()
-        XCTAssertEqual(RecordingTypeClaims.decide(claim: c, cardFingerprint: "file:abc", withheld: true, record: .none), .reject("this recording is withheld from labeling on the Mac"))
-        XCTAssertEqual(RecordingTypeClaims.decide(claim: c, cardFingerprint: nil, withheld: false, record: .none), .reject("the recording has no file identity on the Mac"))
-        XCTAssertEqual(RecordingTypeClaims.decide(claim: c, cardFingerprint: "file:new", withheld: false, record: .none),
+        XCTAssertEqual(RecordingTypeClaims.decide(claim: c, publishedFingerprint: "file:abc", withheld: true, record: .none), .reject("this recording is withheld from labeling on the Mac"))
+        XCTAssertEqual(RecordingTypeClaims.decide(claim: c, publishedFingerprint: nil, withheld: false, record: .none), .reject("the recording has no file identity on the Mac"))
+        XCTAssertEqual(RecordingTypeClaims.decide(claim: c, publishedFingerprint: "file:new", withheld: false, record: .none),
                        .reject("the recording's file changed since this was sent — confirm again"))
-        XCTAssertEqual(RecordingTypeClaims.decide(claim: claim("replay"), cardFingerprint: "file:abc", withheld: false, record: .none),
+        XCTAssertEqual(RecordingTypeClaims.decide(claim: claim("replay"), publishedFingerprint: "file:abc", withheld: false, record: .none),
                        .reject("the choice \"replay\" is not one this Mac knows"))
         // Withheld wins over everything else; a stale fingerprint over the record's state.
-        XCTAssertEqual(RecordingTypeClaims.decide(claim: c, cardFingerprint: nil, withheld: true, record: .unreadable("x")), .reject("this recording is withheld from labeling on the Mac"))
+        XCTAssertEqual(RecordingTypeClaims.decide(claim: c, publishedFingerprint: nil, withheld: true, record: .unreadable("x")), .reject("this recording is withheld from labeling on the Mac"))
     }
 
     func testTheMacDefersWhatIsWrongOnTheMacAndAcceptsTheRest() {
         let c = claim()
-        XCTAssertEqual(RecordingTypeClaims.decide(claim: c, cardFingerprint: "file:abc", withheld: false, record: .unreadable("not json")),
+        XCTAssertEqual(RecordingTypeClaims.decide(claim: c, publishedFingerprint: "file:abc", withheld: false, record: .unreadable("not json")),
                        .defer("the recording's footage record can't be read on the Mac: not json"))
-        XCTAssertEqual(RecordingTypeClaims.decide(claim: c, cardFingerprint: "file:abc", withheld: false, record: .none), .accept)
+        XCTAssertEqual(RecordingTypeClaims.decide(claim: c, publishedFingerprint: "file:abc", withheld: false, record: .none), .accept)
         // A record older than the claim: the claim is the newer human decision.
-        XCTAssertEqual(RecordingTypeClaims.decide(claim: c, cardFingerprint: "file:abc", withheld: false,
+        XCTAssertEqual(RecordingTypeClaims.decide(claim: c, publishedFingerprint: "file:abc", withheld: false,
                                                   record: .record(type: "edited", by: "BW", at: "2026-11-04T09:00:00Z")), .accept)
         // An explicit "unknown" is a decision too, newer than the record: accepted.
-        XCTAssertEqual(RecordingTypeClaims.decide(claim: claim("unknown"), cardFingerprint: "file:abc", withheld: false,
+        XCTAssertEqual(RecordingTypeClaims.decide(claim: claim("unknown"), publishedFingerprint: "file:abc", withheld: false,
                                                   record: .record(type: "continuous", by: "BW", at: "2026-11-04T09:00:00Z")), .accept)
         // A record with no time (an older writer) does not outrank the claim.
-        XCTAssertEqual(RecordingTypeClaims.decide(claim: c, cardFingerprint: "file:abc", withheld: false, record: .record(type: "edited", by: nil, at: nil)), .accept)
+        XCTAssertEqual(RecordingTypeClaims.decide(claim: c, publishedFingerprint: "file:abc", withheld: false, record: .record(type: "edited", by: nil, at: nil)), .accept)
     }
 
     func testANewerDecisionOnTheMacWinsAndTheClaimAlreadyOnFileIsAcknowledgedWithoutASecondWrite() {
         let c = claim()
         // Confirmed on the Mac after the claim was sent: the claim is stale — declined, the Mac's type named.
-        XCTAssertEqual(RecordingTypeClaims.decide(claim: c, cardFingerprint: "file:abc", withheld: false,
+        XCTAssertEqual(RecordingTypeClaims.decide(claim: c, publishedFingerprint: "file:abc", withheld: false,
                                                   record: .record(type: "edited", by: "BW", at: "2026-11-04T10:00:01Z")),
                        .reject("confirmed on the Mac as edited recording after this was sent — confirm again if that is wrong"))
-        XCTAssertEqual(RecordingTypeClaims.decide(claim: c, cardFingerprint: "file:abc", withheld: false,
+        XCTAssertEqual(RecordingTypeClaims.decide(claim: c, publishedFingerprint: "file:abc", withheld: false,
                                                   record: .record(type: "unknown", by: "BW", at: "2026-11-04T10:00:00.500Z")),
                        .reject("confirmed on the Mac as unknown after this was sent — confirm again if that is wrong"), "fractional seconds read too")
         // The record carries this very claim (its acknowledgement was lost): acknowledged, nothing written again.
         let by = RecordingTypeClaims.attribution(of: c)
         XCTAssertTrue(by.hasSuffix("claim \(c.id.uuidString.lowercased())")); XCTAssertTrue(by.hasPrefix("labeler "))
-        XCTAssertEqual(RecordingTypeClaims.decide(claim: c, cardFingerprint: "file:abc", withheld: false,
+        XCTAssertEqual(RecordingTypeClaims.decide(claim: c, publishedFingerprint: "file:abc", withheld: false,
                                                   record: .record(type: "continuous", by: by, at: "2026-11-04T10:00:00Z")), .alreadyApplied)
         // The same claim id but another type on file (someone changed it on the Mac since): the Mac's later decision wins.
-        XCTAssertEqual(RecordingTypeClaims.decide(claim: c, cardFingerprint: "file:abc", withheld: false,
+        XCTAssertEqual(RecordingTypeClaims.decide(claim: c, publishedFingerprint: "file:abc", withheld: false,
                                                   record: .record(type: "edited", by: "BW", at: "2026-11-04T11:00:00Z")),
                        .reject("confirmed on the Mac as edited recording after this was sent — confirm again if that is wrong"))
         // Another claim's attribution is not this one's.

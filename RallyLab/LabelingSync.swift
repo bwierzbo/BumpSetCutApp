@@ -998,11 +998,18 @@ final class LabelingSync {
                 }
                 let name = DatasetStore.safeName(claim.sessionName)
                 try projects.require(opening)
-                guard try projects.session(named: name, in: opening) != nil else {
+                guard let session = try projects.session(named: name, in: opening) else {
                     _ = try await client.settleRecordingTypeClaim(claim.id, status: .rejected, reason: "the recording is not in the project on the Mac", confirmedAt: nil)
                     rejected += 1
                     break
                 }
+                // The identity the claim is judged against is the one the phone was given: the published fingerprint of
+                // the session's file (what publishVideos/publishIdentities send as label_videos.source_fingerprint). The
+                // card's fingerprint is the origin's — a cut clip's differs — and binds the record, not the claim
+                // (found by the synthetic acceptance of 2026-11-04: every claim on cut footage was "file changed").
+                let sourcePath = session.sourcePath
+                let published = await Task.detached(priority: .utility) { ProjectsModel.fileFingerprint(atPath: sourcePath) }.value
+                try projects.require(opening)
                 let card = FootageTypeConfirmation.sourceFingerprint(of: name, in: projects.project)
                 // The record as it is now — read here, after every await of the round so far (a settlement of another
                 // recording's claim suspends; a confirmation on this Mac may have landed meanwhile), and nothing suspends
@@ -1011,7 +1018,7 @@ final class LabelingSync {
                 var onFile: FootageProperties.File?
                 do { onFile = try store.load(name); state = onFile.map { .record(type: $0.recordingType.rawValue, by: $0.recordingTypeBy, at: $0.recordingTypeAt) } ?? .none }
                 catch { state = .unreadable(error.localizedDescription) }
-                switch RecordingTypeClaims.decide(claim: claim, cardFingerprint: card, withheld: withheld.contains(name), record: state) {
+                switch RecordingTypeClaims.decide(claim: claim, publishedFingerprint: published, withheld: withheld.contains(name), record: state) {
                 case .reject(let why):
                     _ = try await client.settleRecordingTypeClaim(claim.id, status: .rejected, reason: why, confirmedAt: nil)
                     rejected += 1

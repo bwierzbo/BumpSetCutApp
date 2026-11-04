@@ -78,6 +78,41 @@ final class RecordingTypeClaimSyncTests: XCTestCase {
 
     private func fingerprint(_ name: String) -> String { ProjectsModel.readFileFingerprint(atPath: base.appendingPathComponent("\(name)/footage/video_01.mp4").path)! }
 
+    /// A project as RallyLab makes one from a recording: the card carries the ORIGIN file's fingerprint (addVideo
+    /// fingerprints the source), the session is over the CUT clip (other bytes), and the server row was published with
+    /// the cut clip's fingerprint (publishVideos/publishIdentities fingerprint the session's file) — the identity the
+    /// phone copies into its claim. Found by the synthetic acceptance of 2026-11-04.
+    @discardableResult
+    private func cutProject(_ name: String) throws -> (root: URL, row: LabelVideo, origin: String, cut: String) {
+        let root = base.appendingPathComponent(name, isDirectory: true)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("footage"), withIntermediateDirectories: true)
+        let store = DatasetStore(root: root)
+        try store.prepare()
+        let origin = root.appendingPathComponent("footage/origin_01.mov")
+        try Data("\(name): the original recording, long".utf8).write(to: origin)
+        let cut = root.appendingPathComponent("footage/video_01.mp4")
+        try Data("\(name): the cut clip".utf8).write(to: cut)
+        var session = VideoSession(name: "video_01", sourcePath: cut.path, split: "train", addedAt: now, frames: [])
+        session.ralliesMarked = true
+        try store.save(session)
+        let originFingerprint = ProjectsModel.readFileFingerprint(atPath: origin.path)!
+        let cutFingerprint = ProjectsModel.readFileFingerprint(atPath: cut.path)!
+        XCTAssertNotEqual(originFingerprint, cutFingerprint)
+        var source = SourceRegistryTests.video("video_01", fingerprint: originFingerprint)
+        source.origin = origin.path
+        source.clipFile = cut.path
+        let clips = [SourceRegistryTests.clip("card_0", number: 1, videos: [source])]
+        try JSONEncoder().encode([RallyMarkRecord(startTime: 30, endTime: 36, kind: .rally, contacts: nil)]).write(to: RallyMarkModel.labelsURL(for: cut), options: .atomic)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(Project(name: name, createdAt: now, framesPerRally: 2, clips: clips)).write(to: root.appendingPathComponent("project.json"))
+        let row = LabelVideo(id: UUID(), project: name, sessionName: "video_01", title: "", surface: .beach, camera: .endlineGround, lighting: "",
+                             split: "train", clipPath: "rallylab/\(name)/video_01-v3.mp4", duration: 300, ralliesFound: [], status: .rallylab, updatedAt: now,
+                             frameTimesDigest: nil, sourceFingerprint: cutFingerprint)
+        server.videos.append(row)
+        return (root, row, originFingerprint, cutFingerprint)
+    }
+
     @discardableResult
     private func submit(_ kind: String, for row: LabelVideo, fingerprint: String? = nil, revision: Int = 1, at: Date? = nil) -> RecordingTypeClaim {
         let claim = RecordingTypeClaim(id: UUID(), videoId: row.id, project: row.project!, sessionName: row.sessionName!,
@@ -141,6 +176,36 @@ final class RecordingTypeClaimSyncTests: XCTestCase {
         // Eligibility follows the written record, and only it: continuous → standard, ordinary negatives allowed.
         let assessed = TrainingEligibility.assess(admission: .admitted, properties: written)
         XCTAssertEqual(assessed[.rallyClassifier].level, .standard); XCTAssertEqual(assessed.fullVideoNegatives.level, .standard)
+    }
+
+    func testAClaimOnCutFootageIsJudgedAgainstThePublishedClipIdentityAndTheRecordIsBoundToTheCard() async throws {
+        // The phone's claim carries the fingerprint the Mac published (the cut clip's); the card's is the origin's.
+        let (_, row, origin, cut) = try cutProject("C")
+        open("C")
+        let claim = submit("continuous", for: row)
+        XCTAssertEqual(claim.sourceFingerprint, cut)
+        let awaited = await sync.sync(videos: false)
+        XCTAssertTrue(awaited)
+        XCTAssertEqual(settlements().map(\.status), [.accepted], "\(settlements())")
+        let written = try XCTUnwrap(try record("C"))
+        XCTAssertEqual(written.recordingType, .continuous)
+        XCTAssertTrue(RecordingTypeClaims.isAttributed(written.recordingTypeBy, to: claim))
+        XCTAssertEqual(written.sourceFingerprint, origin, "the record stays bound to the card's file, as the Mac's own confirmation binds it")
+        XCTAssertEqual(server.videos.first?.recordingType, "continuous")
+    }
+
+    func testAClaimAboutAReplacedClipIsDeclinedAsFileChanged() async throws {
+        // The cut clip's bytes change after the claim was made: the published identity the claim names is gone.
+        let (root, row, _, cut) = try cutProject("C")
+        open("C")
+        let claim = submit("edited", for: row)
+        XCTAssertEqual(claim.sourceFingerprint, cut)
+        try Data("C: the cut clip, re-encoded afterwards".utf8).write(to: root.appendingPathComponent("footage/video_01.mp4"))
+        let awaited = await sync.sync(videos: false)
+        XCTAssertTrue(awaited)
+        XCTAssertEqual(settlements().map(\.status), [.rejected])
+        XCTAssertTrue(settlements().first?.reason?.contains("file changed") == true, settlements().first?.reason ?? "")
+        XCTAssertNil(try record("C"), "nothing written")
     }
 
     func testAnExplicitUnknownIsAcceptedAndEstablishesNothing() async throws {
