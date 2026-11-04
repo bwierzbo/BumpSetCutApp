@@ -73,7 +73,7 @@ enum LaunchGuard {
             exists: { FileManager.default.fileExists(atPath: $0.path) },
             isSymlink: { (try? FileManager.default.destinationOfSymbolicLink(atPath: $0.path)) != nil },
             isRegularFile: { (try? FileManager.default.attributesOfItem(atPath: $0.path)[.type] as? FileAttributeType) == .typeRegular },
-            resolve: { $0.resolvingSymlinksInPath().standardizedFileURL },
+            resolve: { canonical($0) },
             projectName: { url in
                 struct Named: Decodable { let name: String }
                 return (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(Named.self, from: $0) }?.name
@@ -250,13 +250,41 @@ enum LaunchGuard {
 
     /// The same folder, symlinks followed on both sides.
     static func isSameFolder(_ a: URL, _ b: URL) -> Bool {
-        a.resolvingSymlinksInPath().standardizedFileURL.path == b.resolvingSymlinksInPath().standardizedFileURL.path
+        canonical(a).path == canonical(b).path
     }
 
-    private static func isSame(_ a: URL, as b: URL) -> Bool { a.standardizedFileURL.path == b.standardizedFileURL.path }
+    /// The canonical form of a path that may not exist yet: its longest existing ancestor through realpath(3), then the
+    /// remaining components as given. Foundation's `resolvingSymlinksInPath` drops the `/private` prefix of an existing
+    /// `/private/tmp/…` but leaves an absent `/private/tmp/…/new` as it is, so a root and a destination under it could
+    /// come out on different spellings and fail containment (seen on 2026-11-04, the first guarded --create).
+    static func canonical(_ url: URL) -> URL {
+        // Dots handled by hand: Foundation's standardizing calls also strip `/private` from paths that exist.
+        var components: [String] = []
+        for part in url.path.split(separator: "/", omittingEmptySubsequences: true) {
+            switch part {
+            case ".": continue
+            case "..": _ = components.popLast()
+            default: components.append(String(part))
+            }
+        }
+        var existingCount = components.count
+        while existingCount > 0, !FileManager.default.fileExists(atPath: "/" + components.prefix(existingCount).joined(separator: "/")) {
+            existingCount -= 1
+        }
+        let existingPath = "/" + components.prefix(existingCount).joined(separator: "/")
+        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+        let base = realpath(existingPath, &buffer).map { String(cString: $0) } ?? existingPath
+        let rest = components.dropFirst(existingCount)
+        let path = rest.isEmpty ? base : (base == "/" ? "" : base) + "/" + rest.joined(separator: "/")
+        return URL(fileURLWithPath: path, isDirectory: true)
+    }
+
+    // Paths here are already canonical (Files.resolve): compared as given — Foundation's standardising calls would
+    // strip `/private` from the one that exists and not from the one that doesn't.
+    private static func isSame(_ a: URL, as b: URL) -> Bool { a.path == b.path }
 
     private static func isInside(_ dir: URL, of root: URL) -> Bool {
-        let d = dir.standardizedFileURL.pathComponents, r = root.standardizedFileURL.pathComponents
+        let d = dir.pathComponents, r = root.pathComponents
         return d.count > r.count && Array(d.prefix(r.count)) == r
     }
 

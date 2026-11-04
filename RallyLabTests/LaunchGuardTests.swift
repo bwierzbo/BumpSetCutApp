@@ -246,8 +246,8 @@ final class LaunchGuardTests: XCTestCase {
         let pending = root.appendingPathComponent("pending")
 
         let opened = try LaunchGuard.guarded(arguments: args(project, pending, ["--status"]), home: home).get()
-        XCTAssertEqual(opened.project.path, project.resolvingSymlinksInPath().standardizedFileURL.path)
-        XCTAssertEqual(opened.pendingDirectory.path, pending.resolvingSymlinksInPath().standardizedFileURL.path)
+        XCTAssertEqual(opened.project.path, LaunchGuard.canonical(project).path)
+        XCTAssertEqual(opened.pendingDirectory.path, LaunchGuard.canonical(pending).path)
         XCTAssertNotNil(LaunchGuard.refusal(for: args(empty, pending, ["--status"]), home: home), "no project.json")
         XCTAssertNotNil(LaunchGuard.refusal(for: args(copied, pending, ["--publish-identities"]), home: home), "project.json declares Scratch")
         XCTAssertNotNil(LaunchGuard.refusal(for: args(root.appendingPathComponent("link"), pending, ["--status"]), home: home), "a symlink escaping the root")
@@ -263,6 +263,33 @@ final class LaunchGuardTests: XCTestCase {
         XCTAssertTrue(created.create)
         XCTAssertEqual(created.extras.count, 1)
         XCTAssertNotNil(LaunchGuard.refusal(for: args(root.appendingPathComponent("Accept-new"), pending, ["--create", "--add-extras", "Beach", outside.appendingPathComponent("project.json").path]), home: home), "an input outside the root")
+    }
+
+    func testCanonicalPathsKeepThePrivatePrefixForExistingAndAbsentPathsAlike() throws {
+        // /tmp is a symlink to /private/tmp on macOS. An existing folder and an absent child must canonicalise to the same
+        // spelling, or a guarded --create under /private/tmp/… is refused as "outside the root" (2026-11-04).
+        let name = "launch-guard-canon-\(UUID().uuidString)"
+        let viaTmp = URL(fileURLWithPath: "/tmp/\(name)", isDirectory: true)
+        try FileManager.default.createDirectory(at: viaTmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: viaTmp) }
+        let viaPrivate = URL(fileURLWithPath: "/private/tmp/\(name)", isDirectory: true)
+        XCTAssertEqual(LaunchGuard.canonical(viaTmp).path, "/private/tmp/\(name)")
+        XCTAssertEqual(LaunchGuard.canonical(viaPrivate).path, "/private/tmp/\(name)")
+        XCTAssertEqual(LaunchGuard.canonical(viaTmp.appendingPathComponent("absent/child")).path, "/private/tmp/\(name)/absent/child")
+        XCTAssertEqual(LaunchGuard.canonical(viaPrivate.appendingPathComponent("absent")).path, "/private/tmp/\(name)/absent")
+        XCTAssertTrue(LaunchGuard.isSameFolder(viaTmp, viaPrivate))
+        // The guarded create that was refused: root given as /private/tmp/…, destination absent under it.
+        let args = ["RallyLab", "--project", viaPrivate.appendingPathComponent("Projects/Accept-new").path, "--project-root", viaPrivate.path,
+                    "--defaults-suite", "rallylab.test.canon", "--pending-dir", viaPrivate.appendingPathComponent("pending").path, "--create"]
+        try FileManager.default.createDirectory(at: viaPrivate.appendingPathComponent("Projects"), withIntermediateDirectories: true)
+        let g = try LaunchGuard.guarded(arguments: args, home: home).get()
+        XCTAssertEqual(g.project.path, "/private/tmp/\(name)/Projects/Accept-new")
+        XCTAssertEqual(g.root.path, "/private/tmp/\(name)")
+        XCTAssertEqual(g.pendingDirectory.path, "/private/tmp/\(name)/pending")
+        // And with the root spelled /tmp/… and the project /private/tmp/…: still the same root.
+        let mixed = ["RallyLab", "--project", viaPrivate.appendingPathComponent("Projects/Accept-new").path, "--project-root", viaTmp.path,
+                     "--defaults-suite", "rallylab.test.canon", "--pending-dir", viaTmp.appendingPathComponent("pending").path, "--create"]
+        XCTAssertNil(LaunchGuard.refusal(for: mixed, home: home))
     }
 
     func testIsSameFolderFollowsSymlinksOnBothSides() throws {
