@@ -217,6 +217,23 @@ final class FootageTypeConfirmationTests: XCTestCase {
         XCTAssertEqual(try snapshot("A"), before, "nothing written over it")
     }
 
+    func testARecordNamingAnotherRecordingIsRefusedAndNothingIsWrittenToEitherPath() throws {
+        let root = try project("A")
+        let opening = open("A")
+        // footage-properties/video_01.json holds a decodable record that names video_02 (no fingerprint).
+        try FileManager.default.createDirectory(at: FootageProperties.directory(in: root), withIntermediateDirectories: true)
+        let stray = FootageProperties.File(video: "video_02", sourceFingerprint: nil, recordingType: .edited, spans: [], updatedAt: at)
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        try encoder.encode(stray).write(to: recordURL("A"))
+        let before = try snapshot("A")
+        XCTAssertThrowsError(try FootageProperties.Store(root: root).load("video_01"))
+        let f = FootageTypeConfirmation.facts(recording("A"), sourceFingerprint: fingerprint("A"), in: root)
+        XCTAssertNotNil(f.recordProblem); XCTAssertNil(f.record); XCTAssertEqual(f.recordingType, .unknown)
+        XCTAssertThrowsError(try FootageTypeConfirmation.confirm(.continuous, video: "video_01", under: opening, projects: projects, by: "BW", at: at))
+        XCTAssertEqual(try snapshot("A"), before, "neither video_01.json nor a new video_02.json")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: FootageProperties.url(in: root, video: "video_02").path))
+    }
+
     func testARecordOfAnotherFileIsNotCarriedIntoTheConfirmation() throws {
         let root = try project("A")
         let opening = open("A")

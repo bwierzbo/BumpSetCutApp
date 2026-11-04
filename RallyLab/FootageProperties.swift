@@ -176,7 +176,14 @@ enum FootageProperties {
             guard FileManager.default.fileExists(atPath: url.path) else { return nil }
             let data: Data
             do { data = try Data(contentsOf: url) } catch { throw Failure.unreadable(url, error.localizedDescription) }
-            do { return try JSONDecoder().decode(File.self, from: data) } catch let f as Failure { throw f } catch { throw Failure.unreadable(url, error.localizedDescription) }
+            let file: File
+            do { file = try JSONDecoder().decode(File.self, from: data) } catch let f as Failure { throw f } catch { throw Failure.unreadable(url, error.localizedDescription) }
+            // A record that names another recording is not this one's (the same check as loadAll): refused, so
+            // nothing read from it is kept and nothing written over it lands on the other recording's path.
+            guard DatasetStore.safeName(file.video) == DatasetStore.safeName(video) else {
+                throw Failure.unreadable(url, "the record names \(file.video), not \(video)")
+            }
+            return file
         }
 
         /// Every record by video; a record that can't be read is returned by name in `unreadable` with its reason,
