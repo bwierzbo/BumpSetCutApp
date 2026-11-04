@@ -66,7 +66,8 @@ enum RecordingTypeClaims {
         }
     }
 
-    /// A choice made on this phone, kept in its durable outbox until the server has it.
+    /// A choice made on this phone, kept in its durable outbox until the server has it — or, refused by the server
+    /// for what it is (withheld, identity, input), kept there with the refusal, shown and never sent again as it is.
     struct Pending: Codable, Equatable {
         /// Minted here: the claim's id on the server too (an upload repeated after a lost reply is the same claim).
         var id: UUID
@@ -74,6 +75,35 @@ enum RecordingTypeClaims {
         var sourceFingerprint: String
         var kind: Kind
         var madeAt: Date
+        /// The server's reason the claim itself was refused: permanent for this claim (a new choice is a new claim);
+        /// nil while it is still to be sent. Part of the durable outbox, so a restart does not send it again.
+        var refusal: String? = nil
+
+        init(id: UUID, videoId: UUID, sourceFingerprint: String, kind: Kind, madeAt: Date, refusal: String? = nil) {
+            self.id = id; self.videoId = videoId; self.sourceFingerprint = sourceFingerprint; self.kind = kind; self.madeAt = madeAt; self.refusal = refusal
+        }
+    }
+
+    /// The choices to send, oldest first: the ones not refused. A transient failure (offline) leaves a choice here
+    /// without a refusal, so it is sent next time; a refusal keeps it out until a new choice replaces it.
+    static func toSend(_ outbox: [UUID: Pending]) -> [Pending] {
+        outbox.values.filter { $0.refusal == nil }.sorted { $0.madeAt < $1.madeAt }
+    }
+
+    /// The outbox with a new choice for its recording in place of every earlier one for that recording — refused
+    /// or still to be sent — under a fresh id (a corrected choice is a new claim, never a retry of the refused one).
+    static func replacing(_ outbox: [UUID: Pending], with new: Pending) -> [UUID: Pending] {
+        var out = outbox.filter { $0.value.videoId != new.videoId }
+        out[new.id] = new
+        return out
+    }
+
+    /// What the recording is said to be: not yet reviewed (no confirmation by anyone), reviewed and found unknown
+    /// (a person confirmed the type could not be established — `recordingType` unknown with who and when), or the
+    /// confirmed type. The policy is the same for both unknowns (not assessed); the words are not.
+    static func reviewed(kind: Kind?, at: Date?) -> String {
+        guard let kind, at != nil else { return "not yet reviewed" }
+        return kind == .unknown ? "reviewed — unknown" : kind.title.lowercased()
     }
 
     /// What the phone shows for a recording: the newest choice and where it stands.
@@ -101,12 +131,12 @@ enum RecordingTypeClaims {
             switch self { case .pending, .submitted: return true; default: return false }
         }
 
-        /// The state in plain words, for the phone. `problem`: why a pending choice could not be sent, if it couldn't.
-        func statusText(problem: String? = nil) -> String {
+        /// The state in plain words, for the phone. A refused choice says why and that a new choice is the way on.
+        func statusText() -> String {
             switch self {
             case .none: return "No choice sent from this phone yet."
             case .pending(let p):
-                if let problem { return "\(p.kind.title): couldn't be sent — \(problem). Choose again to try afresh." }
+                if let refusal = p.refusal { return "\(p.kind.title): couldn't be sent — \(refusal). Choose again to try afresh." }
                 return "\(p.kind.title): saved on this phone, sends when online."
             case .submitted(let c): return "\(c.kind?.title ?? c.recordingType): sent — waiting for the Mac to confirm."
             case .accepted(let c): return "\(c.kind?.title ?? c.recordingType): accepted on the Mac" + (c.settledAt.map { " \(Self.day($0))" } ?? "") + "."

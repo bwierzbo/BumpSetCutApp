@@ -276,24 +276,17 @@ final class LabelerModel: ReviewStore {
 
     // MARK: - Footage-type claims (D-033)
 
-    /// Why a choice still on this phone could not be sent (the server refused the claim itself: withheld, identity,
-    /// input), by claim id. Kept with the choice, shown, and not sent again as it is — a new choice replaces it.
-    private(set) var claimProblems: [UUID: String] = [:]
-
     /// The person's choice of the recording's type: a claim, saved on this phone first (durable) and sent when
-    /// online. Nothing on the phone is the type itself. Returns why it cannot be made, if it cannot.
+    /// online. Nothing on the phone is the type itself. A newer choice replaces one still on this phone — refused
+    /// or not yet sent — under a fresh id (the server does the same with one it holds). Returns why it cannot be
+    /// made, if it cannot.
     func claimRecordingType(_ kind: RecordingTypeClaims.Kind, for video: LabelVideo) -> String? {
         guard let fingerprint = video.sourceFingerprint, !fingerprint.isEmpty else {
             return "The Mac hasn't published this recording's identity yet — sync from the Mac first."
         }
         guard isReviewable(video) else { return "This recording isn't open to labeling on this phone." }
-        // A newer choice replaces one still on this phone (the server does the same with one it holds).
-        for (id, p) in outbox.claims where p.videoId == video.id {
-            outbox.claims[id] = nil
-            claimProblems[id] = nil
-        }
         let pending = RecordingTypeClaims.Pending(id: UUID(), videoId: video.id, sourceFingerprint: fingerprint, kind: kind, madeAt: Date())
-        outbox.claims[pending.id] = pending
+        outbox.claims = RecordingTypeClaims.replacing(outbox.claims, with: pending)
         queueFlush()
         return nil
     }
@@ -303,11 +296,6 @@ final class LabelerModel: ReviewStore {
         RecordingTypeClaims.display(video: video.id, pending: outbox.claims, rows: snapshot.claims)
     }
 
-    /// Why the choice shown for the recording could not be sent, if it is still on this phone for that reason.
-    func claimProblem(for video: LabelVideo) -> String? {
-        outbox.claims.values.first { $0.videoId == video.id }.flatMap { claimProblems[$0.id] }
-    }
-
     /// Server rows into the snapshot: by id; a row for a choice still in the outbox means the server has it
     /// (a reply lost on the way back), so the pending copy goes.
     private func take(_ claims: [RecordingTypeClaim]) {
@@ -315,7 +303,7 @@ final class LabelerModel: ReviewStore {
         for row in claims {
             snapshot.claims.removeAll { $0.id == row.id }
             snapshot.claims.append(row)
-            if outbox.claims[row.id] != nil { outbox.claims[row.id] = nil; claimProblems[row.id] = nil }
+            if outbox.claims[row.id] != nil { outbox.claims[row.id] = nil }
         }
         LocalStore.save(outbox, "outbox.json")
         LocalStore.save(snapshot, "snapshot.json")
@@ -748,16 +736,17 @@ final class LabelerModel: ReviewStore {
                 syncProblem = message
             } catch { isOffline = true; break }
         }
-        // Footage-type choices, oldest first: once the server has one, its copy here goes; a refusal of the claim
-        // itself keeps it here with the reason, not sent again as it is (a new choice replaces it).
-        for pending in outbox.claims.values.sorted(by: { $0.madeAt < $1.madeAt }) where claimProblems[pending.id] == nil {
+        // Footage-type choices, oldest first, the refused ones left out: once the server has one, its copy here goes;
+        // a refusal of the claim itself is written on the durable choice (shown, and never sent again as it is — a
+        // new choice replaces it under a fresh id); a transient failure leaves the choice to be sent next time.
+        for pending in RecordingTypeClaims.toSend(outbox.claims) {
             do {
                 let row = try await client.submitRecordingTypeClaim(pending)
                 outbox.claims[pending.id] = nil
                 snapshot.claims.removeAll { $0.id == row.id }
                 snapshot.claims.append(row)
             } catch LabelingClient.Failure.server(_, let message) where RecordingTypeClaims.isRefusal(message) {
-                claimProblems[pending.id] = message
+                outbox.claims[pending.id]?.refusal = message
                 syncProblem = message
             } catch { isOffline = true; break }
         }

@@ -95,7 +95,7 @@ struct VideoDetailView: View {
 
     /// The footage-type entry with what the Mac has and where this phone's choice stands.
     private var footageTypeTitle: String {
-        let published = video.recordingType.flatMap(RecordingTypeClaims.Kind.init(rawValue:))?.title.lowercased() ?? "not confirmed yet"
+        let published = RecordingTypeClaims.reviewed(kind: video.recordingType.flatMap(RecordingTypeClaims.Kind.init(rawValue:)), at: video.recordingTypeAt)
         switch model.footageType(for: video) {
         case .none: return "Footage type · \(published)"
         case .pending: return "Footage type · \(published) · your choice is waiting to send"

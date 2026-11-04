@@ -44,7 +44,8 @@ final class RecordingTypeClaimsTests: XCTestCase {
         // The words: a sent choice is never "accepted"; a refusal names the reason; a pending one that couldn't be sent says so.
         XCTAssertEqual(RecordingTypeClaims.Display.submitted(waiting).statusText(), "Continuous recording: sent — waiting for the Mac to confirm.")
         XCTAssertEqual(RecordingTypeClaims.Display.pending(pending).statusText(), "Edited recording: saved on this phone, sends when online.")
-        XCTAssertEqual(RecordingTypeClaims.Display.pending(pending).statusText(problem: "withheld: video_01 is not open to labeling"),
+        var refused = pending; refused.refusal = "withheld: video_01 is not open to labeling"
+        XCTAssertEqual(RecordingTypeClaims.Display.pending(refused).statusText(),
                        "Edited recording: couldn't be sent — withheld: video_01 is not open to labeling. Choose again to try afresh.")
         XCTAssertEqual(RecordingTypeClaims.Display.rejected(rejected, reason: rejected.reason!).statusText(),
                        "Unknown: not accepted — the recording's file changed since this was sent — confirm again. You can choose again.")
@@ -127,6 +128,65 @@ final class RecordingTypeClaimsTests: XCTestCase {
         XCTAssertFalse(RecordingTypeClaims.isRefusal("conflict: claim … is already accepted"))
         XCTAssertFalse(RecordingTypeClaims.isRefusal("The network connection was lost."))
         XCTAssertEqual(RecordingTypeClaims.parse("2026-11-04T10:00:00Z"), t0); XCTAssertEqual(RecordingTypeClaims.parse("2026-11-04T10:00:00.250Z"), t0.addingTimeInterval(0.25))
+    }
+
+    /// A refusal is written on the durable choice and survives a restart (the outbox file read back); a refused choice
+    /// is never sent again as it is, an offline one is; a corrected choice replaces every earlier one for the recording
+    /// under a fresh id. Owner review of #142, finding 2.
+    func testARefusedChoiceStaysOutOfTheSendListAcrossARestartUntilANewChoiceReplacesIt() throws {
+        let v = UUID()
+        let refused = RecordingTypeClaims.Pending(id: UUID(), videoId: v, sourceFingerprint: "file:abc", kind: .edited, madeAt: t0,
+                                                   refusal: "withheld: video_01 is not open to labeling")
+        let offline = RecordingTypeClaims.Pending(id: UUID(), videoId: UUID(), sourceFingerprint: "file:def", kind: .continuous, madeAt: t0.addingTimeInterval(1))
+        let older = RecordingTypeClaims.Pending(id: UUID(), videoId: offline.videoId, sourceFingerprint: "file:def", kind: .unknown, madeAt: t0.addingTimeInterval(-1))
+        let outbox = [refused.id: refused, offline.id: offline, older.id: older]
+        // The send list: the refused one left out; the others oldest first (a transient failure keeps them eligible).
+        XCTAssertEqual(RecordingTypeClaims.toSend(outbox).map(\.id), [older.id, offline.id])
+        // A restart: the outbox read back from its file keeps the refusal, and the send list is the same.
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let restored = try decoder.decode([UUID: RecordingTypeClaims.Pending].self, from: try encoder.encode(outbox))
+        XCTAssertEqual(restored, outbox)
+        XCTAssertEqual(restored[refused.id]?.refusal, "withheld: video_01 is not open to labeling")
+        XCTAssertEqual(RecordingTypeClaims.toSend(restored).map(\.id), [older.id, offline.id])
+        // A choice saved by a build before refusals existed reads back with none (sent as before).
+        let legacy = try decoder.decode(RecordingTypeClaims.Pending.self, from: Data("""
+        {"id":"\(refused.id.uuidString)","videoId":"\(v.uuidString)","sourceFingerprint":"file:abc","kind":"edited","madeAt":"2026-11-04T10:00:00Z"}
+        """.utf8))
+        XCTAssertNil(legacy.refusal); XCTAssertEqual(RecordingTypeClaims.toSend([legacy.id: legacy]).count, 1)
+        // A corrected choice: a new claim under a fresh id replaces the refused one for its recording; other recordings' choices stay.
+        let corrected = RecordingTypeClaims.Pending(id: UUID(), videoId: v, sourceFingerprint: "file:abc", kind: .continuous, madeAt: t0.addingTimeInterval(5))
+        let replaced = RecordingTypeClaims.replacing(restored, with: corrected)
+        XCTAssertNil(replaced[refused.id]); XCTAssertEqual(replaced[corrected.id], corrected)
+        XCTAssertEqual(Set(replaced.keys), [corrected.id, offline.id, older.id])
+        XCTAssertNotEqual(corrected.id, refused.id, "never a retry of the refused claim")
+        XCTAssertEqual(RecordingTypeClaims.display(video: v, pending: replaced, rows: []), .pending(corrected))
+        XCTAssertEqual(RecordingTypeClaims.Display.pending(corrected).statusText(), "Continuous recording: saved on this phone, sends when online.")
+    }
+
+    /// Clearing a published type sends explicit JSON nulls for both columns and dates the row (a synthesized encoder
+    /// would leave nil optionals out, and the server would read the omission as "unchanged"). Owner review of #142, finding 1.
+    func testClearingThePublishedTypeSendsExplicitNullsAndTheDate() throws {
+        let payload = LabelingClient.clearedRecordingTypePayload(at: t0)
+        XCTAssertEqual(String(decoding: payload, as: UTF8.self), #"{"recording_type":null,"recording_type_at":null,"updated_at":"2026-11-04T10:00:00Z"}"#)
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: payload) as? [String: Any])
+        XCTAssertTrue(object["recording_type"] is NSNull); XCTAssertTrue(object["recording_type_at"] is NSNull)
+        XCTAssertEqual(object["updated_at"] as? String, "2026-11-04T10:00:00Z")
+        // The reproduction: a synthesized encoder leaves the nil keys out — the payload above is why it is not used.
+        struct Synthesized: Encodable { let recording_type: String?; let recording_type_at: Date?; let updated_at: Date }
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        let omitted = String(decoding: try encoder.encode(Synthesized(recording_type: nil, recording_type_at: nil, updated_at: t0)), as: UTF8.self)
+        XCTAssertFalse(omitted.contains("recording_type"))
+    }
+
+    /// Not yet reviewed, reviewed and found unknown, or the confirmed type — the words both apps use for the published
+    /// and the recorded type (owner decision on explicit unknown); the policy treats both unknowns alike.
+    func testNotYetReviewedIsToldApartFromReviewedUnknown() {
+        XCTAssertEqual(RecordingTypeClaims.reviewed(kind: nil, at: nil), "not yet reviewed")
+        XCTAssertEqual(RecordingTypeClaims.reviewed(kind: .unknown, at: nil), "not yet reviewed", "unknown with no confirmation is not a review")
+        XCTAssertEqual(RecordingTypeClaims.reviewed(kind: .unknown, at: t0), "reviewed — unknown")
+        XCTAssertEqual(RecordingTypeClaims.reviewed(kind: .continuous, at: t0), "continuous recording")
+        XCTAssertEqual(RecordingTypeClaims.reviewed(kind: .edited, at: t0), "edited recording")
     }
 
     /// An older build's rows and a newer server: the videos row without the published type decodes as before, and

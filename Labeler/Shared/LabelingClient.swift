@@ -197,12 +197,17 @@ actor LabelingClient {
         var request = try await rest("label_videos", query: "id=eq.\(videoId.uuidString.lowercased())")
         request.httpMethod = "PATCH"
         request.setValue("return=minimal", forHTTPHeaderField: "Prefer")
-        struct Cleared: Encodable { let recording_type: String?; let recording_type_at: Date?; let updated_at: Date }
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        // Explicit nulls: this encoder writes every key, nil as null.
-        request.httpBody = try encoder.encode(Cleared(recording_type: nil, recording_type_at: nil, updated_at: Date()))
+        request.httpBody = Self.clearedRecordingTypePayload(at: Date())
         _ = try await send(request)
+    }
+
+    /// The PATCH body that clears the published type: both columns as explicit JSON nulls — a synthesized
+    /// `Encodable` leaves a nil optional out (`encodeIfPresent`), which an update would read as "unchanged" — and
+    /// the row's date. Keys in a fixed order, so the exact payload is testable.
+    static func clearedRecordingTypePayload(at date: Date) -> Data {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return Data(#"{"recording_type":null,"recording_type_at":null,"updated_at":"\#(f.string(from: date))"}"#.utf8)
     }
 
     /// Every video's rally times, or only those changed after `since`.

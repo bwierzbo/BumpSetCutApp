@@ -64,10 +64,11 @@ struct FootageTypeView: View {
                     Text(cuts.map { "\(clockText($0.start)) – \(clockText($0.end))" }.joined(separator: ", ")).font(.caption).foregroundStyle(.secondary)
                 }
                 LabeledContent("Rally pass", value: times.complete ? "every visible rally marked" : "not finished")
-                LabeledContent("On the Mac", value: published.map { $0.title.lowercased() + (current.recordingTypeAt.map { " (since \(Self.day($0)))" } ?? "") } ?? "not confirmed yet")
+                LabeledContent("On the Mac", value: RecordingTypeClaims.reviewed(kind: published, at: current.recordingTypeAt)
+                               + (current.recordingTypeAt.map { " (since \(Self.day($0)))" } ?? ""))
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Your choice").font(.callout)
-                    Text(display.statusText(problem: model.claimProblem(for: current))).font(.callout).foregroundStyle(.secondary)
+                    Text(display.statusText()).font(.callout).foregroundStyle(.secondary)
                 }
             }
             Section {
