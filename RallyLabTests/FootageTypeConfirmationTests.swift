@@ -215,6 +215,7 @@ final class FootageTypeConfirmationTests: XCTestCase {
                        "an unreadable record fails closed whatever would be confirmed")
         XCTAssertThrowsError(try FootageTypeConfirmation.confirm(.continuous, video: "video_01", under: opening, projects: projects, by: "BW", at: at))
         XCTAssertEqual(try snapshot("A"), before, "nothing written over it")
+        XCTAssertEqual(try FootageTypeConfirmation.prospectiveAdmission(for: f, in: root, at: at), .quarantined, "unreadable stays what it is: the confirmation is refused over it")
     }
 
     func testARecordNamingAnotherRecordingIsRefusedAndNothingIsWrittenToEitherPath() throws {
@@ -253,10 +254,15 @@ final class FootageTypeConfirmationTests: XCTestCase {
         XCTAssertNil(FootageTypeConfirmation.anotherFile(onFile, sourceFingerprint: "file:other"))
         var unbound = onFile; unbound.sourceFingerprint = nil
         XCTAssertNil(FootageTypeConfirmation.anotherFile(unbound, sourceFingerprint: fingerprint("A")), "bound by name")
+        // Today the index quarantines the recording for that record; confirming replaces the record, so the preview's
+        // admission is the index's verdict with the prospective record in place: admitted.
+        XCTAssertEqual(try SourceRegistry.load(root: root).sources.first { $0.video == "video_01" }?.admission, .quarantined)
+        XCTAssertEqual(try FootageTypeConfirmation.prospectiveAdmission(for: f, in: root, at: at), .admitted)
         let written = try FootageTypeConfirmation.confirm(.continuous, video: "video_01", under: opening, projects: projects, by: "BW", at: at)
         XCTAssertEqual(written.sourceFingerprint, fingerprint("A"))
         XCTAssertTrue(written.spans.isEmpty, "the other file's spans are not this recording's")
         XCTAssertEqual(written.recordingType, .continuous)
+        XCTAssertEqual(try SourceRegistry.load(root: root).sources.first { $0.video == "video_01" }?.admission, .admitted, "as previewed")
     }
 
     // MARK: - The opening (A → B → A)

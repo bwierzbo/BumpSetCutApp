@@ -120,13 +120,35 @@ enum FootageTypeConfirmation {
         return nil
     }
 
+    /// The record as confirming `type` would leave it: the one on file with the type set, or — with none on file,
+    /// or another file's — a record of this file (what `Store.confirmRecordingType` writes).
+    static func prospectiveRecord(_ type: FootageProperties.RecordingType, facts: Facts, at: String) -> FootageProperties.File {
+        var file = facts.record ?? FootageProperties.File(video: facts.video, sourceFingerprint: facts.sourceFingerprint, updatedAt: at)
+        file.recordingType = type
+        return file
+    }
+
     /// What each model may use once `type` is confirmed, with whatever else the record holds: the policy's verdict
     /// (TrainingEligibility), not the step's. An unreadable record stays what it is — quarantined.
     static func preview(_ type: FootageProperties.RecordingType, facts: Facts, admission: SourceRegistry.Admission, at: String) -> TrainingEligibility.Assessment {
         if let why = facts.recordProblem { return TrainingEligibility.assess(admission: admission, properties: nil, unreadableReason: why) }
-        var file = facts.record ?? FootageProperties.File(video: facts.video, sourceFingerprint: facts.sourceFingerprint, updatedAt: at)
-        file.recordingType = type
-        return TrainingEligibility.assess(admission: admission, properties: file)
+        return TrainingEligibility.assess(admission: admission, properties: prospectiveRecord(type, facts: facts, at: at))
+    }
+
+    /// The recording's admission as the source index will judge it once the confirmation is written: the index
+    /// built from the project's records with the prospective record in place of the one on file — so a record of
+    /// another file, which quarantines the recording today, does not show as the consequence of confirming
+    /// (confirming replaces it), while the reservations and the lineage judge as they do (Codex on #140). The
+    /// admission does not depend on the type chosen. An unreadable record is left as it is: the confirmation is
+    /// refused over it. File work (SourceRegistry.inputs): call off the main actor.
+    static func prospectiveAdmission(for facts: Facts, in root: URL, at: String) throws -> SourceRegistry.Admission? {
+        var inputs = try SourceRegistry.inputs(root: root)
+        let name = DatasetStore.safeName(facts.video)
+        if facts.recordProblem == nil {
+            inputs.properties[name] = prospectiveRecord(facts.recordingType, facts: facts, at: at)
+            inputs.unreadableProperties[name] = nil
+        }
+        return SourceRegistry.build(inputs).sources.first { $0.video == facts.video }?.admission
     }
 
     /// The person's confirmation, written into the project `opening` was opened on — only while that opening still

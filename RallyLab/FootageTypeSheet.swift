@@ -166,7 +166,7 @@ struct FootageTypeSheet: View {
         let root = opening.root, recording = recording, duration = duration
         let (f, a) = await Task.detached(priority: .userInitiated) { () -> (FootageTypeConfirmation.Facts, Result<SourceRegistry.Admission?, Error>) in
             let f = FootageTypeConfirmation.facts(recording, sourceFingerprint: fingerprint, duration: duration, in: root)
-            let a = Result { try SourceRegistry.load(root: root).sources.first { $0.video == recording.name }?.admission }
+            let a = Result { try FootageTypeConfirmation.prospectiveAdmission(for: f, in: root, at: EventReview.stamp(Date())) }
             return (f, a)
         }.value
         facts = f
