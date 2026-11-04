@@ -455,6 +455,9 @@ final class LabelingSync {
             video.title = clipVideo(named: session.name)?.title ?? video.title
             video.lighting = projects.project?.clips.first { clip in clip.videos.contains { clip.videoId(of: $0) == session.name } }?
                 .lighting ?? video.lighting
+            // The card's fingerprint, read now, while the opening holds (the awaits below suspend; a project opened
+            // meanwhile must not lend its cards to this recording's record).
+            let card = FootageTypeConfirmation.sourceFingerprint(of: session.name, in: projects.project)
             video.split = session.split
             video.ralliesFound = Self.ralliesFound(in: session)
             if video.duration <= 0 {
@@ -464,7 +467,6 @@ final class LabelingSync {
             if let properties {
                 // A record is this recording's only when it is bound to the card's file (the source index's rule,
                 // FootageTypeConfirmation.anotherFile): one left by a file replaced under the same name is not published.
-                let card = FootageTypeConfirmation.sourceFingerprint(of: session.name, in: projects.project)
                 let record = properties.records[session.name].flatMap { FootageTypeConfirmation.anotherFile($0, sourceFingerprint: card) == nil ? $0 : nil }
                 if let record {
                     video.recordingType = record.recordingType.rawValue
