@@ -305,6 +305,11 @@ final class CutRangeConsumersTests: XCTestCase {
         cardedSession.cuts = [cut(5, 6)]
         try DatasetStore(root: carded).save(cardedSession)
         XCTAssertEqual(try TrainingDataExporter.cutRanges(forVideo: video, projectRoots: [carded]), [cut(5, 6)])
+        // The Pipeline and Compare tabs read the same lookup: the session gone again, the tabs' cuts are unknown.
+        XCTAssertEqual(try RallyLabModel.cutRanges(for: video, root: carded), [cut(5, 6)])
+        try FileManager.default.removeItem(at: carded.appendingPathComponent("sessions"))
+        XCTAssertThrowsError(try RallyLabModel.cutRanges(for: video, root: carded)) { XCTAssertTrue($0 is TrainingDataExporter.SessionUnavailable, "\($0)") }
+        XCTAssertEqual(try RallyLabModel.cutRanges(for: other, root: carded), [])
         // A project whose sessions can't all be read: unknown cuts are not no cuts — the lookup fails closed.
         try Data("{not json".utf8).write(to: project.appendingPathComponent("sessions/broken.json"))
         XCTAssertThrowsError(try TrainingDataExporter.cutRanges(forVideo: video, projectRoots: [project]))

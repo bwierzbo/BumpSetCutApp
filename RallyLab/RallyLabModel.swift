@@ -1032,12 +1032,11 @@ final class RallyLabModel {
         return try cutRanges(for: url, root: URL(fileURLWithPath: rootPath, isDirectory: true))
     }
 
-    /// Every session is read strictly first: one that won't decode is unknown cuts, not none,
-    /// and the match itself refuses to run on an unreadable session (ReservedVideos.match).
-    static func cutRanges(for url: URL, root: URL) throws -> [CutRange] {
-        let sessions = try DatasetStore(root: root).loadSessionsStrict()
-        guard let match = try ReservedVideos.match(url, root: root) else { return [] }   // not a project video
-        return sessions.first { $0.name == match.session }?.cutRanges ?? []
+    /// The one lookup the headless export reads too (TrainingDataExporter.cutRanges): every session read
+    /// strictly first — one that won't decode is unknown cuts, not none — and a recording a project card names
+    /// with no session over it is unknown cuts as well (fails closed; Codex on #139).
+    nonisolated static func cutRanges(for url: URL, root: URL) throws -> [CutRange] {
+        try TrainingDataExporter.cutRanges(forVideo: url, projectRoots: [root])
     }
 
     /// Running the pipeline on a project video and scoring it is a use the
