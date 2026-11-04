@@ -111,10 +111,37 @@ enum TrainingDataExporter {
         // A remembered project that is not there is unknown cuts: the lookup throws, the export stops.
         for project in try projectRoots ?? ProjectsModel.savedProjectRoots() {
             let sessions = try DatasetStore(root: project).loadSessionsStrict()
-            guard let match = try ReservedVideos.match(url, root: project) else { continue }
-            return sessions.first { $0.name == match.session }?.cutRanges ?? []
+            guard let match = try ReservedVideos.match(url, root: project) else {
+                // No session is over this video — but a card of the project names it (its sessions folder or
+                // this session is missing or renamed): its cuts are unknown, not none (Codex on #139).
+                if let card = try cardNaming(url, in: project) { throw SessionUnavailable(video: card, project: project.lastPathComponent) }
+                continue
+            }
+            guard let session = sessions.first(where: { $0.name == match.session }) else { throw SessionUnavailable(video: match.session, project: project.lastPathComponent) }
+            return session.cutRanges
         }
         return []
+    }
+
+    /// A project card names the recording — by its cut file's path or name, or by content — though no session is over it.
+    struct SessionUnavailable: LocalizedError, Equatable {
+        let video: String
+        let project: String
+        var errorDescription: String? { "\(project) knows \(video) but has no session over it (missing or renamed): its cut ranges can't be known" }
+    }
+
+    /// The project video `url` is by its card (project.json, read strictly): the cut file's path or name, or the
+    /// file's content against the card's fingerprint. nil when no card names it.
+    static func cardNaming(_ url: URL, in project: URL) throws -> String? {
+        let sources = try EventReview.projectSourcesStrict(in: project)
+        let path = url.standardizedFileURL.path, base = url.lastPathComponent
+        lazy var print: String? = ProjectsModel.fileFingerprint(atPath: path)
+        for (name, source) in sources.sorted(by: { $0.key < $1.key }) {
+            let cut = URL(fileURLWithPath: source.clipFile)
+            if cut.standardizedFileURL.path == path || cut.lastPathComponent == base || base.hasPrefix(name + ".") { return name }
+            if let mine = print, ReservedVideos.effectiveFingerprint(source) == mine { return name }
+        }
+        return nil
     }
 
     static func write(_ export: Export, to url: URL) throws {

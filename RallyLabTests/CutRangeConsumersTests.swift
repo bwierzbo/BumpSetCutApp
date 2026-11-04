@@ -289,6 +289,22 @@ final class CutRangeConsumersTests: XCTestCase {
         try DatasetStore(root: elsewhere).save(farSession)
         XCTAssertEqual(try TrainingDataExporter.cutRanges(forVideo: far, projectRoots: [root]), [], "not on the list: unknown")
         XCTAssertEqual(try TrainingDataExporter.cutRanges(forVideo: far, projectRoots: [project, elsewhere]), [cut(3, 4)])
+        // A card names the recording though no session is over it (the sessions folder gone): unknown cuts, not
+        // none — the lookup fails closed; a video no card names is still none; the session back, the cuts are read.
+        let carded = root.appendingPathComponent("C", isDirectory: true)
+        try FileManager.default.createDirectory(at: carded, withIntermediateDirectories: true)
+        let card = SourceRegistryTests.clip("card_0", number: 1, videos: [SourceRegistryTests.video("v", fingerprint: ProjectsModel.readFileFingerprint(atPath: video.path))])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(Project(name: "C", createdAt: Date(), framesPerRally: 2, clips: [card])).write(to: carded.appendingPathComponent("project.json"))
+        XCTAssertThrowsError(try TrainingDataExporter.cutRanges(forVideo: video, projectRoots: [carded])) { XCTAssertTrue($0 is TrainingDataExporter.SessionUnavailable, "\($0)") }
+        XCTAssertThrowsError(try TrainingDataExporter.cutRanges(forVideo: copy, projectRoots: [carded]), "by content too")
+        XCTAssertEqual(try TrainingDataExporter.cutRanges(forVideo: other, projectRoots: [carded]), [])
+        try DatasetStore(root: carded).prepare()
+        var cardedSession = VideoSession(name: "v", sourcePath: video.path, split: "train", addedAt: Date(), frames: [])
+        cardedSession.cuts = [cut(5, 6)]
+        try DatasetStore(root: carded).save(cardedSession)
+        XCTAssertEqual(try TrainingDataExporter.cutRanges(forVideo: video, projectRoots: [carded]), [cut(5, 6)])
         // A project whose sessions can't all be read: unknown cuts are not no cuts — the lookup fails closed.
         try Data("{not json".utf8).write(to: project.appendingPathComponent("sessions/broken.json"))
         XCTAssertThrowsError(try TrainingDataExporter.cutRanges(forVideo: video, projectRoots: [project]))
