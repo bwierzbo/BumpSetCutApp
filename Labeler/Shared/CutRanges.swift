@@ -70,3 +70,12 @@ extension Array where Element == CutRange {
         normalised().reduce(0) { $0 + Swift.max(0, Swift.min($1.end, duration) - Swift.min($1.start, duration)) }
     }
 }
+
+extension Array where Element == LabelRally {
+    /// The rallies that touch no cut range — the ones there is footage to track or to ask about; a rally that
+    /// overlaps a cut is left to the marks (D-030). The same rule on the Mac (PreTracker.openSpans) and the phone
+    /// (LabelerModel's task selectors).
+    func outsideCuts(_ cuts: [CutRange]) -> [LabelRally] {
+        cuts.isEmpty ? self : filter { !cuts.overlaps($0.start, $0.end) }
+    }
+}

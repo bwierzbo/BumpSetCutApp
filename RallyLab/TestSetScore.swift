@@ -153,10 +153,12 @@ enum TestSetScore {
     // MARK: - Running a model
 
     /// The model's peaks on every job it can see whole, and its ms a window.
-    /// What the jobs are, as a digest: the export's name and every job's frame, so a result scored
-    /// on another set of jobs (an export whose recordings since gained cut ranges) is told apart.
+    /// What the jobs are, as a digest: the export's name and, for every job, its clip, its whole window in
+    /// order and which frame of it is scored — the model's actual input — so a result scored on other jobs
+    /// (an export whose recordings since gained cut ranges: a window left out, or the same target frame now
+    /// scored in another window) is told apart (Codex on #139).
     static func jobsKey(_ jobs: [Job], export: URL) -> String {
-        let lines = jobs.map { "\($0.clip)|\($0.frames[$0.index])|\($0.dead ? "dead" : "label")" }.sorted()
+        let lines = jobs.map { "\($0.clip)|\($0.index)|\($0.dead ? "dead" : "label")|\($0.frames.joined(separator: ","))" }.sorted()
         return ExportJournal.sha256(Data((export.lastPathComponent + "\n" + lines.joined(separator: "\n")).utf8))
     }
 

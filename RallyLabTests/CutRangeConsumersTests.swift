@@ -113,6 +113,27 @@ final class CutRangeConsumersTests: XCTestCase {
         // The last frame alone inside the cut is enough.
         XCTAssertEqual(try TestSetScore.jobs(export: dir, cuts: ["a": [cut(1.02, 2)]]).insideCuts, 1)
         XCTAssertEqual(try XCTUnwrap(TestSetScore.seconds(ofFrame: "frames/a/1033333.jpg")), 1.033333, accuracy: 1e-9)
+
+        // The cache key names the model's actual input: the same labelled frame scored in another window — a cut
+        // took the window it used to sit in, so a neighbouring one was chosen — is another job set, not a hit.
+        // Two windows label the same two frames (1.0 s and 1.033 s); each frame's job takes the window it sits most
+        // centrally in: 1.0 s from the first, 1.033 s from the second. A cut over the first window's first frame
+        // leaves both frames to the second window.
+        func labelled(_ time: Double, _ keys: [Int], _ labels: String) -> String {
+            "{\"clip\":\"a\",\"split\":\"val\",\"time\":\(time),\"size\":[960,540],\"frames\":[\(keys.map { "\"frames/a/\($0).jpg\"" }.joined(separator: ","))],\"target\":1,\"labels\":\(labels)}"
+        }
+        let ball = "[[0.5,0.5,0.02,0.03]]"
+        let overlapping = [labelled(1.0, [966_667, 1_000_000, 1_033_333], "[null,\(ball),\(ball)]"),
+                           labelled(1.033333, [1_000_000, 1_033_333, 1_066_667], "[\(ball),\(ball),null]")]
+        try (overlapping.joined(separator: "\n") + "\n").write(to: dir.appendingPathComponent("windows.jsonl"), atomically: true, encoding: .utf8)
+        let first = try TestSetScore.jobs(export: dir).jobs
+        let second = try TestSetScore.jobs(export: dir, cuts: ["a": [cut(0.95, 0.98)]]).jobs
+        XCTAssertEqual(first.map { $0.frames.first! }, ["frames/a/966667.jpg", "frames/a/1000000.jpg"])
+        XCTAssertEqual(second.map { $0.frames.first! }, ["frames/a/1000000.jpg", "frames/a/1000000.jpg"])
+        XCTAssertEqual(Set(first.map { $0.frames[$0.index] }), Set(second.map { $0.frames[$0.index] }), "the same target frames…")
+        XCTAssertNotEqual(TestSetScore.jobsKey(first, export: dir), TestSetScore.jobsKey(second, export: dir), "…in other windows: another key")
+        XCTAssertEqual(TestSetScore.jobsKey(first, export: dir), TestSetScore.jobsKey(first.reversed(), export: dir), "order does not matter")
+        XCTAssertNotEqual(TestSetScore.jobsKey(first, export: dir), TestSetScore.jobsKey(first, export: dir.appendingPathComponent("other")), "the export does")
     }
 
     // MARK: - Pre-tracking and the training-data export
@@ -131,6 +152,17 @@ final class CutRangeConsumersTests: XCTestCase {
         XCTAssertEqual(PreTracker.openSpans(session, tracks: []).map(\.start), [10, 30, 50])
         session.cuts = [cut(35, 52)]
         XCTAssertEqual(PreTracker.openSpans(session, tracks: []).map(\.start), [10], "the second mark and the found rally touch the cut")
+    }
+
+    /// The one rule for which rallies there is footage to track or ask about — the Mac's pre-tracker and the
+    /// phone's task selectors (LabelerModel.openFound / untrackedRallies) both read it: a rally that touches a cut
+    /// is left out, one that ends where a cut starts is not touching it.
+    func testRalliesTouchingACutAreNotTasks() {
+        let rallies = [LabelRally(start: 10, end: 20), LabelRally(start: 30, end: 40), LabelRally(start: 50, end: 55), LabelRally(start: 60, end: 70)]
+        XCTAssertEqual(rallies.outsideCuts([]), rallies)
+        XCTAssertEqual(rallies.outsideCuts([cut(35, 52)]).map(\.start), [10, 60], "both that overlap it go")
+        XCTAssertEqual(rallies.outsideCuts([cut(20, 30)]).map(\.start), [10, 30, 50, 60], "touching at a point is not overlapping")
+        XCTAssertEqual(rallies.outsideCuts([cut(0, 100)]), [])
     }
 
     func testTrainingDataExportDropsTheFramesInsideCutsAndFindsAVideosCutsByItsSession() throws {

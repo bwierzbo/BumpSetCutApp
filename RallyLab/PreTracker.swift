@@ -145,8 +145,7 @@ enum PreTracker {
     /// touches a cut range — not footage, nothing to track there (D-030).
     static func openSpans(_ session: VideoSession, tracks: [TrackedRally]) -> [LabelRally] {
         let rallies = TrackLabelModel.markedAndFound(session)
-        let cuts = session.cutRanges
-        return TrackLabelModel.untracked(rallies.marked + rallies.found, tracks: tracks).filter { !cuts.overlaps($0.start, $0.end) }
+        return TrackLabelModel.untracked(rallies.marked + rallies.found, tracks: tracks).outsideCuts(session.cutRanges)
     }
 
     /// `count` of `rallies`, evenly through the list (so through the video).
