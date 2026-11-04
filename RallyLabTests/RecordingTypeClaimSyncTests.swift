@@ -308,23 +308,33 @@ final class RecordingTypeClaimSyncTests: XCTestCase {
         // A type published earlier, no record on the Mac any more: cleared explicitly, not left as it was.
         server.videos[0].recordingType = "edited"
         server.videos[0].recordingTypeAt = now
+        server.videos[0].updatedAt = now
         let first = await sync.sync(videos: true)
         XCTAssertTrue(first, sync.status)
         XCTAssertEqual(server.cleared, [row.id])
         XCTAssertNil(server.videos[0].recordingType); XCTAssertNil(server.videos[0].recordingTypeAt)
+        XCTAssertNotEqual(server.videos[0].updatedAt, now, "the clearing dates the row, so a phone's pull of the rows changed since sees it")
+        // A record left by a file replaced under the same name (bound to another fingerprint) is not this file's: not published, cleared.
+        try FootageProperties.Store(root: root).save(FootageProperties.File(video: "bch_v01", sourceFingerprint: "file:other", recordingType: .continuous,
+                                                                             recordingTypeBy: "BW", recordingTypeAt: "2026-11-04T09:00:00Z", updatedAt: "2026-11-04T09:00:00Z"))
+        server.videos[0].recordingType = "continuous"
+        let replaced = await sync.sync(videos: true)
+        XCTAssertTrue(replaced, sync.status)
+        XCTAssertNil(server.videos[0].recordingType, "another file's record is not this recording's type")
+        XCTAssertEqual(server.cleared.count, 2)
         // A confirmation on the Mac is published with its time; nothing is cleared again.
         try FootageTypeConfirmation.confirm(.continuous, video: "bch_v01", under: opening, projects: projects, by: "BW", at: "2026-11-04T11:00:00Z")
         let second = await sync.sync(videos: true)
         XCTAssertTrue(second, sync.status)
         XCTAssertEqual(server.videos[0].recordingType, "continuous")
         XCTAssertEqual(server.videos[0].recordingTypeAt, RecordingTypeClaims.parse("2026-11-04T11:00:00Z"))
-        XCTAssertEqual(server.cleared.count, 1)
+        XCTAssertEqual(server.cleared.count, 2)
         // An unreadable record leaves what was published as it is.
         try Data("{ not json".utf8).write(to: recordURL("A", video: "bch_v01"))
         let third = await sync.sync(videos: true)
         XCTAssertTrue(third, sync.status)
         XCTAssertEqual(server.videos[0].recordingType, "continuous")
-        XCTAssertEqual(server.cleared.count, 1)
+        XCTAssertEqual(server.cleared.count, 2)
         _ = root
     }
 

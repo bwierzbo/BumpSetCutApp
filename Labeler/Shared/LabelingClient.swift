@@ -191,11 +191,17 @@ actor LabelingClient {
 
     /// The published type taken off a row (leads; the Mac, when the recording's record is gone): an explicit null,
     /// since the row's encoder leaves nil out and an upsert keeps a column it is not sent.
+    /// The row's `updated_at` moves with it, so a phone's pull of the rows changed since sees the clearing on its own
+    /// (no trigger dates label_videos; a later upsert of an otherwise unchanged row would not be sent).
     func clearPublishedRecordingType(_ videoId: UUID) async throws {
         var request = try await rest("label_videos", query: "id=eq.\(videoId.uuidString.lowercased())")
         request.httpMethod = "PATCH"
         request.setValue("return=minimal", forHTTPHeaderField: "Prefer")
-        request.httpBody = Data(#"{"recording_type":null,"recording_type_at":null}"#.utf8)
+        struct Cleared: Encodable { let recording_type: String?; let recording_type_at: Date?; let updated_at: Date }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        // Explicit nulls: this encoder writes every key, nil as null.
+        request.httpBody = try encoder.encode(Cleared(recording_type: nil, recording_type_at: nil, updated_at: Date()))
         _ = try await send(request)
     }
 

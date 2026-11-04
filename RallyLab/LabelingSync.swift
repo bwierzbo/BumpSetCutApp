@@ -462,13 +462,17 @@ final class LabelingSync {
             }
             video = await Self.withIdentities(video, source: source)
             if let properties {
-                if let record = properties.records[session.name] {
+                // A record is this recording's only when it is bound to the card's file (the source index's rule,
+                // FootageTypeConfirmation.anotherFile): one left by a file replaced under the same name is not published.
+                let card = FootageTypeConfirmation.sourceFingerprint(of: session.name, in: projects.project)
+                let record = properties.records[session.name].flatMap { FootageTypeConfirmation.anotherFile($0, sourceFingerprint: card) == nil ? $0 : nil }
+                if let record {
                     video.recordingType = record.recordingType.rawValue
                     video.recordingTypeAt = record.recordingTypeAt.flatMap(RecordingTypeClaims.parse)
                 } else if properties.unreadable[session.name] == nil {
-                    // No record: nothing is confirmed. A type published before is cleared with an explicit null (the
-                    // row's encoder leaves nil out, and the upsert keeps what it is not sent). An unreadable record
-                    // leaves what was published as it is.
+                    // No record of this file: nothing is confirmed. A type published before is cleared with an explicit
+                    // null (the row's encoder leaves nil out, and the upsert keeps what it is not sent). An unreadable
+                    // record leaves what was published as it is.
                     if let existing, existing.recordingType != nil || existing.recordingTypeAt != nil {
                         try await client.clearPublishedRecordingType(existing.id)
                     }
