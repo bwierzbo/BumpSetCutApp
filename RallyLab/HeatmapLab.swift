@@ -431,10 +431,11 @@ final class HeatmapLab {
         }
     }
 
-    /// Each recording's cut ranges (not footage; D-030), by name, for the ones that have any — from
-    /// every session read strictly: one that won't decode is unknown cuts, not none (fails closed).
+    /// Each recording's cut ranges (not footage; D-030), by name — every session, with none as an empty list, so
+    /// a clip with no entry is one with no session over it: unknown cuts, not none (Codex on #139). From every
+    /// session read strictly: one that won't decode is unknown cuts too (fails closed).
     func cutRanges() throws -> [String: [CutRange]] {
-        Dictionary(uniqueKeysWithValues: try sampler.store.loadSessionsStrict().compactMap { s in s.cutRanges.isEmpty ? nil : (s.name, s.cutRanges) })
+        Dictionary(try sampler.store.loadSessionsStrict().map { ($0.name, $0.cutRanges) }, uniquingKeysWith: { a, _ in a })
     }
 }
 
@@ -469,8 +470,10 @@ enum HeatEvaluation {
     /// Grey-level change around a ball over ±4 frames that means "in play".
     static let motion = 10.0
 
-    /// `cuts`: each clip's cut ranges — a val window with a frame inside one is not scored (D-030).
-    static func run(model: URL, package: URL, yolo: URL?, cuts: [String: [CutRange]] = [:],
+    /// `cuts`: each clip's cut ranges, every recording with a session (none as an empty list) — a val window with
+    /// a frame inside one is not scored, and a val clip with no entry has no session: unknown cuts, not scored at
+    /// all (D-030; fails closed).
+    static func run(model: URL, package: URL, yolo: URL?, cuts: [String: [CutRange]],
                     progress: @escaping @Sendable (Int, Int) -> Void) -> Swift.Result<Result, Failure> {
         guard let heat = HeatmapBallDetector(modelURL: model) else {
             return .failure(Failure(message: "Couldn't load \(model.lastPathComponent)."))
@@ -482,6 +485,9 @@ enum HeatEvaluation {
         let val = text.split(separator: "\n").compactMap { line -> Window? in
             try? JSONDecoder().decode(Window.self, from: Data(line.utf8))
         }.filter { $0.split == "val" }
+        if let gone = val.first(where: { cuts[$0.clip] == nil }) {
+            return .failure(Failure(message: "\(gone.clip): no session over it — its cut ranges can't be known; the package is not scored."))
+        }
         let windows = val.filter { !TestSetScore.insideCut($0.frames, cuts: cuts[$0.clip] ?? []) }
         guard !windows.isEmpty else { return .failure(Failure(message: "No val windows in the package" + (val.isEmpty ? "." : " outside cut ranges."))) }
 

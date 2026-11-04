@@ -111,11 +111,18 @@ enum TestSetScore {
         !cuts.isEmpty && frames.contains { seconds(ofFrame: $0).map(cuts.contains) ?? false }
     }
 
+    /// A val clip of the export with no session over it: its cut ranges are unknown, not none.
+    struct ClipSessionUnavailable: LocalizedError, Equatable {
+        let clip: String
+        var errorDescription: String? { "\(clip): no session over it — its cut ranges can't be known; the export is not scored" }
+    }
+
     /// One job per labelled val frame (and per dead-time frame), each with
-    /// the window it sits most centrally in. `cuts`: each clip's cut ranges —
-    /// a window with a frame inside one is left out and counted, whatever
-    /// the export was written with (D-030).
-    static func jobs(export: URL, cuts: [String: [CutRange]] = [:]) throws -> (jobs: [Job], insideCuts: Int) {
+    /// the window it sits most centrally in. `cuts`: each clip's cut ranges,
+    /// every recording with a session (none as an empty list) — a window
+    /// with a frame inside one is left out and counted, whatever the export
+    /// was written with, and a val clip with no entry throws (D-030).
+    static func jobs(export: URL, cuts: [String: [CutRange]]) throws -> (jobs: [Job], insideCuts: Int) {
         let text = try String(contentsOf: export.appendingPathComponent("windows.jsonl"), encoding: .utf8)
         var best: [String: (job: Job, distance: Int)] = [:]
         var insideCuts = 0
@@ -125,7 +132,8 @@ enum TestSetScore {
                   let frames = w["frames"] as? [String], let size = w["size"] as? [Int], size.count == 2,
                   let clip = w["clip"] as? String, let target = w["target"] as? Int,
                   let time = (w["time"] as? NSNumber)?.doubleValue else { continue }
-            if insideCut(frames, cuts: cuts[clip] ?? []) { insideCuts += 1; continue }
+            guard let clipCuts = cuts[clip] else { throw ClipSessionUnavailable(clip: clip) }
+            if insideCut(frames, cuts: clipCuts) { insideCuts += 1; continue }
             let portrait = size[1] > size[0]
             if w["dead"] as? Bool == true {
                 best["dead:" + frames[target]] = (Job(clip: clip, frames: frames, index: target, dead: true, balls: [],

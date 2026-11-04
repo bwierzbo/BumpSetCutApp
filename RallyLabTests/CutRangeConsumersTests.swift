@@ -105,13 +105,17 @@ final class CutRangeConsumersTests: XCTestCase {
         let lines = [window("a", 1.0, [966_667, 1_000_000, 1_033_333]), window("a", 5.0, [4_966_667, 5_000_000, 5_033_333]),
                      window("b", 1.0, [966_667, 1_000_000, 1_033_333])]
         try (lines.joined(separator: "\n") + "\n").write(to: dir.appendingPathComponent("windows.jsonl"), atomically: true, encoding: .utf8)
-        let plain = try TestSetScore.jobs(export: dir)
+        let plain = try TestSetScore.jobs(export: dir, cuts: ["a": [], "b": []])
         XCTAssertEqual(plain.jobs.count, 3); XCTAssertEqual(plain.insideCuts, 0)
-        let masked = try TestSetScore.jobs(export: dir, cuts: ["a": [cut(4.5, 6)]])
+        let masked = try TestSetScore.jobs(export: dir, cuts: ["a": [cut(4.5, 6)], "b": []])
         XCTAssertEqual(masked.insideCuts, 1)
         XCTAssertEqual(masked.jobs.map { "\($0.clip)@\($0.time)" }, ["a@1.0", "b@1.0"])
         // The last frame alone inside the cut is enough.
-        XCTAssertEqual(try TestSetScore.jobs(export: dir, cuts: ["a": [cut(1.02, 2)]]).insideCuts, 1)
+        XCTAssertEqual(try TestSetScore.jobs(export: dir, cuts: ["a": [cut(1.02, 2)], "b": []]).insideCuts, 1)
+        // A val clip with no session over it (no entry): unknown cuts, not none — the export is not scored.
+        XCTAssertThrowsError(try TestSetScore.jobs(export: dir, cuts: ["a": [cut(1.02, 2)]])) {
+            XCTAssertEqual($0 as? TestSetScore.ClipSessionUnavailable, TestSetScore.ClipSessionUnavailable(clip: "b"))
+        }
         XCTAssertEqual(try XCTUnwrap(TestSetScore.seconds(ofFrame: "frames/a/1033333.jpg")), 1.033333, accuracy: 1e-9)
 
         // The cache key names the model's actual input: the same labelled frame scored in another window — a cut
@@ -126,7 +130,7 @@ final class CutRangeConsumersTests: XCTestCase {
         let overlapping = [labelled(1.0, [966_667, 1_000_000, 1_033_333], "[null,\(ball),\(ball)]"),
                            labelled(1.033333, [1_000_000, 1_033_333, 1_066_667], "[\(ball),\(ball),null]")]
         try (overlapping.joined(separator: "\n") + "\n").write(to: dir.appendingPathComponent("windows.jsonl"), atomically: true, encoding: .utf8)
-        let first = try TestSetScore.jobs(export: dir).jobs
+        let first = try TestSetScore.jobs(export: dir, cuts: ["a": []]).jobs
         let second = try TestSetScore.jobs(export: dir, cuts: ["a": [cut(0.95, 0.98)]]).jobs
         XCTAssertEqual(first.map { $0.frames.first! }, ["frames/a/966667.jpg", "frames/a/1000000.jpg"])
         XCTAssertEqual(second.map { $0.frames.first! }, ["frames/a/1000000.jpg", "frames/a/1000000.jpg"])
