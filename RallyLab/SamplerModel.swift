@@ -528,7 +528,9 @@ final class SamplerModel {
             let keep = Self.keep(sources: plan.map(\.source.key), perRally: perRally)
             plan = keep.map { plan[$0] }
         }
-        guard !plan.isEmpty else { throw IngestError.nothingToSample }
+        // Nothing left to sample under the cut ranges (a recording cut whole): an empty session, with the cuts
+        // kept on it — a re-pull has already deleted the old session, and the owner's cuts must not go with it.
+        guard try Self.samples(plan, cuts: cuts) else { return [] }
         setJob(job.id, .running("Extracting \(plan.count) frames (\(rallies.count) rallies)…"), fraction: Self.rallyShare)
 
         let progress = prelabelProgress(for: job.id, from: Self.rallyShare)
@@ -546,6 +548,15 @@ final class SamplerModel {
         return try await Task.detached(priority: .userInitiated) {
             try Self.copyAndLabel(files: files, settings: settings, progress: progress)
         }.value
+    }
+
+    /// Whether an ingest goes on to extract `plan`: an empty plan with no cut ranges is nothing to sample (the
+    /// job fails as before); an empty plan under cut ranges is a recording cut whole — an empty session that keeps
+    /// the cuts, never a failed job that loses them (Codex on #139).
+    nonisolated static func samples(_ plan: [PlannedFrame], cuts: [CutRange]) throws -> Bool {
+        if !plan.isEmpty { return true }
+        if cuts.isEmpty { throw IngestError.nothingToSample }
+        return false
     }
 
     enum IngestError: LocalizedError {

@@ -158,6 +158,19 @@ final class CutRangeConsumersTests: XCTestCase {
         XCTAssertEqual(PreTracker.openSpans(session, tracks: []).map(\.start), [10], "the second mark and the found rally touch the cut")
     }
 
+    /// A recording cut whole leaves nothing to sample: the ingest ends with an empty session that keeps the cuts
+    /// (a re-pull has already deleted the old one), not a failed job; with no cuts an empty plan is a failure as before.
+    func testARecordingCutWholeKeepsItsCutsOnAnEmptySession() throws {
+        XCTAssertFalse(try SamplerModel.samples([], cuts: [cut(0, 300)]), "an empty session, the cuts kept")
+        XCTAssertThrowsError(try SamplerModel.samples([], cuts: []))
+        let planned = SamplerModel.plan(rallies: [iv(10, 20)], evidence: [], duration: 100, burstFPS: 2, padding: 0,
+                                        includeMissed: false, maxMissed: 0, randomCount: 0, cuts: [cut(0, 50)])
+        XCTAssertTrue(planned.isEmpty)
+        XCTAssertFalse(try SamplerModel.samples(planned, cuts: [cut(0, 50)]))
+        XCTAssertTrue(try SamplerModel.samples(SamplerModel.plan(rallies: [iv(10, 20)], evidence: [], duration: 100, burstFPS: 2, padding: 0,
+                                                                 includeMissed: false, maxMissed: 0, randomCount: 0, cuts: []), cuts: []))
+    }
+
     /// The Label tab's queue offers no rally touching a cut as a task — not a marked or found one, not one whose
     /// track was begun — while the marks and tracks stay as they are.
     @MainActor
