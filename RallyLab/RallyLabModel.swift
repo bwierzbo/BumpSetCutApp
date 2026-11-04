@@ -1188,19 +1188,31 @@ final class RallyLabModel {
 
     private func recomputePredictionsAndScore() {
         guard !evidence.isEmpty else { return }
-        let cfg = currentConfig()
-        // The decision over the whole video, then taken outside the cut ranges (D-030).
-        rawPredictions = EvidenceReplayer.decidedRanges(
-            evidence: evidence, duration: duration, config: cfg,
-            minRallySec: minRallySec, padded: false).outside(cuts)
-        paddedPredictions = EvidenceReplayer.decidedRanges(
-            evidence: evidence, duration: duration, config: cfg,
-            minRallySec: minRallySec, padded: true).outside(cuts)
+        // The cut ranges unknown (a session that won't read): nothing is decided or scored as if there were
+        // none — the predictions and the score are withheld until they are known again (fail closed; D-030).
+        guard let decided = Self.decide(evidence: evidence, duration: duration, config: currentConfig(), minRallySec: minRallySec,
+                                        cuts: cuts, cutsProblem: cutsProblem) else {
+            rawPredictions = []
+            paddedPredictions = []
+            score = nil
+            return
+        }
+        (rawPredictions, paddedPredictions) = decided
         recomputeScore()
     }
 
+    /// The decision over the whole video, raw and padded, taken outside the cut ranges (D-030) — nil while the
+    /// cut ranges can't be known (`cutsProblem`): a decision without them would read the replays as footage.
+    nonisolated static func decide(evidence: [VideoProcessor.FrameEvidence], duration: Double, config: ProcessorConfig, minRallySec: Double,
+                                   cuts: [CutRange], cutsProblem: String?) -> (raw: [Interval], padded: [Interval])? {
+        guard cutsProblem == nil else { return nil }
+        let raw = EvidenceReplayer.decidedRanges(evidence: evidence, duration: duration, config: config, minRallySec: minRallySec, padded: false).outside(cuts)
+        let padded = EvidenceReplayer.decidedRanges(evidence: evidence, duration: duration, config: config, minRallySec: minRallySec, padded: true).outside(cuts)
+        return (raw, padded)
+    }
+
     private func recomputeScore() {
-        guard !evidence.isEmpty else {
+        guard !evidence.isEmpty, cutsProblem == nil else {
             score = nil
             return
         }

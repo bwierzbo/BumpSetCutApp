@@ -154,6 +154,22 @@ final class CutRangeConsumersTests: XCTestCase {
         XCTAssertEqual(PreTracker.openSpans(session, tracks: []).map(\.start), [10], "the second mark and the found rally touch the cut")
     }
 
+    /// The Pipeline tab's decision: outside the cut ranges, and withheld — no predictions, no score — while they
+    /// can't be known (a session that won't read), never made as if there were none.
+    func testPipelineTabDecidesNothingWhileTheCutRangesCannotBeKnown() {
+        func frame(_ t: Double, ball: Bool) -> VideoProcessor.FrameEvidence {
+            VideoProcessor.FrameEvidence(time: t, hasBall: ball, isProjectile: ball, detections: [], trackPoint: ball ? CGPoint(x: 0.5, y: 0.5) : nil,
+                                         rSquared: nil, gravitySignature: nil, movementType: nil, rejectionReason: nil, candidates: [], detectedNet: nil)
+        }
+        let evidence = stride(from: 0.0, to: 60, by: 1 / 30).map { frame($0, ball: ($0 >= 10 && $0 < 20) || ($0 >= 30 && $0 < 40)) }
+        let known = RallyLabModel.decide(evidence: evidence, duration: 60, config: ProcessorConfig(), minRallySec: 1, cuts: [cut(28, 42)], cutsProblem: nil)
+        XCTAssertNotNil(known)
+        XCTAssertFalse(known!.raw.contains { $0.end > 28 && $0.start < 42 }, "nothing decided inside the cut: \(known!.raw)")
+        XCTAssertFalse(known!.padded.contains { $0.end > 28 && $0.start < 42 })
+        XCTAssertNil(RallyLabModel.decide(evidence: evidence, duration: 60, config: ProcessorConfig(), minRallySec: 1, cuts: [], cutsProblem: "session unreadable"),
+                     "the cuts unknown: no decision, not one as if there were none")
+    }
+
     /// The one rule for which rallies there is footage to track or ask about — the Mac's pre-tracker and the
     /// phone's task selectors (LabelerModel.openFound / untrackedRallies) both read it: a rally that touches a cut
     /// is left out, one that ends where a cut starts is not touching it.
