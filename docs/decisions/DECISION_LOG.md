@@ -2,7 +2,7 @@
 name: decision-log
 status: authoritative
 created: 2026-10-20T22:12:44Z
-updated: 2026-11-04T00:52:18Z
+updated: 2026-11-04T00:52:20Z
 ---
 
 # Decision log
@@ -43,6 +43,7 @@ The authoritative record of product, architecture, data and process decisions fo
 | [D-028](#d-028) | 2026-11-02 | proposed | Live marking is Stage 1 only: serve, dead ball and the rally's kind; touches and their side of the net are advanced marking, deferred (D-024 Stage 2) |
 | [D-030](#d-030) | 2026-11-02 | proposed | Cut ranges: stretches of a recording marked as not footage in the live pass (the clip starts mid-rally, an editor's replay), honoured by every consumer; the file is never re-cut |
 | [D-031](#d-031) | 2026-11-02 | accepted (direction; merge and deployment separate) | RallyLab 2.0: a source registry and a persistent labeling task queue over the existing stores, phased; footage characterised span by span with per-model eligibility; stability fixes first and evidence-based; no training, migration, public-app or TestFlight change under this direction |
+| [D-032](#d-032) | 2026-11-03 | proposed | A recording's type — continuous, edited, unknown — is confirmed by a person at the end of the marking pass, kept apart from the pass being complete, from the cut ranges and from eligibility, never inferred; the phone shows the facts and cannot sync the type without a backend change |
 
 ---
 
@@ -401,3 +402,19 @@ The authoritative record of product, architecture, data and process decisions fo
 **Consequences.** Packages written before cuts (the L2 package of 2026-10-25 among them) carry windows inside replays: rebuild before any lineage training that follows the first cuts. The first cuts are the owner's, on the recordings the 2026-11-02 scan named. Open: whether a cut counts as covered time in the Stage 1 record (D-024; `EventInventory` reports `cutSec` and coverage over the duration less it, the record's own gaps are unchanged). The phone takes the keys with its next TestFlight build (owner-approved upload); older phone builds keep working and never wipe cuts. Proposed until the owner merges the PR that carries it.
 
 **Source.** Owner chat 2026-11-02; the PR carrying this entry; `~/Movies/RallyLab/Reports/edited-footage-20261102/README.md`.
+
+### D-032
+
+**A recording's type — continuous, edited, or unknown — is confirmed by a person at the end of the marking pass, kept apart from the pass being complete, from the cut ranges and from eligibility; never inferred** — 2026-11-03 — proposed — owner (assignment "RallyLab 2.0 Manual Footage Characterization and Marking Workflow", 2026-11-03: implementation and testing authorised; merge separate).
+
+**Context.** The owner watches essentially every second of each recording while marking rallies, so manual marking is the primary way excluded intervals are found (D-030's cut ranges); automatic replay, slow-motion and cut scanning stays out of this step. A cut range and a recording's type are different facts (D-031 §11.4): excluding the first 12 s of a clip that begins mid-rally says nothing about editing; excluding a replay may go with an edited recording, but the X press must not decide that. `FootageProperties` (D-031, PR #134) has carried `recordingType` since phase 1 with nothing in the app writing it.
+
+**Decision.**
+1. After "That's every rally" on the Mac, and from "Footage type…" on the marking screen at any time, the person is asked what the recording is — a continuous recording (no known timeline editing), an edited one (removed time, replays, artificial speed changes or other edits), or unknown (not yet verified) — and shown the excluded intervals (count, seconds, where), whether the rally pass is complete, whether the timeline's coverage is verified by a Stage 1 record, what the record on file says, and what each model may use once the choice is confirmed (`TrainingEligibility`'s verdict, shown, never overridden). The person confirms explicitly; "Not now" leaves the type as it is. A recording may be complete with its type unknown.
+2. The confirmation is the one writer of `recordingType` in the footage-properties record (`FootageProperties.Store.confirmRecordingType`): who and when are recorded; the record's spans and derivation are kept; the record is bound to the card's fingerprint (one recorded for another file is replaced by a record of this one); a record that exists but can't be read refuses the write (fail closed). It is written into the project the recording was marked in, only while that opening holds (PR #137's rule): a project opened meanwhile gets nothing of it.
+3. Nothing is inferred: no cut promotes a recording to continuous, no X press sets edited, no completion sets anything, and an unknown type establishes no eligibility and no ordinary non-rally negatives (the policy of D-031, unchanged). A cut still open at "That's every rally" ends where the recording does — the rest is not footage — on both platforms (`LiveTagger.finishCut(atEnd:)`).
+4. The phone shows the same facts at completion and says where the type is confirmed. It cannot persist or sync a recording's type: nothing in `label_rally_times`, `label_videos` or `label_rally_events` carries one, and adding a column or table is a backend migration this direction does not authorise — a separate owner decision. Nothing on the phone or the server is a second record of the type.
+
+**Consequences.** `RallyLab/FootageTypeConfirmation.swift` (the facts, the preview, the confirmation under an opening), `RallyLab/FootageTypeSheet.swift`; `FootageProperties.Store.confirmRecordingType`; `LiveTagger.finishCut(atEnd:)`; `LiveTagView` (the step after the pass, "Footage type…"), `MarkRalliesView` (`FootageTypeNoteView`); tests `FootageTypeConfirmationTests`, `LiveTaggerTests`, `LabelingSyncCutsTests`. The source index and the work queue read the confirmed type as before; no exporter changes. Open: whether an X-marked replay should also record a `replay` span (D-031 §11.6 item 1, unchanged — the cut stays the one exclusion); the phone's path once a server field exists. Proposed until the owner merges the PR that carries it.
+
+**Source.** Owner assignment of 2026-11-03; the PR carrying this entry.

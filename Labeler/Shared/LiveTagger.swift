@@ -194,6 +194,16 @@ final class LiveTagger {
         note("Cut from the start · S at the next serve ends it")
     }
 
+    /// "That's every rally" with a cut open: the rest of the recording is not
+    /// footage — the cut ends where the recording does (`duration`). One
+    /// opened within half a second of the end is a slip and is dropped.
+    func finishCut(atEnd duration: Double) {
+        guard let from = cutFrom else { return }
+        guard duration >= from + Self.minimumCut else { cutFrom = nil; note("Cut dropped — it started at the very end"); return }
+        closeCut(at: duration)
+        note("Cut \(clockText(from)) – the end · not footage")
+    }
+
     /// Marks mostly inside the cut go with it (undo brings them back); one
     /// that only brushes it stays, and is read outside the cut.
     private func closeCut(at end: Double) {

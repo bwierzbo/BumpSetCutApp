@@ -13,8 +13,12 @@
 //
 //  Pre-tracked rallies inside a rally you mark are confirmed and trimmed to
 //  it; "That's every rally" turns down the ones you never marked, drops
-//  the found rallies you passed over, and marks the video finished, so it
-//  counts in rally scoring and the decision model's training.
+//  the found rallies you passed over, ends a cut still open at the
+//  recording's end, and marks the video finished, so it counts in rally
+//  scoring and the decision model's training. Then the footage-type step
+//  (FootageTypeSheet, D-032): what the recording is — continuous, edited
+//  or unknown — is the person's call, kept apart from the pass being
+//  complete; "Footage type…" opens the same step any time.
 //
 
 import AVFoundation
@@ -25,21 +29,32 @@ struct LiveTagView: View {
     @Bindable var marker: RallyMarkModel
     let review: ProjectReviewStore
     let paths: BallPathBuilder
+    let projects: ProjectsModel
     let isActive: Bool
     let onClose: () -> Void
     let onDone: () -> Void
 
     @State private var tagger: LiveTagger
     @State private var speed: Float = 1
+    /// The footage-type step on screen, under the opening the recording is marked in.
+    @State private var footageType: FootageTypeStep?
+
+    private struct FootageTypeStep: Identifiable {
+        let id = UUID()
+        /// Right after the pass (going on to the next task when it closes), or opened to change the type.
+        let afterPass: Bool
+        let opening: ProjectsModel.Opening
+    }
 
     private static let speeds: [Float] = [0.5, 1, 2, 3, 4]
 
-    init(session: VideoSession, marker: RallyMarkModel, review: ProjectReviewStore, paths: BallPathBuilder, isActive: Bool,
+    init(session: VideoSession, marker: RallyMarkModel, review: ProjectReviewStore, paths: BallPathBuilder, projects: ProjectsModel, isActive: Bool,
          onClose: @escaping () -> Void, onDone: @escaping () -> Void) {
         self.session = session
         self.marker = marker
         self.review = review
         self.paths = paths
+        self.projects = projects
         self.isActive = isActive
         self.onClose = onClose
         self.onDone = onDone
@@ -56,6 +71,8 @@ struct LiveTagView: View {
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
                 .help("Playback speed (1–4; 0 for ½×)")
                 Text("\(marker.rallies.count) marked").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                Button { showFootageType(afterPass: false) } label: { Label("Footage type…", systemImage: "film.stack") }
+                    .help("What the recording is — continuous, edited or unknown — as confirmed in its footage-properties record; change it any time")
             }
             Divider()
             if marker.footageMissing {
@@ -81,7 +98,15 @@ struct LiveTagView: View {
         .onChange(of: marker.playhead) { _, t in
             if marker.isPlaying, marker.duration > 0, t >= marker.duration - 0.05 { marker.togglePlay() }
         }
-        .labelKeys(isActive: isActive, handleKey)
+        .labelKeys(isActive: isActive && footageType == nil, handleKey)
+        .sheet(item: $footageType) { step in
+            FootageTypeSheet(recording: FootageTypeConfirmation.Recording(name: session.name, sourcePath: session.sourcePath,
+                                                                          cuts: marker.cuts.normalised(), ralliesMarked: marker.wholeVideoMarked),
+                             opening: step.opening, projects: projects, duration: marker.duration > 0 ? marker.duration : nil, afterPass: step.afterPass) {
+                footageType = nil
+                if step.afterPass { onDone() }
+            }
+        }
     }
 
     // MARK: - The picture and the live state
@@ -175,8 +200,8 @@ struct LiveTagView: View {
                 Button { finish() } label: { Label("That's every rally", systemImage: "flag.checkered") }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(tagger.open != nil || tagger.cutFrom != nil)
-                    .help("Every rally is marked — the video then counts in rally scoring (⌘↩)")
+                    .disabled(tagger.open != nil || (tagger.cutFrom != nil && marker.duration <= 0))
+                    .help("Every rally is marked — a cut still open ends at the recording's end, the video counts in rally scoring, and then you say what the footage is (⌘↩)")
             }
             .buttonStyle(.borderless)
         }
@@ -256,9 +281,16 @@ struct LiveTagView: View {
 
     /// Everything you didn't mark isn't a rally: pre-tracked rallies are
     /// turned down, found rallies dropped — except inside a cut range, which
-    /// is not footage and is left alone (D-030); the video is finished.
+    /// is not footage and is left alone (D-030); the video is finished. Then
+    /// the footage-type step: what the recording is, is the person's call,
+    /// asked now and kept apart from the completion (D-032).
     private func finish() {
-        guard tagger.open == nil, tagger.cutFrom == nil else { return }
+        guard tagger.open == nil else { return }
+        if tagger.cutFrom != nil {
+            // The rest of the recording is not footage: the open cut ends where the recording does (D-030).
+            guard marker.duration > 0 else { return }
+            tagger.finishCut(atEnd: marker.duration)
+        }
         if marker.isPlaying { marker.togglePlay() }
         let marks = marker.rallies
         let cuts = marker.cuts.normalised()
@@ -270,7 +302,15 @@ struct LiveTagView: View {
             marker.sampler.addNotRally(start: g.start, session: session.name)
         }
         marker.wholeVideoMarked = true
-        onDone()
+        showFootageType(afterPass: true)
+    }
+
+    /// The footage-type step, under the project open now — the one the recording is marked in. With no project
+    /// open there is nothing to confirm into: after the pass, straight on to the next task.
+    private func showFootageType(afterPass: Bool) {
+        guard let opening = projects.opening else { if afterPass { onDone() }; return }
+        if marker.isPlaying { marker.togglePlay() }
+        footageType = FootageTypeStep(afterPass: afterPass, opening: opening)
     }
 
     private func play(from t: Double) {

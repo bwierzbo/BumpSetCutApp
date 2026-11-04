@@ -72,7 +72,7 @@ struct LabelTabView: View {
             switch page {
             case .next:
                 let videos = queueVideos
-                LabelHomeView(sampler: sampler, round: plan.currentRound, videos: videos,
+                LabelHomeView(sampler: sampler, projects: projects, round: plan.currentRound, videos: videos,
                               jobs: LabelQueue.jobs(videos, round: plan.currentRound), paths: paths, isActive: isActive) { active = $0 }
             case .review:
                 NavigationStack { ReviewHomeView(store: review, progress: review.progress) }
@@ -94,7 +94,7 @@ struct LabelTabView: View {
             LabelTrackTask(session: session, rally: rally, tracker: tracker, marker: marker, isActive: isActive,
                            onClose: { active = nil }, onDone: next)
         case .review:
-            LiveTagView(session: session, marker: marker, review: review, paths: paths, isActive: isActive,
+            LiveTagView(session: session, marker: marker, review: review, paths: paths, projects: projects, isActive: isActive,
                         onClose: { active = nil }, onDone: next)
         }
     }
@@ -128,15 +128,30 @@ extension LabelQueue.Video {
     }
 }
 
-/// Next: marking progress, the round, today, and what to do — the first task big.
+/// Next: marking progress, the round, today, and what to do — the first task big; then the finished
+/// recordings' footage types, each a click from the footage-type step (a finished recording has no marking
+/// job any more, so the step is reached from here, not the queue; D-032).
 private struct LabelHomeView: View {
     let sampler: SamplerModel
+    let projects: ProjectsModel
     let round: TrainingPlan.Round?
     let videos: [LabelQueue.Video]
     let jobs: [LabelQueue.Job]
     let paths: BallPathBuilder
     let isActive: Bool
     let open: (LabelQueue.Job) -> Void
+
+    /// The type on file per finished recording, read off the main actor; nil until read. A record that can't be
+    /// read shows as such (the step refuses to write over it).
+    @State private var types: [String: String]?
+    /// The footage-type step on screen, under the opening it was opened in.
+    @State private var footageType: FootageTypeTarget?
+
+    private struct FootageTypeTarget: Identifiable {
+        let id = UUID()
+        let recording: FootageTypeConfirmation.Recording
+        let opening: ProjectsModel.Opening
+    }
 
     var body: some View {
         let progress = PlanProgress(videos: videos.map(\.plan), round: round)
@@ -167,12 +182,20 @@ private struct LabelHomeView: View {
                         Button { open(job) } label: { card(job, big: false) }.buttonStyle(.plain)
                     }
                 }
+                footageTypes
             }
             .padding(24)
             .frame(maxWidth: 760)
             .frame(maxWidth: .infinity)
         }
         .background(.background.secondary)
+        .task(id: projects.opening) { await readTypes() }
+        .sheet(item: $footageType) { target in
+            FootageTypeSheet(recording: target.recording, opening: target.opening, projects: projects, duration: nil, afterPass: false) {
+                footageType = nil
+                Task { await readTypes() }
+            }
+        }
         .onAppear {
             // The ball's path for the next videos to mark, so snapping is ready when you open them.
             let upcoming = jobs.compactMap { job -> VideoSession? in
@@ -181,6 +204,58 @@ private struct LabelHomeView: View {
             }
             paths.ensure(Array(upcoming.prefix(4)))
         }
+    }
+
+    /// The finished recordings and what each is on file — continuous, edited, unknown — with the step a click away.
+    @ViewBuilder
+    private var footageTypes: some View {
+        let finished = sampler.sessions.filter { $0.ralliesMarked ?? false }.sorted { $0.name < $1.name }
+        if !finished.isEmpty {
+            Text("Footage type").font(.headline).padding(.top, 4)
+            Text("What each finished recording is — a separate fact from its rallies being marked. Unknown until you say.")
+                .font(.callout).foregroundStyle(.secondary)
+            VStack(spacing: 0) {
+                ForEach(finished, id: \.name) { session in
+                    HStack(spacing: 12) {
+                        Text(session.name).font(.callout.monospacedDigit())
+                        Spacer()
+                        Text(types.map { $0[session.name] ?? "unknown — not yet verified" } ?? "…").font(.callout).foregroundStyle(.secondary)
+                        Button("Footage type…") { show(session) }.controlSize(.small)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 8)
+                    Divider()
+                }
+            }
+            .background(.background, in: RoundedRectangle(cornerRadius: 16))
+        }
+    }
+
+    private func show(_ session: VideoSession) {
+        guard let opening = projects.opening else { return }
+        footageType = FootageTypeTarget(recording: FootageTypeConfirmation.Recording(session), opening: opening)
+    }
+
+    /// The type on file per recording — file work, off the main actor. A record bound to another fingerprint than
+    /// the card's is another file's (the recording was replaced under the same id): shown as unknown, to confirm
+    /// again — the same rule as the step and the source index (FootageTypeConfirmation.anotherFile).
+    private func readTypes() async {
+        guard let root = projects.opening?.root else { types = nil; return }
+        let fingerprints = Dictionary(uniqueKeysWithValues: sampler.sessions.map { ($0.name, FootageTypeConfirmation.sourceFingerprint(of: $0.name, in: projects.project)) })
+        types = await Task.detached(priority: .utility) { () -> [String: String] in
+            guard let all = try? FootageProperties.Store(root: root).loadAll() else { return [:] }
+            var out: [String: String] = [:]
+            for (name, file) in all.records {
+                if FootageTypeConfirmation.anotherFile(file, sourceFingerprint: fingerprints[name] ?? nil) != nil {
+                    out[name] = "unknown — the record on file is another file's; confirm again"
+                } else if file.recordingType == .unknown {
+                    out[name] = "unknown — not yet verified"
+                } else {
+                    out[name] = FootageTypeSheet.title(file.recordingType).lowercased() + (file.recordingTypeBy.map { " · \($0)" } ?? "")
+                }
+            }
+            for name in all.unreadable.keys { out[name] = "⚠︎ record unreadable" }
+            return out
+        }.value
     }
 
     private func roundCard(_ progress: PlanProgress) -> some View {
