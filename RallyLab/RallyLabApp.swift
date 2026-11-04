@@ -32,6 +32,8 @@ struct RallyLabApp: App {
             FileHandle.standardError.write(Data("RallyLab: \(refusal.message)\n".utf8))
             exit(2)
         }
+        // A guarded run keeps its labeling session apart from the app's: a Keychain item of its own.
+        if CommandLine.arguments.contains("--project-root") { LabelingClient.keychainService = LaunchGuard.acceptanceKeychainService }
         // `RallyLab --export-training-data [path]` batch-exports classifier
         // training data and exits (no UI interaction needed).
         HeadlessTrainingExport.runIfRequested()

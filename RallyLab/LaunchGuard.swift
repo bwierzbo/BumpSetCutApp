@@ -2,19 +2,24 @@
 //  LaunchGuard.swift
 //  RallyLab
 //
-//  What a RallyLab launch is allowed to do before any project is opened. Two rules, both decided from the
-//  command line alone, before a ProjectsModel exists (a ProjectsModel restores the last project — the person's —
-//  the moment it is made):
+//  What a RallyLab launch is allowed to do before any project is opened. Decided from the command line alone,
+//  before any model exists (a ProjectsModel restores the last project — the person's — the moment it is made):
 //
-//  1. A launch with any `--flag` is a headless run. If none of the headless commands is present, the launch is
+//  1. A launch with any `--flag` is a headless run. If no complete headless command is present, the launch is
 //     refused: it must never fall through to the window app and reopen the last project (on 2026-11-04
 //     `RallyLab --status` without `--project` did exactly that, for 27 minutes, on the owner's project).
-//  2. `--project-root <absolute dir>` is guarded mode, for tests and automation: `--project` must be an absolute
-//     path to an EXISTING project (project.json present) that resolves, symlinks followed, to a folder under the
-//     resolved root; the path itself may not be a symlink; the default project location (~/Movies/RallyLab/Projects)
-//     and any folder named Scratch are refused wherever they are. Nothing is created in guarded mode.
-//     `--defaults-suite <name>` keeps the run's preferences (remembered and last project) out of the person's, and
-//     `--pending-dir <dir>` keeps its queued phone decisions out of ~/Library/Application Support/RallyLab.
+//  2. `--project-root <absolute dir>` is guarded mode, for synthetic acceptance and automation only. Everything is
+//     validated here, and refused before a sampler, exporter, project or client exists:
+//     - the only operations are --status, --phone-sign-in <email>, --sign-out, --publish-identities, --sync-phone
+//       [--labels-only], and --create [--add-extras <env> <files…>]; any other flag (--sample, --export-training-data,
+//       --pretrack, …) is refused;
+//     - --project is an absolute path under the resolved root (symlinks followed), never itself a symlink, never the
+//       default project location (~/Movies/RallyLab/Projects), never a folder named Scratch; without --create it must
+//       hold project.json, with --create it must not; --add-extras files are absolute, existing regular files under
+//       the root (test-only inputs), and only with --create;
+//     - --defaults-suite is required and must begin with `rallylab.test.`; --pending-dir is required, absolute, no
+//       symlink, resolving under the root. Neither ever falls back to the person's preferences or pending folder;
+//     - the labeling session is kept under its own Keychain service (acceptanceKeychainService), never the app's.
 //
 
 import Foundation
@@ -27,23 +32,46 @@ enum LaunchGuard {
     /// The flags that start a headless run; any other `--flag` alone is a refusal.
     static let headlessCommands: Set<String> = ["--project", "--sample", "--export-training-data"]
 
-    /// A headless command that will actually start a run: `--project` must carry its value (HeadlessProjects returns
-    /// false without one, which would fall through to the window app); `--sample` exits on its own without inputs;
-    /// `--export-training-data` takes an optional path.
-    static func hasHeadlessCommand(_ arguments: [String]) -> Bool {
-        value(after: "--project", in: arguments) != nil || arguments.contains("--sample") || arguments.contains("--export-training-data")
+    /// Everything a guarded run may say on its command line.
+    static let guardedFlags: Set<String> = ["--project", "--project-root", "--defaults-suite", "--pending-dir",
+                                            "--create", "--add-extras", "--status", "--phone-sign-in", "--sign-out",
+                                            "--publish-identities", "--sync-phone", "--labels-only"]
+    static let testSuitePrefix = "rallylab.test."
+    /// The Keychain service a guarded run keeps its labeling session under: a separate item from the app's
+    /// `app.BumpSetCut.labeling`, which the app never reads and `--sign-out` clears.
+    static let acceptanceKeychainService = "app.BumpSetCut.labeling.acceptance"
+    static let extraEnvironments: Set<String> = ["Indoor", "Beach", "Grass"]
+    static let videoExtensions: Set<String> = ["mov", "mp4", "m4v"]
+
+    /// A validated guarded run.
+    struct Guarded: Equatable {
+        let root: URL
+        let project: URL
+        let defaultsSuite: String
+        let pendingDirectory: URL
+        let create: Bool
+        let extras: [URL]
     }
 
     /// The file checks the rules need, injectable for tests.
     struct Files {
         var exists: (URL) -> Bool
         var isSymlink: (URL) -> Bool
+        var isRegularFile: (URL) -> Bool
         var resolve: (URL) -> URL
 
         static let real = Files(
             exists: { FileManager.default.fileExists(atPath: $0.path) },
             isSymlink: { (try? FileManager.default.destinationOfSymbolicLink(atPath: $0.path)) != nil },
+            isRegularFile: { (try? FileManager.default.attributesOfItem(atPath: $0.path)[.type] as? FileAttributeType) == .typeRegular },
             resolve: { $0.resolvingSymlinksInPath().standardizedFileURL })
+    }
+
+    /// A headless command that will actually start a run: `--project` must carry its value (HeadlessProjects returns
+    /// false without one, which would fall through to the window app); `--sample` exits on its own without inputs;
+    /// `--export-training-data` takes an optional path.
+    static func hasHeadlessCommand(_ arguments: [String]) -> Bool {
+        value(after: "--project", in: arguments) != nil || arguments.contains("--sample") || arguments.contains("--export-training-data")
     }
 
     /// Why this launch must not go on, or nil when it may.
@@ -54,13 +82,18 @@ enum LaunchGuard {
             return Refusal(message: "no complete headless command among \(flags.joined(separator: " ")): a launch with flags never opens the window app (it would reopen the last project). Headless runs start with --project <name or path>, --sample <inputs…> or --export-training-data.")
         }
         if args.contains("--project-root") {
-            if case .failure(let refusal) = guardedProject(arguments: arguments, home: home, files: files) { return refusal }
+            if case .failure(let refusal) = guarded(arguments: arguments, home: home, files: files) { return refusal }
         }
         return nil
     }
 
-    /// Guarded mode: the existing project `--project` names, validated against `--project-root`.
-    static func guardedProject(arguments: [String], home: URL, files: Files = .real) -> Result<URL, Refusal> {
+    /// Guarded mode, fully validated, or why not.
+    static func guarded(arguments: [String], home: URL, files: Files = .real) -> Result<Guarded, Refusal> {
+        let args = Array(arguments.dropFirst())
+        let flags = args.filter { $0.hasPrefix("--") }
+        if let other = flags.first(where: { !guardedFlags.contains($0) }) {
+            return .failure(Refusal(message: "\(other) is not an operation of guarded mode (allowed: \(guardedFlags.sorted().joined(separator: " ")))"))
+        }
         guard let root = value(after: "--project-root", in: arguments) else {
             return .failure(Refusal(message: "--project-root needs a directory"))
         }
@@ -68,58 +101,108 @@ enum LaunchGuard {
             return .failure(Refusal(message: "--project-root must be an absolute path, not \(root)"))
         }
         guard let project = value(after: "--project", in: arguments) else {
-            return .failure(Refusal(message: "--project-root needs --project <absolute path of an existing project>"))
+            return .failure(Refusal(message: "--project-root needs --project <absolute path of the test project>"))
         }
         guard project.hasPrefix("/") else {
             return .failure(Refusal(message: "with --project-root, --project must be an absolute path, not \(project)"))
+        }
+        let resolvedRoot = files.resolve(URL(fileURLWithPath: root, isDirectory: true))
+        let defaultLocation = files.resolve(home.appendingPathComponent("Movies/RallyLab/Projects", isDirectory: true))
+        if isSame(resolvedRoot, as: defaultLocation) || isInside(resolvedRoot, of: defaultLocation) || isInside(defaultLocation, of: resolvedRoot) {
+            return .failure(Refusal(message: "--project-root \(resolvedRoot.path) overlaps the default project location \(defaultLocation.path): never a test root"))
+        }
+        if resolvedRoot.pathComponents.contains("Scratch") {
+            return .failure(Refusal(message: "--project-root \(resolvedRoot.path) is or is under a folder named Scratch: refused"))
         }
         let given = URL(fileURLWithPath: project, isDirectory: true)
         if files.isSymlink(given) {
             return .failure(Refusal(message: "\(project) is a symbolic link: give the project's real folder"))
         }
-        let resolvedRoot = files.resolve(URL(fileURLWithPath: root, isDirectory: true))
         let resolved = files.resolve(given)
-        let defaultLocation = files.resolve(home.appendingPathComponent("Movies/RallyLab/Projects", isDirectory: true))
-        for dir in [resolvedRoot, resolved] where isSame(dir, as: defaultLocation) || isInside(dir, of: defaultLocation) {
-            return .failure(Refusal(message: "\(dir.path) is in the default project location \(defaultLocation.path): never a test root or test project"))
+        if isSame(resolved, as: defaultLocation) || isInside(resolved, of: defaultLocation) {
+            return .failure(Refusal(message: "\(resolved.path) is in the default project location \(defaultLocation.path): never a test project"))
         }
-        if resolved.pathComponents.contains("Scratch") || resolvedRoot.pathComponents.contains("Scratch") {
+        if resolved.pathComponents.contains("Scratch") {
             return .failure(Refusal(message: "\(resolved.path) is or is under a folder named Scratch: refused in guarded mode"))
         }
         guard isInside(resolved, of: resolvedRoot) else {
             return .failure(Refusal(message: "\(project) resolves to \(resolved.path), outside --project-root \(resolvedRoot.path)"))
         }
-        guard files.exists(resolved.appendingPathComponent("project.json")) else {
-            return .failure(Refusal(message: "\(resolved.path) has no project.json: not an existing project, and guarded mode creates none"))
+        let create = arguments.contains("--create")
+        let hasProjectJSON = files.exists(resolved.appendingPathComponent("project.json"))
+        if create, hasProjectJSON {
+            return .failure(Refusal(message: "\(resolved.path) already holds a project (project.json): --create refuses to touch it"))
         }
-        return .success(resolved)
+        if !create, !hasProjectJSON {
+            return .failure(Refusal(message: "\(resolved.path) has no project.json: not an existing project, and guarded mode creates none without --create"))
+        }
+        if create, !files.exists(resolvedRoot) {
+            return .failure(Refusal(message: "--project-root \(resolvedRoot.path) does not exist: --create makes the project, not the root"))
+        }
+        // Isolation: required, never defaulted.
+        guard let suite = value(after: "--defaults-suite", in: arguments), !suite.isEmpty else {
+            return .failure(Refusal(message: "guarded mode needs --defaults-suite \(testSuitePrefix)<name>: a run's preferences never go to the person's"))
+        }
+        guard suite.hasPrefix(testSuitePrefix) else {
+            return .failure(Refusal(message: "--defaults-suite \(suite) is not a test suite (it must begin with \(testSuitePrefix))"))
+        }
+        guard let pending = value(after: "--pending-dir", in: arguments) else {
+            return .failure(Refusal(message: "guarded mode needs --pending-dir <absolute dir under --project-root>: queued phone decisions never go to the person's folder"))
+        }
+        guard pending.hasPrefix("/") else {
+            return .failure(Refusal(message: "--pending-dir must be an absolute path, not \(pending)"))
+        }
+        let pendingURL = URL(fileURLWithPath: pending, isDirectory: true)
+        if files.isSymlink(pendingURL) {
+            return .failure(Refusal(message: "--pending-dir \(pending) is a symbolic link: refused"))
+        }
+        let resolvedPending = files.resolve(pendingURL)
+        guard isInside(resolvedPending, of: resolvedRoot) else {
+            return .failure(Refusal(message: "--pending-dir \(pending) resolves to \(resolvedPending.path), outside --project-root \(resolvedRoot.path)"))
+        }
+        // Operations with values.
+        if arguments.contains("--phone-sign-in"), value(after: "--phone-sign-in", in: arguments) == nil {
+            return .failure(Refusal(message: "--phone-sign-in needs the account's email (the password comes from RALLYLAB_PASSWORD, never the command line)"))
+        }
+        // Inputs for creation: test-only files under the root.
+        var extras: [URL] = []
+        if let i = arguments.firstIndex(of: "--add-extras") {
+            guard create else {
+                return .failure(Refusal(message: "--add-extras is only part of --create in guarded mode"))
+            }
+            guard arguments.indices.contains(i + 1), extraEnvironments.contains(arguments[i + 1]) else {
+                return .failure(Refusal(message: "--add-extras needs <Indoor|Beach|Grass> <absolute files…>"))
+            }
+            let paths = arguments[(i + 2)...].prefix { !$0.hasPrefix("--") }
+            guard !paths.isEmpty else {
+                return .failure(Refusal(message: "--add-extras names no files"))
+            }
+            for path in paths {
+                guard path.hasPrefix("/") else { return .failure(Refusal(message: "--add-extras file \(path) is not an absolute path")) }
+                let url = URL(fileURLWithPath: path)
+                guard videoExtensions.contains(url.pathExtension.lowercased()) else { return .failure(Refusal(message: "--add-extras file \(path) is not a .mov/.mp4/.m4v")) }
+                if files.isSymlink(url) { return .failure(Refusal(message: "--add-extras file \(path) is a symbolic link: refused")) }
+                let file = files.resolve(url)
+                guard isInside(file, of: resolvedRoot) else { return .failure(Refusal(message: "--add-extras file \(path) resolves to \(file.path), outside --project-root: only test-only inputs under the root")) }
+                guard files.exists(file), files.isRegularFile(file) else { return .failure(Refusal(message: "--add-extras file \(path) is not an existing regular file")) }
+                extras.append(file)
+            }
+        }
+        return .success(Guarded(root: resolvedRoot, project: resolved, defaultsSuite: suite, pendingDirectory: resolvedPending, create: create, extras: extras))
     }
 
-    /// The validated project folder of a guarded run, nil for an unguarded run (or a guarded one the guard already
-    /// refused — the launch never gets here then).
-    static func guardedRoot(for arguments: [String], home: URL, files: Files = .real) -> URL? {
+    /// The validated guarded run, nil for an unguarded run.
+    static func guardedRun(for arguments: [String], home: URL, files: Files = .real) -> Guarded? {
         guard arguments.contains("--project-root") else { return nil }
-        return try? guardedProject(arguments: arguments, home: home, files: files).get()
+        return try? guarded(arguments: arguments, home: home, files: files).get()
     }
-
-    /// `--defaults-suite <name>`: a preferences domain of the run's own, else the person's.
-    static func defaults(for arguments: [String]) -> UserDefaults {
-        guard let suite = value(after: "--defaults-suite", in: arguments), let defaults = UserDefaults(suiteName: suite) else { return .standard }
-        return defaults
-    }
-
-    /// `--pending-dir <dir>`: where the run keeps queued phone decisions, else the usual Application Support folder.
-    static func pendingDirectory(for arguments: [String]) -> URL {
-        guard let dir = value(after: "--pending-dir", in: arguments) else { return Pending.defaultDirectory }
-        return URL(fileURLWithPath: (dir as NSString).expandingTildeInPath, isDirectory: true)
-    }
-
-    private static func isSame(_ a: URL, as b: URL) -> Bool { a.standardizedFileURL.path == b.standardizedFileURL.path }
 
     /// The same folder, symlinks followed on both sides.
     static func isSameFolder(_ a: URL, _ b: URL) -> Bool {
         a.resolvingSymlinksInPath().standardizedFileURL.path == b.resolvingSymlinksInPath().standardizedFileURL.path
     }
+
+    private static func isSame(_ a: URL, as b: URL) -> Bool { a.standardizedFileURL.path == b.standardizedFileURL.path }
 
     private static func isInside(_ dir: URL, of root: URL) -> Bool {
         let d = dir.standardizedFileURL.pathComponents, r = root.standardizedFileURL.pathComponents
