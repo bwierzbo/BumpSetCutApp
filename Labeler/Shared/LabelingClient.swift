@@ -182,8 +182,32 @@ actor LabelingClient {
 
     // MARK: - Tables
 
-    func videos() async throws -> [LabelVideo] {
-        try await get("label_videos", query: "select=*&order=surface,session_name,created_at")
+    func videos() async throws -> [LabelVideo] { try await videos(since: nil) }
+
+    /// The rows changed since `since` (the phone's pull: the published type among what the Mac changes).
+    func videos(since: Date?) async throws -> [LabelVideo] {
+        try await get("label_videos", query: "select=*&order=surface,session_name,created_at" + Self.changed(since))
+    }
+
+    /// The published type taken off a row (leads; the Mac, when the recording's record is gone): an explicit null,
+    /// since the row's encoder leaves nil out and an upsert keeps a column it is not sent.
+    /// The row's `updated_at` moves with it, so a phone's pull of the rows changed since sees the clearing on its own
+    /// (no trigger dates label_videos; a later upsert of an otherwise unchanged row would not be sent).
+    func clearPublishedRecordingType(_ videoId: UUID) async throws {
+        var request = try await rest("label_videos", query: "id=eq.\(videoId.uuidString.lowercased())")
+        request.httpMethod = "PATCH"
+        request.setValue("return=minimal", forHTTPHeaderField: "Prefer")
+        request.httpBody = Self.clearedRecordingTypePayload(at: Date())
+        _ = try await send(request)
+    }
+
+    /// The PATCH body that clears the published type: both columns as explicit JSON nulls — a synthesized
+    /// `Encodable` leaves a nil optional out (`encodeIfPresent`), which an update would read as "unchanged" — and
+    /// the row's date. Keys in a fixed order, so the exact payload is testable.
+    static func clearedRecordingTypePayload(at date: Date) -> Data {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return Data(#"{"recording_type":null,"recording_type_at":null,"updated_at":"\#(f.string(from: date))"}"#.utf8)
     }
 
     /// Every video's rally times, or only those changed after `since`.
@@ -246,6 +270,44 @@ actor LabelingClient {
     /// Every recording's record row (or those saved after `since`).
     func rallyEvents(since: Date? = nil) async throws -> [LabelRallyEvents] {
         try await get("label_rally_events", query: "select=*" + Self.changed(since))
+    }
+
+    // MARK: - Recording-type claims (migration 052; D-033)
+
+    /// The claims this account may read (049's rule), changed since `since`.
+    func recordingTypeClaims(since: Date? = nil) async throws -> [RecordingTypeClaim] {
+        try await get("label_recording_type_claims", query: "select=*" + Self.changed(since))
+    }
+
+    /// One claim as the server has it now; nil when it is gone (its recording deleted) or not readable.
+    func recordingTypeClaim(id: UUID) async throws -> RecordingTypeClaim? {
+        let rows: [RecordingTypeClaim] = try await get("label_recording_type_claims", query: "select=*&id=eq.\(id.uuidString.lowercased())")
+        return rows.first
+    }
+
+    /// The phone's choice, as a claim (`recording_type_claim_submit`): idempotent by the claim's id. A refusal of the
+    /// claim itself — withheld, identity, input — comes back as `Failure.server` with the server's message.
+    func submitRecordingTypeClaim(_ pending: RecordingTypeClaims.Pending) async throws -> RecordingTypeClaim {
+        struct Params: Encodable { let p_id: String; let p_video: String; let p_type: String; let p_fingerprint: String }
+        var request = try await rest("rpc/recording_type_claim_submit", query: "")
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(Params(p_id: pending.id.uuidString.lowercased(), p_video: pending.videoId.uuidString.lowercased(),
+                                                           p_type: pending.kind.rawValue, p_fingerprint: pending.sourceFingerprint))
+        let rows = try Self.decoder.decode([RecordingTypeClaim].self, from: try await send(request))
+        guard let row = rows.first else { throw Failure.unreadable }
+        return row
+    }
+
+    /// The Mac's settlement (`recording_type_claim_settle`, leads only): accepted, with the record's confirmation
+    /// time, after the authoritative write; or rejected with a reason. The same settlement again is a no-op.
+    func settleRecordingTypeClaim(_ id: UUID, status: RecordingTypeClaim.Status, reason: String?, confirmedAt: Date?) async throws -> RecordingTypeClaim {
+        struct Params: Encodable { let p_id: String; let p_status: String; let p_reason: String?; let p_confirmed_at: Date? }
+        var request = try await rest("rpc/recording_type_claim_settle", query: "")
+        request.httpMethod = "POST"
+        request.httpBody = try Self.encoder.encode(Params(p_id: id.uuidString.lowercased(), p_status: status.rawValue, p_reason: reason, p_confirmed_at: confirmedAt))
+        let rows = try Self.decoder.decode([RecordingTypeClaim].self, from: try await send(request))
+        guard let row = rows.first else { throw Failure.unreadable }
+        return row
     }
 
     /// Saves a record at the revision it was loaded from (0 = none on the server yet) through `rally_events_save`.

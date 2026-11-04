@@ -134,7 +134,8 @@ final class LabelerModel: ReviewStore {
             async let k = client.tracks()
             async let s = client.projectStates()
             async let e = client.rallyEvents()
-            var loaded = try await LabelSnapshot(videos: v, times: t, tracks: k, states: s, events: e)
+            async let rc = client.recordingTypeClaims()
+            var loaded = try await LabelSnapshot(videos: v, times: t, tracks: k, states: s, events: e, claims: rc)
             // A record is taken only for the recording and original footage it describes (identity checked first).
             eventIdentityProblems = [:]
             loaded.events = admit(loaded.events, videos: loaded.videos, keeping: snapshot.events)
@@ -149,6 +150,8 @@ final class LabelerModel: ReviewStore {
             quarantineUnreviewable()
             lastPull = started
             lastEventsPull = started
+            lastClaimsPull = started
+            lastVideosPull = started
             syncProblem = nil
             LocalStore.pruneClips(keeping: loaded.videos)
             LocalStore.save(snapshot, "snapshot.json")
@@ -217,6 +220,27 @@ final class LabelerModel: ReviewStore {
                 snapshot.tracks.removeAll { $0.id == r.id }
                 snapshot.tracks.append(r)
             }
+            // Footage-type claims, with their own cursor like the Stage 1 records: the Mac's settlements arrive here.
+            do {
+                let claims = try await client.recordingTypeClaims(since: (lastClaimsPull ?? last).addingTimeInterval(-Self.pullOverlap))
+                take(claims)
+                lastClaimsPull = started
+            } catch {
+                syncProblem = Self.describe("Couldn't fetch the footage-type claims", error)
+            }
+            // The rows the Mac changed since (the published type among them): a settlement is shown beside the type
+            // the Mac has now, never beside an older one, and the type itself is never inferred from a claim.
+            do {
+                let rows = try await client.videos(since: (lastVideosPull ?? last).addingTimeInterval(-Self.pullOverlap))
+                for row in rows {
+                    snapshot.videos.removeAll { $0.id == row.id }
+                    snapshot.videos.append(row)
+                }
+                if !rows.isEmpty { LocalStore.save(snapshot, "snapshot.json") }
+                lastVideosPull = started
+            } catch {
+                syncProblem = Self.describe("Couldn't fetch the recordings", error)
+            }
             if !times.isEmpty || !tracks.isEmpty { LocalStore.save(snapshot, "snapshot.json") }
             lastPull = started
             isOffline = false
@@ -247,6 +271,43 @@ final class LabelerModel: ReviewStore {
     private(set) var eventIdentityProblems: [UUID: String] = [:]
     /// When the Stage 1 records were last fetched in full or incrementally (advances only on success).
     @ObservationIgnored private var lastEventsPull: Date?
+    @ObservationIgnored private var lastClaimsPull: Date?
+    @ObservationIgnored private var lastVideosPull: Date?
+
+    // MARK: - Footage-type claims (D-033)
+
+    /// The person's choice of the recording's type: a claim, saved on this phone first (durable) and sent when
+    /// online. Nothing on the phone is the type itself. A newer choice replaces one still on this phone — refused
+    /// or not yet sent — under a fresh id (the server does the same with one it holds). Returns why it cannot be
+    /// made, if it cannot.
+    func claimRecordingType(_ kind: RecordingTypeClaims.Kind, for video: LabelVideo) -> String? {
+        guard let fingerprint = video.sourceFingerprint, !fingerprint.isEmpty else {
+            return "The Mac hasn't published this recording's identity yet — sync from the Mac first."
+        }
+        guard isReviewable(video) else { return "This recording isn't open to labeling on this phone." }
+        let pending = RecordingTypeClaims.Pending(id: UUID(), videoId: video.id, sourceFingerprint: fingerprint, kind: kind, madeAt: Date())
+        outbox.claims = RecordingTypeClaims.replacing(outbox.claims, with: pending)
+        queueFlush()
+        return nil
+    }
+
+    /// The newest choice for the recording and where it stands.
+    func footageType(for video: LabelVideo) -> RecordingTypeClaims.Display {
+        RecordingTypeClaims.display(video: video.id, pending: outbox.claims, rows: snapshot.claims)
+    }
+
+    /// Server rows into the snapshot: by id; a row for a choice still in the outbox means the server has it
+    /// (a reply lost on the way back), so the pending copy goes.
+    private func take(_ claims: [RecordingTypeClaim]) {
+        guard !claims.isEmpty else { return }
+        for row in claims {
+            snapshot.claims.removeAll { $0.id == row.id }
+            snapshot.claims.append(row)
+            if outbox.claims[row.id] != nil { outbox.claims[row.id] = nil }
+        }
+        LocalStore.save(outbox, "outbox.json")
+        LocalStore.save(snapshot, "snapshot.json")
+    }
 
     /// The record as last loaded from the server for this recording, or the pending local edit.
     func rallyEvents(for video: LabelVideo) -> (record: EventReview.File, revision: Int)? {
@@ -672,6 +733,20 @@ final class LabelerModel: ReviewStore {
             } catch LabelingClient.Failure.server(let code, let message) where RallyEventsSync.isWithheld(message) || code == 403 {
                 // Withheld on the server: the edit is kept on the phone, not sent again (quarantined).
                 eventIdentityProblems[id] = "refused by the server: " + message
+                syncProblem = message
+            } catch { isOffline = true; break }
+        }
+        // Footage-type choices, oldest first, the refused ones left out: once the server has one, its copy here goes;
+        // a refusal of the claim itself is written on the durable choice (shown, and never sent again as it is — a
+        // new choice replaces it under a fresh id); a transient failure leaves the choice to be sent next time.
+        for pending in RecordingTypeClaims.toSend(outbox.claims) {
+            do {
+                let row = try await client.submitRecordingTypeClaim(pending)
+                outbox.claims[pending.id] = nil
+                snapshot.claims.removeAll { $0.id == row.id }
+                snapshot.claims.append(row)
+            } catch LabelingClient.Failure.server(_, let message) where RecordingTypeClaims.isRefusal(message) {
+                outbox.claims[pending.id]?.refusal = message
                 syncProblem = message
             } catch { isOffline = true; break }
         }

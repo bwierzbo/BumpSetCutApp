@@ -116,8 +116,9 @@ struct FootageTypeSheet: View {
     private static func onFile(_ f: FootageTypeConfirmation.Facts) -> String {
         if let problem = f.recordProblem { return "⚠︎ the footage-properties record can't be read — nothing is confirmed over it: \(problem)" }
         if let other = f.recordOfAnotherFile { return "a record for another file (\(other)) — confirming starts a record of this one" }
-        guard let r = f.record else { return "no record — unknown, not yet verified" }
-        var line = title(r.recordingType)
+        guard let r = f.record else { return "no record — not yet reviewed" }
+        // Not yet reviewed (no one confirmed anything), reviewed and found unknown, or the confirmed type.
+        var line = RecordingTypeClaims.reviewed(kind: RecordingTypeClaims.Kind(rawValue: r.recordingType.rawValue), at: r.recordingTypeAt.flatMap(RecordingTypeClaims.parse))
         if let by = r.recordingTypeBy, let at = r.recordingTypeAt { line += " · confirmed by \(by), \(at)" }
         let spans = r.activeSpans.count
         if spans > 0 { line += " · \(spans) span\(spans == 1 ? "" : "s") on file" }

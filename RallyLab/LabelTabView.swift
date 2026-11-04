@@ -219,7 +219,7 @@ private struct LabelHomeView: View {
                     HStack(spacing: 12) {
                         Text(session.name).font(.callout.monospacedDigit())
                         Spacer()
-                        Text(types.map { $0[session.name] ?? "unknown — not yet verified" } ?? "…").font(.callout).foregroundStyle(.secondary)
+                        Text(types.map { $0[session.name] ?? "not yet reviewed" } ?? "…").font(.callout).foregroundStyle(.secondary)
                         Button("Footage type…") { show(session) }.controlSize(.small)
                     }
                     .padding(.horizontal, 16).padding(.vertical, 8)
@@ -246,11 +246,12 @@ private struct LabelHomeView: View {
             var out: [String: String] = [:]
             for (name, file) in all.records {
                 if FootageTypeConfirmation.anotherFile(file, sourceFingerprint: fingerprints[name] ?? nil) != nil {
-                    out[name] = "unknown — the record on file is another file's; confirm again"
-                } else if file.recordingType == .unknown {
-                    out[name] = "unknown — not yet verified"
+                    out[name] = "not yet reviewed — the record on file is another file's; confirm again"
                 } else {
-                    out[name] = FootageTypeSheet.title(file.recordingType).lowercased() + (file.recordingTypeBy.map { " · \($0)" } ?? "")
+                    // Not yet reviewed, reviewed and found unknown, or the confirmed type — with who confirmed it.
+                    out[name] = RecordingTypeClaims.reviewed(kind: RecordingTypeClaims.Kind(rawValue: file.recordingType.rawValue),
+                                                             at: file.recordingTypeAt.flatMap(RecordingTypeClaims.parse))
+                        + (file.recordingTypeAt != nil ? (file.recordingTypeBy.map { " · \($0)" } ?? "") : "")
                 }
             }
             for name in all.unreadable.keys { out[name] = "⚠︎ record unreadable" }

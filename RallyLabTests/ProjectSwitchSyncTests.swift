@@ -1042,6 +1042,66 @@ final class FakeLabeling: LabelingService {
         return names.count
     }
 
+    /// Claims by id, and what the Mac settled, in order (the server's settle rules: the same settlement again is a
+    /// no-op; any other change to a settled claim is a conflict).
+    var claims: [UUID: RecordingTypeClaim] = [:]
+    var settled: [(id: UUID, status: RecordingTypeClaim.Status, reason: String?, confirmedAt: Date?)] = []
+
+    func recordingTypeClaims(since: Date?) async throws -> [RecordingTypeClaim] {
+        try begin("recordingTypeClaims"); try await park("recordingTypeClaims")
+        return claims.values.sorted { ($0.videoId.uuidString, $0.revision) < ($1.videoId.uuidString, $1.revision) }
+    }
+
+    /// The row as it was when asked — a reply delayed on the way back (the hold) carries the state of that moment.
+    func recordingTypeClaim(id: UUID) async throws -> RecordingTypeClaim? {
+        try begin("recordingTypeClaim")
+        let row = claims[id]
+        try await park("recordingTypeClaim")
+        return row
+    }
+
+    /// The phone's replacement choice for a recording, as the server would record it: the waiting claim superseded,
+    /// the new one the next revision.
+    @discardableResult
+    func phoneReplaces(video: UUID, with kind: String, at: Date = Date()) -> RecordingTypeClaim {
+        for (id, var c) in claims where c.videoId == video && c.status == .submitted {
+            c.status = .superseded; c.reason = "replaced by a newer choice"; c.settledAt = at; c.updatedAt = at
+            claims[id] = c
+        }
+        let old = claims.values.filter { $0.videoId == video }.first!
+        let revision = (claims.values.filter { $0.videoId == video }.map(\.revision).max() ?? 0) + 1
+        let new = RecordingTypeClaim(id: UUID(), videoId: video, project: old.project, sessionName: old.sessionName, sourceFingerprint: old.sourceFingerprint,
+                                     recordingType: kind, revision: revision, status: .submitted, reason: nil, submittedBy: UUID(), submittedAt: at, settledBy: nil, settledAt: nil, updatedAt: at)
+        claims[new.id] = new
+        return new
+    }
+
+    func settleRecordingTypeClaim(_ id: UUID, status: RecordingTypeClaim.Status, reason: String?, confirmedAt: Date?) async throws -> RecordingTypeClaim {
+        try begin("settleRecordingTypeClaim")
+        guard var claim = claims[id] else { throw LabelingClient.Failure.server(400, "recording_type_claim_settle: no such claim") }
+        if claim.status != status {
+            guard claim.status == .submitted else { throw LabelingClient.Failure.server(400, "conflict: claim \(id) is already \(claim.status.rawValue)") }
+            claim.status = status; claim.reason = reason; claim.settledAt = Date(); claim.updatedAt = claim.settledAt
+            claims[id] = claim
+            if status == .accepted, let i = videos.firstIndex(where: { $0.id == claim.videoId }) {
+                videos[i].recordingType = claim.recordingType
+                videos[i].recordingTypeAt = confirmedAt ?? Date()
+            }
+        }
+        settled.append((id, status, reason, confirmedAt))
+        try await park("settleRecordingTypeClaim")
+        return claim
+    }
+
+    var cleared: [UUID] = []
+
+    func clearPublishedRecordingType(_ videoId: UUID) async throws {
+        try begin("clearPublishedRecordingType")
+        if let i = videos.firstIndex(where: { $0.id == videoId }) { videos[i].recordingType = nil; videos[i].recordingTypeAt = nil; videos[i].updatedAt = Date() }
+        cleared.append(videoId)
+        try await park("clearPublishedRecordingType")
+    }
+
     func save(_ state: LabelProjectState) async throws {
         try begin("save(state)")
         states.append(state)
