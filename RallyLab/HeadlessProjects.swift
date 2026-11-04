@@ -135,8 +135,12 @@ enum HeadlessProjects {
         guard let name = value(after: "--project", in: args) else { return false }
 
         Task { @MainActor in
-            // No project is restored: a headless run opens the one it is given, nothing before it.
-            let projects = ProjectsModel(sampler: SamplerModel(), defaults: LaunchGuard.defaults(for: args), restoreLastProject: false)
+            // No project is restored: a headless run opens the one it is given, nothing before it. The sampler shares
+            // the run's preferences and, in guarded mode, starts on the validated project — so the person's dataset is
+            // neither read nor remembered (Codex on #146).
+            let defaults = LaunchGuard.defaults(for: args)
+            let guardedRoot = LaunchGuard.guardedRoot(for: args, home: FileManager.default.homeDirectoryForCurrentUser)
+            let projects = ProjectsModel(sampler: SamplerModel(defaults: defaults, root: guardedRoot), defaults: defaults, restoreLastProject: false)
             // A path opens (or creates) that folder; a bare name finds a known
             // project, else creates one in --location or the default place.
             // With --project-root, only an existing project under that root is opened, never created (LaunchGuard).

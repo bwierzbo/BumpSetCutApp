@@ -95,6 +95,13 @@ enum LaunchGuard {
         return .success(resolved)
     }
 
+    /// The validated project folder of a guarded run, nil for an unguarded run (or a guarded one the guard already
+    /// refused — the launch never gets here then).
+    static func guardedRoot(for arguments: [String], home: URL, files: Files = .real) -> URL? {
+        guard arguments.contains("--project-root") else { return nil }
+        return try? guardedProject(arguments: arguments, home: home, files: files).get()
+    }
+
     /// `--defaults-suite <name>`: a preferences domain of the run's own, else the person's.
     static func defaults(for arguments: [String]) -> UserDefaults {
         guard let suite = value(after: "--defaults-suite", in: arguments), let defaults = UserDefaults(suiteName: suite) else { return .standard }

@@ -124,6 +124,28 @@ final class LaunchGuardTests: XCTestCase {
 
     // MARK: - Isolation
 
+    func testGuardedRootIsTheValidatedProjectOrNil() {
+        XCTAssertEqual(LaunchGuard.guardedRoot(for: ["RallyLab", "--project", "/t/root/Accept-052", "--project-root", "/t/root"], home: home, files: goodFiles)?.path,
+                       "/t/root/Accept-052")
+        XCTAssertNil(LaunchGuard.guardedRoot(for: ["RallyLab", "--project", "/t/root/Accept-052"], home: home, files: goodFiles), "unguarded: nil")
+        XCTAssertNil(LaunchGuard.guardedRoot(for: ["RallyLab", "--project", "/t/root/Other", "--project-root", "/t/root"], home: home, files: goodFiles))
+    }
+
+    func testASamplerBuiltForTheRunKeepsItsDatasetOutOfTheStandardDefaults() throws {
+        let suite = "rallylab.launch-guard.sampler.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("launch-guard-ds-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let before = UserDefaults.standard.string(forKey: "RallyLab.datasetRoot")
+        let sampler = SamplerModel(defaults: defaults, root: root)
+        XCTAssertEqual(sampler.datasetRoot.standardizedFileURL.path, root.standardizedFileURL.path, "starts on the given root, not the person's dataset")
+        sampler.setDatasetRoot(root)
+        XCTAssertEqual(defaults.string(forKey: "RallyLab.datasetRoot"), root.path, "remembered in the run's suite")
+        XCTAssertEqual(UserDefaults.standard.string(forKey: "RallyLab.datasetRoot"), before, "the person's preference is untouched")
+    }
+
     func testPendingDirectoryAndDefaultsSuiteComeFromTheRun() {
         XCTAssertEqual(LaunchGuard.pendingDirectory(for: ["RallyLab", "--pending-dir", "/t/pending"]).path, "/t/pending")
         XCTAssertEqual(LaunchGuard.pendingDirectory(for: ["RallyLab"]), Pending.defaultDirectory)
