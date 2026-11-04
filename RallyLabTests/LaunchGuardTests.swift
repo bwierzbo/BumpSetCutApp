@@ -131,7 +131,7 @@ final class LaunchGuardTests: XCTestCase {
         XCTAssertNil(LaunchGuard.guardedRoot(for: ["RallyLab", "--project", "/t/root/Other", "--project-root", "/t/root"], home: home, files: goodFiles))
     }
 
-    func testASamplerBuiltForTheRunKeepsItsDatasetOutOfTheStandardDefaults() throws {
+    @MainActor func testASamplerBuiltForTheRunKeepsItsDatasetOutOfTheStandardDefaults() throws {
         let suite = "rallylab.launch-guard.sampler.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
