@@ -14,12 +14,19 @@ import XCTest
 final class LaunchGuardTests: XCTestCase {
     private let home = URL(fileURLWithPath: "/Users/someone", isDirectory: true)
 
-    private func files(existing: Set<String>, symlinks: Set<String> = [], resolved: [String: String] = [:], regular: Set<String>? = nil) -> LaunchGuard.Files {
+    /// project.json files declare the name of their folder unless `names` says otherwise.
+    private func files(existing: Set<String>, symlinks: Set<String> = [], resolved: [String: String] = [:], regular: Set<String>? = nil,
+                       names: [String: String] = [:]) -> LaunchGuard.Files {
         LaunchGuard.Files(
             exists: { existing.contains($0.standardizedFileURL.path) },
             isSymlink: { symlinks.contains($0.standardizedFileURL.path) },
             isRegularFile: { (regular ?? existing).contains($0.standardizedFileURL.path) },
-            resolve: { URL(fileURLWithPath: resolved[$0.standardizedFileURL.path] ?? $0.standardizedFileURL.path, isDirectory: true) })
+            resolve: { URL(fileURLWithPath: resolved[$0.standardizedFileURL.path] ?? $0.standardizedFileURL.path, isDirectory: true) },
+            projectName: { url in
+                let path = url.standardizedFileURL.path
+                guard existing.contains(path) else { return nil }
+                return names[path] ?? url.deletingLastPathComponent().lastPathComponent
+            })
     }
 
     /// An existing project /t/root/Accept-052 and a media file /t/root/media/A.mov.
@@ -100,29 +107,58 @@ final class LaunchGuardTests: XCTestCase {
     func testGuardedModeRequiresAbsolutePathsAndAnExistingProject() {
         XCTAssertNotNil(refusal(guarded([], project: "Accept-052")), "a bare name is never guarded")
         XCTAssertNotNil(refusal(guarded([], root: "t/root")))
-        XCTAssertNotNil(refusal(guarded([], project: "/t/root/Other")), "no project.json: nothing is created without --create")
+        XCTAssertNotNil(refusal(guarded([], project: "/t/root/Accept-other")), "no project.json: nothing is created without --create")
         XCTAssertNotNil(refusal(guarded([], project: "/t/root")), "the root itself is not a project under it")
     }
 
     func testGuardedModeRefusesTheDefaultLocationAndScratchAnywhere() {
         let files = self.files(existing: ["/Users/someone/Movies/RallyLab/Projects/Scratch/project.json", "/Users/someone/Movies/RallyLab/Projects",
-                                          "/Users/someone/Movies", "/t/root", "/t/root/Scratch/project.json", "/t/root/x/project.json"])
+                                          "/Users/someone/Movies", "/t/root", "/t/root/Scratch/project.json", "/t/root/Accept-x/project.json"])
         XCTAssertNotNil(refusal(guarded([], project: "/Users/someone/Movies/RallyLab/Projects/Scratch", root: "/Users/someone/Movies/RallyLab/Projects",
                                         iso: ["--defaults-suite", "rallylab.test.x", "--pending-dir", "/Users/someone/Movies/RallyLab/Projects/p"]), files))
         XCTAssertNotNil(refusal(guarded([], project: "/Users/someone/Movies/RallyLab/Projects/Scratch", root: "/Users/someone/Movies",
                                         iso: ["--defaults-suite", "rallylab.test.x", "--pending-dir", "/Users/someone/Movies/p"]), files),
                         "a root above the default location is refused too")
         XCTAssertNotNil(refusal(guarded([], project: "/t/root/Scratch"), files), "a folder named Scratch is refused wherever it is")
-        XCTAssertNil(refusal(guarded([], project: "/t/root/x"), files))
+        XCTAssertNil(refusal(guarded([], project: "/t/root/Accept-x"), files))
     }
 
     func testGuardedModeFollowsSymlinksForContainmentAndRefusesALinkedProject() {
-        let files = self.files(existing: ["/t/root", "/elsewhere/project/project.json", "/t/root/real/project.json"],
+        let files = self.files(existing: ["/t/root", "/elsewhere/Accept-052/project.json", "/t/root/Accept-real/project.json"],
                                symlinks: ["/t/root/alias"],
-                               resolved: ["/t/root/link": "/elsewhere/project"])
+                               resolved: ["/t/root/link": "/elsewhere/Accept-052"])
         XCTAssertNotNil(refusal(guarded([], project: "/t/root/link"), files), "resolves outside the root")
         XCTAssertNotNil(refusal(guarded([], project: "/t/root/alias"), files), "the project path itself is a link")
-        XCTAssertNil(refusal(guarded([], project: "/t/root/real"), files))
+        XCTAssertNil(refusal(guarded([], project: "/t/root/Accept-real"), files))
+    }
+
+    // MARK: - Guarded mode: the identity the server will see
+
+    func testGuardedModeRefusesAProjectWhoseDeclaredNameIsNotItsTestFolder() {
+        let copied = files(existing: ["/t/root", "/t/root/Accept-052/project.json"], names: ["/t/root/Accept-052/project.json": "Scratch"])
+        XCTAssertNotNil(refusal(guarded(["--publish-identities"]), copied), "a copy of Scratch under a test folder would publish Scratch's withheld list")
+        let renamed = files(existing: ["/t/root", "/t/root/Accept-052/project.json"], names: ["/t/root/Accept-052/project.json": "Accept-053"])
+        XCTAssertNotNil(refusal(guarded(["--sync-phone"]), renamed), "a renamed folder")
+        let unreadable = LaunchGuard.Files(exists: { _ in true }, isSymlink: { _ in false }, isRegularFile: { _ in true },
+                                           resolve: { $0.standardizedFileURL }, projectName: { _ in nil })
+        XCTAssertNotNil(refusal(guarded(["--status"]), unreadable), "a project.json without a decodable name")
+        XCTAssertNil(refusal(guarded(["--publish-identities"])), "the folder's own name, in the test namespace")
+    }
+
+    func testGuardedProjectsMustBeNamedInTheTestNamespace() {
+        let prod = files(existing: ["/t/root", "/t/root/Scratch2/project.json", "/t/root/Test1/project.json", "/t/root/Mine/project.json"])
+        XCTAssertNotNil(refusal(guarded([], project: "/t/root/Mine"), prod), "no Accept- prefix")
+        XCTAssertNotNil(refusal(guarded([], project: "/t/root/Test1"), prod), "a production name")
+        XCTAssertNotNil(refusal(guarded(["--create"], project: "/t/root/Mine-new"), prod), "creation outside the namespace")
+        XCTAssertTrue(LaunchGuard.isTestNamespace("Accept-052"))
+        XCTAssertFalse(LaunchGuard.isTestNamespace("Scratch"))
+        XCTAssertFalse(LaunchGuard.isTestNamespace("Accept"))
+    }
+
+    func testGuardedCreationRefusesABasenameThatNormalisationWouldChange() {
+        XCTAssertNotNil(refusal(guarded(["--create"], project: "/t/root/Accept 052")), "a space becomes _ on creation: another folder")
+        XCTAssertNotNil(refusal(guarded(["--create"], project: "/t/root/Accept-052.v2")), "a dot becomes _ on creation")
+        XCTAssertNil(refusal(guarded(["--create"], project: "/t/root/Accept-052_v2")))
     }
 
     // MARK: - Guarded mode: isolation parameters
@@ -147,23 +183,23 @@ final class LaunchGuardTests: XCTestCase {
     // MARK: - Guarded creation
 
     func testGuardedCreationNeedsAFreshFolderUnderTheRootAndTestOnlyInputs() throws {
-        let g = try LaunchGuard.guarded(arguments: ["RallyLab"] + guarded(["--create", "--add-extras", "Beach", "/t/root/media/A.mov"], project: "/t/root/New"),
+        let g = try LaunchGuard.guarded(arguments: ["RallyLab"] + guarded(["--create", "--add-extras", "Beach", "/t/root/media/A.mov"], project: "/t/root/Accept-new"),
                                         home: home, files: good).get()
         XCTAssertTrue(g.create)
-        XCTAssertEqual(g.project.path, "/t/root/New")
+        XCTAssertEqual(g.project.path, "/t/root/Accept-new")
         XCTAssertEqual(g.extras.map(\.path), ["/t/root/media/A.mov"])
-        XCTAssertNil(refusal(guarded(["--create"], project: "/t/root/New")), "creation without footage is allowed")
+        XCTAssertNil(refusal(guarded(["--create"], project: "/t/root/Accept-new")), "creation without footage is allowed")
         XCTAssertNotNil(refusal(guarded(["--create"])), "an existing project is never re-created")
-        XCTAssertNotNil(refusal(guarded(["--create"], project: "/t/missing/New", root: "/t/missing",
+        XCTAssertNotNil(refusal(guarded(["--create"], project: "/t/missing/Accept-new", root: "/t/missing",
                                         iso: ["--defaults-suite", "rallylab.test.x", "--pending-dir", "/t/missing/p"])), "the root must exist")
-        XCTAssertNotNil(refusal(guarded(["--create", "--add-extras", "Beach", "/elsewhere/B.mov"], project: "/t/root/New")), "an input outside the root")
-        XCTAssertNotNil(refusal(guarded(["--create", "--add-extras", "Beach", "media/A.mov"], project: "/t/root/New")), "a relative input")
-        XCTAssertNotNil(refusal(guarded(["--create", "--add-extras", "Beach", "/t/root/media/missing.mov"], project: "/t/root/New")), "a missing input")
-        XCTAssertNotNil(refusal(guarded(["--create", "--add-extras", "Beach", "/t/root/media"], project: "/t/root/New")), "not a video file")
-        XCTAssertNotNil(refusal(guarded(["--create", "--add-extras", "Space", "/t/root/media/A.mov"], project: "/t/root/New")), "not an environment")
-        XCTAssertNotNil(refusal(guarded(["--create", "--add-extras", "Beach"], project: "/t/root/New")), "no files")
+        XCTAssertNotNil(refusal(guarded(["--create", "--add-extras", "Beach", "/elsewhere/B.mov"], project: "/t/root/Accept-new")), "an input outside the root")
+        XCTAssertNotNil(refusal(guarded(["--create", "--add-extras", "Beach", "media/A.mov"], project: "/t/root/Accept-new")), "a relative input")
+        XCTAssertNotNil(refusal(guarded(["--create", "--add-extras", "Beach", "/t/root/media/missing.mov"], project: "/t/root/Accept-new")), "a missing input")
+        XCTAssertNotNil(refusal(guarded(["--create", "--add-extras", "Beach", "/t/root/media"], project: "/t/root/Accept-new")), "not a video file")
+        XCTAssertNotNil(refusal(guarded(["--create", "--add-extras", "Space", "/t/root/media/A.mov"], project: "/t/root/Accept-new")), "not an environment")
+        XCTAssertNotNil(refusal(guarded(["--create", "--add-extras", "Beach"], project: "/t/root/Accept-new")), "no files")
         let linked = files(existing: ["/t/root", "/t/root/media/L.mov"], symlinks: ["/t/root/media/L.mov"])
-        XCTAssertNotNil(refusal(guarded(["--create", "--add-extras", "Beach", "/t/root/media/L.mov"], project: "/t/root/New"), linked), "a linked input")
+        XCTAssertNotNil(refusal(guarded(["--create", "--add-extras", "Beach", "/t/root/media/L.mov"], project: "/t/root/Accept-new"), linked), "a linked input")
     }
 
     // MARK: - On the real file system
@@ -172,12 +208,15 @@ final class LaunchGuardTests: XCTestCase {
         let base = FileManager.default.temporaryDirectory.appendingPathComponent("launch-guard-\(UUID().uuidString)", isDirectory: true)
         let root = base.appendingPathComponent("root", isDirectory: true)
         let project = root.appendingPathComponent("Accept-052", isDirectory: true)
-        let empty = root.appendingPathComponent("Empty", isDirectory: true)
+        let empty = root.appendingPathComponent("Accept-empty", isDirectory: true)
         let outside = base.appendingPathComponent("outside", isDirectory: true)
         for dir in [project, empty, outside, root.appendingPathComponent("media")] { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
         defer { try? FileManager.default.removeItem(at: base) }
-        try Data("{}".utf8).write(to: project.appendingPathComponent("project.json"))
-        try Data("{}".utf8).write(to: outside.appendingPathComponent("project.json"))
+        try Data(#"{"name":"Accept-052"}"#.utf8).write(to: project.appendingPathComponent("project.json"))
+        try Data(#"{"name":"Accept-052"}"#.utf8).write(to: outside.appendingPathComponent("project.json"))
+        let copied = root.appendingPathComponent("Accept-copy", isDirectory: true)
+        try FileManager.default.createDirectory(at: copied, withIntermediateDirectories: true)
+        try Data(#"{"name":"Scratch"}"#.utf8).write(to: copied.appendingPathComponent("project.json"))
         try Data("x".utf8).write(to: root.appendingPathComponent("media/A.mov"))
         try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("link"), withDestinationURL: outside)
         try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("plink"), withDestinationURL: outside)
@@ -189,13 +228,14 @@ final class LaunchGuardTests: XCTestCase {
         XCTAssertEqual(opened.project.path, project.resolvingSymlinksInPath().standardizedFileURL.path)
         XCTAssertEqual(opened.pendingDirectory.path, pending.resolvingSymlinksInPath().standardizedFileURL.path)
         XCTAssertNotNil(LaunchGuard.refusal(for: args(empty, pending, ["--status"]), home: home), "no project.json")
+        XCTAssertNotNil(LaunchGuard.refusal(for: args(copied, pending, ["--publish-identities"]), home: home), "project.json declares Scratch")
         XCTAssertNotNil(LaunchGuard.refusal(for: args(root.appendingPathComponent("link"), pending, []), home: home), "a symlink escaping the root")
         XCTAssertNotNil(LaunchGuard.refusal(for: args(outside, pending, []), home: home), "outside the root")
         XCTAssertNotNil(LaunchGuard.refusal(for: args(project, root.appendingPathComponent("plink"), []), home: home), "a pending folder escaping through a link")
-        let created = try LaunchGuard.guarded(arguments: args(root.appendingPathComponent("New"), pending, ["--create", "--add-extras", "Beach", root.appendingPathComponent("media/A.mov").path]), home: home).get()
+        let created = try LaunchGuard.guarded(arguments: args(root.appendingPathComponent("Accept-new"), pending, ["--create", "--add-extras", "Beach", root.appendingPathComponent("media/A.mov").path]), home: home).get()
         XCTAssertTrue(created.create)
         XCTAssertEqual(created.extras.count, 1)
-        XCTAssertNotNil(LaunchGuard.refusal(for: args(root.appendingPathComponent("New"), pending, ["--create", "--add-extras", "Beach", outside.appendingPathComponent("project.json").path]), home: home), "an input outside the root")
+        XCTAssertNotNil(LaunchGuard.refusal(for: args(root.appendingPathComponent("Accept-new"), pending, ["--create", "--add-extras", "Beach", outside.appendingPathComponent("project.json").path]), home: home), "an input outside the root")
     }
 
     func testIsSameFolderFollowsSymlinksOnBothSides() throws {
@@ -214,7 +254,7 @@ final class LaunchGuardTests: XCTestCase {
     func testGuardedRunIsTheValidatedRunOrNil() {
         XCTAssertEqual(LaunchGuard.guardedRun(for: ["RallyLab"] + guarded(["--status"]), home: home, files: good)?.project.path, "/t/root/Accept-052")
         XCTAssertNil(LaunchGuard.guardedRun(for: ["RallyLab", "--project", "/t/root/Accept-052"], home: home, files: good), "unguarded: nil")
-        XCTAssertNil(LaunchGuard.guardedRun(for: ["RallyLab"] + guarded(["--status"], project: "/t/root/Other"), home: home, files: good))
+        XCTAssertNil(LaunchGuard.guardedRun(for: ["RallyLab"] + guarded(["--status"], project: "/t/root/Accept-other"), home: home, files: good))
     }
 
     @MainActor func testASamplerBuiltForTheRunKeepsItsDatasetOutOfTheStandardDefaults() throws {

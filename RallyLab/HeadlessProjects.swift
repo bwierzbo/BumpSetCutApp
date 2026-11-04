@@ -157,9 +157,11 @@ enum HeadlessProjects {
                 } else {
                     projects.open(guarded.project)
                 }
-                // The open project must be the validated one (an unreadable project.json leaves none open).
-                guard let opened = projects.projectDir, LaunchGuard.isSameFolder(opened, guarded.project) else {
-                    log("\(guarded.project.path) did not open: \(projects.status)"); exit(2)
+                // The open project must be the validated one (an unreadable project.json leaves none open), and the name
+                // it will publish under must be the validated test namespace — checked again here, on the decoded project.
+                guard let opened = projects.projectDir, LaunchGuard.isSameFolder(opened, guarded.project),
+                      let opening = projects.project?.name, opening == guarded.project.lastPathComponent, LaunchGuard.isTestNamespace(opening) else {
+                    log("\(guarded.project.path) did not open as the validated test project: \(projects.status)"); exit(2)
                 }
             } else if name.contains("/") {
                 let dir = URL(fileURLWithPath: expanded, isDirectory: true)

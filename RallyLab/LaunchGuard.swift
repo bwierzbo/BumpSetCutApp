@@ -37,6 +37,9 @@ enum LaunchGuard {
                                             "--create", "--add-extras", "--status", "--phone-sign-in", "--sign-out",
                                             "--publish-identities", "--sync-phone", "--labels-only"]
     static let testSuitePrefix = "rallylab.test."
+    /// A guarded project's name — the folder's name and the name project.json declares — begins with this, so the
+    /// server namespace it publishes to (withheld list, rows, plan) can only ever be a test namespace.
+    static let testNamespacePrefix = "Accept-"
     /// The Keychain service a guarded run keeps its labeling session under: a separate item from the app's
     /// `app.BumpSetCut.labeling`, which the app never reads and `--sign-out` clears.
     static let acceptanceKeychainService = "app.BumpSetCut.labeling.acceptance"
@@ -59,12 +62,23 @@ enum LaunchGuard {
         var isSymlink: (URL) -> Bool
         var isRegularFile: (URL) -> Bool
         var resolve: (URL) -> URL
+        /// The `name` a project.json declares, nil when the file can't be read or decoded.
+        var projectName: (URL) -> String?
 
         static let real = Files(
             exists: { FileManager.default.fileExists(atPath: $0.path) },
             isSymlink: { (try? FileManager.default.destinationOfSymbolicLink(atPath: $0.path)) != nil },
             isRegularFile: { (try? FileManager.default.attributesOfItem(atPath: $0.path)[.type] as? FileAttributeType) == .typeRegular },
-            resolve: { $0.resolvingSymlinksInPath().standardizedFileURL })
+            resolve: { $0.resolvingSymlinksInPath().standardizedFileURL },
+            projectName: { url in
+                struct Named: Decodable { let name: String }
+                return (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(Named.self, from: $0) }?.name
+            })
+    }
+
+    /// Whether `name` is a test namespace: the designated prefix, and never a known production project.
+    static func isTestNamespace(_ name: String) -> Bool {
+        name.hasPrefix(testNamespacePrefix) && !["Scratch", "Test1"].contains(name)
     }
 
     /// A headless command that will actually start a run: `--project` must carry its value (HeadlessProjects returns
@@ -129,15 +143,36 @@ enum LaunchGuard {
             return .failure(Refusal(message: "\(project) resolves to \(resolved.path), outside --project-root \(resolvedRoot.path)"))
         }
         let create = arguments.contains("--create")
-        let hasProjectJSON = files.exists(resolved.appendingPathComponent("project.json"))
-        if create, hasProjectJSON {
-            return .failure(Refusal(message: "\(resolved.path) already holds a project (project.json): --create refuses to touch it"))
+        let folderName = resolved.lastPathComponent
+        // The identity the server will see is the project's NAME (project.json), not the folder: both must be the same
+        // test namespace, so a copy or rename of a production project can never publish under its name (Codex on #146).
+        guard isTestNamespace(folderName) else {
+            return .failure(Refusal(message: "\(folderName) is not a test project name: guarded projects are named \(testNamespacePrefix)<something>"))
         }
-        if !create, !hasProjectJSON {
-            return .failure(Refusal(message: "\(resolved.path) has no project.json: not an existing project, and guarded mode creates none without --create"))
-        }
-        if create, !files.exists(resolvedRoot) {
-            return .failure(Refusal(message: "--project-root \(resolvedRoot.path) does not exist: --create makes the project, not the root"))
+        let projectJSON = resolved.appendingPathComponent("project.json")
+        let hasProjectJSON = files.exists(projectJSON)
+        if create {
+            if hasProjectJSON {
+                return .failure(Refusal(message: "\(resolved.path) already holds a project (project.json): --create refuses to touch it"))
+            }
+            if !files.exists(resolvedRoot) {
+                return .failure(Refusal(message: "--project-root \(resolvedRoot.path) does not exist: --create makes the project, not the root"))
+            }
+            // ProjectsModel.create names the project DatasetStore.safeName(folder name) and makes THAT folder: a basename
+            // that normalisation would change could create or open a folder other than the validated one.
+            if DatasetStore.safeName(folderName) != folderName {
+                return .failure(Refusal(message: "\(folderName) would be normalised to \(DatasetStore.safeName(folderName)) on creation: name the folder that way"))
+            }
+        } else {
+            if !hasProjectJSON {
+                return .failure(Refusal(message: "\(resolved.path) has no project.json: not an existing project, and guarded mode creates none without --create"))
+            }
+            guard let declared = files.projectName(projectJSON) else {
+                return .failure(Refusal(message: "\(projectJSON.path) does not decode a project name: refused"))
+            }
+            guard declared == folderName else {
+                return .failure(Refusal(message: "\(projectJSON.path) names the project \"\(declared)\", not \"\(folderName)\": a copied or renamed project is refused (its server namespace would be \"\(declared)\")"))
+            }
         }
         // Isolation: required, never defaulted.
         guard let suite = value(after: "--defaults-suite", in: arguments), !suite.isEmpty else {
