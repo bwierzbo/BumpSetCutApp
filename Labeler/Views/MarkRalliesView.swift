@@ -13,7 +13,10 @@
 //
 //  Pre-tracked rallies inside a rally you mark are confirmed and trimmed
 //  to it. "That's every rally" turns down the ones you never marked, drops
-//  the found rallies you passed over, and finishes the video.
+//  the found rallies you passed over, ends a cut still open at the
+//  recording's end, and finishes the video. Then the footage-type step as
+//  the phone can show it (FootageTypeNoteView, D-032): the facts, and that
+//  the type itself is confirmed on the Mac.
 //
 
 import AVFoundation
@@ -33,6 +36,8 @@ struct MarkRalliesView: View {
     @State private var loadError: String?
     @State private var url: URL?
     @State private var tagger: LiveTagger
+    /// The footage-type step after the pass; the screen closes when it does.
+    @State private var footageType = false
 
     private static let speeds: [Float] = [0.5, 1, 2, 3, 4]
 
@@ -82,6 +87,9 @@ struct MarkRalliesView: View {
         }
         .sensoryFeedback(.impact(weight: .light), trigger: tagger.lastEventAt)
         .sensoryFeedback(.success, trigger: times.rallies.count)
+        .sheet(isPresented: $footageType, onDismiss: { dismiss() }) {
+            FootageTypeNoteView(cuts: times.cutRanges, duration: duration, complete: times.complete)
+        }
     }
 
     @State private var barWidth: CGFloat = 1
@@ -179,13 +187,13 @@ struct MarkRalliesView: View {
                     finish()
                 } label: { Label("That's every rally", systemImage: "flag.checkered").frame(maxWidth: .infinity) }
                     .buttonStyle(.borderedProminent).controlSize(.large)
-                    .disabled(tagger.open != nil || tagger.cutFrom != nil)
+                    .disabled(tagger.open != nil || (tagger.cutFrom != nil && duration <= 0))
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
             } footer: {
-                Text(tagger.cutFrom != nil ? "End the open cut first (Cut, or Serve at the next rally)."
-                     : tagger.open != nil ? "End the open rally first (Dead ball or Not a rally)."
-                     : "Every rally in the video is marked: the found rallies you didn't mark are turned down and the video counts for scoring and the decision model.")
+                Text(tagger.open != nil ? "End the open rally first (Dead ball or Not a rally)."
+                     : tagger.cutFrom != nil ? "The open cut ends where the recording does: the rest is not footage. Then the video counts for scoring and the decision model."
+                     : "Every rally in the video is marked: the found rallies you didn't mark are turned down and the video counts for scoring and the decision model. What the footage is comes next.")
             }
             if let cuts = times.cuts, !cuts.isEmpty {
                 Section("Cut out (\(cuts.count))") {
@@ -241,9 +249,15 @@ struct MarkRalliesView: View {
 
     /// Everything you didn't mark isn't a rally: pre-tracked rallies are
     /// turned down, found rallies dropped — except inside a cut range, which
-    /// is not footage and is left alone (D-030); the video is finished.
+    /// is not footage and is left alone (D-030); the video is finished, and
+    /// the footage-type step follows (D-032).
     private func finish() {
-        guard tagger.open == nil, tagger.cutFrom == nil else { return }
+        guard tagger.open == nil else { return }
+        if tagger.cutFrom != nil {
+            // The rest of the recording is not footage: the open cut ends where the recording does (D-030).
+            guard duration > 0 else { return }
+            tagger.finishCut(atEnd: duration)
+        }
         player.pause()
         isPlaying = false
         let marks = times.rallies
@@ -256,7 +270,7 @@ struct MarkRalliesView: View {
             model.rejectFound(f, in: video)
         }
         model.update(video) { $0.complete = true }
-        dismiss()
+        footageType = true
     }
 
     // MARK: - Player
@@ -370,6 +384,40 @@ final class PhoneLiveTagStore: LiveTagStore {
         guard let range = cut as? CutRange else { return }
         model.update(video) { t in
             if let i = t.cuts?.firstIndex(of: range) { t.cuts?.remove(at: i) }
+        }
+    }
+}
+
+/// The footage-type step as the phone can show it: the facts about the pass, and where the recording's type is
+/// confirmed. The footage-properties record lives in the project on the Mac, and nothing on the phone or the server
+/// carries a recording's type yet — sending it needs a backend change the owner has not authorised — so the phone says
+/// so instead of keeping a copy of its own (D-032).
+struct FootageTypeNoteView: View {
+    let cuts: [CutRange]
+    let duration: Double
+    let complete: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    LabeledContent("Excluded intervals", value: cuts.isEmpty ? "none"
+                                   : "\(cuts.count) · \(String(format: "%.1f s", duration > 0 ? cuts.seconds(within: duration) : cuts.reduce(0) { $0 + $1.seconds })) not footage")
+                    if !cuts.isEmpty {
+                        Text(cuts.map { "\(clockText($0.start)) – \(clockText($0.end))" }.joined(separator: ", "))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    LabeledContent("Rally pass", value: complete ? "every visible rally marked" : "not finished")
+                } header: {
+                    Text("Footage type")
+                } footer: {
+                    Text("Whether this recording is continuous or edited is a separate fact from the rallies being marked, and from the intervals you excluded — a cut for a partial rally or a replay never makes a recording edited. It is confirmed in RallyLab on the Mac, in the recording's footage-properties record. The phone can't send that confirmation yet: syncing it needs a backend change that has not been authorised.")
+                }
+            }
+            .navigationTitle("Footage type")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
     }
 }

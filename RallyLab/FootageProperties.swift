@@ -27,7 +27,10 @@
 //  the live pass, kept on the session and in label_rally_times.cuts). A
 //  confirmed time-breaking span here is a reason to mark a cut range there,
 //  never a second mask; and a cut range for a clip that starts mid-rally says
-//  nothing about edited footage.
+//  nothing about edited footage. The recording's type is written by one
+//  thing: a person's confirmation at the end of the marking pass
+//  (Store.confirmRecordingType, D-032) — never inferred from a cut, a
+//  completion or a proposal.
 //
 
 import Foundation
@@ -206,5 +209,29 @@ enum FootageProperties {
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             try encoder.encode(file).write(to: FootageProperties.url(in: root, video: file.video), options: .atomic)
         }
+    }
+}
+
+extension FootageProperties.Store {
+    /// A person's confirmation of the recording's type — the one writer of `recordingType` (the marking pass's
+    /// footage-type step, FootageTypeConfirmation; D-032). The record on file is kept whole (its spans, its
+    /// derivation) and bound to the card's fingerprint when it names none yet; one recorded for another fingerprint
+    /// is another file's record and is replaced by a record of this file; one that exists but can't be read refuses
+    /// (fail closed): nothing is written over it. Nothing else — no cut, no completion — writes the type.
+    func confirmRecordingType(_ type: FootageProperties.RecordingType, video: String, sourceFingerprint: String?,
+                              by: String, at: String) throws -> FootageProperties.File {
+        var file: FootageProperties.File
+        if let current = try load(video), current.sourceFingerprint == nil || current.sourceFingerprint == sourceFingerprint {
+            file = current
+            if file.sourceFingerprint == nil { file.sourceFingerprint = sourceFingerprint }
+        } else {
+            file = FootageProperties.File(video: video, sourceFingerprint: sourceFingerprint, updatedAt: at)
+        }
+        file.recordingType = type
+        file.recordingTypeBy = by
+        file.recordingTypeAt = at
+        file.updatedAt = at
+        try save(file)
+        return file
     }
 }

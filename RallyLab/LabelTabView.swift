@@ -94,7 +94,7 @@ struct LabelTabView: View {
             LabelTrackTask(session: session, rally: rally, tracker: tracker, marker: marker, isActive: isActive,
                            onClose: { active = nil }, onDone: next)
         case .review:
-            LiveTagView(session: session, marker: marker, review: review, paths: paths, isActive: isActive,
+            LiveTagView(session: session, marker: marker, review: review, paths: paths, projects: projects, isActive: isActive,
                         onClose: { active = nil }, onDone: next)
         }
     }

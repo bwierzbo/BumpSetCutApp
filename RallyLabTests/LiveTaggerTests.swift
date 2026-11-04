@@ -107,6 +107,33 @@ final class LiveTaggerTests: XCTestCase {
         XCTAssertEqual(store.marks[0].end, 29.7, accuracy: 0.001)
     }
 
+    func testFinishingThePassWithACutOpenEndsItAtTheRecordingsEnd() {
+        let store = Store()
+        let tagger = LiveTagger(tracks: [], store: store)
+        tagger.serve(paused(10))
+        tagger.close(as: .rally, paused(18))
+        // X at 200, then "That's every rally" on a 300 s recording: the rest is not footage.
+        tagger.cut(paused(200))
+        tagger.finishCut(atEnd: 300)
+        XCTAssertNil(tagger.cutFrom)
+        XCTAssertEqual(store.cuts, [CutRange(start: 200, end: 300)])
+        XCTAssertEqual(store.marks.count, 1, "the rally before the cut stays")
+        XCTAssertEqual(tagger.recentNote, "Cut 3:20.0 – the end · not footage")
+        // Undo brings it back open, as any cut; nothing to end when no cut is open.
+        tagger.undo()
+        XCTAssertEqual(tagger.cutFrom, 200)
+        XCTAssertTrue(store.cuts.isEmpty)
+        tagger.cancel()
+        tagger.finishCut(atEnd: 300)
+        XCTAssertTrue(store.cuts.isEmpty)
+        // A cut opened at the very end is a slip, dropped — not a cut of nothing.
+        tagger.cut(paused(299.8))
+        tagger.finishCut(atEnd: 300)
+        XCTAssertNil(tagger.cutFrom)
+        XCTAssertTrue(store.cuts.isEmpty)
+        XCTAssertEqual(tagger.recentNote, "Cut dropped — it started at the very end")
+    }
+
     func testUndoReopensTheLastRallyThenDropsItsServe() {
         let store = Store()
         let tagger = LiveTagger(tracks: [], store: store)
