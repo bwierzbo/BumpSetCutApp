@@ -23,3 +23,14 @@ if [[ -f "$here/../migrations/049_protect_withheld_footage.sql" ]]; then
     psqlp -f "${MIGRATION_049P:-$here/../migrations/049_protect_withheld_footage.sql}"
     psqlp -At -f "$here/049_protect_tests.sql" | grep -v '^$' | tail -1
 fi
+
+# 052_label_recording_type_claims on another fresh database: stubs, 048, 049, the claims migration, its tests.
+if [[ -f "$here/../migrations/052_label_recording_type_claims.sql" ]]; then
+    psql -c "CREATE DATABASE tclaims" >/dev/null
+    psqlc() { "$bin/psql" -h "$tmp" -p 55448 -U postgres -d tclaims -v ON_ERROR_STOP=1 -q "$@"; }
+    psqlc -f "$here/048_stubs.sql"
+    psqlc -f "$here/../migrations/048_label_rally_events.sql" 2>/dev/null
+    psqlc -f "$here/../migrations/049_protect_withheld_footage.sql" 2>/dev/null
+    psqlc -f "${MIGRATION_052:-$here/../migrations/052_label_recording_type_claims.sql}"
+    psqlc -At -f "$here/052_claims_tests.sql" | grep -v '^$' | tail -1
+fi
