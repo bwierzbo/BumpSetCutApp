@@ -223,7 +223,9 @@ enum WorkQueueReconciler {
         let events = Dictionary(report.recordings.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
         var net: [String: NetObservation]?
         var netProblem: String?
-        do { net = try netObservations(root: root) } catch { netProblem = error.localizedDescription }
+        // The recordings' cut ranges (D-030) by session name: a net label inside one is not a label.
+        let cuts = Dictionary(sessions.map { ($0.name, $0.cutRanges) }, uniquingKeysWith: { a, _ in a })
+        do { net = try netObservations(root: root, cuts: cuts) } catch { netProblem = error.localizedDescription }
         // The index built now from the project's own records (SourceRegistry.inputs reads them strictly) — not a
         // source-index file written earlier, which could be stale.
         let index = try SourceRegistry.load(root: root, now: now)
@@ -235,8 +237,9 @@ enum WorkQueueReconciler {
     }
 
     /// The Net labels tab's inventory, by session name: the same rules it applies (NetInventory from the split
-    /// manifest, NetLabels.skip, NetLabels.status, NetLabels.isOffered), no video file read.
-    static func netObservations(root: URL) throws -> [String: NetObservation] {
+    /// manifest, NetLabels.skip, NetLabels.status, NetLabels.isOffered), no video file read. `cuts`: each
+    /// recording's cut ranges by session name (D-030) — a label or a proposal on a frame inside one counts for nothing.
+    static func netObservations(root: URL, cuts: [String: [CutRange]]) throws -> [String: NetObservation] {
         let inventory = try NetInventory.load(projectDir: root)
         let labels = try NetLabelStore(projectDir: root).load()
         let proposals = try NetAIProposalStore(projectDir: root).load()
@@ -256,9 +259,11 @@ enum WorkQueueReconciler {
         var out: [String: NetObservation] = [:]
         for item in items {
             let fingerprint = fingerprints[item.video] ?? nil
-            let skip = NetLabels.skip(video: item.video, camera: item.camera, withheld: inventory.withheld, fingerprint: fingerprint, excluded: excluded)
-            let status = NetLabels.status(of: labels[item.video], fingerprint: fingerprint)
-            let offered = NetLabels.isOffered(proposals[item.video], skip: skip, fingerprint: fingerprint, status: status)
+            // nil: no session over the recording — unknown cuts, skipped by the rule.
+            let ranges = cuts[DatasetStore.safeName(item.video)] ?? cuts[item.video]
+            let skip = NetLabels.skip(video: item.video, camera: item.camera, withheld: inventory.withheld, fingerprint: fingerprint, excluded: excluded, cuts: ranges)
+            let status = NetLabels.status(of: labels[item.video], fingerprint: fingerprint, cuts: ranges ?? [])
+            let offered = NetLabels.isOffered(proposals[item.video], skip: skip, fingerprint: fingerprint, status: status, cuts: ranges ?? [])
             out[DatasetStore.safeName(item.video)] = NetObservation(skip: skip, status: status, proposalPending: offered)
         }
         return out

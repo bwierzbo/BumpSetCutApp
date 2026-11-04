@@ -28,6 +28,9 @@ enum RallyCutScore {
         let clips: [Interval]
         /// Each clip's serve, for the debug video.
         var serves: [ServeDetector.Serve] = []
+        /// The recording's cut ranges (not footage; D-030): `truth` and `clips` are their
+        /// pieces outside them, and a replay is masked the same way.
+        var cuts: [CutRange] = []
     }
 
     struct Tally {
@@ -81,9 +84,11 @@ enum RallyCutScore {
             print("❌ \(session.name): \(error.localizedDescription)")
             return nil
         }
-        return Video(name: session.name, truth: labels.map { Interval(start: $0.startTime, end: $0.endTime) },
+        let cuts = session.cutRanges
+        return Video(name: session.name, truth: labels.map { Interval(start: $0.startTime, end: $0.endTime) }.outside(cuts),
                      evidence: processor.frameEvidence, duration: processor.lastVideoDurationSec,
-                     clips: segments.map { Interval(start: $0.startTime, end: $0.endTime) }, serves: processor.serves)
+                     clips: segments.map { Interval(start: $0.startTime, end: $0.endTime) }.outside(cuts), serves: processor.serves,
+                     cuts: cuts)
     }
 
     /// What the pipeline saw inside each marked rally: frames with a ball
@@ -116,7 +121,7 @@ enum RallyCutScore {
     /// The decision replayed from evidence with `config`'s padding and joining.
     static func replay(_ v: Video, config: ProcessorConfig) -> [Interval] {
         EvidenceReplayer.decidedRanges(evidence: v.evidence, duration: v.duration, config: config,
-                                       minRallySec: 1.1653, padded: true)
+                                       minRallySec: 1.1653, padded: true).outside(v.cuts)
     }
 
     static func report(_ videos: [Video], log: (String) -> Void) {

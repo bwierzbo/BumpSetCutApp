@@ -64,6 +64,13 @@ final class RallyLabModel {
 
     // MARK: - Ground truth
 
+    /// The open project's cut ranges over the loaded video (not footage; D-030): predictions and
+    /// labels are scored outside them. Empty for a video no project knows.
+    private(set) var cuts: [CutRange] = []
+    /// Why the cuts can't be known (the project's sessions can't be read): nothing is run or
+    /// scored on the video until they can — unknown cuts are not no cuts.
+    private(set) var cutsProblem: String?
+
     var labels: [EditableRally] = [] {
         didSet {
             guard !suppressLabelSideEffects, labels != oldValue else { return }
@@ -641,6 +648,8 @@ final class RallyLabModel {
     /// (for evidence) and at least one label (for ground truth).
     func exportTrainingData() {
         guard let videoURL else { return }
+        refreshCuts()
+        if let cutsProblem { status = cutsProblem; return }
         guard !evidence.isEmpty else {
             status = "Run the pipeline first — the export needs its frame evidence."
             return
@@ -654,11 +663,16 @@ final class RallyLabModel {
             duration: duration,
             evidence: evidence,
             labels: labels.map { Interval(start: $0.start, end: $0.end) },
-            baselineRaw: rawPredictions)
+            baselineRaw: rawPredictions,
+            cuts: cuts)
         let outURL = TrainingDataExporter.exportURL(for: videoURL)
         do {
+            // Empty when every frame lies inside a cut: written all the same, so an earlier export with
+            // the frames in it is replaced (the trainer skips an empty one).
             try TrainingDataExporter.write(export, to: outURL)
-            status = "Exported \(export.frames.count) frames + \(export.labels.count) labels → \(outURL.lastPathComponent)"
+            status = export.frames.isEmpty
+                ? "Every frame lies inside a cut range (not footage) — an empty export replaced \(outURL.lastPathComponent)."
+                : "Exported \(export.frames.count) frames + \(export.labels.count) labels → \(outURL.lastPathComponent)"
         } catch {
             status = "Training-data export failed: \(error.localizedDescription)"
         }
@@ -701,6 +715,9 @@ final class RallyLabModel {
         videoDisplaySize = CGSize(width: 16, height: 9)
         videoRotationQuarterTurns = 0
         detectionConfigDirty = false
+        cuts = []
+        cutsProblem = nil
+        refreshCuts()
 
         Task {
             let asset = AVURLAsset(url: url)
@@ -942,6 +959,8 @@ final class RallyLabModel {
     func runComparison() async {
         guard let url = videoURL, !isComparing else { return }
         if let refusal = Self.finalTestRefusal(for: url) { compareStatus = refusal; return }
+        refreshCuts()
+        if let cutsProblem { compareStatus = cutsProblem; return }
         guard !labels.isEmpty else {
             compareStatus = "Add ground-truth labels in the Pipeline tab to score against."
             return
@@ -953,7 +972,8 @@ final class RallyLabModel {
         comparisonB = nil
 
         let base = currentConfig()
-        let truth = labels.map { Interval(start: $0.start, end: $0.end) }
+        let cuts = self.cuts
+        let truth = labels.map { Interval(start: $0.start, end: $0.end) }.outside(cuts)
         let dur = duration
 
         func run(_ id: String) async -> ComparisonResult? {
@@ -961,8 +981,9 @@ final class RallyLabModel {
             compareStatus = "Running \(p.name)…"
             do {
                 let r = try await p.run(url: url, duration: dur, baseConfig: base, minRallySec: minRallySec)
-                let s = RallySegmentationScorer.score(predicted: r.rawPredictions, groundTruth: truth)
-                return ComparisonResult(pipelineName: p.name, raw: r.rawPredictions, score: s)
+                let raw = r.rawPredictions.outside(cuts)
+                let s = RallySegmentationScorer.score(predicted: raw, groundTruth: truth)
+                return ComparisonResult(pipelineName: p.name, raw: raw, score: s)
             } catch is CancellationError {
                 return nil
             } catch {
@@ -990,6 +1011,34 @@ final class RallyLabModel {
         } catch { return "❌ \(error.localizedDescription)" }
     }
 
+    /// The cuts as the project has them now — marked in the Label tab or pulled from the phone
+    /// since the video was opened — and, when they changed, the predictions and score over them
+    /// again. Run before anything scores, compares or exports the video.
+    func refreshCuts() {
+        guard let url = videoURL else { return }
+        let before = (cuts, cutsProblem)
+        do { cuts = try Self.cutRanges(for: url); cutsProblem = nil } catch {
+            cuts = []
+            cutsProblem = "❌ \(url.lastPathComponent): the project's cut ranges can't be known — \(error.localizedDescription)"
+        }
+        guard before.0 != cuts || before.1 != cutsProblem else { return }
+        if !evidence.isEmpty { recomputePredictionsAndScore() }
+    }
+
+    /// The cut ranges of the open project's session over this video (not footage; D-030),
+    /// matched by path, name or content like the refusal; none for a video outside the project.
+    static func cutRanges(for url: URL) throws -> [CutRange] {
+        guard let rootPath = UserDefaults.standard.string(forKey: "RallyLab.datasetRoot") else { return [] }
+        return try cutRanges(for: url, root: URL(fileURLWithPath: rootPath, isDirectory: true))
+    }
+
+    /// The one lookup the headless export reads too (TrainingDataExporter.cutRanges): every session read
+    /// strictly first — one that won't decode is unknown cuts, not none — and a recording a project card names
+    /// with no session over it is unknown cuts as well (fails closed; Codex on #139).
+    nonisolated static func cutRanges(for url: URL, root: URL) throws -> [CutRange] {
+        try TrainingDataExporter.cutRanges(forVideo: url, projectRoots: [root])
+    }
+
     /// Running the pipeline on a project video and scoring it is a use the
     /// split manifest must know about (D-002); logged as the run starts.
     static func recordRallyScoring(_ url: URL, ref: String) throws {
@@ -1006,6 +1055,8 @@ final class RallyLabModel {
         guard let url = videoURL else { return }
         guard !isProcessing, !exportingDebugVideo else { return }
         if let refusal = Self.finalTestRefusal(for: url) { status = refusal; return }
+        refreshCuts()
+        if let cutsProblem { status = cutsProblem; return }
         do { try Self.recordRallyScoring(url, ref: "RallyLab Pipeline tab") } catch { status = "❌ \(error.localizedDescription)"; return }
 
         let processor = VideoProcessor()
@@ -1050,9 +1101,12 @@ final class RallyLabModel {
     /// in Finder.
     func exportDebugVideo() async {
         guard let url = videoURL, !isProcessing, !exportingDebugVideo else { return }
+        refreshCuts()
+        if let cutsProblem { status = cutsProblem; return }
         exportingDebugVideo = true
-        // The marked rallies of the video exported, not whatever's open when it finishes.
-        let truth = labels.map { Interval(start: $0.start, end: $0.end) }
+        // The marked rallies of the video exported, not whatever's open when it finishes — outside its cut ranges.
+        let cuts = self.cuts
+        let truth = labels.map { Interval(start: $0.start, end: $0.end) }.outside(cuts)
         var config = ProcessorConfig()
         config.applyCamera(cameraSetup)
         let processor = VideoProcessor()
@@ -1081,7 +1135,7 @@ final class RallyLabModel {
         let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/RallyLab/Renders", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         status = "Debug video: drawing \(segments.count) rall\(segments.count == 1 ? "y" : "ies") over the video…"
-        switch await PipelineVideo.render(evidence: processor.frameEvidence, clips: segments.map { Interval(start: $0.startTime, end: $0.endTime) },
+        switch await PipelineVideo.render(evidence: processor.frameEvidence, clips: segments.map { Interval(start: $0.startTime, end: $0.endTime) }.outside(cuts),
                                           truth: truth, serves: processor.serves, video: url, from: 0, length: processor.lastVideoDurationSec + 1,
                                           title: "\(name) · BumpSetCut pipeline (\(BallFinder.current.title))",
                                           to: dir.appendingPathComponent("\(name)-debug.mp4")) {
@@ -1133,18 +1187,31 @@ final class RallyLabModel {
 
     private func recomputePredictionsAndScore() {
         guard !evidence.isEmpty else { return }
-        let cfg = currentConfig()
-        rawPredictions = EvidenceReplayer.decidedRanges(
-            evidence: evidence, duration: duration, config: cfg,
-            minRallySec: minRallySec, padded: false)
-        paddedPredictions = EvidenceReplayer.decidedRanges(
-            evidence: evidence, duration: duration, config: cfg,
-            minRallySec: minRallySec, padded: true)
+        // The cut ranges unknown (a session that won't read): nothing is decided or scored as if there were
+        // none — the predictions and the score are withheld until they are known again (fail closed; D-030).
+        guard let decided = Self.decide(evidence: evidence, duration: duration, config: currentConfig(), minRallySec: minRallySec,
+                                        cuts: cuts, cutsProblem: cutsProblem) else {
+            rawPredictions = []
+            paddedPredictions = []
+            score = nil
+            return
+        }
+        (rawPredictions, paddedPredictions) = decided
         recomputeScore()
     }
 
+    /// The decision over the whole video, raw and padded, taken outside the cut ranges (D-030) — nil while the
+    /// cut ranges can't be known (`cutsProblem`): a decision without them would read the replays as footage.
+    nonisolated static func decide(evidence: [VideoProcessor.FrameEvidence], duration: Double, config: ProcessorConfig, minRallySec: Double,
+                                   cuts: [CutRange], cutsProblem: String?) -> (raw: [Interval], padded: [Interval])? {
+        guard cutsProblem == nil else { return nil }
+        let raw = EvidenceReplayer.decidedRanges(evidence: evidence, duration: duration, config: config, minRallySec: minRallySec, padded: false).outside(cuts)
+        let padded = EvidenceReplayer.decidedRanges(evidence: evidence, duration: duration, config: config, minRallySec: minRallySec, padded: true).outside(cuts)
+        return (raw, padded)
+    }
+
     private func recomputeScore() {
-        guard !evidence.isEmpty else {
+        guard !evidence.isEmpty, cutsProblem == nil else {
             score = nil
             return
         }
@@ -1152,7 +1219,7 @@ final class RallyLabModel {
         // export ranges — otherwise preroll/postroll reads as model error.
         score = RallySegmentationScorer.score(
             predicted: rawPredictions,
-            groundTruth: labels.map { Interval(start: $0.start, end: $0.end) }
+            groundTruth: labels.map { Interval(start: $0.start, end: $0.end) }.outside(cuts)
         )
     }
 

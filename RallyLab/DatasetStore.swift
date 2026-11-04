@@ -101,6 +101,13 @@ struct VideoSession: Codable, Identifiable, Equatable {
     /// The net as NetDetector found it (the median box over sampled frames,
     /// Vision-normalised, upright), for which side of it a touch was on.
     var netBox: TrackCandidate? = nil
+    /// Stretches of the video that are not footage — the clip started in the
+    /// middle of a rally, an editor put an instant replay in — as marked in
+    /// the live pass (raw, as marked; read through `cutRanges`). D-030.
+    var cuts: [CutRange]? = nil
+
+    /// The cut ranges as every consumer reads them: normalised.
+    var cutRanges: [CutRange] { (cuts ?? []).normalised() }
 
     var reviewedCount: Int { frames.filter(\.reviewed).count }
     var boxCount: Int { frames.filter(\.keep).reduce(0) { $0 + $1.boxes.count } }
@@ -234,10 +241,12 @@ final class DatasetStore: @unchecked Sendable {
     /// file removed so the trainer never sees it — Ultralytics skips images
     /// without a label file only when `keep` is false, so the image itself is
     /// moved aside too.
-    func writeLabel(for frame: FrameRecord, reviewedOnly: Bool) throws {
+    /// `inCut`: the frame lies inside one of its recording's cut ranges (not footage; D-030) —
+    /// parked like a discarded one, and back when the cut goes.
+    func writeLabel(for frame: FrameRecord, reviewedOnly: Bool, inCut: Bool = false) throws {
         let labelURL = root.appendingPathComponent(frame.labelFile)
         let imageURL = root.appendingPathComponent(frame.file)
-        let excluded = !frame.keep || (reviewedOnly && !frame.reviewed)
+        let excluded = !frame.keep || (reviewedOnly && !frame.reviewed) || inCut
         let parkedURL = parkedImageURL(for: frame)
 
         if excluded {

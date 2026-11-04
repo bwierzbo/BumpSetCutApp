@@ -19,9 +19,9 @@ extension NetLabelsTests {
     }
 
     func testAnExclusionIsASideViewSkipOnlyForItsOwnFile() {
-        XCTAssertEqual(NetLabels.skip(video: "a", camera: "Tripod", withheld: [], fingerprint: "f", excluded: ["a"]), .sideView)
-        XCTAssertEqual(NetLabels.skip(video: "a", camera: "Tripod", withheld: ["a"], fingerprint: "f", excluded: ["a"]), .withheld, "withheld wins")
-        XCTAssertNil(NetLabels.skip(video: "a", camera: "Tripod", withheld: [], fingerprint: "f", excluded: []))
+        XCTAssertEqual(NetLabels.skip(video: "a", camera: "Tripod", withheld: [], fingerprint: "f", excluded: ["a"], cuts: []), .sideView)
+        XCTAssertEqual(NetLabels.skip(video: "a", camera: "Tripod", withheld: ["a"], fingerprint: "f", excluded: ["a"], cuts: []), .withheld, "withheld wins")
+        XCTAssertNil(NetLabels.skip(video: "a", camera: "Tripod", withheld: [], fingerprint: "f", excluded: [], cuts: []))
         let fps: [String: String] = ["a": "fp-a", "b": "fp-new"]
         XCTAssertEqual(NetExclusionStore.excluded(["a": Self.exclusion("fp-a"), "b": Self.exclusion("fp-old"), "c": Self.exclusion()]) { fps[$0] }, ["a"],
                        "another file under the same id, or an id no longer there, is not excluded")
@@ -29,18 +29,29 @@ extension NetLabelsTests {
 
     func testTheExportRefusesAnExcludedRecordingEvenWhenLabeled() {
         func src(_ v: String, fp: String = "fp-a") -> NetDatasetExport.Source {
-            NetDatasetExport.Source(video: v, clip: v, camera: "Tripod / corner", url: URL(fileURLWithPath: "/nowhere/\(v).mp4"), fingerprint: fp)
+            NetDatasetExport.Source(video: v, clip: v, camera: "Tripod / corner", url: URL(fileURLWithPath: "/nowhere/\(v).mp4"), fingerprint: fp, cuts: [])
         }
         let labels = ["a_side": Self.label(), "b_ok": Self.label(), "c_refiled": Self.label(fingerprint: "fp-new")]
         let plan = NetDatasetExport.plan(labels: labels, sources: [src("a_side"), src("b_ok"), src("c_refiled", fp: "fp-new")], withheld: [],
                                          exclusions: ["a_side": Self.exclusion(), "c_refiled": Self.exclusion("fp-old")])
         XCTAssertEqual(plan.export.map(\.video), ["b_ok", "c_refiled"])
         XCTAssertEqual(plan.skipped, [NetDatasetExport.Skipped(video: "a_side", reason: "side_view")])
+        // A labeled recording with no session over it (cuts nil): its cut ranges are unknown, not none — not exported.
+        var sessionless = src("b_ok"); sessionless.cuts = nil
+        let noSession = NetDatasetExport.plan(labels: labels, sources: [sessionless], withheld: [])
+        XCTAssertTrue(noSession.export.isEmpty)
+        XCTAssertEqual(noSession.skipped, [NetDatasetExport.Skipped(video: "b_ok", reason: "no_session")])
+        // Nor is such a recording chosen for a proposal.
+        var candidate = NetAIPilot.Candidate(video: "b", clip: "b", camera: "Tripod", surface: "beach", aliasGroup: nil,
+                                             url: URL(fileURLWithPath: "/nowhere/b.mp4"), fingerprint: "fp", fileFingerprint: "fp", cuts: [])
+        XCTAssertEqual(NetAIPilot.choose([candidate], labels: [:], proposals: [:], withheld: [], count: 10).count, 1)
+        candidate.cuts = nil
+        XCTAssertTrue(NetAIPilot.choose([candidate], labels: [:], proposals: [:], withheld: [], count: 10).isEmpty)
     }
 
     func testAnExcludedRecordingIsNeverChosenForAProposal() {
         let c = NetAIPilot.Candidate(video: "a", clip: "a", camera: "Tripod", surface: "beach", aliasGroup: nil,
-                                     url: URL(fileURLWithPath: "/nowhere/a.mp4"), fingerprint: "fp", fileFingerprint: "fp")
+                                     url: URL(fileURLWithPath: "/nowhere/a.mp4"), fingerprint: "fp", fileFingerprint: "fp", cuts: [])
         XCTAssertEqual(NetAIPilot.choose([c], labels: [:], proposals: [:], withheld: [], count: 10).count, 1)
         XCTAssertTrue(NetAIPilot.choose([c], labels: [:], proposals: [:], withheld: [], count: 10, excluded: ["a"]).isEmpty)
     }

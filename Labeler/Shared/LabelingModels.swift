@@ -109,6 +109,12 @@ struct LabelRallyTimes: Codable, Hashable {
     /// Every rally in the video is marked.
     var complete: Bool
     var updatedAt: Date?
+    /// Cut ranges (not footage; D-030), raw as marked. nil from a row only builds from before
+    /// cuts have written — never sent by them either, so the server keeps what it has.
+    var cuts: [CutRange]? = nil
+
+    /// The cut ranges as consumers read them: normalised.
+    var cutRanges: [CutRange] { (cuts ?? []).normalised() }
 }
 
 /// A rally tracked frame by frame, as label_tracks keeps it: the ball (or

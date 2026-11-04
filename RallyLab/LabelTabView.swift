@@ -113,13 +113,16 @@ struct LabelTabView: View {
 extension LabelQueue.Video {
     /// A Mac video: rallies marked in its rallylabels file and found by the
     /// Sampler (less the ones you said aren't rallies); a rally you started
-    /// tracking and didn't finish comes first.
+    /// tracking and didn't finish comes first. None touching a cut range is
+    /// a task (the pre-tracker's and the phone's rule; D-030) — the marks
+    /// and tracks themselves stay as they are.
     @MainActor
     init(session s: VideoSession) {
         let tracks = s.tracks ?? []
+        let cuts = s.cutRanges
         let (marked, found) = TrackLabelModel.markedAndFound(s)
-        let unfinished = tracks.filter(\.isOpen).map(\.bounds)
-        let open = TrackLabelModel.untracked(marked + found, tracks: tracks)
+        let unfinished = tracks.filter(\.isOpen).map(\.bounds).outsideCuts(cuts)
+        let open = TrackLabelModel.untracked(marked + found, tracks: tracks).outsideCuts(cuts)
         self.init(plan: PlanVideo(session: s), nextRally: (unfinished + open).first, found: found.count,
                   marked: marked.count, complete: s.ralliesMarked ?? false)
     }
@@ -140,7 +143,11 @@ private struct LabelHomeView: View {
         // How long a video runs: sessions don't keep it, but the Sampler's
         // random frames reach nearly to the end, so the last one's time is close.
         let reach = Dictionary(sampler.sessions.map { ($0.name, $0.frames.map(\.time).max()) }) { a, _ in a }
-        let marking = MarkingProgress(videos: videos) { reach[$0.plan.name] ?? nil }
+        // Less the video's cut ranges: not footage, nothing to mark there (D-030).
+        let cuts = Dictionary(sampler.sessions.map { ($0.name, $0.cutRanges) }) { a, _ in a }
+        let marking = MarkingProgress(videos: videos) { v in
+            (reach[v.plan.name] ?? nil).map { $0 - (cuts[v.plan.name] ?? []).seconds(within: $0) }
+        }
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 MarkingProgressView(progress: marking)

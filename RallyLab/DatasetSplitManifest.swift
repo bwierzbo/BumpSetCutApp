@@ -132,6 +132,8 @@ struct ManifestVideo: Codable, Equatable {
     /// name in the group. nil for a session with no project video.
     var aliasGroup: String?
     var ralliesMarked: Bool
+    /// The session's cut ranges as marked (raw; not footage, D-030); nil when it has none.
+    var cuts: [CutRange]? = nil
     var frames: Int
     var reviewedFrames: Int
     var addedAt: Date
@@ -279,6 +281,7 @@ struct DatasetSplitManifest: Codable {
                 reservedAs: reservedAs,
                 aliasGroup: groupOf[session.name],
                 ralliesMarked: session.ralliesMarked ?? false,
+                cuts: (session.cuts ?? []).isEmpty ? nil : session.cuts,
                 frames: session.frames.count,
                 reviewedFrames: session.reviewedCount,
                 addedAt: session.addedAt,
@@ -528,11 +531,12 @@ struct DatasetSplitManifest: Codable {
             let values = videos.map { $0[keyPath: path].origin }
             md += "| \(name) | \(values.filter { $0 == .confirmed }.count) | \(values.filter { $0 == .inferredFingerprint }.count) | \(values.filter { $0 == .unknown }.count) |\n"
         }
-        md += "\n## Videos\n\n| Video | Split | Surface | Card | Card split | Uploader | sourceId | Exposure |\n|---|---|---|---|---|---|---|---|\n"
+        md += "\n## Videos\n\n| Video | Split | Surface | Card | Card split | Uploader | sourceId | Exposure | Cut s |\n|---|---|---|---|---|---|---|---|---|\n"
         for v in videos {
             let source = v.sourceId.value.map { "\($0) (\(v.sourceId.origin.rawValue))" } ?? "unknown"
             let exposure = v.exposure.isEmpty ? "none" : Set(v.exposure.map(\.kind.rawValue)).sorted().joined(separator: ", ")
-            md += "| \(v.video) | \(v.split.rawValue) | \(v.surface ?? "?") | \(v.clipId ?? "—") | \(v.cardSplit ?? "auto") | \(v.uploader ?? "—") | \(source) | \(exposure) |\n"
+            let cut = (v.cuts ?? []).normalised().reduce(0) { $0 + $1.seconds }
+            md += "| \(v.video) | \(v.split.rawValue) | \(v.surface ?? "?") | \(v.clipId ?? "—") | \(v.cardSplit ?? "auto") | \(v.uploader ?? "—") | \(source) | \(exposure) | \(cut == 0 ? "—" : String(format: "%.1f", cut)) |\n"
         }
         return md
     }

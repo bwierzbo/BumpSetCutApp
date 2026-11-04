@@ -181,7 +181,10 @@ enum PipelineTuner {
 
     struct Video {
         let session: VideoSession
+        /// The marks as read — whole, so a reader that lines kinds up with them by index can.
         let truth: [Interval]
+        /// The recording's cut ranges (not footage; D-030): the score sees truth and clips outside them.
+        var cuts: [CutRange] { session.cutRanges }
     }
 
     /// A video run with one detection setting: what the replay needs.
@@ -205,7 +208,11 @@ enum PipelineTuner {
             return covered / rallyTime - PipelineTuner.deadTimeCost * deadTime / rallyTime
         }
 
-        mutating func add(clips: [Interval], truth: [Interval]) {
+        /// `cuts`: the recording's cut ranges — truth and clips count only outside them, so a
+        /// replay the pipeline cut is neither dead time nor a false clip, and a rally inside one
+        /// is not a rally to find (D-030).
+        mutating func add(clips: [Interval], truth: [Interval], cuts: [CutRange] = []) {
+            let clips = clips.outside(cuts), truth = truth.outside(cuts)
             let merged = Self.union(clips)
             for t in truth {
                 let length = max(0, t.end - t.start)
@@ -256,7 +263,7 @@ enum PipelineTuner {
     static func score(_ passes: [Pass], _ settings: Settings) -> Score {
         passes.reduce(Score()) { total, pass in
             var s = Score()
-            s.add(clips: clips(pass, settings), truth: pass.video.truth)
+            s.add(clips: clips(pass, settings), truth: pass.video.truth, cuts: pass.video.cuts)
             return total + s
         }
     }

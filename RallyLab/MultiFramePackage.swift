@@ -107,6 +107,8 @@ enum MultiFramePackage {
         let framesWithoutVideo: Int
         /// Reviewed frames too close to the start or end of their video.
         let framesAtEdges: Int
+        /// Windows left out as inside a recording's cut range — not footage (D-030).
+        var windowsCut: Int = 0
         /// Planned frames the decoder could not produce — HEVC leading pictures (`Undecodable`;
         /// D-025) — left out, each with every window that needed it. Which, per clip: `undecodable`.
         var undecodableFrames: Int = 0
@@ -365,6 +367,8 @@ enum MultiFramePackage {
         var tracked: [(time: Double, times: [CMTime], labels: [TrackPoint?], occluded: [CGRect?], pseudo: [Bool])] = []
         var dead: [(time: Double, times: [CMTime])] = []
         var edges = 0
+        /// Windows planned inside a cut range (not footage; D-030) and left out.
+        var cut = 0
         var machineRallies = 0
         var machineFrames = 0
         var identity: ExportJournal.Identity.Clip
@@ -384,8 +388,17 @@ enum MultiFramePackage {
                                          sourceFingerprint: fingerprint, sourceBytes: (attributes[.size] as? NSNumber)?.int64Value ?? -1,
                                          sourceModified: ExportJournal.Writer.stamp((attributes[.modificationDate] as? Date) ?? Date(timeIntervalSince1970: 0)),
                                          sidecarSha256: nil, plannedKeysSha256: "", plannedKeys: 0))
+        // Nothing is planned inside a cut range (D-030): a window any of whose frames the cut
+        // covers is left out, counted apart from the clip's edges.
+        let cuts = session.cutRanges
+        p.identity.cuts = cuts.isEmpty ? nil : cuts
+        func inCut(_ times: [CMTime]) -> Bool {
+            guard let a = times.first, let b = times.last else { return false }
+            return cuts.overlaps(a.seconds, b.seconds + 1 / Self.frameRate)
+        }
         for frame in frames {
             guard let times = clip.window(around: frame.time) else { p.edges += 1; continue }
+            if inCut(times) { p.cut += 1; continue }
             p.windows.append((frame, times))
             for t in times { p.needed[ClipFrames.key(t)] = t }
         }
@@ -408,6 +421,7 @@ enum MultiFramePackage {
             for i in labeled where i % Self.trackStride == 0 && rally.points[i].state != .unknown {
                 let point = rally.points[i]
                 guard let times = clip.window(around: point.time, exact: true) else { p.edges += 1; continue }
+                if inCut(times) { p.cut += 1; continue }
                 p.tracked.append((point.time, times, times.map { byKey[ClipFrames.key($0)] }, times.map { occluded[ClipFrames.key($0)] },
                                   times.map { machine.contains(ClipFrames.key($0)) }))
                 for t in times { p.needed[ClipFrames.key(t)] = t }
@@ -418,9 +432,12 @@ enum MultiFramePackage {
             let sidecar = RallyMarkModel.labelsURL(for: video)
             if fm.fileExists(atPath: sidecar.path) { p.identity.sidecarSha256 = DatasetSplitManifest.sha256(of: sidecar) ?? "unreadable" }
             let marks = RallyMarkModel.load(sidecar)
+            // A cut range is neither rally nor dead time: kept `deadMargin` away like a rally.
             for t in stride(from: Self.deadMargin, to: clip.duration - Self.deadMargin, by: Self.deadStep)
-            where !marks.contains(where: { t > $0.start - Self.deadMargin && t < $0.end + Self.deadMargin }) {
+            where !marks.contains(where: { t > $0.start - Self.deadMargin && t < $0.end + Self.deadMargin })
+                && !cuts.overlaps(t - Self.deadMargin, t + Self.deadMargin) {
                 guard let times = clip.window(around: t) else { continue }
+                if inCut(times) { p.cut += 1; continue }
                 p.dead.append((t, times))
                 for t in times { p.needed[ClipFrames.key(t)] = t }
             }
@@ -531,7 +548,7 @@ enum MultiFramePackage {
         let total = plans.reduce(0) { $0 + $1.windows.count }
         var done = 0
         var lines: [String] = []
-        var counts = (train: 0, val: 0, balls: 0, empty: 0, frames: 0, edges: 0, tracked: 0, dead: 0, machineRallies: 0, machineFrames: 0,
+        var counts = (train: 0, val: 0, balls: 0, empty: 0, frames: 0, edges: 0, cut: 0, tracked: 0, dead: 0, machineRallies: 0, machineFrames: 0,
                       undecodable: 0, windowsLeftOut: 0)
         var undecodableReports: [UndecodableReport] = []
         var expectedFiles: [(folder: URL, keys: Set<Int64>)] = []
@@ -583,7 +600,7 @@ enum MultiFramePackage {
         for p in plans {
             let session = p.session, clip = p.clip, clipDir = p.clipDir, needed = p.needed
             let clipURL = dir.appendingPathComponent(clipDir, isDirectory: true)
-            counts.edges += p.edges; counts.machineRallies += p.machineRallies; counts.machineFrames += p.machineFrames
+            counts.edges += p.edges; counts.cut += p.cut; counts.machineRallies += p.machineRallies; counts.machineFrames += p.machineFrames
             try outputAnchor.verify()
             try await ExportIO.retrying("creating \(clipDir)", anchors: [outputAnchor]) {
                 try fm.createDirectory(at: clipURL, withIntermediateDirectories: true)
@@ -753,6 +770,7 @@ enum MultiFramePackage {
                               framesAtEdges: counts.edges)
         summary.trackedWindows = counts.tracked
         summary.deadWindows = counts.dead
+        summary.windowsCut = counts.cut
         summary.machineRallies = counts.machineRallies
         summary.machineFrames = counts.machineFrames
         summary.undecodableFrames = counts.undecodable
@@ -1145,6 +1163,7 @@ enum MultiFramePackage {
         model's own labels ("pseudo"), used with --pseudo.
         \(s.missingVideos.isEmpty ? "" : "\(s.framesWithoutVideo) reviewed frames from \(s.missingVideos.count) clips aren't here: their videos weren't on the Mac.\n")
         \(s.resume.map { "Completed from an export cut short: \($0.framesRetained) frames were already here and proven (\($0.retainedByJournal) by the journal's hashes, \($0.retainedByRegeneration) byte-identical to their regeneration), \($0.framesReplaced) replaced, \($0.framesWritten) written by the resumed run; details in summary.json.\n" } ?? "")
+        \(s.windowsCut == 0 ? "" : "\(s.windowsCut) windows were left out as inside a cut range — a stretch marked as not footage (the clip started mid-rally, an editor's replay); nothing in the package is from one (D-030).\n")
         \(s.undecodableFrames == 0 ? "" : "\(s.undecodableFrames) planned frames in \(s.undecodable.count) clips could not be decoded (HEVC leading pictures, which the frame-accurate decoder cannot produce on their own); they and the \(s.windowsLeftOutUndecodable) windows that needed them are left out — no frame stands in for another — and listed per clip in summary.json (\"undecodable\"; D-025).\n")
         Train it with scripts/desktop_training/train_heatmap_model.py — it reads windows.jsonl
         directly. See that script's header for the steps.

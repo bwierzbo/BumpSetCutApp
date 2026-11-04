@@ -182,6 +182,27 @@ final class ProjectsModel {
         .urls(for: .moviesDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("RallyLab/Projects", isDirectory: true)
     private static let knownProjectsKey = "RallyLab.projects"
+
+    /// A project this Mac remembers whose project.json is not there (an unmounted volume, a moved folder):
+    /// what it knows about a video — its cut ranges — is unknown, not nothing.
+    struct ProjectUnavailable: LocalizedError, Equatable {
+        let path: String
+        var errorDescription: String? { "the remembered project at \(path) is not available (no project.json): what it knows about the video can't be read" }
+    }
+
+    /// Every project folder this Mac knows without opening one: the remembered list, the last
+    /// project opened and whatever sits in the default location — for a headless tool that has
+    /// to find the project session over a video (a project may live anywhere, `create(name:in:)`).
+    /// A remembered project that is not there throws (fail closed; Codex on #139); only the
+    /// default location's entries are quietly taken for what they are.
+    nonisolated static func savedProjectRoots(defaults: UserDefaults = .standard) throws -> [URL] {
+        var remembered = (defaults.stringArray(forKey: knownProjectsKey) ?? []).map { URL(fileURLWithPath: $0, isDirectory: true) }
+        if let last = defaults.string(forKey: lastProjectKey) { remembered.append(URL(fileURLWithPath: last, isDirectory: true)) }
+        if let gone = remembered.first(where: { !isProject($0) }) { throw ProjectUnavailable(path: gone.path) }
+        let found = ((try? FileManager.default.contentsOfDirectory(at: defaultLocation, includingPropertiesForKeys: nil)) ?? []).filter(isProject)
+        var seen = Set<String>()
+        return (remembered + found).map(\.standardizedFileURL).filter { seen.insert($0.path).inserted }
+    }
     private static let lastProjectKey = "RallyLab.lastProjectPath"
     private static let openedKey = "RallyLab.projectOpenedAt"
 
@@ -288,7 +309,7 @@ final class ProjectsModel {
 
     // MARK: - Projects
 
-    private static func isProject(_ dir: URL) -> Bool {
+    nonisolated private static func isProject(_ dir: URL) -> Bool {
         FileManager.default.fileExists(atPath: dir.appendingPathComponent("project.json").path)
     }
 
@@ -866,9 +887,11 @@ final class ProjectsModel {
     func repull(_ videoId: String, in clipId: String) {
         guard let clip = project?.clips.first(where: { $0.id == clipId }),
               let video = clip.videos.first(where: { clip.videoId(of: $0) == videoId }) else { return }
+        // The recording's cut ranges (D-030) are the owner's marks, not the sample: they stay with the re-pull.
+        let cuts = session(named: videoId)?.cuts
         if let old = session(named: videoId) { sampler.deleteSession(old) }
         sampler.enqueueClip(URL(fileURLWithPath: video.clipFile), sessionName: DatasetStore.safeName(videoId),
-                            split: clip.split, framesPerRally: video.frames ?? project?.framesPerRally)
+                            split: clip.split, framesPerRally: video.frames ?? project?.framesPerRally, cuts: cuts)
         status = "\(videoId): re-pulling \(video.frames ?? project?.framesPerRally ?? 0) frames per rally…"
     }
 
@@ -898,7 +921,7 @@ final class ProjectsModel {
         var newId: String?   // set below; the completion runs later on the main actor
         let started = addVideo(to: targetId, source: video.clipFile, start: 0, length: video.length + 1,
                                license: video.license, frames: video.frames, allowDuplicate: true,
-                               provenance: video) { [weak self] worked in
+                               provenance: video, cuts: session(named: videoId)?.cuts) { [weak self] worked in
             guard let self else { return }
             self.moving.remove(videoId)
             if worked {
@@ -956,9 +979,11 @@ final class ProjectsModel {
     /// origin, licence and fingerprint carry over, and `finished` hears
     /// whether the cut worked.
     @discardableResult
+    /// `cuts`: cut ranges (D-030) the new session starts with — a video moved to another card
+    /// keeps the ones marked on it, since it is the same footage.
     func addVideo(to clipId: String, source: String, start: Double, length: Double,
                   license: String, frames: Int? = nil, allowDuplicate: Bool = false,
-                  provenance: ClipSource? = nil, finished: ((Bool) -> Void)? = nil) -> String? {
+                  provenance: ClipSource? = nil, cuts: [CutRange]? = nil, finished: ((Bool) -> Void)? = nil) -> String? {
         guard project != nil, let dir = projectDir,
               let clip = project?.clips.first(where: { $0.id == clipId }) else { return nil }
         let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1004,7 +1029,8 @@ final class ProjectsModel {
                 }
             }
             finishFetch(outcome, videoId: videoId, clipId: clipId, opening: opening, kind: isFile ? .file : .link,
-                        origin: trimmed, license: note, frames: frames, fingerprint: fingerprint, provenance: provenance, finished: finished)
+                        origin: trimmed, license: note, frames: frames, fingerprint: fingerprint, provenance: provenance,
+                        cuts: cuts, finished: finished)
         }
         return videoId
     }
@@ -1012,9 +1038,10 @@ final class ProjectsModel {
     /// The cut is done (or failed): recorded on the card and queued for sampling only while `opening` — the project
     /// it was started for — is still the one open. Otherwise the cut file stays where it landed, in that project's
     /// footage folder, and the job is marked failed with the reason: nothing of it is written to the project open now.
+    /// `cuts`: the cut ranges (D-030) the new session starts with (a video moved from another card keeps its own).
     func finishFetch(_ outcome: Result<FetchResult, FetchFailure>, videoId: String, clipId: String, opening: Opening?,
                      kind: ClipSource.Kind, origin: String, license: String, frames: Int?, fingerprint: String?,
-                     provenance: ClipSource?, finished: ((Bool) -> Void)?) {
+                     provenance: ClipSource?, cuts: [CutRange]? = nil, finished: ((Bool) -> Void)?) {
         guard self.opening == opening, let opening else {
             let why = "the project changed while \(opening?.name ?? "it") was being cut: not recorded (the cut file, if made, is in that project's footage folder)"
             if let i = jobs.firstIndex(where: { $0.id == videoId }) { jobs[i].failure = why }
@@ -1036,7 +1063,7 @@ final class ProjectsModel {
             if let old = session(named: videoId) { sampler.deleteSession(old) }
             let split = project?.clips.first(where: { $0.id == clipId })?.split
             sampler.enqueueClip(URL(fileURLWithPath: result.file), sessionName: DatasetStore.safeName(videoId),
-                                split: split, framesPerRally: frames ?? project?.framesPerRally)
+                                split: split, framesPerRally: frames ?? project?.framesPerRally, cuts: cuts)
             status = "\(videoId): cut \(Int(result.duration.rounded()))s, sampling… (\(opening.name))"
             finished?(true)
         }

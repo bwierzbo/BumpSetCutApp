@@ -150,6 +150,29 @@ final class DatasetSplitManifestTests: XCTestCase {
         XCTAssertEqual(orphan.sourceId, .unknown)
     }
 
+    // MARK: - Cut ranges (D-030)
+
+    func testManifestCarriesASessionsCutRangesAsMarked() throws {
+        var inputs = Self.inputs()
+        let raw = [CutRange(start: 141.6, end: 157.0), CutRange(start: 0, end: 12.4), CutRange(start: 150, end: 160)]
+        inputs.sessions = inputs.sessions.map { s in
+            guard s.name == "bch_b" else { return s }
+            var cut = s; cut.cuts = raw; return cut
+        }
+        let m = try DatasetSplitManifest.build(inputs)
+        let row = try XCTUnwrap(m.videos.first { $0.video == "bch_b" })
+        XCTAssertEqual(row.cuts, raw, "raw, as marked — the audit judges them")
+        XCTAssertNil(try XCTUnwrap(m.videos.first { $0.video == "bch_a" }).cuts, "no cuts, no field")
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("manifest.json")
+        try m.write(to: file)
+        XCTAssertEqual(DatasetSplitManifest.read(from: file)?.videos.first { $0.video == "bch_b" }?.cuts, raw)
+        XCTAssertTrue(m.markdownSummary().contains("| bch_b | train | beach | bch_b | train | Other | src-B (confirmed) | none | 30.8 |"),
+                      "the summary shows the normalised seconds cut")
+    }
+
     // MARK: - Round trip and digest
 
     func testManifestRoundTrips() throws {

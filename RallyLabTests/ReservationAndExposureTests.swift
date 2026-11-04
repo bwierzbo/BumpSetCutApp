@@ -200,6 +200,7 @@ final class ReservationAndExposureTests: XCTestCase {
         XCTAssertThrowsError(try ExposureLog.rename("old", to: "new", in: root))
     }
 
+    @MainActor
     func testReservedVideoIsRecognisedByPathNameAndContent() throws {
         let fm = FileManager.default
         let footage = root.appendingPathComponent("footage"); try fm.createDirectory(at: footage, withIntermediateDirectories: true)
@@ -225,6 +226,17 @@ final class ReservationAndExposureTests: XCTestCase {
         XCTAssertEqual(try ReservedVideos.match(renamed, root: root), .init(session: "grs_extra_self_06", reserved: true), "a copy under another name, by content")
         let other = root.appendingPathComponent("other.mp4"); try Data([1, 2, 3]).write(to: other)
         XCTAssertNil(try ReservedVideos.match(other, root: root), "a file that is not a project video")
+        // The Pipeline tab's cut lookup goes through the same match: the session's cuts, by path.
+        var cut = s; cut.cuts = [CutRange(start: 1, end: 2)]
+        try DatasetStore(root: root).save(cut)
+        XCTAssertEqual(try RallyLabModel.cutRanges(for: video, root: root), [CutRange(start: 1, end: 2)])
+        XCTAssertEqual(try RallyLabModel.cutRanges(for: other, root: root), [])
+        // A session that won't decode is unknown, not absent: the match refuses, and so does the cut lookup —
+        // a copy of a reserved recording is never cleared, a video never read as having no cuts (fails closed).
+        try Data("{not json".utf8).write(to: root.appendingPathComponent("sessions/grs_extra_self_06.json"))
+        XCTAssertThrowsError(try ReservedVideos.match(video, root: root))
+        XCTAssertThrowsError(try ReservedVideos.match(other, root: root), "even for a file no readable session is over")
+        XCTAssertThrowsError(try RallyLabModel.cutRanges(for: video, root: root))
     }
 
     func testAliasesOfAReservedRecordingAreReservedToo() throws {

@@ -2,7 +2,7 @@
 name: decision-log
 status: authoritative
 created: 2026-10-20T22:12:44Z
-updated: 2026-11-03T02:42:42Z
+updated: 2026-11-04T00:52:18Z
 ---
 
 # Decision log
@@ -40,6 +40,8 @@ The authoritative record of product, architecture, data and process decisions fo
 | [D-023](#d-023) | 2026-10-23 | accepted | L2 labels are people's only; unreviewed pre-tracked rallies excluded |
 | [D-024](#d-024) | 2026-10-23 | accepted | Progressive RallyLab rally review: full-video boundaries first, optional contacts second, player IDs later |
 | [D-025](#d-025) | 2026-10-24 | accepted | Amends D-022: a planned frame the decoder reproducibly cannot produce — an HEVC leading picture, and only that — is recorded in the journal and the summary and left out with every window that needed it, instead of stopping the export; every other failure stays fatal; plan and run identity unchanged; the three affected recordings stay in the package |
+| [D-028](#d-028) | 2026-11-02 | proposed | Live marking is Stage 1 only: serve, dead ball and the rally's kind; touches and their side of the net are advanced marking, deferred (D-024 Stage 2) |
+| [D-030](#d-030) | 2026-11-02 | proposed | Cut ranges: stretches of a recording marked as not footage in the live pass (the clip starts mid-rally, an editor's replay), honoured by every consumer; the file is never re-cut |
 | [D-031](#d-031) | 2026-11-02 | accepted (direction; merge and deployment separate) | RallyLab 2.0: a source registry and a persistent labeling task queue over the existing stores, phased; footage characterised span by span with per-model eligibility; stability fixes first and evidence-based; no training, migration, public-app or TestFlight change under this direction |
 
 ---
@@ -369,3 +371,33 @@ The authoritative record of product, architecture, data and process decisions fo
 **Source.** [Owner direction, verbatim](2026-11-02-rallylab2-overhaul-direction.md); [owner direction on edited footage, verbatim](2026-11-02-rallylab2-edited-footage-direction.md); PR #134 (`feat/rallylab2-phase1`).
 
 **Status 2026-11-03.** Accepted as direction by the owner's decisions of 2026-11-03 on PR #134 (recorded in [RALLYLAB2_PHASE0_AUDIT_2026-11-02.md §12](../ml-roadmap/RALLYLAB2_PHASE0_AUDIT_2026-11-02.md)): "Accept D-031's architecture and the two verbatim requirement documents as the intended direction. This is approval of the design direction, not permission to merge or deploy." PR #134 held pending the two Codex findings; bulk ingestion, training and the next phase need further approval.
+
+### D-028
+
+**Live marking is Stage 1 only: a rally's serve, its dead ball and its kind; the touches inside it and their side of the net are advanced marking, deferred** — 2026-11-02 — proposed — owner (chat, 2026-11-02: "can we remove contacts for and near and far with our current version of marking and mark that an advanced marking thing for a later update").
+
+**Context.** Live tagging (2026-10-17) took one key per touch (S P T A B F), each with a near/far side read from the ball's size against the net or said with ⇧/⌥ (on the phone, by holding a key), and closed a rally with D or N. D-024 already placed per-contact review in its optional Stage 2. The side guess needed the net found in every video, and the touch keys slowed the pass the owner wants from marking: complete rally times for scoring and the decision model.
+
+**Decision.**
+1. The marking pass on the Mac ("Mark the rallies") and the phone takes four events: S serve, D dead ball (a rally), M missed serve, N not a rally; Z takes back the last press, Esc drops the open rally. No touch keys, no side of the net, no net detection in the pass.
+2. A serve pressed while a rally is still open closes it where the pre-tracked ball's path last ended between the two serves, else 0.3 s before the new serve (before: no later than 1.5 s after the last touch).
+3. The stored format is unchanged: `RallyMarkRecord` and `LabelRally` keep `kind` and `contacts?`. The rallies marked with touches so far (on the server: 411 of 581, 107 with a side) stay as they are, with their touch count and ticks still shown. A new mark carries its `kind` and no `contacts`; its serve contact is `startTime`, which SCORING_CONTRACT already reads when `contacts` is absent.
+4. Touches and sides come back as a separate advanced-marking step (D-024 Stage 2) under a later decision; nothing here fixes its shape.
+
+**Consequences.** `LiveTagger` (shared), `LiveTagView`, `MarkRalliesView`; `LiveTagStore.mark` and `RallyMarkModel.mark` take no contacts; `BallPath.side`, `NetSide.flipped`, `SamplerModel.setNetBox` and `LiveTagger.findNet` are gone (`VideoSession.netBox` stays as stored data); `LiveTaggerTests`. The phone takes the change with its next TestFlight build (a separate, owner-approved upload). Proposed until the owner merges the PR that carries it.
+
+### D-030
+
+**Cut ranges: a stretch of a recording marked as not footage in the live pass — the clip starts in the middle of a rally, an editor put an instant replay in — honoured by every consumer; the file is never re-cut** — 2026-11-02 — proposed — owner (chat, 2026-11-02: "sometimes it's right in the middle of a rally, I can't mark the serve … trim the video until the next rally"; "mark certain sections of a video as don't use … if it's an instant replay that someone added"; chose virtual ranges over re-cutting the file, Mac and phone in one PR).
+
+**Context.** Every project video is a random 5-minute cut, so some begin inside a rally whose serve cannot be marked. A scan of the 166 Scratch recordings on 2026-11-02 (evidence: `~/Movies/RallyLab/Reports/edited-footage-20261102/`) found editor-added half-speed replays and zooms in about nine YouTube-sourced recordings — grs_gnd_shade_land_self_02_v2 alone has 30 s of replay at 83–157 s — most of them in the L2 package. Nothing in the session, the manifest or the sync could say "not footage", so every consumer read them as footage. The scoring contract's excluded union X ([SCORING_CONTRACT](../ml-roadmap/SCORING_CONTRACT.md)) already masks missed-serve and not-a-rally marks the same way.
+
+**Decision.**
+1. A cut range is `[start, end)` seconds of a recording that is not footage. It is marked in the live pass: X opens a cut at the press and X closes it (at least 0.5 s); ⇧X opens one at 0 for a clip that begins mid-rally and the next serve closes it 0.3 s before the serve. A cut cannot start inside an open rally; a closed cut removes the marks mostly (> 50 %) inside it, and Z puts them back. Marks that only brush a cut stay.
+2. Kept raw as marked on `VideoSession.cuts`, in the split manifest row (`ManifestVideo.cuts`) and in `label_rally_times.cuts` (migration 051, a column of its own, nullable: a row written only by builds from before says nothing about cuts); read normalised (`cutRanges`) everywhere. The video file, its fingerprint, phone copies and label times are untouched — a cut is an annotation, not a trim (D-021 §4 does not apply).
+3. Not footage, for every consumer (D-002): no training window is planned inside one (sampled, tracked, dead-time; the L2 preflight `no-frame-in-cut-range` holds every packaged frame to it; the journal identity names the cuts); truth rallies and predicted clips are taken outside the cuts after a pass is replayed, never in the evidence (RallyCutScore, the tuner's score, the serve report, the decider retune, the pipeline comparison, the Pipeline and Compare tabs, the reference scorecard — cuts join X); a val window with a frame inside one is left out of test-set scoring and the heat evaluation whatever the export holds; no sampled frame inside one is trained on or evaluated; the pre-tracker opens no span over one; the net-label frame is taken outside them; marking progress subtracts their seconds; finishing a video leaves pre-tracked and found rallies inside one alone. Not masked, on purpose: `BallPathBuilder` (a marking aid that runs before cuts exist; nothing derives from it) and the exposure ledger (exposure is per recording).
+4. The audit reports `CUT-RANGES` (info) and refuses an unreadable range (hard `CUT-RANGE-INVALID`).
+
+**Consequences.** Packages written before cuts (the L2 package of 2026-10-25 among them) carry windows inside replays: rebuild before any lineage training that follows the first cuts. The first cuts are the owner's, on the recordings the 2026-11-02 scan named. Open: whether a cut counts as covered time in the Stage 1 record (D-024; `EventInventory` reports `cutSec` and coverage over the duration less it, the record's own gaps are unchanged). The phone takes the keys with its next TestFlight build (owner-approved upload); older phone builds keep working and never wipe cuts. Proposed until the owner merges the PR that carries it.
+
+**Source.** Owner chat 2026-11-02; the PR carrying this entry; `~/Movies/RallyLab/Reports/edited-footage-20261102/README.md`.

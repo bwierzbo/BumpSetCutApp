@@ -50,14 +50,17 @@ enum PipelineCompare {
         guard FileManager.default.fileExists(atPath: video.path) else { return nil }
         let rotation = await StoredRotation.of(video: video)
         let tracks = (session.tracks ?? []).filter(\.done)
-        guard let first = await process(video, config: a, tracks: tracks, rotation: rotation),
-              let second = await process(video, config: b, tracks: tracks, rotation: rotation) else { return nil }
+        let cuts = session.cutRanges
+        guard let first = await process(video, config: a, tracks: tracks, rotation: rotation, cuts: cuts),
+              let second = await process(video, config: b, tracks: tracks, rotation: rotation, cuts: cuts) else { return nil }
         return (first, second)
     }
 
+    /// `cuts`: the recording's cut ranges (not footage; D-030) — the pipeline's rallies are
+    /// taken outside them, and a tracked frame or rally inside one is not scored.
     @MainActor
     private static func process(_ video: URL, config: ProcessorConfig, tracks: [TrackedRally],
-                                rotation: StoredRotation?) async -> Run? {
+                                rotation: StoredRotation?, cuts: [CutRange] = []) async -> Run? {
         let processor = VideoProcessor()
         processor.config = config
         processor.collectFrameEvidence = true
@@ -73,14 +76,15 @@ enum PipelineCompare {
         }
         var run = Run()
         run.seconds = Date().timeIntervalSince(started)
-        run.rallies = segments.map { ($0.startTime, $0.endTime) }
+        let decided = segments.map { Interval(start: $0.startTime, end: $0.endTime) }.outside(cuts)
+        run.rallies = decided.map { ($0.start, $0.end) }
         let evidence = processor.frameEvidence
         run.heatOnlyDetections = evidence.reduce(0) { $0 + $1.detections.filter(\.fromHeatmap).count }
         let times = evidence.map(\.time)
 
         for rally in tracks {
             // Ball: every frame you saw it, against the evidence frame at that time.
-            for point in rally.points where point.state == .visible {
+            for point in rally.points where point.state == .visible && !cuts.contains(point.time) {
                 guard let box = point.box?.rect else { continue }
                 let stored = rotation?.storedBox(box) ?? box   // evidence is in the stored frame
                 guard let i = nearest(point.time, in: times), abs(times[i] - point.time) < 0.02 else { continue }
@@ -94,18 +98,30 @@ enum PipelineCompare {
                 if let tp = e.trackPoint, near(tp) { run.onTrack += 1 }
             }
             // Rally: where the ball was in play in your track.
-            let seen = rally.points.filter { $0.state == .visible }.map(\.time)
+            let seen = rally.points.filter { $0.state == .visible && !cuts.contains($0.time) }.map(\.time)
             guard let first = seen.first, let last = seen.last, last > first else { continue }
             run.tracked += 1
-            let overlapping = segments.filter { min($0.endTime, last) - max($0.startTime, first) > 0 }
-            let overlap = overlapping.reduce(0) { $0 + min($1.endTime, last) - max($1.startTime, first) }
-            if overlap >= 0.5 * (last - first), let s = overlapping.first, let e = overlapping.last {
+            if let errors = Self.coverage(first: first, last: last, decided: decided, cuts: cuts) {
                 run.covered += 1
-                run.startError.append(s.startTime - first)
-                run.endError.append(e.endTime - last)
+                run.startError.append(errors.start)
+                run.endError.append(errors.end)
             }
         }
         return run
+    }
+
+    /// Whether the pipeline's rallies cover a tracked rally seen from `first` to `last`: the
+    /// span's pieces outside the cut ranges (D-030) are the footage to cover, and half of their
+    /// length has to be inside the decided rallies. The errors are the first covering rally's
+    /// start against the first piece's start, and the last one's end against the last piece's end.
+    static func coverage(first: Double, last: Double, decided: [Interval], cuts: [CutRange]) -> (start: Double, end: Double)? {
+        let pieces = [Interval(start: first, end: last)].outside(cuts)
+        guard let head = pieces.first, let tail = pieces.last else { return nil }
+        let retained = pieces.reduce(0) { $0 + $1.duration }
+        let overlapping = decided.filter { d in pieces.contains { min(d.end, $0.end) - max(d.start, $0.start) > 0 } }
+        let overlap = overlapping.reduce(0) { total, d in total + pieces.reduce(0) { $0 + max(0, min(d.end, $1.end) - max(d.start, $1.start)) } }
+        guard retained > 0, overlap >= 0.5 * retained, let s = overlapping.first, let e = overlapping.last else { return nil }
+        return (s.start - head.start, e.end - tail.end)
     }
 
     private static func nearest(_ t: Double, in times: [Double]) -> Int? {

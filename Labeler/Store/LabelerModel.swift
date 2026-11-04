@@ -336,22 +336,25 @@ final class LabelerModel: ReviewStore {
         return byId.values.filter { !$0.deleted }.sorted { $0.start < $1.start }
     }
 
-    /// Found rallies not marked, not said to be no rally: what review asks about.
+    /// Found rallies not marked, not said to be no rally, and touching no cut range (not footage; the found rally
+    /// itself stays on the video for undo): what review asks about.
     func openFound(in video: LabelVideo) -> [[Double]] {
-        let marked = rallyTimes(for: video).rallies
+        let times = rallyTimes(for: video)
+        let marked = times.rallies, cuts = times.cutRanges
         let rejected = LocalStore.rejected(video)
         return video.ralliesFound.filter { f in
-            !rejected.contains(LocalStore.key(f)) && !marked.contains { min($0.end, f[1]) - max($0.start, f[0]) > 0.3 }
+            !rejected.contains(LocalStore.key(f)) && !cuts.overlaps(f[0], f[1]) && !marked.contains { min($0.end, f[1]) - max($0.start, f[0]) > 0.3 }
         }
     }
 
     /// Rallies to track, in time order: your marked ones, then the found
-    /// ones you haven't marked or turned down — none already tracked.
+    /// ones you haven't marked or turned down — none already tracked, none
+    /// touching a cut range (the Mac's rule, PreTracker.openSpans; D-030).
     func untrackedRallies(in video: LabelVideo) -> [LabelRally] {
-        let marked = rallyTimes(for: video).rallies
+        let times = rallyTimes(for: video)
         let found = openFound(in: video).map { LabelRally(start: $0[0], end: $0[1]) }
         let tracked = tracks(for: video)
-        return (marked + found)
+        return (times.rallies + found).outsideCuts(times.cutRanges)
             .filter { r in !tracked.contains { min($0.end, r.end) - max($0.start, r.start) > 0.5 * (r.end - r.start) } }
             .sorted { $0.start < $1.start }
     }
@@ -502,10 +505,14 @@ final class LabelerModel: ReviewStore {
         }
     }
 
-    /// How far marking the rallies has got, with each video's real length.
+    /// How far marking the rallies has got, with each video's real length less
+    /// its cut ranges (not footage, nothing to mark there; D-030).
     var marking: MarkingProgress {
         let duration = Dictionary(videos.map { ($0.name, $0.duration) }) { a, _ in a }
-        return MarkingProgress(videos: queueVideos) { duration[$0.plan.name].flatMap { $0 > 0 ? $0 : nil } }
+        let cuts = Dictionary(videos.map { ($0.name, rallyTimes(for: $0).cutRanges) }) { a, _ in a }
+        return MarkingProgress(videos: queueVideos) { v in
+            duration[v.plan.name].flatMap { $0 > 0 ? $0 - (cuts[v.plan.name] ?? []).seconds(within: $0) : nil }
+        }
     }
 
     // MARK: - Next tasks
@@ -547,6 +554,7 @@ final class LabelerModel: ReviewStore {
         let wasComplete = t.complete
         change(&t)
         t.rallies.sort { $0.start < $1.start }
+        t.cuts?.sort { $0.start < $1.start }
         t.updatedAt = Date()
         outbox.times[video.id] = t
         if t.complete && !wasComplete { count { $0.videos += 1 } }

@@ -48,20 +48,26 @@ enum TrainingDataExporter {
         let duration: Double
         let netTopY: Double?    // Vision-normalized net box top (1 = frame top)
         let netBottomY: Double?
-        let labels: [IntervalDTO]       // ground truth (raw boundaries)
-        let baselineRaw: [IntervalDTO]  // rule pipeline, raw decided boundaries
+        let labels: [IntervalDTO]       // ground truth (raw boundaries), outside the cuts
+        let baselineRaw: [IntervalDTO]  // rule pipeline, raw decided boundaries, outside the cuts
+        let cuts: [IntervalDTO]         // cut ranges (not footage; D-030): no frame inside, and the trainer masks its own decisions with them
         let frames: [FrameRow]
     }
 
+    /// `cuts`: the recording's cut ranges (not footage; D-030) — frames inside them are left out,
+    /// labels and baseline rallies are taken outside them.
     static func makeExport(
         videoName: String,
         duration: Double,
         evidence: [VideoProcessor.FrameEvidence],
         labels: [Interval],
-        baselineRaw: [Interval]
+        baselineRaw: [Interval],
+        cuts: [CutRange] = []
     ) -> Export {
-        let net = evidence.lazy.compactMap { $0.detectedNet }.first
-        let frames = evidence.map { f -> FrameRow in
+        // The net too comes from footage: a replay or intro inside a cut may show another view.
+        let retained = evidence.filter { !cuts.contains($0.time) }
+        let net = retained.lazy.compactMap { $0.detectedNet }.first
+        let frames = retained.map { f -> FrameRow in
             let selected = f.candidates.first { $0.isSelected }
             return FrameRow(
                 t: f.time,
@@ -86,10 +92,56 @@ enum TrainingDataExporter {
             duration: duration,
             netTopY: net.map { Double($0.box.maxY) },
             netBottomY: net.map { Double($0.box.minY) },
-            labels: labels.map { IntervalDTO(start: $0.start, end: $0.end) },
-            baselineRaw: baselineRaw.map { IntervalDTO(start: $0.start, end: $0.end) },
+            labels: labels.outside(cuts).map { IntervalDTO(start: $0.start, end: $0.end) },
+            baselineRaw: baselineRaw.outside(cuts).map { IntervalDTO(start: $0.start, end: $0.end) },
+            cuts: cuts.map { IntervalDTO(start: $0.start, end: $0.end) },
             frames: frames
         )
+    }
+
+    /// The cut ranges of the project session over this video, if any project has one — the
+    /// recording recognised as the Pipeline tab recognises it (`ReservedVideos.match`: by path,
+    /// by name, or by the file's content, so a copy under another name is the same recording)
+    /// over every project this Mac knows (`ProjectsModel.savedProjectRoots`: the remembered
+    /// list, the last opened and the default location; a project may live anywhere). A video
+    /// no project knows has no cuts, by construction. Throws when a project's sessions or
+    /// reservations can't all be read: an unreadable session is unknown cuts, not no cuts, and
+    /// the export must not go out as if there were none (fails closed).
+    static func cutRanges(forVideo url: URL, projectRoots: [URL]? = nil) throws -> [CutRange] {
+        // A remembered project that is not there is unknown cuts: the lookup throws, the export stops.
+        for project in try projectRoots ?? ProjectsModel.savedProjectRoots() {
+            let sessions = try DatasetStore(root: project).loadSessionsStrict()
+            guard let match = try ReservedVideos.match(url, root: project) else {
+                // No session is over this video — but a card of the project names it (its sessions folder or
+                // this session is missing or renamed): its cuts are unknown, not none (Codex on #139).
+                if let card = try cardNaming(url, in: project) { throw SessionUnavailable(video: card, project: project.lastPathComponent) }
+                continue
+            }
+            guard let session = sessions.first(where: { $0.name == match.session }) else { throw SessionUnavailable(video: match.session, project: project.lastPathComponent) }
+            return session.cutRanges
+        }
+        return []
+    }
+
+    /// A project card names the recording — by its cut file's path or name, or by content — though no session is over it.
+    struct SessionUnavailable: LocalizedError, Equatable {
+        let video: String
+        let project: String
+        var errorDescription: String? { "\(project) knows \(video) but has no session over it (missing or renamed): its cut ranges can't be known" }
+    }
+
+    /// The project video `url` is by its card (project.json, read strictly): the cut file's path or name, or the
+    /// file's content against the card's fingerprint. nil when no card names it.
+    static func cardNaming(_ url: URL, in project: URL) throws -> String? {
+        let sources = try EventReview.projectSourcesStrict(in: project)
+        let path = url.standardizedFileURL.path, base = url.lastPathComponent
+        lazy var print: String? = ProjectsModel.fileFingerprint(atPath: path)
+        for (name, source) in sources.sorted(by: { $0.key < $1.key }) {
+            let cut = URL(fileURLWithPath: source.clipFile)
+            if cut.standardizedFileURL.path == path || cut.lastPathComponent == base || base.hasPrefix(name + ".") { return name }
+            if let mine = print, ReservedVideos.effectiveFingerprint(source) == mine { return name }
+        }
+        return nil
     }
 
     static func write(_ export: Export, to url: URL) throws {
@@ -191,14 +243,27 @@ enum HeadlessTrainingExport {
             let baseline = EvidenceReplayer.decidedRanges(
                 evidence: evidence, duration: duration, config: ProcessorConfig(),
                 minRallySec: 1.1653, padded: false)   // RallyDecider's production default
+            // Unknown cuts are not no cuts: a project whose sessions can't be read stops this video's export.
+            let cuts: [CutRange]
+            do { cuts = try TrainingDataExporter.cutRanges(forVideo: video) } catch {
+                log("❌ \(video.lastPathComponent): the cut ranges can't be known — \(error.localizedDescription) Not exported.")
+                allSucceeded = false
+                continue
+            }
+            if !cuts.isEmpty { log("  \(video.lastPathComponent): \(String(format: "%.1f", cuts.seconds(within: duration))) s of cut ranges left out (D-030)") }
 
             let export = TrainingDataExporter.makeExport(
                 videoName: video.lastPathComponent,
                 duration: duration,
                 evidence: evidence,
                 labels: labeled.map { Interval(start: $0.startTime, end: $0.endTime) },
-                baselineRaw: baseline)
+                baselineRaw: baseline,
+                cuts: cuts)
 
+            // A recording cut whole (every processed frame inside a cut) has nothing to train on. Its export is
+            // written all the same — empty, which the trainer skips — so an earlier export with the frames in it
+            // is replaced, never left for the next training run to read.
+            if export.frames.isEmpty { log("⚠️ \(video.lastPathComponent): every frame lies inside a cut range (not footage) — an empty export replaces any earlier one") }
             let outURL = TrainingDataExporter.exportURL(for: video)
             do {
                 try TrainingDataExporter.write(export, to: outURL)

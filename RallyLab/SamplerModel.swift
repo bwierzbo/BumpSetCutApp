@@ -132,6 +132,8 @@ struct IngestJob: Identifiable, Equatable {
     /// The dataset the job was queued for: its session, frames and labels go there, whatever dataset is current
     /// when the job runs or finishes (the project can be switched meanwhile).
     var root: URL? = nil
+    /// The cut ranges of the session this job replaces (a re-pull; D-030): kept on the new one.
+    var cuts: [CutRange]? = nil
     var state: State = .pending
     /// How far through the job is, 0–1, while running: finding rallies is
     /// the first half, extracting and pre-labeling frames the rest.
@@ -324,9 +326,11 @@ final class SamplerModel {
             try store.prepare()
             var written = 0
             for session in sessions {
+                let cuts = session.cutRanges
                 for frame in session.frames {
-                    try store.writeLabel(for: frame, reviewedOnly: reviewedOnly)
-                    if frame.keep, !(reviewedOnly && !frame.reviewed) { written += 1 }
+                    let inCut = cuts.contains(frame.time)
+                    try store.writeLabel(for: frame, reviewedOnly: reviewedOnly, inCut: inCut)
+                    if frame.keep, !(reviewedOnly && !frame.reviewed), !inCut { written += 1 }
                 }
             }
             try store.writeDataYAML()
@@ -363,9 +367,9 @@ final class SamplerModel {
 
     /// Queue one project clip. The caller has already removed any earlier
     /// session with this name.
-    func enqueueClip(_ url: URL, sessionName: String, split: String?, framesPerRally: Int?) {
+    func enqueueClip(_ url: URL, sessionName: String, split: String?, framesPerRally: Int?, cuts: [CutRange]? = nil) {
         queue.append(IngestJob(url: url, kind: .video, sessionName: sessionName,
-                               split: split, framesPerRally: framesPerRally, root: datasetRoot))
+                               split: split, framesPerRally: framesPerRally, root: datasetRoot, cuts: cuts))
         Task { await processQueue() }
     }
 
@@ -431,9 +435,11 @@ final class SamplerModel {
             }
             records = records.enumerated().filter { keep.contains($0.offset) }.map(\.element)
         }
-        let session = VideoSession(name: name, sourcePath: job.url.path, split: split, addedAt: Date(), frames: records)
+        var session = VideoSession(name: name, sourcePath: job.url.path, split: split, addedAt: Date(), frames: records)
+        if let cuts = job.cuts, !cuts.isEmpty { session.cuts = cuts }
         try store.save(session)
-        for frame in records { try store.writeLabel(for: frame, reviewedOnly: reviewedOnly) }
+        let ranges = session.cutRanges
+        for frame in records { try store.writeLabel(for: frame, reviewedOnly: reviewedOnly, inCut: ranges.contains(frame.time)) }
         try store.writeDataYAML()
         return session
     }
@@ -501,11 +507,14 @@ final class SamplerModel {
             : labeled.map { Interval(start: $0.startTime, end: $0.endTime) }
 
         let settings = ingestSettings(name: name, split: split, root: root)
+        // A session ingested again keeps its cut ranges — the job's (a re-pull deletes the old session
+        // first) or the session's: nothing is sampled inside them (D-030).
+        let cuts = (job.cuts ?? sessions.first { $0.name == name }?.cuts ?? []).normalised()
         func planFrames(random: Int) -> [PlannedFrame] {
             Self.plan(rallies: rallies, evidence: evidence, duration: duration,
                       burstFPS: settings.burstFPS, padding: settings.padding,
                       includeMissed: settings.includeMissed, maxMissed: settings.maxMissed,
-                      randomCount: random)
+                      randomCount: random, cuts: cuts)
         }
         var plan = planFrames(random: settings.randomCount)
         // No rallies found (the ball was never seen): frames from across the
@@ -519,7 +528,9 @@ final class SamplerModel {
             let keep = Self.keep(sources: plan.map(\.source.key), perRally: perRally)
             plan = keep.map { plan[$0] }
         }
-        guard !plan.isEmpty else { throw IngestError.nothingToSample }
+        // Nothing left to sample under the cut ranges (a recording cut whole): an empty session, with the cuts
+        // kept on it — a re-pull has already deleted the old session, and the owner's cuts must not go with it.
+        guard try Self.samples(plan, cuts: cuts) else { return [] }
         setJob(job.id, .running("Extracting \(plan.count) frames (\(rallies.count) rallies)…"), fraction: Self.rallyShare)
 
         let progress = prelabelProgress(for: job.id, from: Self.rallyShare)
@@ -537,6 +548,15 @@ final class SamplerModel {
         return try await Task.detached(priority: .userInitiated) {
             try Self.copyAndLabel(files: files, settings: settings, progress: progress)
         }.value
+    }
+
+    /// Whether an ingest goes on to extract `plan`: an empty plan with no cut ranges is nothing to sample (the
+    /// job fails as before); an empty plan under cut ranges is a recording cut whole — an empty session that keeps
+    /// the cuts, never a failed job that loses them (Codex on #139).
+    nonisolated static func samples(_ plan: [PlannedFrame], cuts: [CutRange]) throws -> Bool {
+        if !plan.isEmpty { return true }
+        if cuts.isEmpty { throw IngestError.nothingToSample }
+        return false
     }
 
     enum IngestError: LocalizedError {
@@ -708,7 +728,8 @@ final class SamplerModel {
         padding: Double,
         includeMissed: Bool,
         maxMissed: Int,
-        randomCount: Int
+        randomCount: Int,
+        cuts: [CutRange] = []
     ) -> [PlannedFrame] {
         var planned: [PlannedFrame] = []
         let step = 1 / max(burstFPS, 0.5)
@@ -756,7 +777,8 @@ final class SamplerModel {
             }
             deduped.append(frame)
         }
-        return deduped
+        // A moment inside a cut range is not footage (D-030).
+        return cuts.isEmpty ? deduped : deduped.filter { !cuts.contains($0.time) }
     }
 
     // MARK: - Review
@@ -1178,7 +1200,7 @@ final class SamplerModel {
         }
         saveSession(session)
         do {
-            try store.writeLabel(for: record, reviewedOnly: reviewedOnly)
+            try store.writeLabel(for: record, reviewedOnly: reviewedOnly, inCut: session.cutRanges.contains(record.time))
         } catch {
             status = "Couldn't save: \(error.localizedDescription)"
         }
@@ -1207,14 +1229,23 @@ final class SamplerModel {
         modify(session: name) { $0.ralliesMarked = marked }
     }
 
+    /// Mark the rallies → X: the video's cut ranges, raw as marked (D-030). The Sampler's own
+    /// dataset (images/, labels/, data.yaml) follows: a sampled frame inside a cut is parked under
+    /// excluded/, one no longer inside comes back.
+    func setCuts(_ cuts: [CutRange], session name: String) {
+        modify(session: name) { $0.cuts = cuts.sorted { $0.start < $1.start } }
+        guard let session = sessions.first(where: { $0.name == name }) else { return }
+        let ranges = session.cutRanges
+        do {
+            for frame in session.frames { try store.writeLabel(for: frame, reviewedOnly: reviewedOnly, inCut: ranges.contains(frame.time)) }
+        } catch {
+            status = "Couldn't park the frames inside the cuts: \(error.localizedDescription)"
+        }
+    }
+
     /// Label → Not a rally: the found rally starting at `start` isn't one.
     func addNotRally(start: Double, session name: String) {
         modify(session: name) { $0.notRallies = ($0.notRallies ?? []) + [start] }
-    }
-
-    /// The net found in a video (live tagging), kept for next time.
-    func setNetBox(_ box: TrackCandidate?, session name: String) {
-        modify(session: name) { $0.netBox = box }
     }
 
     /// These finished rallies' boxes have been fitted (BoxFitter).

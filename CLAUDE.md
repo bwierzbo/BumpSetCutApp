@@ -14,6 +14,7 @@ All builds go through the canonical script — do NOT hand-write `xcodebuild bui
 scripts/build.sh            # auto: builds target(s) affected by changed files
 scripts/build.sh ios        # BumpSetCut on a live iPhone simulator
 scripts/build.sh mac        # RallyLab (macOS)
+scripts/build.sh labeler    # Labeler — RallyLab on the iPhone (iOS simulator)
 scripts/build.sh both       # both targets
 scripts/build.sh mac --run  # build RallyLab and relaunch the app
 scripts/build.sh doctor     # print the resolved simulator UDID
@@ -28,7 +29,7 @@ swiftlint
 ```
 
 Build rules:
-- **Dual-target rule**: BumpSetCut (iOS) and RallyLab (macOS) share the processing pipeline (files listed in RallyLab's `membershipExceptions` in project.pbxproj). Any change to a shared file must build BOTH targets before being declared done — `scripts/build.sh auto` handles this. A shared-file change once silently broke RallyLab for days.
+- **Dual-target rule**: BumpSetCut (iOS) and RallyLab (macOS) share the processing pipeline (files listed in RallyLab's `membershipExceptions` in project.pbxproj). Any change to a shared file must build BOTH targets before being declared done — `scripts/build.sh auto` handles this. A shared-file change once silently broke RallyLab for days. `Labeler/Shared/` is compiled into RallyLab and the Labeler (iPhone) app: `auto` builds both schemes for a change there (a new file there must also be added to RallyLab's exceptions for the `Labeler` folder).
 - `unable to attach DB` build errors mean the Xcode GUI holds the build database — the script retries once; after that ask the user to stop the Xcode build. Don't spam retries.
 - Ignore SourceKit/IDE diagnostics completely ("Cannot find X in scope" after edits is noise) — never mention them; only build output counts.
 - Don't rebuild targets untouched by the change.
