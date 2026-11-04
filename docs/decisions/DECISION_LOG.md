@@ -2,7 +2,7 @@
 name: decision-log
 status: authoritative
 created: 2026-10-20T22:12:44Z
-updated: 2026-11-04T03:17:39Z
+updated: 2026-11-04T06:44:58Z
 ---
 
 # Decision log
@@ -44,7 +44,7 @@ The authoritative record of product, architecture, data and process decisions fo
 | [D-030](#d-030) | 2026-11-02 | proposed | Cut ranges: stretches of a recording marked as not footage in the live pass (the clip starts mid-rally, an editor's replay), honoured by every consumer; the file is never re-cut |
 | [D-031](#d-031) | 2026-11-02 | accepted (direction; merge and deployment separate) | RallyLab 2.0: a source registry and a persistent labeling task queue over the existing stores, phased; footage characterised span by span with per-model eligibility; stability fixes first and evidence-based; no training, migration, public-app or TestFlight change under this direction |
 | [D-032](#d-032) | 2026-11-03 | proposed | A recording's type — continuous, edited, unknown — is confirmed by a person at the end of the marking pass, kept apart from the pass being complete, from the cut ranges and from eligibility, never inferred; the phone shows the facts and cannot sync the type without a backend change |
-| [D-033](#d-033) | 2026-11-03 | proposed | Recording-type claims: the phone submits a claim (continuous, edited, unknown) through the labeling server, RallyLab validates it against the project and writes the authoritative footage-properties record, then settles the claim accepted or rejected; one open claim per recording, statuses only move forward, no second authority on the phone or the server |
+| [D-033](#d-033) | 2026-11-03 | accepted | Recording-type claims: the phone submits a claim (continuous, edited, unknown) through the labeling server, RallyLab validates it against the project and writes the authoritative footage-properties record, then settles the claim accepted or rejected; one open claim per recording, statuses only move forward, no second authority on the phone or the server |
 
 ---
 
@@ -422,7 +422,7 @@ The authoritative record of product, architecture, data and process decisions fo
 
 ### D-033
 
-**Recording-type claims: the phone submits a request for confirmation, RallyLab validates it and writes the authoritative record, then settles the claim — accepted or rejected with a reason — so the person confirms once, on either device** — 2026-11-03 — proposed — owner (authorisation "RallyLab 2.0 iPhone Footage-Type Synchronization", 2026-11-03: implementation and a reviewed migration authorised; applying the migration, TestFlight and deployment separate).
+**Recording-type claims: the phone submits a request for confirmation, RallyLab validates it and writes the authoritative record, then settles the claim — accepted or rejected with a reason — so the person confirms once, on either device** — 2026-11-03 — accepted — owner (authorisation "RallyLab 2.0 iPhone Footage-Type Synchronization", 2026-11-03: implementation and a reviewed migration authorised; applying the migration, TestFlight and deployment separate).
 
 **Context.** D-032 put the footage-type step on the Mac and left the phone informational: nothing in `label_rally_times`, `label_videos` or `label_rally_events` carries a recording's type, and the footage-properties record (`<project>/footage-properties/<video>.json`, D-031) is the one authority for characterising footage. The owner wants the phone's person to confirm the type after the marking pass without repeating it on the Mac, with the state of that confirmation visible on the phone.
 
@@ -436,3 +436,5 @@ The authoritative record of product, architecture, data and process decisions fo
 **Consequences.** Migration `052_label_recording_type_claims.sql` (table, guard, read policy, the two functions, `label_videos.recording_type` / `recording_type_at`, the 048 guard extended; tests `supabase/tests/052_claims_tests.sql`) — reviewed in its own PR, applied only on the owner's separate decision; the clients' code (`RecordingTypeClaims` shared, `LabelerModel`'s outbox and the phone's footage-type step, `LabelingSync`'s claim step) in a second PR that depends on the migration being applied before it ships. Proposed until the owner merges the PR that carries it.
 
 **Source.** Owner authorisation of 2026-11-03; D-032; the PRs carrying this entry.
+
+**Status 2026-11-04.** Accepted by the owner ("Owner Approval — PR #141 and #142 Recording-Type Synchronization", 2026-11-04: "D-033 is accepted as part of the owner's prior authorization of the recording-type claims architecture and PR #141 merge"). Merged: #141 → `5456e64` (migration 052 as a file, not applied), #142 → `72a947c` (phone and Mac), #143 → `982856c` (refusal persistence). Applying migration 052, the synthetic acceptance run and any TestFlight distribution remain separate owner decisions.
