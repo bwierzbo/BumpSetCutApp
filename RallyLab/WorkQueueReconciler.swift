@@ -259,10 +259,11 @@ enum WorkQueueReconciler {
         var out: [String: NetObservation] = [:]
         for item in items {
             let fingerprint = fingerprints[item.video] ?? nil
-            let skip = NetLabels.skip(video: item.video, camera: item.camera, withheld: inventory.withheld, fingerprint: fingerprint, excluded: excluded)
-            let ranges = cuts[DatasetStore.safeName(item.video)] ?? cuts[item.video] ?? []
-            let status = NetLabels.status(of: labels[item.video], fingerprint: fingerprint, cuts: ranges)
-            let offered = NetLabels.isOffered(proposals[item.video], skip: skip, fingerprint: fingerprint, status: status, cuts: ranges)
+            // nil: no session over the recording — unknown cuts, skipped by the rule.
+            let ranges = cuts[DatasetStore.safeName(item.video)] ?? cuts[item.video]
+            let skip = NetLabels.skip(video: item.video, camera: item.camera, withheld: inventory.withheld, fingerprint: fingerprint, excluded: excluded, cuts: ranges)
+            let status = NetLabels.status(of: labels[item.video], fingerprint: fingerprint, cuts: ranges ?? [])
+            let offered = NetLabels.isOffered(proposals[item.video], skip: skip, fingerprint: fingerprint, status: status, cuts: ranges ?? [])
             out[DatasetStore.safeName(item.video)] = NetObservation(skip: skip, status: status, proposalPending: offered)
         }
         return out

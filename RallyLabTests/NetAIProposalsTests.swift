@@ -31,7 +31,7 @@ extension NetLabelsTests {
     private static func candidate(_ v: String, surface: String, group: String? = nil, camera: String = "Tripod / corner",
                                   fp: String? = "fp", file: String? = "fp") -> NetAIPilot.Candidate {
         NetAIPilot.Candidate(video: v, clip: v, camera: camera, surface: surface, aliasGroup: group,
-                             url: URL(fileURLWithPath: "/nowhere/\(v).mp4"), fingerprint: fp, fileFingerprint: file)
+                             url: URL(fileURLWithPath: "/nowhere/\(v).mp4"), fingerprint: fp, fileFingerprint: file, cuts: [])
     }
 
     // MARK: - Choosing and extracting

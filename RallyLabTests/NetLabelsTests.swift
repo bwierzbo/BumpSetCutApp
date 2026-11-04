@@ -87,14 +87,18 @@ final class NetLabelsTests: XCTestCase {
 
     func testWithheldHandheldAndUnidentifiedAreSkipped() {
         let withheld: Set<String> = ["bch_onl_sun_land_onl_03"]
-        XCTAssertEqual(NetLabels.skip(video: "bch_onl_sun_land_onl_03", camera: "Tripod / corner", withheld: withheld, fingerprint: "f"), .withheld)
-        XCTAssertEqual(NetLabels.skip(video: "grs_hnd_sun_land_self_01", camera: "Handheld / corner", withheld: withheld, fingerprint: "f"), .handheld)
-        XCTAssertEqual(NetLabels.skip(video: "grs_hnd_sun_land_self_01", camera: "handheld", withheld: withheld, fingerprint: "f"), .handheld)
-        XCTAssertEqual(NetLabels.skip(video: "x", camera: "Tripod / corner", withheld: withheld, fingerprint: nil), .unidentified)
-        XCTAssertNil(NetLabels.skip(video: "bch_ele_sun_port_self_03", camera: "End line, elevated (stands/tripod 2m+)", withheld: withheld, fingerprint: "f"))
-        XCTAssertNil(NetLabels.skip(video: "grs_extra_self_01", camera: "Extra", withheld: withheld, fingerprint: "f"))
+        XCTAssertEqual(NetLabels.skip(video: "bch_onl_sun_land_onl_03", camera: "Tripod / corner", withheld: withheld, fingerprint: "f", cuts: []), .withheld)
+        XCTAssertEqual(NetLabels.skip(video: "grs_hnd_sun_land_self_01", camera: "Handheld / corner", withheld: withheld, fingerprint: "f", cuts: []), .handheld)
+        XCTAssertEqual(NetLabels.skip(video: "grs_hnd_sun_land_self_01", camera: "handheld", withheld: withheld, fingerprint: "f", cuts: []), .handheld)
+        XCTAssertEqual(NetLabels.skip(video: "x", camera: "Tripod / corner", withheld: withheld, fingerprint: nil, cuts: []), .unidentified)
+        XCTAssertNil(NetLabels.skip(video: "bch_ele_sun_port_self_03", camera: "End line, elevated (stands/tripod 2m+)", withheld: withheld, fingerprint: "f", cuts: []))
+        XCTAssertNil(NetLabels.skip(video: "grs_extra_self_01", camera: "Extra", withheld: withheld, fingerprint: "f", cuts: []))
         // Withheld wins over the camera and over a missing identity.
-        XCTAssertEqual(NetLabels.skip(video: "x", camera: "Handheld / corner", withheld: ["x"], fingerprint: nil), .withheld)
+        XCTAssertEqual(NetLabels.skip(video: "x", camera: "Handheld / corner", withheld: ["x"], fingerprint: nil, cuts: []), .withheld)
+        // No session over the recording: its cut ranges are unknown, not none — skipped (the export, the tab, the
+        // pilot and the queue all read this rule); withheld still wins.
+        XCTAssertEqual(NetLabels.skip(video: "bch_ele_sun_port_self_03", camera: "Tripod / corner", withheld: withheld, fingerprint: "f", cuts: nil), .noSession)
+        XCTAssertEqual(NetLabels.skip(video: "bch_onl_sun_land_onl_03", camera: "Tripod / corner", withheld: withheld, fingerprint: "f", cuts: nil), .withheld)
     }
 
     func testFrameComesFromTheFirstRallyLongEnoughElseTheMiddle() {

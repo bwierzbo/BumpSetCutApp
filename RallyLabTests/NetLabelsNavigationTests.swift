@@ -60,6 +60,10 @@ final class NetLabelsNavigationTests: XCTestCase {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(Project(name: name, createdAt: now, framesPerRally: 4, clips: clips)).write(to: dir.appendingPathComponent("project.json"))
+        // A session over each recording: without one its cut ranges are unknown and the tab skips it (no_session).
+        let store = DatasetStore(root: dir)
+        try store.prepare()
+        for v in videos { try store.save(VideoSession(name: v.id, sourcePath: dir.appendingPathComponent("\(v.id).mp4").path, split: "train", addedAt: now, frames: [])) }
         let rows = videos.map { v in
             """
             {"video":"\(v.id)","sourceId":{"origin":"unknown"},"sessionId":{"origin":"unknown"},"venueId":{"origin":"unknown"},

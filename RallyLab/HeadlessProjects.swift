@@ -1107,7 +1107,7 @@ enum HeadlessProjects {
         let sources = project.clips.flatMap { clip in
             clip.videos.map { NetDatasetExport.Source(video: clip.videoId(of: $0), clip: clip.id, camera: clip.camera,
                                                       url: URL(fileURLWithPath: $0.clipFile), fingerprint: ReservedVideos.effectiveFingerprint($0),
-                                                      cuts: cuts[clip.videoId(of: $0)] ?? []) }
+                                                      cuts: cuts[clip.videoId(of: $0)]) }   // nil: no session — unknown cuts, skipped
         }
         guard !FileManager.default.fileExists(atPath: dir.path) else { log("❌ \(dir.path) exists; name a new folder."); return false }
         // A staging folder of this run's own, beside the destination (same volume, so the final move is a rename);
@@ -1176,7 +1176,7 @@ enum HeadlessProjects {
                                                      url: URL(fileURLWithPath: source.clipFile),
                                                      fingerprint: inventory.fingerprint[id] ?? inventory.fingerprint[DatasetStore.safeName(id)],
                                                      fileFingerprint: ReservedVideos.effectiveFingerprint(source))
-                candidate.cuts = cuts[id] ?? []
+                candidate.cuts = cuts[id]   // nil: no session — unknown cuts, never chosen
                 return candidate
             }
         }

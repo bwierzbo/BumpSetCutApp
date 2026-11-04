@@ -189,7 +189,7 @@ struct NetExclusionStore {
 }
 
 enum NetLabels {
-    enum Skip: String, Codable { case withheld, handheld, unidentified, sideView = "side_view" }
+    enum Skip: String, Codable { case withheld, handheld, unidentified, sideView = "side_view", noSession = "no_session" }
 
     /// `NetLabel.proposalSource` of a label that started as the old net model's box.
     static let oldModelSource = "old net model"
@@ -227,11 +227,15 @@ enum NetLabels {
     /// recording without a file identity can't carry a label that is checked
     /// against the file later, so it is skipped too. `excluded`: the owner's side views
     /// (NetExclusionStore.excluded — already matched to the file).
-    static func skip(video: String, camera: String, withheld: Set<String>, fingerprint: String?, excluded: Set<String> = []) -> Skip? {
+    /// `cuts`: the recording's cut ranges from its session — nil when no session is over it, which is unknown cuts,
+    /// not none: such a recording is skipped (no label taken, exported or proposed on; Codex on #139) until it is
+    /// sampled again.
+    static func skip(video: String, camera: String, withheld: Set<String>, fingerprint: String?, excluded: Set<String> = [], cuts: [CutRange]?) -> Skip? {
         if withheld.contains(video) { return .withheld }
         if camera.lowercased().hasPrefix("handheld") { return .handheld }
         if fingerprint == nil { return .unidentified }
         if excluded.contains(video) { return .sideView }
+        if cuts == nil { return .noSession }
         return nil
     }
 
@@ -330,7 +334,8 @@ enum NetDatasetExport {
         /// The file's identity now (ReservedVideos.effectiveFingerprint).
         var fingerprint: String?
         /// The recording's cut ranges (not footage; D-030): a label on a frame inside one is not a label of footage.
-        var cuts: [CutRange] = []
+        /// nil: no session over the recording — its cuts are unknown and it is skipped.
+        var cuts: [CutRange]?
     }
 
     static let cornersNotMarked = "corners not marked (a box-only label from before) — mark them in the Net labels tab"
@@ -349,12 +354,12 @@ enum NetDatasetExport {
         let fingerprints = Dictionary(sources.map { ($0.video, $0.fingerprint) }, uniquingKeysWith: { a, _ in a })
         let excluded = NetExclusionStore.excluded(exclusions) { fingerprints[$0] ?? nil }
         for s in sources.sorted(by: { $0.video < $1.video }) {
-            if let why = NetLabels.skip(video: s.video, camera: s.camera, withheld: withheld, fingerprint: s.fingerprint, excluded: excluded) {
+            if let why = NetLabels.skip(video: s.video, camera: s.camera, withheld: withheld, fingerprint: s.fingerprint, excluded: excluded, cuts: s.cuts) {
                 skipped.append(Skipped(video: s.video, reason: why.rawValue))
             } else if let label = labels[s.video] {
                 if label.fingerprint != s.fingerprint { skipped.append(Skipped(video: s.video, reason: "label is another recording's (fingerprint differs)")) }
                 else if label.corners == nil { skipped.append(Skipped(video: s.video, reason: cornersNotMarked)) }
-                else if s.cuts.contains(label.time) { skipped.append(Skipped(video: s.video, reason: frameInsideCut)) }
+                else if (s.cuts ?? []).contains(label.time) { skipped.append(Skipped(video: s.video, reason: frameInsideCut)) }
                 else { export.append(s) }
             } else {
                 skipped.append(Skipped(video: s.video, reason: "unlabeled"))

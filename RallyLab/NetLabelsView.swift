@@ -83,7 +83,8 @@ struct NetLabelsView: View {
                 } else if let item = model.selectedItem, let skip = item.skip {
                     ContentUnavailableView("Skipped: \(skip.rawValue)", systemImage: "minus.circle",
                                            description: Text(skip == .withheld ? "A withheld recording is never opened here." : skip == .handheld ? "Handheld: the net doesn't hold still."
-                                                             : skip == .sideView ? "You excluded it as a side view: it is not used for net labels. Include again to undo." : "No file identity for this recording."))
+                                                             : skip == .sideView ? "You excluded it as a side view: it is not used for net labels. Include again to undo."
+                                                             : skip == .noSession ? "No session over this recording, so its cut ranges can't be known: sample it in the Sampler, then label." : "No file identity for this recording."))
                 } else if model.selected == nil {
                     ContentUnavailableView("Pick a recording", systemImage: "rectangle.split.3x1",
                                            description: Text("\(model.toLabelCount) to label. Drag the four corners onto the net's corners; Return confirms and goes to the next one."))

@@ -276,9 +276,9 @@ final class NetLabelsModel {
                 let id = clip.videoId(of: video)
                 let fingerprint = inventory.fingerprint[id] ?? inventory.fingerprint[DatasetStore.safeName(id)]
                 var item = Item(video: id, clip: clip.id, camera: clip.camera, url: URL(fileURLWithPath: video.clipFile), fingerprint: fingerprint,
-                                skip: NetLabels.skip(video: id, camera: clip.camera, withheld: inventory.withheld, fingerprint: fingerprint),
+                                skip: NetLabels.skip(video: id, camera: clip.camera, withheld: inventory.withheld, fingerprint: fingerprint, cuts: cuts[id]),
                                 labeled: false, stale: false)
-                item.cuts = cuts[id] ?? []
+                item.cuts = cuts[id] ?? []   // none only when skipped as noSession
                 return item
             }
         }
