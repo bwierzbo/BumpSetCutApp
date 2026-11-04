@@ -29,7 +29,8 @@ final class RallyMarkModel {
         var start: Double
         var end: Double
         var kind: RallyKind
-        /// Its touches in time order, the serve first, once live-tagged.
+        /// Its touches in time order, the serve first, where it was marked
+        /// with them (advanced marking, D-028); kept as the file has them.
         var contacts: [RallyContact]
         init(id: UUID = UUID(), start: Double, end: Double, kind: RallyKind = .rally, contacts: [RallyContact] = []) {
             (self.id, self.start, self.end, self.kind, self.contacts) = (id, start, end, kind, contacts)
@@ -103,6 +104,17 @@ final class RallyMarkModel {
             save()
             status = newValue ? "Whole video marked — it counts in rally scoring." : "Marked as not finished."
         }
+    }
+
+    /// The video's cut ranges (not footage; D-030), raw as marked.
+    var cuts: [CutRange] { sampler.sessions.first { $0.name == sessionName }?.cuts ?? [] }
+
+    func setCuts(_ cuts: [CutRange]) {
+        guard let sessionName else { return }
+        sampler.setCuts(cuts, session: sessionName)
+        // Re-save the rally times: the phone sync carries the cuts with them and keeps
+        // whichever side changed last by this file's date (see wholeVideoMarked).
+        save()
     }
 
     /// Guesses not yet covered by a marked rally.

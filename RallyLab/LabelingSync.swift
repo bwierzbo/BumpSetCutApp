@@ -709,10 +709,11 @@ final class LabelingSync {
             case .present(let rallies): localRallies = rallies
             }
             let localChanged = (try? labels.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
+            // The Mac always says what the cuts are (an empty list when none), so the server's value is its own.
             let local = localRallies.map { rallies in
                 LabelRallyTimes(videoId: video.id,
                                 rallies: rallies.map { LabelRally(start: $0.startTime, end: $0.endTime, kind: $0.kind, contacts: $0.contacts) },
-                                complete: session.ralliesMarked ?? false)
+                                complete: session.ralliesMarked ?? false, cuts: session.cuts ?? [])
             }
             let theirs = remote[video.id]
             switch (local, theirs) {
@@ -897,17 +898,21 @@ final class LabelingSync {
         encoder.outputFormatting = [.prettyPrinted]
         try encoder.encode(rallies).write(to: labels, options: .atomic)
         projects.sampler.setRalliesMarked(times.complete, session: session)
+        // A row with no `cuts` was last written by a build from before cuts: it says nothing about them.
+        if let cuts = times.cuts { projects.sampler.setCuts(cuts, session: session) }
         onTimesChanged?(session)
     }
 
-    /// Same rallies (to the frame, with the same kinds and touches) and the
-    /// same "every rally marked".
-    private static func same(_ a: LabelRallyTimes, _ b: LabelRallyTimes) -> Bool {
+    /// Same rallies (to the frame, with the same kinds and touches), the same
+    /// "every rally marked", and the same cut ranges (to the frame).
+    static func same(_ a: LabelRallyTimes, _ b: LabelRallyTimes) -> Bool {
         guard a.complete == b.complete, a.rallies.count == b.rallies.count else { return false }
         let x = a.rallies.sorted { $0.start < $1.start }, y = b.rallies.sorted { $0.start < $1.start }
-        return zip(x, y).allSatisfy {
+        guard zip(x, y).allSatisfy({
             abs($0.start - $1.start) < 0.02 && abs($0.end - $1.end) < 0.02 && $0.kind == $1.kind && ($0.contacts ?? []) == ($1.contacts ?? [])
-        }
+        }) else { return false }
+        let c = (a.cuts ?? []).sorted { $0.start < $1.start }, d = (b.cuts ?? []).sorted { $0.start < $1.start }
+        return c.count == d.count && zip(c, d).allSatisfy { abs($0.start - $1.start) < 0.02 && abs($0.end - $1.end) < 0.02 }
     }
 
     // MARK: - Naming

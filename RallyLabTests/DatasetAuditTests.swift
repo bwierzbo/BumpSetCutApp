@@ -29,6 +29,34 @@ final class DatasetAuditTests: XCTestCase {
         XCTAssertTrue(codes(a, .soft).contains("CARD-AUTO"))
     }
 
+    func testCutRangesAreReportedAndAnUnreadableOneIsHard() throws {
+        var inputs = F.inputs()
+        inputs.sessions = inputs.sessions.map { s in
+            var s = s
+            if s.name == "bch_b" { s.cuts = [CutRange(start: 141.6, end: 157.0)] }
+            if s.name == "grs_c" { s.cuts = [CutRange(start: 0, end: 12.4), CutRange(start: 20, end: 25)] }
+            return s
+        }
+        let a = try audit(inputs)
+        let info = try XCTUnwrap(a.findings.first { $0.code == "CUT-RANGES" })
+        XCTAssertEqual(info.severity, .info)
+        XCTAssertEqual(info.videos, ["bch_b", "grs_c"])
+        XCTAssertTrue(info.message.contains("32.8 s"), info.message)
+        XCTAssertFalse(codes(a, .hard).contains("CUT-RANGE-INVALID"))
+
+        inputs.sessions = inputs.sessions.map { s in
+            var s = s
+            if s.name == "bch_b" { s.cuts = [CutRange(start: 30, end: 28)] }
+            return s
+        }
+        let bad = try audit(inputs)
+        let hard = try XCTUnwrap(bad.findings.first { $0.code == "CUT-RANGE-INVALID" })
+        XCTAssertEqual(hard.severity, .hard)
+        XCTAssertEqual(hard.videos, ["bch_b"])
+        XCTAssertTrue(bad.hasHardLeak)
+        XCTAssertEqual(try XCTUnwrap(bad.findings.first { $0.code == "CUT-RANGES" }).videos, ["bch_b", "grs_c"], "still listed, so the owner sees it")
+    }
+
     func testCleanDatasetHasNoHardFindings() throws {
         // Pin grs_c to train and keep bch_a's three videos together in dev_val.
         var inputs = F.inputs(validation: PipelineTuner.ValidationSet(tune: [], holdout: []))

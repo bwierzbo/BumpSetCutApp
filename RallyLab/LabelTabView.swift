@@ -140,7 +140,11 @@ private struct LabelHomeView: View {
         // How long a video runs: sessions don't keep it, but the Sampler's
         // random frames reach nearly to the end, so the last one's time is close.
         let reach = Dictionary(sampler.sessions.map { ($0.name, $0.frames.map(\.time).max()) }) { a, _ in a }
-        let marking = MarkingProgress(videos: videos) { reach[$0.plan.name] ?? nil }
+        // Less the video's cut ranges: not footage, nothing to mark there (D-030).
+        let cuts = Dictionary(sampler.sessions.map { ($0.name, $0.cutRanges) }) { a, _ in a }
+        let marking = MarkingProgress(videos: videos) { v in
+            (reach[v.plan.name] ?? nil).map { $0 - (cuts[v.plan.name] ?? []).seconds(within: $0) }
+        }
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 MarkingProgressView(progress: marking)

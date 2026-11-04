@@ -1100,9 +1100,14 @@ enum HeadlessProjects {
         do { labels = try NetLabelStore(projectDir: root).load() } catch { log("❌ net-labels.json: \(error.localizedDescription)"); return false }
         let exclusions: [String: NetExclusion]
         do { exclusions = try NetExclusionStore(projectDir: root).load() } catch { log("❌ net-exclusions.json: \(error.localizedDescription)"); return false }
+        // Every session read strictly: one that won't decode is unknown cut ranges, not none (D-030; fails closed).
+        let sessions: [VideoSession]
+        do { sessions = try projects.sampler.store.loadSessionsStrict() } catch { log("❌ The cut ranges can't be known: \(error.localizedDescription)"); return false }
+        let cuts = Dictionary(uniqueKeysWithValues: sessions.map { ($0.name, $0.cutRanges) })
         let sources = project.clips.flatMap { clip in
             clip.videos.map { NetDatasetExport.Source(video: clip.videoId(of: $0), clip: clip.id, camera: clip.camera,
-                                                      url: URL(fileURLWithPath: $0.clipFile), fingerprint: ReservedVideos.effectiveFingerprint($0)) }
+                                                      url: URL(fileURLWithPath: $0.clipFile), fingerprint: ReservedVideos.effectiveFingerprint($0),
+                                                      cuts: cuts[clip.videoId(of: $0)] ?? []) }
         }
         guard !FileManager.default.fileExists(atPath: dir.path) else { log("❌ \(dir.path) exists; name a new folder."); return false }
         // A staging folder of this run's own, beside the destination (same volume, so the final move is a rename);
@@ -1160,14 +1165,19 @@ enum HeadlessProjects {
             manifest = try DatasetSplitManifest.readStrict(from: NetInventory.manifestURL(in: root))
         } catch { log("❌ \(error.localizedDescription)"); return false }
         let rows = Dictionary((manifest?.videos ?? []).map { ($0.video, $0) }, uniquingKeysWith: { a, _ in a })
+        let sessions: [VideoSession]
+        do { sessions = try projects.sampler.store.loadSessionsStrict() } catch { log("❌ The cut ranges can't be known: \(error.localizedDescription)"); return false }
+        let cuts = Dictionary(uniqueKeysWithValues: sessions.map { ($0.name, $0.cutRanges) })
         let candidates = project.clips.flatMap { clip in
             clip.videos.map { source -> NetAIPilot.Candidate in
                 let id = clip.videoId(of: source)
                 let row = rows[id] ?? rows[DatasetStore.safeName(id)]
-                return NetAIPilot.Candidate(video: id, clip: clip.id, camera: clip.camera, surface: row?.surface, aliasGroup: row?.aliasGroup,
-                                            url: URL(fileURLWithPath: source.clipFile),
-                                            fingerprint: inventory.fingerprint[id] ?? inventory.fingerprint[DatasetStore.safeName(id)],
-                                            fileFingerprint: ReservedVideos.effectiveFingerprint(source))
+                var candidate = NetAIPilot.Candidate(video: id, clip: clip.id, camera: clip.camera, surface: row?.surface, aliasGroup: row?.aliasGroup,
+                                                     url: URL(fileURLWithPath: source.clipFile),
+                                                     fingerprint: inventory.fingerprint[id] ?? inventory.fingerprint[DatasetStore.safeName(id)],
+                                                     fileFingerprint: ReservedVideos.effectiveFingerprint(source))
+                candidate.cuts = cuts[id] ?? []
+                return candidate
             }
         }
         let excluded = NetExclusionStore.excluded(exclusions) { id in candidates.first { $0.video == id }?.fingerprint }

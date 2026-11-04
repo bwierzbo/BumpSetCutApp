@@ -104,6 +104,8 @@ enum NetAIPilot {
         var fingerprint: String?
         /// The identity project.json gives the file now (ReservedVideos.effectiveFingerprint).
         var fileFingerprint: String?
+        /// The recording's cut ranges (not footage; D-030): the frame is taken outside them.
+        var cuts: [CutRange] = []
     }
 
     /// Up to `count` recordings to propose on, in a stable order: not skipped (withheld,
@@ -207,7 +209,9 @@ enum NetAIPilot {
             guard await footage.isReadable(c.url) else { log("⚠️ \(c.video): not readable here — left out."); continue }
             let duration = await footage.duration(of: c.url)
             guard duration > 0 else { log("⚠️ \(c.video): no duration — left out."); continue }
-            let t = NetLabels.frameTime(duration: duration, rallies: await footage.rallyMarks(for: c.url))
+            guard let t = NetLabels.frameTime(duration: duration, rallies: await footage.rallyMarks(for: c.url), cuts: c.cuts) else {
+                log("⚠️ \(c.video): every frame lies inside a cut range (not footage) — left out."); continue
+            }
             let image: CGImage
             do { image = try await footage.frame(of: c.url, at: t) } catch {
                 log("⚠️ \(c.video): no frame at \(NetLabelsModel.clock(t)) (\(error.localizedDescription)) — left out."); continue

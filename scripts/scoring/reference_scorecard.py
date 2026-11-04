@@ -166,10 +166,11 @@ def production_consistency(fixture: dict) -> list[str]:
 
 # ----- the two scorers --------------------------------------------------------------------
 
-def raw_boundary_score(truth: list[dict], raw: list[tuple[int, int]], p: dict) -> dict:
-    """Event truth (serve contact → ball dead, kind rally) against raw decider boundaries."""
+def raw_boundary_score(truth: list[dict], raw: list[tuple[int, int]], p: dict, cuts: list[tuple[int, int]] = ()) -> dict:
+    """Event truth (serve contact → ball dead, kind rally) against raw decider boundaries.
+    `cuts`: the recording's cut ranges (not footage; D-030), part of the excluded union X."""
     rallies = [t for t in truth if t["kind"] == "rally"]
-    excluded = normalise([(t["s"], t["e"]) for t in truth if t["kind"] != "rally"])
+    excluded = normalise([(t["s"], t["e"]) for t in truth if t["kind"] != "rally"] + list(cuts))
     # Excluded time (a missed serve, a marked non-rally) is MASKED, not disqualifying: each prediction
     # keeps its scorable pieces (prediction minus the excluded union) and is scored on those; a
     # prediction with nothing left outside excluded time is unscored (neither a hit nor a false clip).
@@ -228,13 +229,15 @@ def raw_boundary_score(truth: list[dict], raw: list[tuple[int, int]], p: dict) -
             "matches": [{"truth": ti, "prediction": ri, "startError": sec(se), "endError": sec(ee)} for (ti, ri), se, ee in zip(matched, start_err, end_err)]}
 
 
-def padded_export_score(truth: list[dict], padded: list[tuple[int, int]], duration: int, p: dict, fully_marked: bool = False) -> dict:
+def padded_export_score(truth: list[dict], padded: list[tuple[int, int]], duration: int, p: dict, fully_marked: bool = False,
+                        cuts: list[tuple[int, int]] = ()) -> dict:
     """Event truth against exported (padded) clips: what the viewer gets and what dead time remains.
     `fully_marked`: every rally of the recording is marked (`ralliesMarked`), stated explicitly.
     Unknown counts as not marked: time outside the marked rallies is then unknown, not dead, and
-    dead-time retention, false clips and the legacy score are null."""
+    dead-time retention, false clips and the legacy score are null.
+    `cuts`: the recording's cut ranges (not footage; D-030), part of the excluded union X."""
     rallies = [t for t in truth if t["kind"] == "rally"]
-    excluded = normalise([(t["s"], t["e"]) for t in truth if t["kind"] != "rally"])
+    excluded = normalise([(t["s"], t["e"]) for t in truth if t["kind"] != "rally"] + list(cuts))
     G = normalise([(t["s"], t["e"]) for t in rallies])
     segments = sorted(padded)                               # the exported segments as production wrote them
     P = normalise(segments)
@@ -282,9 +285,23 @@ def score(fixture: dict) -> dict:
              for t in fixture["truth"]]
     raw = [(tick(s), tick(e)) for s, e in fixture.get("raw", [])]
     padded = [(tick(s), tick(e)) for s, e in fixture.get("padded", [])]
+    # Cut ranges (D-030): stretches marked as not footage, in the excluded union with the non-rally marks.
+    # Truth is masked like a prediction: each mark keeps its pieces outside the cuts (a mark cut whole is
+    # gone); a piece's serve contact is the mark's when the piece holds it, else the piece's own start.
+    cuts = normalise([(tick(s), tick(e)) for s, e in fixture.get("cuts", [])])
+    if cuts:
+        pieces = []
+        for t in truth:
+            for (s, e) in subtract([(t["s"], t["e"])], cuts):
+                pieces.append({**t, "s": s, "e": e, "contact": t["contact"] if s <= t["contact"] < e else s})
+        truth = pieces
+        # A raw prediction is split at the cuts the same way, each piece a prediction of its own (a cut is not
+        # footage: a decision across one is two decisions) — unlike the excluded spans of §2, which keep a
+        # prediction's disconnected pieces as one. Padded clips stay as production wrote them (§3 counts segments).
+        raw = [piece for r in raw for piece in subtract([r], cuts)]
     return {"contract": "SCORING_CONTRACT v1", "params": p,
-            "rawBoundary": raw_boundary_score(truth, raw, p),
-            "paddedExport": padded_export_score(truth, padded, tick(fixture["duration"]), p, fixture.get("fullyMarked") is True)}
+            "rawBoundary": raw_boundary_score(truth, raw, p, cuts),
+            "paddedExport": padded_export_score(truth, padded, tick(fixture["duration"]), p, fixture.get("fullyMarked") is True, cuts)}
 
 
 def main() -> None:

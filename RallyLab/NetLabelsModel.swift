@@ -89,10 +89,16 @@ final class NetLabelsModel {
         var stale: Bool
         /// This recording's label has a box but no corners (from before corners were marked): still to label.
         var boxOnly = false
+        /// The recording's cut ranges (not footage; D-030): the frame is taken outside them.
+        var cuts: [CutRange] = []
+        /// This recording's label is on a frame inside a cut range: not a label of footage, to label again.
+        var cutLabel = false
 
         func with(skip: NetLabels.Skip?) -> Item {
             var it = Item(video: video, clip: clip, camera: camera, url: url, fingerprint: fingerprint, skip: skip, labeled: labeled, stale: stale)
             it.boxOnly = boxOnly
+            it.cuts = cuts
+            it.cutLabel = cutLabel
             return it
         }
     }
@@ -210,8 +216,9 @@ final class NetLabelsModel {
     /// The frame on screen is the one `time` names and nothing is still decoding.
     var frameIsCurrent: Bool { !loading && frame != nil && frameTime == time }
     var canConfirm: Bool {
-        guard let item = selectedItem, item.skip == nil, frameIsCurrent, let quad, quad.isUsable else { return false }
-        return blocked == nil
+        guard let item = selectedItem, item.skip == nil, frameIsCurrent, let quad, quad.isUsable, let frameTime else { return false }
+        // A frame inside a cut range is not footage (D-030): never a label.
+        return blocked == nil && !item.cuts.contains(frameTime)
     }
     private var summary: String {
         "\(labeledCount) labeled · \(toLabelCount) to label" + (boxOnlyCount > 0 ? " (\(boxOnlyCount) box-only, corners to mark)" : "")
@@ -220,10 +227,12 @@ final class NetLabelsModel {
 
     private static func marked(_ item: Item, labels: [String: NetLabel]) -> Item {
         var it = item
-        let status = NetLabels.status(of: labels[item.video], fingerprint: item.fingerprint)
+        // The one rule (NetLabels.status): a label on a frame inside a cut range is not a label of footage (D-030).
+        let status = NetLabels.status(of: labels[item.video], fingerprint: item.fingerprint, cuts: item.cuts)
         it.labeled = status.labeled
         it.boxOnly = status.boxOnly
         it.stale = status.stale
+        it.cutLabel = status.cutLabel
         return it
     }
 
@@ -256,13 +265,21 @@ final class NetLabelsModel {
         do { exclusions = try exclusionStore.load() } catch {
             blocked = "\(exclusionStore.url.lastPathComponent) unreadable: \(error.localizedDescription)"; status = blocked!; return
         }
+        // Every session read strictly: one that won't decode is unknown cut ranges, not none (D-030).
+        let sessions: [VideoSession]
+        do { sessions = try DatasetStore(root: dir).loadSessionsStrict() } catch {
+            blocked = "Nothing can be labeled: the cut ranges can't be known — \(error.localizedDescription)"; status = blocked!; return
+        }
+        let cuts = Dictionary(uniqueKeysWithValues: sessions.map { ($0.name, $0.cutRanges) })
         let items = project.clips.flatMap { clip in
             clip.videos.map { video in
                 let id = clip.videoId(of: video)
                 let fingerprint = inventory.fingerprint[id] ?? inventory.fingerprint[DatasetStore.safeName(id)]
-                return Item(video: id, clip: clip.id, camera: clip.camera, url: URL(fileURLWithPath: video.clipFile), fingerprint: fingerprint,
-                            skip: NetLabels.skip(video: id, camera: clip.camera, withheld: inventory.withheld, fingerprint: fingerprint),
-                            labeled: false, stale: false)
+                var item = Item(video: id, clip: clip.id, camera: clip.camera, url: URL(fileURLWithPath: video.clipFile), fingerprint: fingerprint,
+                                skip: NetLabels.skip(video: id, camera: clip.camera, withheld: inventory.withheld, fingerprint: fingerprint),
+                                labeled: false, stale: false)
+                item.cuts = cuts[id] ?? []
+                return item
             }
         }
         install(items: items, labels: labels, store: store, aiProposals: aiProposals, aiStore: aiStore,
@@ -348,10 +365,12 @@ final class NetLabelsModel {
     /// The vision model's proposal to offer on this recording: only one with no label of its
     /// own (never over a person's label, box-only included), not skipped, made on this file and
     /// not rejected. A manual-review answer is offered too: it names why the net wasn't placed.
+    /// A proposal on a frame inside a cut range (made before the cut) is not footage's (D-030):
+    /// not offered, so the frame comes from outside the cuts as for an unproposed recording.
     func offeredAI(_ item: Item) -> NetAIProposal? {
         let ai = aiProposals[item.video]
-        let status = NetLabels.LabelStatus(labeled: item.labeled, boxOnly: item.boxOnly, stale: item.stale)
-        return NetLabels.isOffered(ai, skip: item.skip, fingerprint: item.fingerprint, status: status) ? ai : nil
+        let status = NetLabels.LabelStatus(labeled: item.labeled, boxOnly: item.boxOnly, stale: item.stale, cutLabel: item.cutLabel)
+        return NetLabels.isOffered(ai, skip: item.skip, fingerprint: item.fingerprint, status: status, cuts: item.cuts) ? ai : nil
     }
 
     /// The offered proposal and where its own frame lies on this Mac, if it does.
@@ -404,7 +423,8 @@ final class NetLabelsModel {
             if let ai = offeredAI(item) { t = ai.time } else {   // the frame the vision model saw
                 let marks = await footage.rallyMarks(for: item.url)
                 guard !Task.isCancelled else { return }
-                t = NetLabels.frameTime(duration: dur, rallies: marks)
+                guard let outside = NetLabels.frameTime(duration: dur, rallies: marks, cuts: item.cuts) else { continue }   // cut whole: nothing to label
+                t = outside
             }
             guard let frame = try? await footage.frame(of: item.url, at: t) else { continue }
             // A frame that took seconds to read is kept even if the read-ahead was paused
@@ -488,7 +508,10 @@ final class NetLabelsModel {
         } else {
             let marks = await footage.rallyMarks(for: item.url)
             guard !Task.isCancelled, selected == item.video else { return }
-            time = NetLabels.frameTime(duration: duration, rallies: marks)
+            guard let outside = NetLabels.frameTime(duration: duration, rallies: marks, cuts: item.cuts) else {
+                status = "\(item.video): every frame lies inside a cut range (not footage) — nothing to label."; return
+            }
+            time = outside
         }
         await decode(item, at: time)
         guard !Task.isCancelled, selected == item.video else { return }
@@ -499,6 +522,7 @@ final class NetLabelsModel {
         } else if let frame {
             status = present(on: frame, for: item)
             if item.stale { status += " (The label on file is another recording's and is replaced when you confirm.)" }
+            if item.cutLabel { status += " (The label on file is on a frame inside a cut range — not footage; confirm the corners on this frame to replace it.)" }
         }
     }
 
@@ -584,9 +608,23 @@ final class NetLabelsModel {
     }
 
     /// Another frame of the same recording; the box stays where it is.
+    /// A step that lands inside a cut range (not footage; D-030) goes on to the next frame
+    /// outside the cuts in that direction, and stays put when there is none.
     func step(seconds: Double) {
         guard let item = selectedItem, item.skip == nil, duration > 0 else { return }
-        time = min(max(0, time + seconds), max(0, duration - 0.1))
+        let last = max(0, duration - 0.1)
+        var target = min(max(0, time + seconds), last)
+        if item.cuts.contains(target) {
+            let pieces = item.cuts.outside(0, last)
+            if seconds >= 0, let next = pieces.first(where: { $0.start > target }) { target = next.start }
+            else if seconds < 0, let previous = pieces.last(where: { $0.end <= target }) { target = max(previous.start, previous.end - 0.1) }
+            else {
+                status = pieces.isEmpty ? "\(item.video): every frame lies inside a cut range (not footage) — nothing to label."
+                    : "\(item.video): no frame outside the cut ranges \(seconds >= 0 ? "after" : "before") this one."
+                return
+            }
+        }
+        time = target
         loadTask?.cancel()
         prefetchTask?.cancel()   // this frame first
         let t = time

@@ -502,10 +502,14 @@ final class LabelerModel: ReviewStore {
         }
     }
 
-    /// How far marking the rallies has got, with each video's real length.
+    /// How far marking the rallies has got, with each video's real length less
+    /// its cut ranges (not footage, nothing to mark there; D-030).
     var marking: MarkingProgress {
         let duration = Dictionary(videos.map { ($0.name, $0.duration) }) { a, _ in a }
-        return MarkingProgress(videos: queueVideos) { duration[$0.plan.name].flatMap { $0 > 0 ? $0 : nil } }
+        let cuts = Dictionary(videos.map { ($0.name, rallyTimes(for: $0).cutRanges) }) { a, _ in a }
+        return MarkingProgress(videos: queueVideos) { v in
+            duration[v.plan.name].flatMap { $0 > 0 ? $0 - (cuts[v.plan.name] ?? []).seconds(within: $0) : nil }
+        }
     }
 
     // MARK: - Next tasks
@@ -547,6 +551,7 @@ final class LabelerModel: ReviewStore {
         let wasComplete = t.complete
         change(&t)
         t.rallies.sort { $0.start < $1.start }
+        t.cuts?.sort { $0.start < $1.start }
         t.updatedAt = Date()
         outbox.times[video.id] = t
         if t.complete && !wasComplete { count { $0.videos += 1 } }

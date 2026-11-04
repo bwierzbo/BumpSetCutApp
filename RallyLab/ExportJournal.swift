@@ -45,6 +45,9 @@ enum ExportJournal {
             /// SHA-256 over the planned frame moments (sorted keys, one per line) and how many.
             var plannedKeysSha256: String
             var plannedKeys: Int
+            /// The recording's cut ranges (not footage; D-030) the plan honoured; nil when none. A
+            /// cut changes the planned keys too; this names the reason a resume is refused.
+            var cuts: [CutRange]? = nil
         }
         var exporter: String
         var longSide: Double
@@ -101,6 +104,7 @@ enum ExportJournal {
                 cmp("clip \(key).sourceFingerprint", a.sourceFingerprint, b.sourceFingerprint); cmp("clip \(key).sourceBytes", a.sourceBytes, b.sourceBytes)
                 cmp("clip \(key).sourceModified", a.sourceModified, b.sourceModified); cmp("clip \(key).sidecarSha256", a.sidecarSha256 ?? "—", b.sidecarSha256 ?? "—")
                 cmp("clip \(key).plannedKeysSha256", a.plannedKeysSha256, b.plannedKeysSha256); cmp("clip \(key).plannedKeys", a.plannedKeys, b.plannedKeys)
+                cmp("clip \(key).cuts", a.cuts ?? [], b.cuts ?? [])
             }
             return out
         }

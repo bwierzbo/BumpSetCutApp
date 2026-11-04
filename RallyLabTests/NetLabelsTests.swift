@@ -228,22 +228,25 @@ final class NetLabelsTests: XCTestCase {
     }
 
     func testExportPlanRefusesWithheldOtherRecordingsLabelsAndSkipsUnlabeled() {
-        func src(_ v: String, _ camera: String = "Tripod / corner", fp: String? = "fp-a") -> NetDatasetExport.Source {
-            NetDatasetExport.Source(video: v, clip: v, camera: camera, url: URL(fileURLWithPath: "/nonexistent/\(v).mp4"), fingerprint: fp)
+        func src(_ v: String, _ camera: String = "Tripod / corner", fp: String? = "fp-a", cuts: [CutRange] = []) -> NetDatasetExport.Source {
+            NetDatasetExport.Source(video: v, clip: v, camera: camera, url: URL(fileURLWithPath: "/nonexistent/\(v).mp4"), fingerprint: fp, cuts: cuts)
         }
         let sources = [src("c_labeled"), src("a_withheld_but_labeled"), src("b_unlabeled"), src("d_handheld", "Handheld / corner"),
-                       src("e_replaced_video", fp: "fp-new"), src("f_no_identity", fp: nil), src("g_box_only")]
+                       src("e_replaced_video", fp: "fp-new"), src("f_no_identity", fp: nil), src("g_box_only"),
+                       src("h_label_in_cut", cuts: [CutRange(start: 0.5, end: 3)]), src("i_label_outside_cut", cuts: [CutRange(start: 5, end: 9)])]
         let labels = ["c_labeled": Self.label(), "a_withheld_but_labeled": Self.label(), "d_handheld": Self.label(),
                       "e_replaced_video": Self.label(fingerprint: "fp-old"), "f_no_identity": Self.label(),
-                      "g_box_only": Self.label(boxOnly: true)]
+                      "g_box_only": Self.label(boxOnly: true),
+                      "h_label_in_cut": Self.label(time: 1), "i_label_outside_cut": Self.label(time: 1)]
         let plan = NetDatasetExport.plan(labels: labels, sources: sources, withheld: ["a_withheld_but_labeled"])
-        XCTAssertEqual(plan.export.map(\.video), ["c_labeled"])
+        XCTAssertEqual(plan.export.map(\.video), ["c_labeled", "i_label_outside_cut"])
         XCTAssertEqual(plan.skipped, [.init(video: "a_withheld_but_labeled", reason: "withheld"),
                                       .init(video: "b_unlabeled", reason: "unlabeled"),
                                       .init(video: "d_handheld", reason: "handheld"),
                                       .init(video: "e_replaced_video", reason: "label is another recording's (fingerprint differs)"),
                                       .init(video: "f_no_identity", reason: "unidentified"),
-                                      .init(video: "g_box_only", reason: NetDatasetExport.cornersNotMarked)])
+                                      .init(video: "g_box_only", reason: NetDatasetExport.cornersNotMarked),
+                                      .init(video: "h_label_in_cut", reason: NetDatasetExport.frameInsideCut)])
     }
 
     // MARK: - The tab
@@ -393,6 +396,40 @@ final class NetLabelsTests: XCTestCase {
         XCTAssertEqual(footage.frameCalls.map(\.0), ["d_next.mp4"])
         XCTAssertEqual(model.selected, "d_next")
         XCTAssertNotNil(model.frame)
+    }
+
+    /// Stepping never lands inside a cut range: it goes on to the next frame outside the cuts, or
+    /// stays; a recording cut whole has no frame to step to or confirm (D-030).
+    @MainActor
+    func testSteppingSkipsTheCutRangesAndARecordingCutWholeHasNoFrame() async throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let footage = ScriptedFootage()
+        var cut = try item("c_cut", in: dir); cut.cuts = [CutRange(start: 40, end: 45), CutRange(start: 90, end: 100)]
+        var whole = try item("w_whole", in: dir); whole.cuts = [CutRange(start: 0, end: 100)]
+        let model = NetLabelsModel(items: [cut, whole], labels: [:], store: NetLabelStore(projectDir: dir), footage: footage) { _, _ in }
+        model.select("c_cut")
+        await settle()
+        XCTAssertEqual(model.frameTime, 67.5, "the middle of the longest stretch outside the cuts (45–90)")
+        model.step(seconds: -25)                    // 42.5 is inside the cut: on to just before it
+        await settle()
+        XCTAssertEqual(model.time, 39.9, accuracy: 1e-9); XCTAssertEqual(model.frameTime ?? -1, 39.9, accuracy: 1e-9)
+        model.step(seconds: 2)                      // 41.9 is inside the cut: on to its end
+        await settle()
+        XCTAssertEqual(model.time, 45); XCTAssertEqual(model.frameTime, 45)
+        model.step(seconds: 50)                     // 95 is inside the last cut, and nothing follows it
+        await settle()
+        XCTAssertEqual(model.time, 45, "stays")
+        XCTAssertTrue(model.status.contains("no frame outside the cut ranges after"), model.status)
+        XCTAssertTrue(model.canConfirm)
+        model.select("w_whole")
+        await settle()
+        XCTAssertTrue(model.status.contains("nothing to label"), model.status)
+        XCTAssertNil(model.frameTime)
+        model.step(seconds: 1)
+        await settle()
+        XCTAssertNil(model.frameTime); XCTAssertFalse(model.canConfirm); XCTAssertFalse(model.confirm())
+        XCTAssertTrue(footage.frameCalls.allSatisfy { $0.0 != "w_whole.mp4" }, "no frame of a recording cut whole is ever read: \(footage.frameCalls)")
     }
 
     @MainActor

@@ -72,14 +72,59 @@ final class LineagePackageTests: XCTestCase {
         return dir
     }
 
-    private func plan(eligible: [(String, String)], withheld: [String]) -> LineagePackage.Plan {
+    private func plan(eligible: [(String, String)], withheld: [String], cuts: [String: [CutRange]] = [:]) -> LineagePackage.Plan {
         LineagePackage.Plan(lineage: "L2", project: "Fixture", createdAt: F.day, generator: "test",
                             manifestHashes: .init(projectJson: "p", sessions: "s", validationJson: "v"),
                             audit: .init(hard: 0, soft: 0, info: 0),
                             withheld: withheld.map { .init(video: $0, split: .lineageHoldout, reservedAs: "listed", aliasGroup: $0, identities: []) },
                             withheldClosure: withheld,
                             eligible: eligible.map { .init(video: $0.0, split: $0.1 == "train" ? .train : .devVal, packageSplit: $0.1,
-                                                           aliasGroup: $0.0, identities: [], reviewedFrames: 1, ralliesMarked: false) })
+                                                           aliasGroup: $0.0, identities: [], reviewedFrames: 1, ralliesMarked: false, cuts: cuts[$0.0]) })
+    }
+
+    // MARK: - Cut ranges (D-030)
+
+    func testPlanCarriesEachEligibleRecordingsCutRangesNormalised() throws {
+        var inputs = lineageInputs()
+        inputs.sessions = inputs.sessions.map { s in
+            var s = s
+            if s.name == "bch_b" { s.cuts = [CutRange(start: 150, end: 160), CutRange(start: 141.6, end: 157.0)] }
+            if s.name == "grs_c" { s.cuts = [] }
+            return s
+        }
+        let plan = try planned(inputs)
+        XCTAssertEqual(plan.eligible.first { $0.video == "bch_b" }?.cuts, [CutRange(start: 141.6, end: 160)])
+        XCTAssertNil(plan.eligible.first { $0.video == "grs_c" }?.cuts)
+        let md = LineagePackage.markdown(plan)
+        XCTAssertTrue(md.contains("| bch_b | train | train | 0 | no | 18.4 |"), md)
+        XCTAssertTrue(md.contains("| grs_c | train | train | 0 | no | — |"), md)
+    }
+
+    func testExportSessionsCarryTheCutRanges() throws {
+        var s = try session("bch_x", split: "train", videoPresent: true)
+        s.cuts = [CutRange(start: 1, end: 2)]
+        let val = try session("v", split: "val", marked: true, videoPresent: true)
+        let out = try LineagePackage.exportSessions([s, val], plan: plan(eligible: [("bch_x", "train"), ("v", "val")], withheld: ["w"]))
+        XCTAssertEqual(out[0].cuts, [CutRange(start: 1, end: 2)])
+        XCTAssertNil(out[1].cuts)
+    }
+
+    func testPreflightFailsOnAFrameInsideItsRecordingsCutRange() throws {
+        let dir = try writeCleanPackage()
+        // t's frames are at 1000 and 2000 µs. A cut over 1.5–2.5 ms covers the second.
+        let covering = plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"], cuts: ["t": [CutRange(start: 0.0015, end: 0.0025)]])
+        let failed = try preflight(dir, plan: covering)
+        XCTAssertEqual(self.failed(failed), ["no-frame-in-cut-range"])
+        XCTAssertTrue(failed.checks.first { $0.name == "no-frame-in-cut-range" }?.detail.contains("frames/t/2000.jpg") == true)
+        // A cut elsewhere in t, and one in v (whose only frame is at 1000 µs, outside it): clean.
+        let clear = plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"],
+                         cuts: ["t": [CutRange(start: 0.003, end: 0.004)], "v": [CutRange(start: 0.002, end: 0.003)]])
+        let passed = try preflight(dir, plan: clear)
+        XCTAssertTrue(passed.passed, self.failed(passed).joined(separator: ","))
+        XCTAssertTrue(passed.checks.first { $0.name == "no-frame-in-cut-range" }?.detail.contains("2 recording(s)") == true)
+        // A frame file in the folder that no window names is held to the cut as well.
+        try write("t-frame-3", to: "\(dir.lastPathComponent)/frames/t/3500.jpg")
+        XCTAssertTrue(self.failed(try preflight(dir, plan: clear)).contains("no-frame-in-cut-range"))
     }
 
     private func failed(_ p: LineagePackage.Preflight) -> Set<String> { Set(p.checks.filter { !$0.passed }.map(\.name)) }

@@ -201,19 +201,26 @@ enum NetLabels {
         var labeled = false
         var boxOnly = false
         var stale = false
+        /// This recording's label is on a frame inside a cut range: not a label of footage, to label again (D-030).
+        var cutLabel = false
     }
 
-    static func status(of label: NetLabel?, fingerprint: String?) -> LabelStatus {
+    /// The recording's label state — the one rule the Net labels tab and the work queue share. `cuts`: the
+    /// recording's cut ranges, normalised; a label on a frame inside one is not a label of footage.
+    static func status(of label: NetLabel?, fingerprint: String?, cuts: [CutRange]) -> LabelStatus {
         guard let label else { return LabelStatus() }
         let mine = fingerprint != nil && label.fingerprint == fingerprint
-        return LabelStatus(labeled: mine && label.corners != nil, boxOnly: mine && label.corners == nil, stale: !mine)
+        let cutLabel = mine && cuts.contains(label.time)
+        return LabelStatus(labeled: mine && label.corners != nil && !cutLabel, boxOnly: mine && label.corners == nil && !cutLabel,
+                           stale: !mine, cutLabel: cutLabel)
     }
 
     /// Whether a vision model's proposal is offered on the recording: only one with no label of its own (never over
-    /// a person's label, box-only included), not skipped, made on this file and not rejected.
-    static func isOffered(_ ai: NetAIProposal?, skip: Skip?, fingerprint: String?, status: LabelStatus) -> Bool {
+    /// a person's label, box-only included), not skipped, made on this file, not rejected, and on a frame outside
+    /// the recording's cut ranges (a proposal inside one is not offered: the frame comes from outside the cuts).
+    static func isOffered(_ ai: NetAIProposal?, skip: Skip?, fingerprint: String?, status: LabelStatus, cuts: [CutRange]) -> Bool {
         guard skip == nil, !status.labeled, !status.boxOnly, let fingerprint, let ai else { return false }
-        return ai.fingerprint == fingerprint && ai.rejectedAt == nil
+        return ai.fingerprint == fingerprint && ai.rejectedAt == nil && !cuts.contains(ai.time)
     }
 
     /// Why a recording gets no net label, or nil when it should have one. A
@@ -229,12 +236,17 @@ enum NetLabels {
     }
 
     /// Where to take the frame: the middle of the first marked rally at least
-    /// `minRally` seconds long, else the middle of the video.
-    static func frameTime(duration: Double, rallies: [(start: Double, end: Double)], minRally: Double = 2) -> Double {
-        if let r = rallies.sorted(by: { $0.start < $1.start }).first(where: { $0.end - $0.start >= minRally && $0.end <= duration }) {
+    /// `minRally` seconds long that touches no cut range, else the middle of the
+    /// longest stretch outside the cut ranges (the whole video when there are
+    /// none). A cut range is not footage — a replay may be shot from elsewhere
+    /// (D-030) — so a recording cut whole has no frame to take: nil.
+    static func frameTime(duration: Double, rallies: [(start: Double, end: Double)], minRally: Double = 2, cuts: [CutRange] = []) -> Double? {
+        if let r = rallies.sorted(by: { $0.start < $1.start })
+            .first(where: { $0.end - $0.start >= minRally && $0.end <= duration && !cuts.overlaps($0.start, $0.end) }) {
             return (r.start + r.end) / 2
         }
-        return duration / 2
+        guard let longest = cuts.outside(0, duration).max(by: { $0.end - $0.start < $1.end - $1.start }) else { return nil }
+        return (longest.start + longest.end) / 2
     }
 
     /// The YOLO text line for class 0: centre x, centre y (top-down), width and
@@ -317,9 +329,12 @@ enum NetDatasetExport {
         var url: URL
         /// The file's identity now (ReservedVideos.effectiveFingerprint).
         var fingerprint: String?
+        /// The recording's cut ranges (not footage; D-030): a label on a frame inside one is not a label of footage.
+        var cuts: [CutRange] = []
     }
 
     static let cornersNotMarked = "corners not marked (a box-only label from before) — mark them in the Net labels tab"
+    static let frameInsideCut = "the labeled frame lies inside a cut range (not footage) — label the net again outside it in the Net labels tab"
 
     /// Which recordings go out and which stay, in a stable order. A withheld
     /// recording is refused even if someone labeled it; a label whose
@@ -339,6 +354,7 @@ enum NetDatasetExport {
             } else if let label = labels[s.video] {
                 if label.fingerprint != s.fingerprint { skipped.append(Skipped(video: s.video, reason: "label is another recording's (fingerprint differs)")) }
                 else if label.corners == nil { skipped.append(Skipped(video: s.video, reason: cornersNotMarked)) }
+                else if s.cuts.contains(label.time) { skipped.append(Skipped(video: s.video, reason: frameInsideCut)) }
                 else { export.append(s) }
             } else {
                 skipped.append(Skipped(video: s.video, reason: "unlabeled"))

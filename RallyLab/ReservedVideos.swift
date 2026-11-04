@@ -120,10 +120,13 @@ enum ReservedVideos {
     }
 
     /// The project video `url` is, or nil for a file that is not one of the
-    /// project's videos. Throws when the reservations can't be read.
+    /// project's videos. Throws when the reservations can't be read — or a
+    /// session can't: a session that won't decode is unknown, not absent, and
+    /// a video it may be over is neither cleared as unreserved nor read as
+    /// having no cut ranges (D-002, D-030; fails closed).
     static func match(_ url: URL, root: URL) throws -> Match? {
         let reserved = try reservedNames(in: root)
-        let sessions = DatasetStore(root: root).loadSessions()
+        let sessions = try DatasetStore(root: root).loadSessionsStrict()
         let sources = sources(in: root)
         let path = url.standardizedFileURL.path
         let base = url.lastPathComponent

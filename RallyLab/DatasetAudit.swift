@@ -67,6 +67,24 @@ struct DatasetAudit: Codable {
             }
         }
 
+        // Cut ranges (D-030): stretches marked as not footage. A range that cannot be read as one
+        // (end before start, a negative start) is hard: the store never writes one, so it is a
+        // hand edit, and a consumer would read the normalised list without it while the record
+        // says otherwise.
+        let withCuts = videos.filter { !($0.cuts ?? []).isEmpty }
+        let invalid = withCuts.filter { ($0.cuts ?? []).contains { $0.end <= $0.start || $0.start < 0 } }
+        if !invalid.isEmpty {
+            findings.append(Finding(severity: .hard, code: "CUT-RANGE-INVALID",
+                                    message: "\(invalid.count) recording(s) carry a cut range with its end at or before its start, or a negative start. Fix the session's `cuts`.",
+                                    videos: invalid.map(\.video).sorted()))
+        }
+        if !withCuts.isEmpty {
+            let seconds = withCuts.reduce(0.0) { $0 + ($1.cuts ?? []).normalised().reduce(0) { $0 + $1.seconds } }
+            findings.append(Finding(severity: .info, code: "CUT-RANGES",
+                                    message: "\(withCuts.count) recording(s) have cut ranges: \(String(format: "%.1f", seconds)) s marked as not footage (no window, score or track inside; D-030).",
+                                    videos: withCuts.map(\.video).sorted()))
+        }
+
         // Videos the dataset has that project.json doesn't know.
         let orphans = videos.filter { $0.clipId == nil }.map(\.video)
         if !orphans.isEmpty {

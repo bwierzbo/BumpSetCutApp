@@ -3,32 +3,48 @@
 //  RallyLab (macOS and iPhone)
 //
 //  Live tagging's state and rules, the same on the Mac and the phone: a
-//  serve opens a rally, touches go into it, a dead ball closes it as a
-//  rally, "not a rally" closes it as a missed serve (nothing after the
-//  serve) or other. Each press is backed up for the reaction it took and
-//  snapped to the nearest moment the pre-tracked ball changed course; its
-//  side of the net read from the ball's size against the net unless the
-//  press says. Undo takes back the last press, reopening a closed rally.
+//  serve opens a rally; a dead ball closes it as a rally, "missed serve"
+//  or "not a rally" close it as one of those. Each press is backed up for
+//  the reaction it took and snapped to the nearest moment the pre-tracked
+//  ball changed course, appeared or went dead. Undo takes back the last
+//  press, reopening a closed rally.
+//
+//  A cut (X) marks a stretch that is not footage — an instant replay the
+//  uploader put in — from one press to the next; ⇧X starts one at the
+//  clip's start, for a clip that begins in the middle of a rally, and the
+//  next serve ends it. Marks mostly inside a cut are removed with it (and
+//  come back with undo); everything that reads the recording keeps away
+//  from a cut (D-030).
+//
+//  The touches inside a rally (pass, set, attack, block, free ball) and
+//  which side of the net each was on are advanced marking, left out of
+//  this pass (D-028, D-024 Stage 2). The stored format keeps them
+//  (RallyContact) for the rallies marked with them before.
 //
 //  Where the marks go is the platform's (LiveTagStore): the Mac's rally
 //  marks and project sessions, the phone's rally times and tracks.
 //
 
-import AVFoundation
-import CoreGraphics
 import Foundation
 
-/// Where a live tagger's rallies are kept.
+/// Where a live tagger's rallies and cuts are kept.
 @MainActor
 protocol LiveTagStore: AnyObject {
     /// Save a rally; the handle is what `delete` takes.
-    func mark(start: Double, end: Double, kind: RallyKind, contacts: [RallyContact]) -> AnyHashable
+    func mark(start: Double, end: Double, kind: RallyKind) -> AnyHashable
     func delete(_ mark: AnyHashable)
     /// Pre-tracked rallies mostly inside the marked one are rallies, trimmed
     /// to it. Returns them as they were.
     func confirmPretracked(start: Double, end: Double) -> [TrackedRally]
     /// Pre-tracked rallies back as they were.
     func restore(_ rallies: [TrackedRally])
+    /// The rallies marked so far that overlap `start ..< end`.
+    func marks(overlapping start: Double, _ end: Double) -> [LiveTagger.ExistingMark]
+    /// A deleted mark back as it was; the handle is what `delete` takes.
+    func restoreMark(_ mark: LiveTagger.ExistingMark) -> AnyHashable
+    /// Save a cut range (D-030); the handle is what `uncut` takes.
+    func cut(start: Double, end: Double) -> AnyHashable
+    func uncut(_ cut: AnyHashable)
 }
 
 @MainActor @Observable
@@ -38,26 +54,47 @@ final class LiveTagger {
         var now: Double
         var playing: Bool
         var rate: Float
-        /// The side the presser said, when they did.
-        var side: NetSide? = nil
     }
 
     /// A rally closed this sitting, with what confirming it changed.
     struct Closed {
-        let mark: AnyHashable
+        /// The store's handle — replaced when a cut took the mark and undo put it back under a new one.
+        var mark: AnyHashable
         let start: Double
         let end: Double
         let kind: RallyKind
-        let contacts: [RallyContact]
         let before: [TrackedRally]
     }
 
-    /// The rally being tagged: its touches so far, the serve first.
-    private(set) var open: [RallyContact]?
-    /// Rallies closed this sitting, newest last — for undo.
-    private(set) var closed: [Closed] = []
+    /// A mark as the store has it, so a cut can take it and undo put it back.
+    struct ExistingMark: Hashable {
+        var handle: AnyHashable
+        var start: Double
+        var end: Double
+        var kind: RallyKind?
+        var contacts: [RallyContact]?
+    }
+
+    /// A cut made this sitting, with the marks it took.
+    struct CutMade {
+        let handle: AnyHashable
+        let start: Double
+        let end: Double
+        let removed: [ExistingMark]
+    }
+
+    enum Undoable {
+        case rally(Closed)
+        case cut(CutMade)
+    }
+
+    /// The serve of the rally being tagged, while one is open.
+    private(set) var open: Double?
+    /// Where the cut being made starts, while one is open.
+    private(set) var cutFrom: Double?
+    /// Rallies closed and cuts made this sitting, newest last — for undo.
+    private(set) var done: [Undoable] = []
     var path: BallPath
-    var net: CGRect?
     private(set) var lastEvent = ""
     private(set) var lastEventAt = Date.distantPast
 
@@ -65,10 +102,13 @@ final class LiveTagger {
 
     /// Seconds of real time between seeing an event and pressing its key.
     static let reaction = 0.25
+    /// A cut shorter than this is a slip, not a stretch of footage.
+    static let minimumCut = 0.5
+    /// How long before a serve a cut it ends is closed.
+    static let cutBeforeServe = 0.3
 
-    init(tracks: [TrackedRally], net: CGRect?, store: any LiveTagStore) {
+    init(tracks: [TrackedRally], store: any LiveTagStore) {
         path = BallPath(tracks: tracks)
-        self.net = net
         self.store = store
     }
 
@@ -87,120 +127,138 @@ final class LiveTagger {
     }
 
     /// S: a rally starts. With one open, its dead ball went by unpressed:
-    /// it closes first, a little before this serve.
+    /// it closes first, where the ball's path last ended between its serve
+    /// and this one, else a little before this serve. With a cut open, the
+    /// cut ends a little before this serve.
     func serve(_ p: Press) {
-        if let open {
-            let serveAt = moment(p, snapping: path.changes + path.starts)
-            let end = max(open[0].time + 0.5, min(serveAt - 0.3, (open.last?.time ?? serveAt) + 1.5))
-            close(as: .rally, at: end)
-            note("Closed the last rally at \(clockText(end))")
-        }
         let t = moment(p, snapping: path.changes + path.starts)
-        let c = RallyContact(time: t, kind: .serve, side: side(at: t, .serve, said: p.side))
-        open = [c]
-        note("Serve at \(clockText(t))", c.side)
+        var closedAt: Double?
+        var cutEnd: Double?
+        if let from = cutFrom {
+            let end = t - Self.cutBeforeServe
+            guard end >= from + Self.minimumCut else { note("The serve has to come at least a second after the cut started"); return }
+            closeCut(at: end)
+            cutEnd = end
+        }
+        if let open {
+            let end = path.ends.last { $0 > open + 0.5 && $0 <= t - 0.3 } ?? max(open + 0.5, t - 0.3)
+            close(as: .rally, at: end)
+            closedAt = end
+        }
+        open = t
+        note("Serve at \(clockText(t))" + (closedAt.map { " · the last rally closed at \(clockText($0))" } ?? "")
+             + (cutEnd.map { " · the cut ended at \(clockText($0))" } ?? ""))
     }
 
-    /// P T A B F: a touch in the open rally.
-    func touch(_ kind: ContactKind, _ p: Press) {
-        guard kind != .serve else { serve(p); return }
-        guard var contacts = open else { note("Press S at the serve first"); return }
-        let t = moment(p, snapping: path.changes)
-        guard t > contacts[0].time else { note("That's before the serve"); return }
-        let c = RallyContact(time: t, kind: kind, side: side(at: t, kind, said: p.side))
-        contacts.append(c)
-        contacts.sort { $0.time < $1.time }
-        open = contacts
-        note("\(kind.name) at \(clockText(t))", c.side)
-    }
-
-    /// D (`.rally`) or N (nil): the open rally ends here — as a rally, or
-    /// as not one: a missed serve when nothing followed the serve, else other.
-    func close(as kind: RallyKind?, _ p: Press) {
-        guard let contacts = open else { note("No rally open — S starts one"); return }
+    /// D, M or N: the open rally ends here — as a rally, a missed serve, or
+    /// something that wasn't a rally.
+    func close(as kind: RallyKind, _ p: Press) {
+        guard cutFrom == nil else { note("Cut open — X ends it, or S at the next serve"); return }
+        guard let open else { note("No rally open — S starts one"); return }
         let end = moment(p, snapping: path.changes + path.ends)
-        guard end > contacts[0].time + 0.2 else { note("The dead ball has to come after the serve"); return }
-        let k = kind ?? (contacts.count == 1 ? RallyKind.missedServe : .other)
-        close(as: k, at: end)
-        note("\(k.name) · \(clockText(contacts[0].time)) – \(clockText(end))")
+        guard end > open + 0.2 else { note("The dead ball has to come after the serve"); return }
+        close(as: kind, at: end)
+        note("\(kind.name) · \(clockText(open)) – \(clockText(end))")
     }
 
     private func close(as kind: RallyKind, at end: Double) {
-        guard let contacts = open else { return }
-        let before = store.confirmPretracked(start: contacts[0].time, end: end)
-        let mark = store.mark(start: contacts[0].time, end: end, kind: kind, contacts: contacts)
-        closed.append(Closed(mark: mark, start: contacts[0].time, end: end, kind: kind, contacts: contacts, before: before))
-        open = nil
+        guard let open else { return }
+        let before = store.confirmPretracked(start: open, end: end)
+        let mark = store.mark(start: open, end: end, kind: kind)
+        done.append(.rally(Closed(mark: mark, start: open, end: end, kind: kind, before: before)))
+        self.open = nil
     }
 
-    /// Z: the last press — a touch, the serve (the rally is dropped), or
-    /// the dead ball (the rally reopens as it was).
-    func undo() {
-        if var contacts = open {
-            if contacts.count > 1 {
-                let gone = contacts.removeLast()
-                open = contacts
-                note("Took back the \(gone.kind.name.lowercased())")
-            } else {
-                open = nil
-                note("Serve taken back")
-            }
+    // MARK: - Cuts (D-030)
+
+    /// X: a cut starts here — or the open one ends here.
+    func cut(_ p: Press) {
+        let t = moment(p, snapping: [])
+        if let from = cutFrom {
+            guard t >= from + Self.minimumCut else { note("A cut has to be at least half a second"); return }
+            closeCut(at: t)
+            note("Cut \(clockText(from)) – \(clockText(t)) · not footage")
             return
         }
-        guard let last = closed.popLast() else { note("Nothing to take back"); return }
-        store.delete(last.mark)
-        store.restore(last.before)
-        open = last.contacts.isEmpty ? [RallyContact(time: last.start, kind: .serve, side: nil)] : last.contacts
-        note("Reopened the rally at \(clockText(last.start))")
+        guard open == nil else { note("Close the rally first (D, M or N) — a cut can't start inside one"); return }
+        cutFrom = t
+        note("Cut from \(clockText(t)) · X to end it, or S at the next serve")
     }
 
-    /// Esc: drop the open rally. False when none was.
+    /// ⇧X: the clip starts in the middle of a rally — a cut from its start,
+    /// which the next serve ends.
+    func cutFromStart() {
+        guard open == nil else { note("Close the rally first (D, M or N)"); return }
+        guard cutFrom == nil else { note("A cut is open already — X ends it"); return }
+        cutFrom = 0
+        note("Cut from the start · S at the next serve ends it")
+    }
+
+    /// Marks mostly inside the cut go with it (undo brings them back); one
+    /// that only brushes it stays, and is read outside the cut.
+    private func closeCut(at end: Double) {
+        guard let from = cutFrom else { return }
+        let removed = store.marks(overlapping: from, end).filter { Swift.min($0.end, end) - Swift.max($0.start, from) > 0.5 * ($0.end - $0.start) }
+        for m in removed { store.delete(m.handle) }
+        let handle = store.cut(start: from, end: end)
+        done.append(.cut(CutMade(handle: handle, start: from, end: end, removed: removed)))
+        cutFrom = nil
+    }
+
+    // MARK: - Undo
+
+    /// Z: the last press — the start of a cut or the serve (dropped), or the
+    /// end of a cut or the close of a rally (it reopens as it was).
+    func undo() {
+        if cutFrom != nil {
+            cutFrom = nil
+            note("Cut taken back")
+            return
+        }
+        if open != nil {
+            open = nil
+            note("Serve taken back")
+            return
+        }
+        guard let last = done.popLast() else { note("Nothing to take back"); return }
+        switch last {
+        case .rally(let r):
+            store.delete(r.mark)
+            store.restore(r.before)
+            open = r.start
+            note("Reopened the rally at \(clockText(r.start))")
+        case .cut(let c):
+            store.uncut(c.handle)
+            // A restored mark may come back under a new handle (the Mac mints a fresh id): the
+            // rally entries still in the history must point at it, or a later undo misses the mark.
+            for m in c.removed {
+                let handle = store.restoreMark(m)
+                guard handle != m.handle else { continue }
+                for i in done.indices {
+                    if case .rally(var r) = done[i], r.mark == m.handle { r.mark = handle; done[i] = .rally(r) }
+                }
+            }
+            cutFrom = c.start
+            note("Reopened the cut from \(clockText(c.start))" + (c.removed.isEmpty ? "" : " · \(c.removed.count) rall\(c.removed.count == 1 ? "y" : "ies") back"))
+        }
+    }
+
+    /// Esc: drop the open cut, else the open rally. False when neither was.
     @discardableResult
     func cancel() -> Bool {
+        if cutFrom != nil {
+            cutFrom = nil
+            note("Cut cancelled")
+            return true
+        }
         guard open != nil else { return false }
         open = nil
         note("Rally cancelled")
         return true
     }
 
-    private func side(at t: Double, _ kind: ContactKind, said: NetSide?) -> NetSide? {
-        if let said { return said }
-        // A block is at the net, on the other side from the attack it met.
-        if kind == .block, let attack = open?.last(where: { $0.kind == .attack }), let s = attack.side { return s.flipped }
-        return path.side(at: t, net: net)
-    }
-
-    private func note(_ text: String, _ side: NetSide? = nil) {
-        lastEvent = text + (side.map { " · \($0 == .near ? "near" : "far") side" } ?? "")
+    private func note(_ text: String) {
+        lastEvent = text
         lastEventAt = Date()
-    }
-
-    // MARK: - The net
-
-    /// The net, once per video: the median box over frames spread through
-    /// it. A review copy or the phone's clip does — the net is big.
-    nonisolated static func findNet(in url: URL) async -> TrackCandidate? {
-        await Task.detached(priority: .userInitiated) { () -> TrackCandidate? in
-            let detector = NetDetector()
-            guard detector.isLoaded else { return nil }
-            let asset = AVURLAsset(url: url)
-            guard let duration = try? await asset.load(.duration).seconds, duration > 0 else { return nil }
-            let generator = AVAssetImageGenerator(asset: asset)
-            generator.appliesPreferredTrackTransform = true
-            generator.maximumSize = CGSize(width: 1280, height: 1280)
-            generator.requestedTimeToleranceBefore = CMTime(seconds: 0.5, preferredTimescale: 600)
-            generator.requestedTimeToleranceAfter = CMTime(seconds: 0.5, preferredTimescale: 600)
-            var boxes: [(rect: CGRect, confidence: Float)] = []
-            for i in 0..<7 {
-                let t = CMTime(seconds: (0.1 + 0.8 * Double(i) / 6) * duration, preferredTimescale: 600)
-                guard let image = try? await generator.image(at: t).image, let best = detector.detect(in: image).first else { continue }
-                boxes.append(best)
-            }
-            guard boxes.count >= 2 else { return nil }
-            func median(_ v: [CGFloat]) -> CGFloat { let s = v.sorted(); return s[s.count / 2] }
-            let rect = CGRect(x: median(boxes.map(\.rect.minX)), y: median(boxes.map(\.rect.minY)),
-                              width: median(boxes.map(\.rect.width)), height: median(boxes.map(\.rect.height)))
-            return TrackCandidate(rect: rect, confidence: Double(median(boxes.map { CGFloat($0.confidence) })))
-        }.value
     }
 }

@@ -2,13 +2,15 @@
 # Canonical build entry point for this repo. Replaces ad-hoc xcodebuild one-liners.
 #
 # Usage:
-#   scripts/build.sh [ios|mac|both|auto] [--run]
+#   scripts/build.sh [ios|mac|labeler|both|auto] [--run]
 #   scripts/build.sh doctor    # print the resolved simulator destination and exit
 #   scripts/build.sh shared    # list modified files that are shared with RallyLab
 #
 #   auto (default) — inspect changed files (working tree, falling back to the
 #     last commit) and build the affected targets: files in RallyLab's
 #     membershipExceptions build BOTH; RallyLab/ files build mac; else ios.
+#     Labeler/ files (RallyLab on the iPhone) build labeler as well, and
+#     Labeler/Shared/ files build mac too — both apps compile them.
 #   --run — after a successful mac build, relaunch RallyLab.app from DerivedData.
 #
 # Simulator IDs rot when Xcode updates, so the destination is always resolved
@@ -89,6 +91,17 @@ build_mac() {
   run_build RallyLab -destination "platform=macOS"
 }
 
+build_labeler() {
+  local udid
+  udid=$(resolve_sim)
+  if [ -z "$udid" ]; then
+    echo "❌ No available iPhone simulator for the Labeler scheme. Check: xcrun simctl list devices available"
+    return 1
+  fi
+  echo "▸ Labeler — RallyLab on the iPhone (iOS sim $udid)"
+  run_build Labeler -destination "platform=iOS Simulator,id=$udid" CODE_SIGNING_ALLOWED=NO
+}
+
 relaunch_rallylab() {
   local app
   app=$(ls -d "$HOME"/Library/Developer/Xcode/DerivedData/BumpSetCut-*/Build/Products/Debug/RallyLab.app 2>/dev/null | head -1)
@@ -124,10 +137,19 @@ case "$MODE" in
     # -F -f: substring match so files inside .mlpackage directories still count
     shared_hits=$(echo "$changes" | grep -F -f <(shared_files) || true)
     mac_hits=$(echo "$changes" | grep -c "^RallyLab/" || true)
+    labeler_hits=$(echo "$changes" | grep -c "^Labeler/" || true)
+    labeler_shared_hits=$(echo "$changes" | grep -c "^Labeler/Shared/" || true)
     if [ -n "$shared_hits" ]; then
       echo "shared pipeline files changed → building BOTH targets:"
       echo "$shared_hits" | sed 's/^/  /'
       MODE=both
+    elif [ "$labeler_hits" -gt 0 ] && ! echo "$changes" | grep -q "^BumpSetCut/"; then
+      if [ "$labeler_shared_hits" -gt 0 ] || [ "$mac_hits" -gt 0 ]; then
+        echo "Labeler/Shared or RallyLab files changed → building RallyLab and Labeler"
+        MODE=mac+labeler
+      else
+        MODE=labeler
+      fi
     elif [ "$mac_hits" -gt 0 ] && ! echo "$changes" | grep -q "^BumpSetCut/"; then
       MODE=mac
     else
@@ -139,11 +161,13 @@ FAILED=0
 case "$MODE" in
   ios)  build_ios || FAILED=1 ;;
   mac)  build_mac || FAILED=1 ;;
+  labeler) build_labeler || FAILED=1 ;;
+  mac+labeler) build_mac || FAILED=1; build_labeler || FAILED=1 ;;
   both) build_ios || FAILED=1; build_mac || FAILED=1 ;;
-  *) echo "usage: scripts/build.sh [ios|mac|both|auto|doctor|shared] [--run]"; exit 2 ;;
+  *) echo "usage: scripts/build.sh [ios|mac|labeler|both|auto|doctor|shared] [--run]"; exit 2 ;;
 esac
 
-if [ "$FAILED" -eq 0 ] && [ "$RUN_AFTER" -eq 1 ] && [[ "$MODE" == "mac" || "$MODE" == "both" ]]; then
+if [ "$FAILED" -eq 0 ] && [ "$RUN_AFTER" -eq 1 ] && [[ "$MODE" == "mac" || "$MODE" == "both" || "$MODE" == "mac+labeler" ]]; then
   relaunch_rallylab
 fi
 exit $FAILED

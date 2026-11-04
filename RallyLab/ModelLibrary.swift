@@ -226,7 +226,9 @@ final class ModelLibrary {
             .filter { !evaluateValOnly || $0.split == "val" }
             .filter { !finalTest.contains($0.name) }   // reserved until promotion (D-002)
             .flatMap { session in
-                session.frames.filter { $0.keep && $0.reviewed }.map {
+                // A frame inside a cut range is not footage (D-030).
+                let cuts = session.cutRanges
+                return session.frames.filter { $0.keep && $0.reviewed && !cuts.contains($0.time) }.map {
                     ModelEvaluation.Frame(session: session.name, record: $0,
                                           image: sampler.store.currentImageURL(for: $0))
                 }

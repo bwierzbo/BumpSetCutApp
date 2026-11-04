@@ -356,12 +356,12 @@ final class WorkQueueReconcilerTests: XCTestCase {
                              corners: NetQuad(rect: CGRect(x: 0.2, y: 0.3, width: 0.5, height: 0.2)), proposed: false, adjusted: true,
                              reviewedAt: now, frameWidth: 1920, frameHeight: 1080, fingerprint: "file:aaa")
         try NetLabelStore(projectDir: root).save(["a": label])
-        let net = try WorkQueueReconciler.netObservations(root: root)
+        let net = try WorkQueueReconciler.netObservations(root: root, cuts: [:])
         XCTAssertEqual(net["a"]?.status.labeled, true)
         XCTAssertEqual(net["h"]?.skip, .handheld)
         XCTAssertEqual(net["u"]?.skip, .unidentified)
         // A label for another file under the same id is stale, not a label.
         try NetLabelStore(projectDir: root).save(["a": { var l = label; l.fingerprint = "file:other"; return l }()])
-        XCTAssertEqual(try WorkQueueReconciler.netObservations(root: root)["a"]?.status.stale, true)
+        XCTAssertEqual(try WorkQueueReconciler.netObservations(root: root, cuts: [:])["a"]?.status.stale, true)
     }
 }

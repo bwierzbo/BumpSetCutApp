@@ -70,17 +70,18 @@ enum ServeReport {
                                                           minRallySec: base.minRallySec, padded: false)
             let starts = decided.map(\.range.start)
             let serves = decided.compactMap { $0.serve ?? detector.serve(in: frames, rallyStart: $0.range.start) }
-            today.add(clips: clips, truth: v.truth)
+            today.add(clips: clips, truth: v.truth, cuts: v.cuts)
             // A clip starts at its first rally's serve, less the lead-in.
             for (n, lead) in leadIns.enumerated() {
                 let moved = clips.map { c in
                     serves.first { $0.contact >= c.start && $0.contact <= c.end }.map { Interval(start: max(0, $0.start - lead), end: c.end) } ?? c
                 }
-                anchored[n].add(clips: moved, truth: v.truth)
+                anchored[n].add(clips: moved, truth: v.truth, cuts: v.cuts)
             }
             if verbose { log("\(v.session.name):") }
             var matched = Set<Double>()
-            for t in v.truth {
+            // A rally whose serve is inside a cut range is not footage (D-030): not a serve to find.
+            for t in v.truth where !v.cuts.contains(t.start) {
                 rallies += 1
                 guard let s = serves.filter({ abs($0.start - t.start) <= 3 }).min(by: { abs($0.start - t.start) < abs($1.start - t.start) }) else {
                     if verbose {
@@ -100,7 +101,7 @@ enum ServeReport {
                                s.approaching ? "toward" : "away", s.start - t.start))
                 }
             }
-            let unmatched = serves.filter { !matched.contains($0.contact) }
+            let unmatched = serves.filter { !matched.contains($0.contact) && !v.cuts.contains($0.contact) }
             falseServes += unmatched.count
             if verbose, !unmatched.isEmpty {
                 log("  serves away from any mark: " + unmatched.map { String(format: "%.1f", $0.contact) }.joined(separator: ", "))
