@@ -75,11 +75,7 @@ enum FootageTypeConfirmation {
                       record: nil, recordOfAnotherFile: nil, recordProblem: nil, stage1Problem: nil, sourceFingerprint: sourceFingerprint)
         do {
             if let record = try FootageProperties.Store(root: root).load(recording.name) {
-                if let recorded = record.sourceFingerprint, recorded != sourceFingerprint {
-                    f.recordOfAnotherFile = "recorded for \(recorded); the project card has \(sourceFingerprint ?? "no fingerprint")"
-                } else {
-                    f.record = record
-                }
+                if let other = anotherFile(record, sourceFingerprint: sourceFingerprint) { f.recordOfAnotherFile = other } else { f.record = record }
             }
         } catch {
             f.recordProblem = error.localizedDescription
@@ -103,6 +99,14 @@ enum FootageTypeConfirmation {
             }
         }
         return f
+    }
+
+    /// Why `record` is another file's, not this recording's: it is bound to a fingerprint that is not the card's
+    /// (the recording was replaced under the same id) — the source index's rule (SourceRegistry.build). nil when
+    /// the record is this file's, or names no fingerprint (bound by name).
+    static func anotherFile(_ record: FootageProperties.File, sourceFingerprint: String?) -> String? {
+        guard let recorded = record.sourceFingerprint, recorded != sourceFingerprint else { return nil }
+        return "recorded for \(recorded); the project card has \(sourceFingerprint ?? "no fingerprint")"
     }
 
     /// The card's fingerprint for `video` (a session name: the safe form of the video id) — what the source index

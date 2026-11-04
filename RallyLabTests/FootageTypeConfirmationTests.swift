@@ -245,6 +245,14 @@ final class FootageTypeConfirmationTests: XCTestCase {
         let f = FootageTypeConfirmation.facts(recording("A"), sourceFingerprint: fingerprint("A"), in: root)
         XCTAssertNil(f.record); XCTAssertNotNil(f.recordOfAnotherFile)
         XCTAssertEqual(f.recordingType, .unknown, "the other file's type is not this recording's")
+        // The rule itself, as the Next page's list reads it too: bound to another fingerprint → another file's;
+        // bound to the card's, or to none, → this recording's.
+        let onFile = try XCTUnwrap(try FootageProperties.Store(root: root).load("video_01"))
+        XCTAssertNotNil(FootageTypeConfirmation.anotherFile(onFile, sourceFingerprint: fingerprint("A")))
+        XCTAssertNotNil(FootageTypeConfirmation.anotherFile(onFile, sourceFingerprint: nil), "a card with no fingerprint cannot own a bound record")
+        XCTAssertNil(FootageTypeConfirmation.anotherFile(onFile, sourceFingerprint: "file:other"))
+        var unbound = onFile; unbound.sourceFingerprint = nil
+        XCTAssertNil(FootageTypeConfirmation.anotherFile(unbound, sourceFingerprint: fingerprint("A")), "bound by name")
         let written = try FootageTypeConfirmation.confirm(.continuous, video: "video_01", under: opening, projects: projects, by: "BW", at: at)
         XCTAssertEqual(written.sourceFingerprint, fingerprint("A"))
         XCTAssertTrue(written.spans.isEmpty, "the other file's spans are not this recording's")

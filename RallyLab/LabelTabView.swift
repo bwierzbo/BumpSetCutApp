@@ -235,15 +235,23 @@ private struct LabelHomeView: View {
         footageType = FootageTypeTarget(recording: FootageTypeConfirmation.Recording(session), opening: opening)
     }
 
-    /// The type on file per recording — file work, off the main actor.
+    /// The type on file per recording — file work, off the main actor. A record bound to another fingerprint than
+    /// the card's is another file's (the recording was replaced under the same id): shown as unknown, to confirm
+    /// again — the same rule as the step and the source index (FootageTypeConfirmation.anotherFile).
     private func readTypes() async {
         guard let root = projects.opening?.root else { types = nil; return }
+        let fingerprints = Dictionary(uniqueKeysWithValues: sampler.sessions.map { ($0.name, FootageTypeConfirmation.sourceFingerprint(of: $0.name, in: projects.project)) })
         types = await Task.detached(priority: .utility) { () -> [String: String] in
             guard let all = try? FootageProperties.Store(root: root).loadAll() else { return [:] }
             var out: [String: String] = [:]
             for (name, file) in all.records {
-                out[name] = file.recordingType == .unknown ? "unknown — not yet verified"
-                    : "\(FootageTypeSheet.title(file.recordingType).lowercased())" + (file.recordingTypeBy.map { " · \($0)" } ?? "")
+                if FootageTypeConfirmation.anotherFile(file, sourceFingerprint: fingerprints[name] ?? nil) != nil {
+                    out[name] = "unknown — the record on file is another file's; confirm again"
+                } else if file.recordingType == .unknown {
+                    out[name] = "unknown — not yet verified"
+                } else {
+                    out[name] = FootageTypeSheet.title(file.recordingType).lowercased() + (file.recordingTypeBy.map { " · \($0)" } ?? "")
+                }
             }
             for name in all.unreadable.keys { out[name] = "⚠︎ record unreadable" }
             return out
