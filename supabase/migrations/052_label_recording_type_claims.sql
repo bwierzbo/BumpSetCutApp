@@ -65,6 +65,17 @@ CREATE OR REPLACE FUNCTION private.recording_type_claims_guard() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''
 AS $$
 BEGIN
+    -- An account deleted (supabase/functions/delete-account): the foreign keys clear its attribution and nothing
+    -- else — the claim and its history stay as they are, unattributed.
+    IF (NEW.submitted_by IS NULL OR NEW.submitted_by = OLD.submitted_by)
+       AND (NEW.settled_by IS NULL OR NEW.settled_by = OLD.settled_by)
+       AND (NEW.submitted_by IS DISTINCT FROM OLD.submitted_by OR NEW.settled_by IS DISTINCT FROM OLD.settled_by)
+       AND NEW.id = OLD.id AND NEW.video_id = OLD.video_id AND NEW.project = OLD.project AND NEW.session_name = OLD.session_name
+       AND NEW.source_fingerprint = OLD.source_fingerprint AND NEW.recording_type = OLD.recording_type AND NEW.revision = OLD.revision
+       AND NEW.submitted_at = OLD.submitted_at AND NEW.status = OLD.status AND NEW.reason IS NOT DISTINCT FROM OLD.reason
+       AND NEW.settled_at IS NOT DISTINCT FROM OLD.settled_at THEN
+        RETURN NEW;
+    END IF;
     IF NEW.id <> OLD.id OR NEW.video_id <> OLD.video_id OR NEW.project <> OLD.project OR NEW.session_name <> OLD.session_name
        OR NEW.source_fingerprint <> OLD.source_fingerprint OR NEW.recording_type <> OLD.recording_type OR NEW.revision <> OLD.revision
        OR NEW.submitted_by IS DISTINCT FROM OLD.submitted_by OR NEW.submitted_at <> OLD.submitted_at THEN
@@ -149,6 +160,16 @@ BEGIN
     END IF;
     -- One submission at a time per recording: the revision and the superseding are decided in order.
     PERFORM pg_advisory_xact_lock(hashtext('label_recording_type_claims'), hashtext(p_video::text));
+    SELECT project, session_name, source_fingerprint INTO v_project, v_session, v_fingerprint
+      FROM public.label_videos WHERE id = p_video;
+    IF NOT FOUND OR v_project IS NULL OR v_session IS NULL THEN
+        RAISE EXCEPTION 'recording_type_claim_submit: no such recording' USING ERRCODE = '22023';
+    END IF;
+    -- Judged now, before anything is returned or written: a recording withheld since the claim was first sent is
+    -- not shown through a retry either (049's rule holds on every path).
+    IF private.label_session_protected(v_project, v_session) THEN
+        RAISE EXCEPTION 'withheld: % is not open to labeling (withheld, or its project has no published list)', v_session USING ERRCODE = '42501';
+    END IF;
     SELECT * INTO v_existing FROM public.label_recording_type_claims WHERE id = p_id;
     IF FOUND THEN
         IF v_existing.video_id <> p_video OR v_existing.recording_type <> p_type OR v_existing.source_fingerprint <> coalesce(p_fingerprint, '') THEN
@@ -156,14 +177,6 @@ BEGIN
         END IF;
         RETURN QUERY SELECT * FROM public.label_recording_type_claims WHERE id = p_id;
         RETURN;
-    END IF;
-    SELECT project, session_name, source_fingerprint INTO v_project, v_session, v_fingerprint
-      FROM public.label_videos WHERE id = p_video;
-    IF NOT FOUND OR v_project IS NULL OR v_session IS NULL THEN
-        RAISE EXCEPTION 'recording_type_claim_submit: no such recording' USING ERRCODE = '22023';
-    END IF;
-    IF private.label_session_protected(v_project, v_session) THEN
-        RAISE EXCEPTION 'withheld: % is not open to labeling (withheld, or its project has no published list)', v_session USING ERRCODE = '42501';
     END IF;
     IF v_fingerprint IS NULL OR v_fingerprint = '' THEN
         RAISE EXCEPTION 'identity: % has no published original fingerprint; nothing is accepted until RallyLab publishes it', v_session USING ERRCODE = '22023';

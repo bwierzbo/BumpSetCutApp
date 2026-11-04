@@ -127,7 +127,34 @@ SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a
 SELECT pg_temp.check(pg_temp.affected($q$UPDATE public.label_videos SET recording_type = 'continuous', recording_type_at = now() WHERE session_name = 'a'$q$) = 1, 'the lead publishes the type');
 SELECT pg_temp.expect($q$UPDATE public.label_videos SET recording_type = 'montage' WHERE session_name = 'a'$q$, '23514', 'check');
 
--- 10. A recording removed takes its claims with it (no orphan claim); nothing else is touched.
+-- 10. A retry of a submission after the recording was withheld (or its project's list withdrawn) is refused like a
+-- new one: the idempotent return never shows a claim of a recording the labeler may no longer read.
+RESET ROLE;
+INSERT INTO public.label_withheld (project, session_name) VALUES ('Scratch', 'a');
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+SELECT pg_temp.expect($q$SELECT public.recording_type_claim_submit('30000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-00000000000a', 'edited', 'file:a')$q$, '42501', 'withheld: a is not open');
+SELECT pg_temp.check((SELECT count(*) FROM public.label_recording_type_claims WHERE video_id = '10000000-0000-0000-0000-00000000000a') = 0, 'and the claims are not readable either');
+RESET ROLE;
+DELETE FROM public.label_withheld WHERE project = 'Scratch' AND session_name = 'a';
+SET ROLE authenticated;
+SELECT pg_temp.check((SELECT status FROM public.recording_type_claim_submit('30000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-00000000000a', 'edited', 'file:a')) = 'accepted', 'open again: the retry shows the claim as it is');
+
+-- 11. An account deleted (supabase/functions/delete-account): its attribution is cleared by the foreign keys, the
+-- claims and their history stay as they are; nothing else may change through that path.
+RESET ROLE;
+SELECT pg_temp.check((SELECT submitted_by FROM public.label_recording_type_claims WHERE id = '30000000-0000-0000-0000-000000000003') = '00000000-0000-0000-0000-00000000000d', 'claim 3 is M2''s');
+DELETE FROM public.labelers WHERE user_id = '00000000-0000-0000-0000-00000000000d';   -- the profile goes first, as delete-account does
+DELETE FROM auth.users WHERE id = '00000000-0000-0000-0000-00000000000d';
+SELECT pg_temp.check((SELECT (status, submitted_by IS NULL, recording_type, revision) = ('accepted', true, 'edited', 2) FROM public.label_recording_type_claims WHERE id = '30000000-0000-0000-0000-000000000003'), 'the submitter gone: the accepted claim stays, unattributed');
+SELECT pg_temp.check((SELECT settled_by FROM public.label_recording_type_claims WHERE id = '30000000-0000-0000-0000-000000000004') = '00000000-0000-0000-0000-00000000000a', 'claim 4 was settled by L');
+DELETE FROM public.labelers WHERE user_id = '00000000-0000-0000-0000-00000000000a';
+DELETE FROM auth.users WHERE id = '00000000-0000-0000-0000-00000000000a';
+SELECT pg_temp.check((SELECT (status, settled_by IS NULL, reason IS NOT NULL) = ('rejected', true, true) FROM public.label_recording_type_claims WHERE id = '30000000-0000-0000-0000-000000000004'), 'the settler gone: the rejected claim stays, its reason too');
+SELECT pg_temp.expect($q$UPDATE public.label_recording_type_claims SET submitted_by = NULL, status = 'submitted' WHERE id = '30000000-0000-0000-0000-000000000003'$q$, '42501', 'stays so');
+SELECT pg_temp.expect($q$UPDATE public.label_recording_type_claims SET settled_by = NULL, reason = 'edited away' WHERE id = '30000000-0000-0000-0000-000000000004'$q$, '42501', 'never changes');
+
+-- 12. A recording removed takes its claims with it (no orphan claim); nothing else is touched.
 RESET ROLE;
 SELECT pg_temp.check((SELECT count(*) FROM public.label_recording_type_claims WHERE video_id = '10000000-0000-0000-0000-0000000000f1') = 1, 'w has its claim');
 DELETE FROM public.label_videos WHERE id = '10000000-0000-0000-0000-0000000000f1';
