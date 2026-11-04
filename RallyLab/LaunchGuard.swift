@@ -19,7 +19,9 @@
 //       the root (test-only inputs), and only with --create;
 //     - --defaults-suite is required and must begin with `rallylab.test.`; --pending-dir is required, absolute, no
 //       symlink, resolving under the root. Neither ever falls back to the person's preferences or pending folder;
-//     - the labeling session is kept under its own Keychain service (acceptanceKeychainService), never the app's.
+//     - the labeling session is kept under its own Keychain service (acceptanceKeychainService), never the app's;
+//     - a guarded --sync-phone never pulls the phones' uploads into the project (LabelingSync importsPhoneUploads: false):
+//       real footage a lead can see is never moved into a test namespace.
 //
 
 import Foundation
