@@ -279,6 +279,12 @@ actor LabelingClient {
         try await get("label_recording_type_claims", query: "select=*" + Self.changed(since))
     }
 
+    /// One claim as the server has it now; nil when it is gone (its recording deleted) or not readable.
+    func recordingTypeClaim(id: UUID) async throws -> RecordingTypeClaim? {
+        let rows: [RecordingTypeClaim] = try await get("label_recording_type_claims", query: "select=*&id=eq.\(id.uuidString.lowercased())")
+        return rows.first
+    }
+
     /// The phone's choice, as a claim (`recording_type_claim_submit`): idempotent by the claim's id. A refusal of the
     /// claim itself — withheld, identity, input — comes back as `Failure.server` with the server's message.
     func submitRecordingTypeClaim(_ pending: RecordingTypeClaims.Pending) async throws -> RecordingTypeClaim {

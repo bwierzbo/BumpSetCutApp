@@ -338,6 +338,61 @@ final class RecordingTypeClaimSyncTests: XCTestCase {
         _ = root
     }
 
+    // MARK: - A replacement from the phone while the round runs
+
+    func testAClaimSupersededWhileTheRoundAwaitsIsNotWrittenAndTheReplacementIsAppliedInTheSameRound() async throws {
+        let (_, row1) = try project("A", videos: ["video_01", "video_02"])
+        open("A")
+        let row2 = try XCTUnwrap(server.videos.first { $0.sessionName == "video_02" })
+        submit("continuous", for: row1)
+        let old = submit("continuous", for: row2)
+        let ordered = [row1, row2].sorted { $0.id.uuidString < $1.id.uuidString }
+        let later = ordered[1]
+        // The round parks while the server settles the first recording's claim; meanwhile the phone replaces the
+        // second's choice (the server supersedes the waiting claim and records the new one).
+        server.hold("settleRecordingTypeClaim", at: 1)
+        let round = Task { await self.sync.sync(videos: false) }
+        let reached = await server.arrived()
+        XCTAssertTrue(reached, "the round never reached the hold; calls made: \(server.calls)")
+        let replacement = server.phoneReplaces(video: later.id, with: "edited", at: now.addingTimeInterval(30))
+        server.release()
+        let ok = await round.value
+        XCTAssertTrue(ok, sync.status)
+        let laterName = later.sessionName!
+        let written = try XCTUnwrap(try record("A", video: laterName))
+        XCTAssertEqual(written.recordingType, .edited, "the replacement, not the superseded choice")
+        XCTAssertTrue(RecordingTypeClaims.isAttributed(written.recordingTypeBy, to: replacement))
+        let superseded = later.id == row2.id ? old : nil
+        if let superseded { XCTAssertFalse(RecordingTypeClaims.isAttributed(written.recordingTypeBy, to: superseded)) }
+        XCTAssertEqual(settlements().map(\.status), [.accepted, .accepted])
+        XCTAssertEqual(server.settled.last?.id, replacement.id)
+        XCTAssertTrue(sync.status.contains("2 confirmed · 0 declined"), sync.status)
+    }
+
+    func testASupersessionThatLandsBetweenTheCheckAndTheSettlementIsAnsweredByApplyingTheReplacement() async throws {
+        let (_, row) = try project("A")
+        open("A")
+        let old = submit("continuous", for: row)
+        // The reply to the claim's re-check is parked; meanwhile the phone replaces the choice. The Mac, told the claim
+        // is still waiting, writes it — and the settlement comes back a conflict: the replacement is applied at once.
+        server.hold("recordingTypeClaim", at: 1)
+        let round = Task { await self.sync.sync(videos: false) }
+        let reached = await server.arrived()
+        XCTAssertTrue(reached, "the round never reached the hold; calls made: \(server.calls)")
+        let replacement = server.phoneReplaces(video: row.id, with: "unknown", at: now.addingTimeInterval(30))
+        server.release()
+        let ok = await round.value
+        XCTAssertTrue(ok, sync.status)
+        let written = try XCTUnwrap(try record("A"))
+        XCTAssertEqual(written.recordingType, .unknown, "the replacement took the record over in the same round")
+        XCTAssertTrue(RecordingTypeClaims.isAttributed(written.recordingTypeBy, to: replacement))
+        XCTAssertFalse(RecordingTypeClaims.isAttributed(written.recordingTypeBy, to: old))
+        XCTAssertEqual(settlements().map(\.status), [.accepted], "the superseded claim's settlement was refused, the replacement's accepted")
+        XCTAssertEqual(server.settled.last?.id, replacement.id)
+        XCTAssertEqual(server.calls.filter { $0 == "settleRecordingTypeClaim" }.count, 2)
+        XCTAssertEqual(server.claims[old.id]?.status, .superseded)
+    }
+
     // MARK: - The opening (A → B → A)
 
     func testAClaimIsWrittenOnlyUnderTheOpeningTheRoundStartedFor() async throws {
