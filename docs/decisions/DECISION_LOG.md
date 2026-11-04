@@ -2,7 +2,7 @@
 name: decision-log
 status: authoritative
 created: 2026-10-20T22:12:44Z
-updated: 2026-11-04T06:44:58Z
+updated: 2026-11-04T14:38:29Z
 ---
 
 # Decision log
@@ -40,10 +40,10 @@ The authoritative record of product, architecture, data and process decisions fo
 | [D-023](#d-023) | 2026-10-23 | accepted | L2 labels are people's only; unreviewed pre-tracked rallies excluded |
 | [D-024](#d-024) | 2026-10-23 | accepted | Progressive RallyLab rally review: full-video boundaries first, optional contacts second, player IDs later |
 | [D-025](#d-025) | 2026-10-24 | accepted | Amends D-022: a planned frame the decoder reproducibly cannot produce — an HEVC leading picture, and only that — is recorded in the journal and the summary and left out with every window that needed it, instead of stopping the export; every other failure stays fatal; plan and run identity unchanged; the three affected recordings stay in the package |
-| [D-028](#d-028) | 2026-11-02 | proposed | Live marking is Stage 1 only: serve, dead ball and the rally's kind; touches and their side of the net are advanced marking, deferred (D-024 Stage 2) |
-| [D-030](#d-030) | 2026-11-02 | proposed | Cut ranges: stretches of a recording marked as not footage in the live pass (the clip starts mid-rally, an editor's replay), honoured by every consumer; the file is never re-cut |
+| [D-028](#d-028) | 2026-11-02 | accepted | Live marking is Stage 1 only: serve, dead ball and the rally's kind; touches and their side of the net are advanced marking, deferred (D-024 Stage 2) |
+| [D-030](#d-030) | 2026-11-02 | accepted | Cut ranges: stretches of a recording marked as not footage in the live pass (the clip starts mid-rally, an editor's replay), honoured by every consumer; the file is never re-cut |
 | [D-031](#d-031) | 2026-11-02 | accepted (direction; merge and deployment separate) | RallyLab 2.0: a source registry and a persistent labeling task queue over the existing stores, phased; footage characterised span by span with per-model eligibility; stability fixes first and evidence-based; no training, migration, public-app or TestFlight change under this direction |
-| [D-032](#d-032) | 2026-11-03 | proposed | A recording's type — continuous, edited, unknown — is confirmed by a person at the end of the marking pass, kept apart from the pass being complete, from the cut ranges and from eligibility, never inferred; the phone shows the facts and cannot sync the type without a backend change |
+| [D-032](#d-032) | 2026-11-03 | accepted | A recording's type — continuous, edited, unknown — is confirmed by a person at the end of the marking pass, kept apart from the pass being complete, from the cut ranges and from eligibility, never inferred; the phone shows the facts and cannot sync the type without a backend change |
 | [D-033](#d-033) | 2026-11-03 | accepted | Recording-type claims: the phone submits a claim (continuous, edited, unknown) through the labeling server, RallyLab validates it against the project and writes the authoritative footage-properties record, then settles the claim accepted or rejected; one open claim per recording, statuses only move forward, no second authority on the phone or the server |
 
 ---
@@ -376,7 +376,7 @@ The authoritative record of product, architecture, data and process decisions fo
 
 ### D-028
 
-**Live marking is Stage 1 only: a rally's serve, its dead ball and its kind; the touches inside it and their side of the net are advanced marking, deferred** — 2026-11-02 — proposed — owner (chat, 2026-11-02: "can we remove contacts for and near and far with our current version of marking and mark that an advanced marking thing for a later update").
+**Live marking is Stage 1 only: a rally's serve, its dead ball and its kind; the touches inside it and their side of the net are advanced marking, deferred** — 2026-11-02 — accepted — owner (chat, 2026-11-02: "can we remove contacts for and near and far with our current version of marking and mark that an advanced marking thing for a later update").
 
 **Context.** Live tagging (2026-10-17) took one key per touch (S P T A B F), each with a near/far side read from the ball's size against the net or said with ⇧/⌥ (on the phone, by holding a key), and closed a rally with D or N. D-024 already placed per-contact review in its optional Stage 2. The side guess needed the net found in every video, and the touch keys slowed the pass the owner wants from marking: complete rally times for scoring and the decision model.
 
@@ -388,9 +388,11 @@ The authoritative record of product, architecture, data and process decisions fo
 
 **Consequences.** `LiveTagger` (shared), `LiveTagView`, `MarkRalliesView`; `LiveTagStore.mark` and `RallyMarkModel.mark` take no contacts; `BallPath.side`, `NetSide.flipped`, `SamplerModel.setNetBox` and `LiveTagger.findNet` are gone (`VideoSession.netBox` stays as stored data); `LiveTaggerTests`. The phone takes the change with its next TestFlight build (a separate, owner-approved upload). Proposed until the owner merges the PR that carries it.
 
+**Status 2026-11-04.** Accepted by the owner ("Owner Approval — RallyLab 2.0 Marking Integration", 2026-11-03: "I accept decisions D-028 and D-030, including the simplified marking workflow and cut-range semantics"). Merged: #139 → `27d69e9` (#130 and #135 integrated onto main; #130 closed as superseded).
+
 ### D-030
 
-**Cut ranges: a stretch of a recording marked as not footage in the live pass — the clip starts in the middle of a rally, an editor put an instant replay in — honoured by every consumer; the file is never re-cut** — 2026-11-02 — proposed — owner (chat, 2026-11-02: "sometimes it's right in the middle of a rally, I can't mark the serve … trim the video until the next rally"; "mark certain sections of a video as don't use … if it's an instant replay that someone added"; chose virtual ranges over re-cutting the file, Mac and phone in one PR).
+**Cut ranges: a stretch of a recording marked as not footage in the live pass — the clip starts in the middle of a rally, an editor put an instant replay in — honoured by every consumer; the file is never re-cut** — 2026-11-02 — accepted — owner (chat, 2026-11-02: "sometimes it's right in the middle of a rally, I can't mark the serve … trim the video until the next rally"; "mark certain sections of a video as don't use … if it's an instant replay that someone added"; chose virtual ranges over re-cutting the file, Mac and phone in one PR).
 
 **Context.** Every project video is a random 5-minute cut, so some begin inside a rally whose serve cannot be marked. A scan of the 166 Scratch recordings on 2026-11-02 (evidence: `~/Movies/RallyLab/Reports/edited-footage-20261102/`) found editor-added half-speed replays and zooms in about nine YouTube-sourced recordings — grs_gnd_shade_land_self_02_v2 alone has 30 s of replay at 83–157 s — most of them in the L2 package. Nothing in the session, the manifest or the sync could say "not footage", so every consumer read them as footage. The scoring contract's excluded union X ([SCORING_CONTRACT](../ml-roadmap/SCORING_CONTRACT.md)) already masks missed-serve and not-a-rally marks the same way.
 
@@ -404,9 +406,11 @@ The authoritative record of product, architecture, data and process decisions fo
 
 **Source.** Owner chat 2026-11-02; the PR carrying this entry; `~/Movies/RallyLab/Reports/edited-footage-20261102/README.md`.
 
+**Status 2026-11-04.** Accepted by the owner (the same approval of 2026-11-03, quoted under D-028). Merged: #139 → `27d69e9` (#135 closed as superseded); migration 051 (`label_rally_times.cuts`) applied live 2026-11-03T03:33Z. Still open as written: the phone's cut keys ship with its next owner-approved TestFlight build; whether a cut counts as covered time in the Stage 1 record (D-024).
+
 ### D-032
 
-**A recording's type — continuous, edited, or unknown — is confirmed by a person at the end of the marking pass, kept apart from the pass being complete, from the cut ranges and from eligibility; never inferred** — 2026-11-03 — proposed — owner (assignment "RallyLab 2.0 Manual Footage Characterization and Marking Workflow", 2026-11-03: implementation and testing authorised; merge separate).
+**A recording's type — continuous, edited, or unknown — is confirmed by a person at the end of the marking pass, kept apart from the pass being complete, from the cut ranges and from eligibility; never inferred** — 2026-11-03 — accepted — owner (assignment "RallyLab 2.0 Manual Footage Characterization and Marking Workflow", 2026-11-03: implementation and testing authorised; merge separate).
 
 **Context.** The owner watches essentially every second of each recording while marking rallies, so manual marking is the primary way excluded intervals are found (D-030's cut ranges); automatic replay, slow-motion and cut scanning stays out of this step. A cut range and a recording's type are different facts (D-031 §11.4): excluding the first 12 s of a clip that begins mid-rally says nothing about editing; excluding a replay may go with an edited recording, but the X press must not decide that. `FootageProperties` (D-031, PR #134) has carried `recordingType` since phase 1 with nothing in the app writing it.
 
@@ -419,6 +423,8 @@ The authoritative record of product, architecture, data and process decisions fo
 **Consequences.** `RallyLab/FootageTypeConfirmation.swift` (the facts, the preview, the confirmation under an opening), `RallyLab/FootageTypeSheet.swift`; `FootageProperties.Store.confirmRecordingType`; `LiveTagger.finishCut(atEnd:)`; `LiveTagView` (the step after the pass, "Footage type…"), `MarkRalliesView` (`FootageTypeNoteView`); tests `FootageTypeConfirmationTests`, `LiveTaggerTests`, `LabelingSyncCutsTests`. The source index and the work queue read the confirmed type as before; no exporter changes. Open: whether an X-marked replay should also record a `replay` span (D-031 §11.6 item 1, unchanged — the cut stays the one exclusion); the phone's path once a server field exists. Proposed until the owner merges the PR that carries it.
 
 **Source.** Owner assignment of 2026-11-03; the PR carrying this entry.
+
+**Status 2026-11-04.** Accepted by the owner ("Owner Approval — RallyLab 2.0 Marking Integration", 2026-11-03: "I accept D-032: recording type is explicitly confirmed by a person and stays independent of rally completion and excluded intervals"). Merged: #140 → `d5e9a37`. Decision §4 and the open item "the phone's path once a server field exists" are dated by D-033 (accepted 2026-11-04; migration 052 applied live 2026-11-04T14:35Z), which implemented the phone's synchronization as a claim the Mac confirms: the footage-properties record stays the one authority and the phone still keeps no record of the type.
 
 ### D-033
 
