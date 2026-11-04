@@ -746,7 +746,10 @@ final class LabelerModel: ReviewStore {
                 snapshot.claims.removeAll { $0.id == row.id }
                 snapshot.claims.append(row)
             } catch LabelingClient.Failure.server(_, let message) where RecordingTypeClaims.isRefusal(message) {
-                outbox.claims[pending.id]?.refusal = message
+                // Written to the outbox file at once, not at the end of the flush: a crash during the sends that follow
+                // would otherwise leave the refusal in memory only, and the refused choice would be sent again.
+                outbox.claims = RecordingTypeClaims.refusing(outbox.claims, id: pending.id, reason: message)
+                LocalStore.save(outbox, "outbox.json")
                 syncProblem = message
             } catch { isOffline = true; break }
         }

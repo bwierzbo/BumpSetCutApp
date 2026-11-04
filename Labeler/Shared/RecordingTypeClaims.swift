@@ -90,6 +90,14 @@ enum RecordingTypeClaims {
         outbox.values.filter { $0.refusal == nil }.sorted { $0.madeAt < $1.madeAt }
     }
 
+    /// The outbox with the server's refusal written on the choice it refused (the choice stays, shown, and is never
+    /// sent again as it is). A choice no longer there is left alone.
+    static func refusing(_ outbox: [UUID: Pending], id: UUID, reason: String) -> [UUID: Pending] {
+        var out = outbox
+        out[id]?.refusal = reason
+        return out
+    }
+
     /// The outbox with a new choice for its recording in place of every earlier one for that recording — refused
     /// or still to be sent — under a fresh id (a corrected choice is a new claim, never a retry of the refused one).
     static func replacing(_ outbox: [UUID: Pending], with new: Pending) -> [UUID: Pending] {
