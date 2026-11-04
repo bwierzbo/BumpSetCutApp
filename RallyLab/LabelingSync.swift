@@ -1010,6 +1010,12 @@ final class LabelingSync {
                 let sourcePath = session.sourcePath
                 let published = await Task.detached(priority: .utility) { ProjectsModel.fileFingerprint(atPath: sourcePath) }.value
                 try projects.require(opening)
+                // A file that can't be read now (the footage share away) is the Mac's problem, not the claim's: left
+                // submitted for the next round. Only a fingerprint read and found different declines it (Codex on #148).
+                guard let published else {
+                    deferred.append("\(name): the recording's file can't be read on the Mac — judged next round")
+                    break
+                }
                 let card = FootageTypeConfirmation.sourceFingerprint(of: name, in: projects.project)
                 // The record as it is now — read here, after every await of the round so far (a settlement of another
                 // recording's claim suspends; a confirmation on this Mac may have landed meanwhile), and nothing suspends

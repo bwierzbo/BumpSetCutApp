@@ -208,6 +208,29 @@ final class RecordingTypeClaimSyncTests: XCTestCase {
         XCTAssertNil(try record("C"), "nothing written")
     }
 
+    func testAClaimWhoseClipCannotBeReadIsLeftForTheNextRoundAndAcceptedOnceTheFileIsBack() async throws {
+        // The footage share away: the clip's fingerprint can't be read. The claim stays submitted; nothing is written.
+        let (root, row, origin, cut) = try cutProject("C")
+        open("C")
+        let claim = submit("continuous", for: row)
+        let clip = root.appendingPathComponent("footage/video_01.mp4")
+        let bytes = try Data(contentsOf: clip)
+        try FileManager.default.removeItem(at: clip)
+        let first = await sync.sync(videos: false)
+        XCTAssertTrue(first)
+        XCTAssertEqual(settlements().count, 0, "not settled either way: \(settlements())")
+        XCTAssertEqual(server.claims[claim.id]?.status, .submitted)
+        XCTAssertNil(try record("C"), "nothing written")
+        XCTAssertTrue(sync.status.contains("left for the next sync") && sync.status.contains("can't be read"), sync.status)
+        // The share is back: the same claim is judged and accepted on the next round.
+        try bytes.write(to: clip)
+        let second = await sync.sync(videos: false)
+        XCTAssertTrue(second)
+        XCTAssertEqual(settlements().map(\.status), [.accepted])
+        XCTAssertEqual(claim.sourceFingerprint, cut)
+        XCTAssertEqual(try XCTUnwrap(try record("C")).sourceFingerprint, origin)
+    }
+
     func testAnExplicitUnknownIsAcceptedAndEstablishesNothing() async throws {
         let (_, row) = try project("A")
         open("A")
