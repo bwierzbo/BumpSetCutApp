@@ -154,6 +154,54 @@ final class CutRangeConsumersTests: XCTestCase {
         XCTAssertEqual(PreTracker.openSpans(session, tracks: []).map(\.start), [10], "the second mark and the found rally touch the cut")
     }
 
+    /// The Label tab's queue offers no rally touching a cut as a task — not a marked or found one, not one whose
+    /// track was begun — while the marks and tracks stay as they are.
+    @MainActor
+    func testMacQueueOffersNoRallyTouchingACut() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lq-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let video = dir.appendingPathComponent("v.mp4")
+        try "[{\"startTime\": 10, \"endTime\": 20}, {\"startTime\": 30, \"endTime\": 40}]"
+            .write(to: RallyMarkModel.labelsURL(for: video), atomically: true, encoding: .utf8)
+        let burst = [50.0, 52.5, 55.0].map { FrameRecord(id: UUID(), file: "images/train/v_\($0).jpg", time: $0, source: "rally:0", boxes: [], keep: true, reviewed: false) }
+        var session = VideoSession(name: "v", sourcePath: video.path, split: "train", addedAt: Date(), frames: burst)
+        // A track begun on the 30–40 rally and not finished.
+        var begun = SourceRegistryTests.rally(done: false)
+        begun.start = 30; begun.end = 40
+        session.tracks = [begun]
+        XCTAssertEqual(LabelQueue.Video(session: session).nextRally, begun.bounds, "the begun track first")
+        session.cuts = [cut(35, 52)]
+        let queued = LabelQueue.Video(session: session)
+        XCTAssertEqual(queued.nextRally?.start, 10, "the begun track and the found rally touch the cut; the 10–20 rally is the task")
+        XCTAssertEqual(session.tracks?.count, 1, "the track itself stays")
+        session.cuts = [cut(0, 60)]
+        XCTAssertNil(LabelQueue.Video(session: session).nextRally)
+    }
+
+    /// A project this Mac remembers that is not there is unknown cuts: the headless lookup throws and the export
+    /// stops, instead of finding no project and exporting the cut footage.
+    func testHeadlessCutLookupFailsClosedWhenARememberedProjectIsGone() throws {
+        let suite = "RallyLabTests.CutRangeConsumers.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let gone = FileManager.default.temporaryDirectory.appendingPathComponent("gone-\(UUID().uuidString)", isDirectory: true)
+        defaults.set([gone.path], forKey: "RallyLab.projects")
+        XCTAssertThrowsError(try ProjectsModel.savedProjectRoots(defaults: defaults)) {
+            XCTAssertEqual($0 as? ProjectsModel.ProjectUnavailable, ProjectsModel.ProjectUnavailable(path: gone.standardizedFileURL.path))
+        }
+        // A remembered project that is there is listed; the last opened too.
+        let here = FileManager.default.temporaryDirectory.appendingPathComponent("here-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: here, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: here) }
+        try "{}".write(to: here.appendingPathComponent("project.json"), atomically: true, encoding: .utf8)
+        defaults.set([here.path], forKey: "RallyLab.projects")
+        defaults.set(here.path, forKey: "RallyLab.lastProjectPath")
+        XCTAssertEqual(try ProjectsModel.savedProjectRoots(defaults: defaults).filter { $0.standardizedFileURL == here.standardizedFileURL }.count, 1)
+        defaults.set(gone.path, forKey: "RallyLab.lastProjectPath")
+        XCTAssertThrowsError(try ProjectsModel.savedProjectRoots(defaults: defaults), "the last project opened is remembered too")
+    }
+
     /// The Pipeline tab's decision: outside the cut ranges, and withheld — no predictions, no score — while they
     /// can't be known (a session that won't read), never made as if there were none.
     func testPipelineTabDecidesNothingWhileTheCutRangesCannotBeKnown() {

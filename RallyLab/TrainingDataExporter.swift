@@ -107,8 +107,9 @@ enum TrainingDataExporter {
     /// no project knows has no cuts, by construction. Throws when a project's sessions or
     /// reservations can't all be read: an unreadable session is unknown cuts, not no cuts, and
     /// the export must not go out as if there were none (fails closed).
-    static func cutRanges(forVideo url: URL, projectRoots: [URL] = ProjectsModel.savedProjectRoots()) throws -> [CutRange] {
-        for project in projectRoots {
+    static func cutRanges(forVideo url: URL, projectRoots: [URL]? = nil) throws -> [CutRange] {
+        // A remembered project that is not there is unknown cuts: the lookup throws, the export stops.
+        for project in try projectRoots ?? ProjectsModel.savedProjectRoots() {
             let sessions = try DatasetStore(root: project).loadSessionsStrict()
             guard let match = try ReservedVideos.match(url, root: project) else { continue }
             return sessions.first { $0.name == match.session }?.cutRanges ?? []

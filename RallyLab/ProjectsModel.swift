@@ -183,16 +183,25 @@ final class ProjectsModel {
         .appendingPathComponent("RallyLab/Projects", isDirectory: true)
     private static let knownProjectsKey = "RallyLab.projects"
 
+    /// A project this Mac remembers whose project.json is not there (an unmounted volume, a moved folder):
+    /// what it knows about a video — its cut ranges — is unknown, not nothing.
+    struct ProjectUnavailable: LocalizedError, Equatable {
+        let path: String
+        var errorDescription: String? { "the remembered project at \(path) is not available (no project.json): what it knows about the video can't be read" }
+    }
+
     /// Every project folder this Mac knows without opening one: the remembered list, the last
     /// project opened and whatever sits in the default location — for a headless tool that has
     /// to find the project session over a video (a project may live anywhere, `create(name:in:)`).
-    nonisolated static func savedProjectRoots() -> [URL] {
-        let defaults = UserDefaults.standard
-        var roots = (defaults.stringArray(forKey: knownProjectsKey) ?? []).map { URL(fileURLWithPath: $0, isDirectory: true) }
-        if let last = defaults.string(forKey: lastProjectKey) { roots.append(URL(fileURLWithPath: last, isDirectory: true)) }
-        roots += (try? FileManager.default.contentsOfDirectory(at: defaultLocation, includingPropertiesForKeys: nil)) ?? []
+    /// A remembered project that is not there throws (fail closed; Codex on #139); only the
+    /// default location's entries are quietly taken for what they are.
+    nonisolated static func savedProjectRoots(defaults: UserDefaults = .standard) throws -> [URL] {
+        var remembered = (defaults.stringArray(forKey: knownProjectsKey) ?? []).map { URL(fileURLWithPath: $0, isDirectory: true) }
+        if let last = defaults.string(forKey: lastProjectKey) { remembered.append(URL(fileURLWithPath: last, isDirectory: true)) }
+        if let gone = remembered.first(where: { !isProject($0) }) { throw ProjectUnavailable(path: gone.path) }
+        let found = ((try? FileManager.default.contentsOfDirectory(at: defaultLocation, includingPropertiesForKeys: nil)) ?? []).filter(isProject)
         var seen = Set<String>()
-        return roots.map(\.standardizedFileURL).filter { isProject($0) && seen.insert($0.path).inserted }
+        return (remembered + found).map(\.standardizedFileURL).filter { seen.insert($0.path).inserted }
     }
     private static let lastProjectKey = "RallyLab.lastProjectPath"
     private static let openedKey = "RallyLab.projectOpenedAt"

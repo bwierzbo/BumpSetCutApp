@@ -113,13 +113,16 @@ struct LabelTabView: View {
 extension LabelQueue.Video {
     /// A Mac video: rallies marked in its rallylabels file and found by the
     /// Sampler (less the ones you said aren't rallies); a rally you started
-    /// tracking and didn't finish comes first.
+    /// tracking and didn't finish comes first. None touching a cut range is
+    /// a task (the pre-tracker's and the phone's rule; D-030) — the marks
+    /// and tracks themselves stay as they are.
     @MainActor
     init(session s: VideoSession) {
         let tracks = s.tracks ?? []
+        let cuts = s.cutRanges
         let (marked, found) = TrackLabelModel.markedAndFound(s)
-        let unfinished = tracks.filter(\.isOpen).map(\.bounds)
-        let open = TrackLabelModel.untracked(marked + found, tracks: tracks)
+        let unfinished = tracks.filter(\.isOpen).map(\.bounds).outsideCuts(cuts)
+        let open = TrackLabelModel.untracked(marked + found, tracks: tracks).outsideCuts(cuts)
         self.init(plan: PlanVideo(session: s), nextRally: (unfinished + open).first, found: found.count,
                   marked: marked.count, complete: s.ralliesMarked ?? false)
     }
