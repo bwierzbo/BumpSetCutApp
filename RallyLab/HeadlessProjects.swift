@@ -119,7 +119,8 @@
 //  Guarded mode (synthetic acceptance, automation): RallyLab --project <abs path> --project-root <abs dir>
 //      --defaults-suite rallylab.test.<name> --pending-dir <abs dir under the root>
 //      [--create [--add-extras <Indoor|Beach|Grass> <abs files under the root…>]] [--status] [--phone-sign-in <email>]
-//      [--sign-out] [--publish-identities] [--sync-phone [--labels-only]]
+//      [--sign-out] [--publish-identities] [--sync-phone [--labels-only] [--drop-first-settlement]]
+//      [--confirm-recording-type <session> <continuous|edited|unknown>]
 //  Everything else is refused before any model exists; the session lives under its own Keychain item (LaunchGuard).
 //
 //  --project takes a known project's name or a path to its folder.
@@ -226,7 +227,7 @@ enum HeadlessProjects {
             if ok, args.contains("--repull-all") { ok = await repullAll(projects) }
             if ok, let email = value(after: "--phone-sign-in", in: args) {
                 // The password comes from RALLYLAB_PASSWORD, not the command line.
-                let sync = LabelingSync(projects: projects, pendingDirectory: guarded?.pendingDirectory ?? Pending.defaultDirectory, importsPhoneUploads: guarded == nil)
+                let sync = LabelingSync(projects: projects, pendingDirectory: guarded?.pendingDirectory ?? Pending.defaultDirectory, importsPhoneUploads: guarded == nil, dropFirstSettlement: guarded != nil && args.contains("--drop-first-settlement"))
                 await sync.signIn(email: email, password: ProcessInfo.processInfo.environment["RALLYLAB_PASSWORD"] ?? "")
                 log(sync.status)
                 ok = sync.signedIn
@@ -236,13 +237,26 @@ enum HeadlessProjects {
                 await LabelingClient.shared.signOut()
                 log("Signed out: the labeling session item of this run was removed.")
             }
+            // Guarded only (LaunchGuard refuses it elsewhere): the Mac's own confirmation of a recording's type through
+            // the footage-type sheet's writer, under the opening, attributed to this Mac — the "newer decision on the
+            // Mac" of the synthetic acceptance, without the window app.
+            if ok, let i = args.firstIndex(of: "--confirm-recording-type"), guarded != nil, args.indices.contains(i + 2),
+               let type = FootageProperties.RecordingType(rawValue: args[i + 2]), let opening = projects.opening {
+                do {
+                    let file = try FootageTypeConfirmation.confirm(type, video: DatasetStore.safeName(args[i + 1]), under: opening, projects: projects,
+                                                                   by: "RallyLab on this Mac (guarded acceptance)")
+                    log("Confirmed \(file.video): \(file.recordingType.rawValue) at \(file.recordingTypeAt ?? "?") by \(file.recordingTypeBy ?? "?")")
+                } catch {
+                    log("❌ \(error.localizedDescription)"); ok = false
+                }
+            }
             if ok, args.contains("--publish-identities") {
-                let sync = LabelingSync(projects: projects, pendingDirectory: guarded?.pendingDirectory ?? Pending.defaultDirectory, importsPhoneUploads: guarded == nil)
+                let sync = LabelingSync(projects: projects, pendingDirectory: guarded?.pendingDirectory ?? Pending.defaultDirectory, importsPhoneUploads: guarded == nil, dropFirstSettlement: guarded != nil && args.contains("--drop-first-settlement"))
                 ok = await sync.publishIdentities()
                 log((ok ? "✅ " : "❌ ") + sync.status)
             }
             if ok, args.contains("--sync-phone") {
-                let sync = LabelingSync(projects: projects, pendingDirectory: guarded?.pendingDirectory ?? Pending.defaultDirectory, importsPhoneUploads: guarded == nil)
+                let sync = LabelingSync(projects: projects, pendingDirectory: guarded?.pendingDirectory ?? Pending.defaultDirectory, importsPhoneUploads: guarded == nil, dropFirstSettlement: guarded != nil && args.contains("--drop-first-settlement"))
                 // --remake-copies [names…]: those videos' older phone copies
                 // made again (no names: every video's).
                 let remake = args.firstIndex(of: "--remake-copies").map { i in Set(args[(i + 1)...].prefix { !$0.hasPrefix("--") }) }
@@ -317,7 +331,7 @@ enum HeadlessProjects {
                 if args.contains("--apply") {
                     // Take what changed on the phone meanwhile first (frames
                     // reviewed there are skipped), then send the result back.
-                    let sync = LabelingSync(projects: projects, pendingDirectory: guarded?.pendingDirectory ?? Pending.defaultDirectory, importsPhoneUploads: guarded == nil)
+                    let sync = LabelingSync(projects: projects, pendingDirectory: guarded?.pendingDirectory ?? Pending.defaultDirectory, importsPhoneUploads: guarded == nil, dropFirstSettlement: guarded != nil && args.contains("--drop-first-settlement"))
                     await sync.sync(videos: false)
                     store.apply(fitted)
                     for s in projects.sampler.sessions {
@@ -382,7 +396,7 @@ enum HeadlessProjects {
                 log(plan.status)
                 ok = plan.status.contains("is trained")
                 if ok {
-                    let sync = LabelingSync(projects: projects, pendingDirectory: guarded?.pendingDirectory ?? Pending.defaultDirectory, importsPhoneUploads: guarded == nil)
+                    let sync = LabelingSync(projects: projects, pendingDirectory: guarded?.pendingDirectory ?? Pending.defaultDirectory, importsPhoneUploads: guarded == nil, dropFirstSettlement: guarded != nil && args.contains("--drop-first-settlement"))
                     await sync.sync(videos: false)
                 }
             }

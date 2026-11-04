@@ -11,8 +11,9 @@
 //  2. `--project-root <absolute dir>` is guarded mode, for synthetic acceptance and automation only. Everything is
 //     validated here, and refused before a sampler, exporter, project or client exists:
 //     - exactly one primary operation per launch — --status, --phone-sign-in <email>, --sign-out, --publish-identities,
-//       --sync-phone [--labels-only], or --create [--add-extras <env> <files…>] — and any other flag (--sample,
-//       --export-training-data, --pretrack, …) is refused;
+//       --sync-phone [--labels-only] [--drop-first-settlement], --create [--add-extras <env> <files…>], or
+//       --confirm-recording-type <session> <type> (the Mac's own confirmation, headless) — and any other flag
+//       (--sample, --export-training-data, --pretrack, …) is refused;
 //     - --project is an absolute path under the resolved root (symlinks followed), never itself a symlink, never the
 //       default project location (~/Movies/RallyLab/Projects), never a folder named Scratch; without --create it must
 //       hold project.json, with --create the folder must not exist at all; --add-extras files are absolute, existing
@@ -37,9 +38,15 @@ enum LaunchGuard {
     /// Everything a guarded run may say on its command line.
     static let guardedFlags: Set<String> = ["--project", "--project-root", "--defaults-suite", "--pending-dir",
                                             "--create", "--add-extras", "--status", "--phone-sign-in", "--sign-out",
-                                            "--publish-identities", "--sync-phone", "--labels-only"]
-    /// A guarded launch does exactly one of these; --add-extras belongs to --create and --labels-only to --sync-phone.
-    static let primaryOperations: Set<String> = ["--create", "--status", "--phone-sign-in", "--sign-out", "--publish-identities", "--sync-phone"]
+                                            "--publish-identities", "--sync-phone", "--labels-only",
+                                            "--confirm-recording-type", "--drop-first-settlement"]
+    /// A guarded launch does exactly one of these; --add-extras belongs to --create, --labels-only and
+    /// --drop-first-settlement to --sync-phone.
+    static let primaryOperations: Set<String> = ["--create", "--status", "--phone-sign-in", "--sign-out", "--publish-identities", "--sync-phone",
+                                                 "--confirm-recording-type"]
+    /// `--confirm-recording-type <session> <type>`: the Mac's own confirmation (the footage-type sheet's writer) for a
+    /// synthetic recording, so the "a newer decision on the Mac wins" case can be exercised without the window app.
+    static let recordingTypes: Set<String> = ["continuous", "edited", "unknown"]
     static let testSuitePrefix = "rallylab.test."
     /// A guarded project's name — the folder's name and the name project.json declares — begins with this, so the
     /// server namespace it publishes to (withheld list, rows, plan) can only ever be a test namespace.
@@ -122,6 +129,17 @@ enum LaunchGuard {
         }
         if flags.contains("--labels-only"), primaries[0] != "--sync-phone" {
             return .failure(Refusal(message: "--labels-only is only part of --sync-phone"))
+        }
+        // Fault injection for the lost-acknowledgement case: the first settlement after a written record is dropped as
+        // if the network had failed — only with --sync-phone, only in guarded mode, only on a test project.
+        if flags.contains("--drop-first-settlement"), primaries[0] != "--sync-phone" {
+            return .failure(Refusal(message: "--drop-first-settlement is only part of --sync-phone"))
+        }
+        if primaries[0] == "--confirm-recording-type" {
+            guard let i = arguments.firstIndex(of: "--confirm-recording-type"), arguments.indices.contains(i + 2),
+                  !arguments[i + 1].hasPrefix("--"), recordingTypes.contains(arguments[i + 2]) else {
+                return .failure(Refusal(message: "--confirm-recording-type needs <session name> <continuous|edited|unknown>"))
+            }
         }
         guard let root = value(after: "--project-root", in: arguments) else {
             return .failure(Refusal(message: "--project-root needs a directory"))

@@ -109,6 +109,17 @@ final class LaunchGuardTests: XCTestCase {
         XCTAssertNotNil(refusal(guarded(["--add-extras", "Beach", "/t/root/media/A.mov"])), "adding footage is only part of --create")
     }
 
+    func testGuardedConfirmationAndSettlementFaultAreGuardedOperations() {
+        XCTAssertNil(refusal(guarded(["--confirm-recording-type", "bch_extra_self_01", "edited"])))
+        XCTAssertNotNil(refusal(guarded(["--confirm-recording-type", "bch_extra_self_01"])), "needs the type")
+        XCTAssertNotNil(refusal(guarded(["--confirm-recording-type", "bch_extra_self_01", "replay"])), "not a type")
+        XCTAssertNotNil(refusal(guarded(["--confirm-recording-type", "bch_extra_self_01", "edited", "--sync-phone"])), "two primary operations")
+        XCTAssertNil(refusal(guarded(["--sync-phone", "--labels-only", "--drop-first-settlement"])))
+        XCTAssertNotNil(refusal(guarded(["--status", "--drop-first-settlement"])), "the fault belongs to --sync-phone")
+        XCTAssertNotNil(refusal(["--project", "v3", "--sync-phone", "--drop-first-settlement", "--project-root"]), "never unguarded: --project-root needs its directory")
+        XCTAssertNil(refusal(["--project", "v3", "--sync-phone", "--drop-first-settlement"]), "unguarded runs ignore the flag (HeadlessProjects passes it only when guarded)")
+    }
+
     // MARK: - Guarded mode: the project
 
     func testGuardedModeOpensAnExistingProjectUnderTheRoot() throws {
