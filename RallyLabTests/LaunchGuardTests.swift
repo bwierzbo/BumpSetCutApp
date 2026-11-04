@@ -32,6 +32,25 @@ final class LaunchGuardTests: XCTestCase {
         XCTAssertNotNil(refusal(["--project-root", "/t"]), "a root without --project is a flagged launch with no command")
     }
 
+    func testAProjectCommandWithoutItsValueIsRefused() {
+        // HeadlessProjects returns false for these, which used to fall through to the window app (Codex on #146).
+        XCTAssertNotNil(refusal(["--project"]))
+        XCTAssertNotNil(refusal(["--project", "--status"]))
+        XCTAssertNotNil(refusal(["--project-root", "/t/root", "--project"]))
+        XCTAssertNil(refusal(["--project", "v3"]))
+    }
+
+    func testIsSameFolderFollowsSymlinksOnBothSides() throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("launch-guard-same-\(UUID().uuidString)", isDirectory: true)
+        let real = base.appendingPathComponent("real", isDirectory: true)
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let link = base.appendingPathComponent("link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+        XCTAssertTrue(LaunchGuard.isSameFolder(link, real))
+        XCTAssertFalse(LaunchGuard.isSameFolder(base, real))
+    }
+
     func testALaunchWithoutDoubleDashFlagsOpensTheWindowApp() {
         XCTAssertNil(refusal([]))
         XCTAssertNil(refusal(["-NSDocumentRevisionsDebugMode", "YES"]), "Xcode's single-dash arguments are not headless flags")

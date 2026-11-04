@@ -135,17 +135,22 @@ enum HeadlessProjects {
         guard let name = value(after: "--project", in: args) else { return false }
 
         Task { @MainActor in
-            let projects = ProjectsModel(sampler: SamplerModel(), defaults: LaunchGuard.defaults(for: args))
+            // No project is restored: a headless run opens the one it is given, nothing before it.
+            let projects = ProjectsModel(sampler: SamplerModel(), defaults: LaunchGuard.defaults(for: args), restoreLastProject: false)
             // A path opens (or creates) that folder; a bare name finds a known
             // project, else creates one in --location or the default place.
             // With --project-root, only an existing project under that root is opened, never created (LaunchGuard).
             let expanded = (name as NSString).expandingTildeInPath
             if args.contains("--project-root") {
                 switch LaunchGuard.guardedProject(arguments: args, home: FileManager.default.homeDirectoryForCurrentUser) {
-                case .success(let dir): projects.open(dir)
+                case .success(let dir):
+                    projects.open(dir)
+                    // The open project must be the validated one (an unreadable project.json leaves none open).
+                    guard let opened = projects.projectDir, LaunchGuard.isSameFolder(opened, dir) else {
+                        log("\(dir.path) did not open: \(projects.status)"); exit(2)
+                    }
                 case .failure(let refusal): log("\(refusal.message)"); exit(2)
                 }
-                guard projects.projectDir != nil else { log("\(projects.status)"); exit(2) }
             } else if name.contains("/") {
                 let dir = URL(fileURLWithPath: expanded, isDirectory: true)
                 if FileManager.default.fileExists(atPath: dir.appendingPathComponent("project.json").path) {

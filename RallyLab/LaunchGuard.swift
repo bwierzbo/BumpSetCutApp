@@ -27,6 +27,13 @@ enum LaunchGuard {
     /// The flags that start a headless run; any other `--flag` alone is a refusal.
     static let headlessCommands: Set<String> = ["--project", "--sample", "--export-training-data"]
 
+    /// A headless command that will actually start a run: `--project` must carry its value (HeadlessProjects returns
+    /// false without one, which would fall through to the window app); `--sample` exits on its own without inputs;
+    /// `--export-training-data` takes an optional path.
+    static func hasHeadlessCommand(_ arguments: [String]) -> Bool {
+        value(after: "--project", in: arguments) != nil || arguments.contains("--sample") || arguments.contains("--export-training-data")
+    }
+
     /// The file checks the rules need, injectable for tests.
     struct Files {
         var exists: (URL) -> Bool
@@ -43,8 +50,8 @@ enum LaunchGuard {
     static func refusal(for arguments: [String], home: URL, files: Files = .real) -> Refusal? {
         let args = Array(arguments.dropFirst())
         let flags = args.filter { $0.hasPrefix("--") }
-        if !flags.isEmpty, !flags.contains(where: headlessCommands.contains) {
-            return Refusal(message: "no headless command among \(flags.joined(separator: " ")): a launch with flags never opens the window app (it would reopen the last project). Headless runs start with --project <name or path>, --sample <inputs…> or --export-training-data.")
+        if !flags.isEmpty, !hasHeadlessCommand(arguments) {
+            return Refusal(message: "no complete headless command among \(flags.joined(separator: " ")): a launch with flags never opens the window app (it would reopen the last project). Headless runs start with --project <name or path>, --sample <inputs…> or --export-training-data.")
         }
         if args.contains("--project-root") {
             if case .failure(let refusal) = guardedProject(arguments: arguments, home: home, files: files) { return refusal }
@@ -101,6 +108,11 @@ enum LaunchGuard {
     }
 
     private static func isSame(_ a: URL, as b: URL) -> Bool { a.standardizedFileURL.path == b.standardizedFileURL.path }
+
+    /// The same folder, symlinks followed on both sides.
+    static func isSameFolder(_ a: URL, _ b: URL) -> Bool {
+        a.resolvingSymlinksInPath().standardizedFileURL.path == b.resolvingSymlinksInPath().standardizedFileURL.path
+    }
 
     private static func isInside(_ dir: URL, of root: URL) -> Bool {
         let d = dir.standardizedFileURL.pathComponents, r = root.standardizedFileURL.pathComponents

@@ -285,10 +285,13 @@ final class ProjectsModel {
     /// suite, so a fixture opened under XCTest never becomes the project RallyLab opens next).
     private let defaults: UserDefaults
 
-    init(sampler: SamplerModel, defaults: UserDefaults = .standard) {
+    /// `restoreLastProject: false` — a headless run: it opens the project it was given and nothing before that
+    /// (the window app reopens the last project, the way Xcode restores its window).
+    init(sampler: SamplerModel, defaults: UserDefaults = .standard, restoreLastProject: Bool = true) {
         self.sampler = sampler
         self.defaults = defaults
         loadKnownProjects()
+        guard restoreLastProject else { return }
         // Under XCTest the host app must not open the person's project: its periodic sync
         // re-saves every session from memory and its tabs run the pipeline on footage (ball
         // paths, scrub proxies) while the tests run. Tests bring their own fixtures.
