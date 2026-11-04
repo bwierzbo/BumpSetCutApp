@@ -242,8 +242,13 @@ enum HeadlessProjects {
             // Mac" of the synthetic acceptance, without the window app.
             if ok, let i = args.firstIndex(of: "--confirm-recording-type"), guarded != nil, args.indices.contains(i + 2),
                let type = FootageProperties.RecordingType(rawValue: args[i + 2]), let opening = projects.opening {
+                let name = DatasetStore.safeName(args[i + 1])
                 do {
-                    let file = try FootageTypeConfirmation.confirm(type, video: DatasetStore.safeName(args[i + 1]), under: opening, projects: projects,
+                    // Only a recording of this project: a mistyped or foreign name writes nothing (Codex on #150).
+                    guard try projects.session(named: name, in: opening) != nil else {
+                        log("❌ \(name) is not a recording of \(opening.name): nothing confirmed"); ok = false; exit(2)
+                    }
+                    let file = try FootageTypeConfirmation.confirm(type, video: name, under: opening, projects: projects,
                                                                    by: "RallyLab on this Mac (guarded acceptance)")
                     log("Confirmed \(file.video): \(file.recordingType.rawValue) at \(file.recordingTypeAt ?? "?") by \(file.recordingTypeBy ?? "?")")
                 } catch {
