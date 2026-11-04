@@ -131,7 +131,11 @@ struct MarkRalliesView: View {
     private var keys: some View {
         VStack(spacing: 8) {
             HStack(spacing: 8) {
-                Button { tagger.serve(press()) } label: { keyLabel("Serve", "S") }
+                Button {
+                    tagger.serve(press())
+                    // A serve marked while paused starts the video (owner, device walkthrough 2026-11-04): the rally is on.
+                    if !isPlaying, tagger.open != nil { player.playImmediately(atRate: rate); isPlaying = true }
+                } label: { keyLabel("Serve", "S") }
                     .buttonStyle(.borderedProminent).tint(.orange)
                 Button { tagger.close(as: .rally, press()) } label: { keyLabel("Dead ball", "D") }
                     .buttonStyle(.borderedProminent).tint(.green)
