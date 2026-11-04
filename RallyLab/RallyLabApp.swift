@@ -26,6 +26,14 @@ struct RallyLabApp: App {
     @State private var queue: WorkQueueModel
 
     init() {
+        // A launch with flags is a headless run or nothing: refused before any model exists, so a mistyped command
+        // never falls through to the window app and reopens the person's last project (LaunchGuard).
+        if let refusal = LaunchGuard.refusal(for: CommandLine.arguments, home: FileManager.default.homeDirectoryForCurrentUser) {
+            FileHandle.standardError.write(Data("RallyLab: \(refusal.message)\n".utf8))
+            exit(2)
+        }
+        // A guarded run keeps its labeling session apart from the app's: a Keychain item of its own.
+        if CommandLine.arguments.contains("--project-root") { LabelingClient.keychainService = LaunchGuard.acceptanceKeychainService }
         // `RallyLab --export-training-data [path]` batch-exports classifier
         // training data and exits (no UI interaction needed).
         HeadlessTrainingExport.runIfRequested()

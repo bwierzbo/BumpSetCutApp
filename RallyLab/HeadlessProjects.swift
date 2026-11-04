@@ -116,6 +116,12 @@
 //    RallyLab --project v3 --add-model ~/Desktop/best.pt   (convert + add)
 //    RallyLab --project v3 --evaluate [--candidate <model name>] [--all] [--threshold 0.6] [--letterbox]
 //
+//  Guarded mode (synthetic acceptance, automation): RallyLab --project <abs path> --project-root <abs dir>
+//      --defaults-suite rallylab.test.<name> --pending-dir <abs dir under the root>
+//      [--create [--add-extras <Indoor|Beach|Grass> <abs files under the root…>]] [--status] [--phone-sign-in <email>]
+//      [--sign-out] [--publish-identities] [--sync-phone [--labels-only]]
+//  Everything else is refused before any model exists; the session lives under its own Keychain item (LaunchGuard).
+//
 //  --project takes a known project's name or a path to its folder.
 //
 //  --get adds a video to the clip (clips take any number): cuts it, logs it,
@@ -135,11 +141,29 @@ enum HeadlessProjects {
         guard let name = value(after: "--project", in: args) else { return false }
 
         Task { @MainActor in
-            let projects = ProjectsModel(sampler: SamplerModel())
+            // No project is restored: a headless run opens the one it is given, nothing before it. A guarded run
+            // (LaunchGuard, already validated before this runner) keeps its preferences in its own suite, its queued
+            // decisions in its own folder and its sampler on the test project — nothing of the person's is read or written.
+            let guarded = LaunchGuard.guardedRun(for: args, home: FileManager.default.homeDirectoryForCurrentUser)
+            if args.contains("--project-root"), guarded == nil { log("guarded mode did not validate"); exit(2) }
+            let defaults = guarded.flatMap { UserDefaults(suiteName: $0.defaultsSuite) } ?? .standard
+            let projects = ProjectsModel(sampler: SamplerModel(defaults: defaults, root: guarded?.project), defaults: defaults, restoreLastProject: false)
             // A path opens (or creates) that folder; a bare name finds a known
             // project, else creates one in --location or the default place.
             let expanded = (name as NSString).expandingTildeInPath
-            if name.contains("/") {
+            if let guarded {
+                if guarded.create {
+                    projects.create(name: guarded.project.lastPathComponent, in: guarded.project.deletingLastPathComponent())
+                } else {
+                    projects.open(guarded.project)
+                }
+                // The open project must be the validated one (an unreadable project.json leaves none open), and the name
+                // it will publish under must be the validated test namespace — checked again here, on the decoded project.
+                guard let opened = projects.projectDir, LaunchGuard.isSameFolder(opened, guarded.project),
+                      let opening = projects.project?.name, opening == guarded.project.lastPathComponent, LaunchGuard.isTestNamespace(opening) else {
+                    log("\(guarded.project.path) did not open as the validated test project: \(projects.status)"); exit(2)
+                }
+            } else if name.contains("/") {
                 let dir = URL(fileURLWithPath: expanded, isDirectory: true)
                 if FileManager.default.fileExists(atPath: dir.appendingPathComponent("project.json").path) {
                     projects.open(dir)
@@ -202,19 +226,23 @@ enum HeadlessProjects {
             if ok, args.contains("--repull-all") { ok = await repullAll(projects) }
             if ok, let email = value(after: "--phone-sign-in", in: args) {
                 // The password comes from RALLYLAB_PASSWORD, not the command line.
-                let sync = LabelingSync(projects: projects)
+                let sync = LabelingSync(projects: projects, pendingDirectory: guarded?.pendingDirectory ?? Pending.defaultDirectory, importsPhoneUploads: guarded == nil)
                 await sync.signIn(email: email, password: ProcessInfo.processInfo.environment["RALLYLAB_PASSWORD"] ?? "")
                 log(sync.status)
                 ok = sync.signedIn
             }
             // After migration 048: the withheld list and the originals' identities, no upload (see LabelingSync).
+            if ok, args.contains("--sign-out") {
+                await LabelingClient.shared.signOut()
+                log("Signed out: the labeling session item of this run was removed.")
+            }
             if ok, args.contains("--publish-identities") {
-                let sync = LabelingSync(projects: projects)
+                let sync = LabelingSync(projects: projects, pendingDirectory: guarded?.pendingDirectory ?? Pending.defaultDirectory, importsPhoneUploads: guarded == nil)
                 ok = await sync.publishIdentities()
                 log((ok ? "✅ " : "❌ ") + sync.status)
             }
             if ok, args.contains("--sync-phone") {
-                let sync = LabelingSync(projects: projects)
+                let sync = LabelingSync(projects: projects, pendingDirectory: guarded?.pendingDirectory ?? Pending.defaultDirectory, importsPhoneUploads: guarded == nil)
                 // --remake-copies [names…]: those videos' older phone copies
                 // made again (no names: every video's).
                 let remake = args.firstIndex(of: "--remake-copies").map { i in Set(args[(i + 1)...].prefix { !$0.hasPrefix("--") }) }
@@ -289,7 +317,7 @@ enum HeadlessProjects {
                 if args.contains("--apply") {
                     // Take what changed on the phone meanwhile first (frames
                     // reviewed there are skipped), then send the result back.
-                    let sync = LabelingSync(projects: projects)
+                    let sync = LabelingSync(projects: projects, pendingDirectory: guarded?.pendingDirectory ?? Pending.defaultDirectory, importsPhoneUploads: guarded == nil)
                     await sync.sync(videos: false)
                     store.apply(fitted)
                     for s in projects.sampler.sessions {
@@ -354,7 +382,7 @@ enum HeadlessProjects {
                 log(plan.status)
                 ok = plan.status.contains("is trained")
                 if ok {
-                    let sync = LabelingSync(projects: projects)
+                    let sync = LabelingSync(projects: projects, pendingDirectory: guarded?.pendingDirectory ?? Pending.defaultDirectory, importsPhoneUploads: guarded == nil)
                     await sync.sync(videos: false)
                 }
             }

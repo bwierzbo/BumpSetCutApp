@@ -16,6 +16,10 @@ import Security
 actor LabelingClient {
 
     static let shared = LabelingClient()
+    /// The Keychain service the session's refresh token is kept under. The app's own by default; a guarded headless
+    /// RallyLab run sets its own before any client exists, so a test session never becomes the app's and is cleared
+    /// without touching the app's item.
+    nonisolated(unsafe) static var keychainService = "app.BumpSetCut.labeling"
 
     enum Failure: LocalizedError {
         case notSignedIn
@@ -719,7 +723,7 @@ private final class TransferProgress: NSObject, URLSessionTaskDelegate, @uncheck
 
 /// The labeling session's refresh token, in the Keychain.
 private enum Keychain {
-    private static let service = "app.BumpSetCut.labeling"
+    private static var service: String { LabelingClient.keychainService }
     private static let account = "refresh-token"
 
     static var refreshToken: String? {

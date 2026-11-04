@@ -112,9 +112,16 @@ final class LabelingSync {
     private let client: any LabelingService
     private let pending: Pending
 
+    /// Whether a round pulls the phones' uploads into the project (step 1). A guarded headless run (synthetic
+    /// acceptance) never does: the uploads a lead can see are real footage, and importing one would move it into the
+    /// test project's namespace.
+    private let importsPhoneUploads: Bool
+
     /// `client` and `pendingDirectory` are for tests: a fake server, and a folder of their own for the queued
-    /// decisions, so a test never sends or touches the person's.
-    init(projects: ProjectsModel, client: any LabelingService = LabelingClient.shared, pendingDirectory: URL = Pending.defaultDirectory) {
+    /// decisions, so a test never sends or touches the person's. `importsPhoneUploads: false` is the guarded run's.
+    init(projects: ProjectsModel, client: any LabelingService = LabelingClient.shared, pendingDirectory: URL = Pending.defaultDirectory,
+         importsPhoneUploads: Bool = true) {
+        self.importsPhoneUploads = importsPhoneUploads
         let pending = Pending(directory: pendingDirectory)
         var notes: [String] = []
         self.projects = projects
@@ -263,10 +270,12 @@ final class LabelingSync {
             let framesSent = try await sendPending()
             var parts: [String] = []
             if videos {
-                let imported = try await importPhoneVideos(opening)
+                // Phone uploads come in only when this round is allowed to take them (never in a guarded run).
+                let imported = importsPhoneUploads ? try await importPhoneVideos(opening) : 0
                 let (listed, uploaded, failed) = try await publishVideos(opening, remaking: remaking)
                 let paths = try await publishBallPaths(opening)
-                parts.append("\(listed) videos listed (\(uploaded) uploaded\(failed.isEmpty ? "" : ", \(failed.count) failed — next sync retries: \(failed.joined(separator: ", "))")), \(imported) phone videos pulled in")
+                parts.append("\(listed) videos listed (\(uploaded) uploaded\(failed.isEmpty ? "" : ", \(failed.count) failed — next sync retries: \(failed.joined(separator: ", "))")), "
+                             + (importsPhoneUploads ? "\(imported) phone videos pulled in" : "phone uploads not pulled in (guarded run)"))
                 if let paths { parts.append(paths) }
             }
             let times = try await syncRallyTimes(opening)
