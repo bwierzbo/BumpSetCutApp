@@ -135,11 +135,18 @@ enum HeadlessProjects {
         guard let name = value(after: "--project", in: args) else { return false }
 
         Task { @MainActor in
-            let projects = ProjectsModel(sampler: SamplerModel())
+            let projects = ProjectsModel(sampler: SamplerModel(), defaults: LaunchGuard.defaults(for: args))
             // A path opens (or creates) that folder; a bare name finds a known
             // project, else creates one in --location or the default place.
+            // With --project-root, only an existing project under that root is opened, never created (LaunchGuard).
             let expanded = (name as NSString).expandingTildeInPath
-            if name.contains("/") {
+            if args.contains("--project-root") {
+                switch LaunchGuard.guardedProject(arguments: args, home: FileManager.default.homeDirectoryForCurrentUser) {
+                case .success(let dir): projects.open(dir)
+                case .failure(let refusal): log("\(refusal.message)"); exit(2)
+                }
+                guard projects.projectDir != nil else { log("\(projects.status)"); exit(2) }
+            } else if name.contains("/") {
                 let dir = URL(fileURLWithPath: expanded, isDirectory: true)
                 if FileManager.default.fileExists(atPath: dir.appendingPathComponent("project.json").path) {
                     projects.open(dir)
@@ -202,19 +209,19 @@ enum HeadlessProjects {
             if ok, args.contains("--repull-all") { ok = await repullAll(projects) }
             if ok, let email = value(after: "--phone-sign-in", in: args) {
                 // The password comes from RALLYLAB_PASSWORD, not the command line.
-                let sync = LabelingSync(projects: projects)
+                let sync = LabelingSync(projects: projects, pendingDirectory: LaunchGuard.pendingDirectory(for: args))
                 await sync.signIn(email: email, password: ProcessInfo.processInfo.environment["RALLYLAB_PASSWORD"] ?? "")
                 log(sync.status)
                 ok = sync.signedIn
             }
             // After migration 048: the withheld list and the originals' identities, no upload (see LabelingSync).
             if ok, args.contains("--publish-identities") {
-                let sync = LabelingSync(projects: projects)
+                let sync = LabelingSync(projects: projects, pendingDirectory: LaunchGuard.pendingDirectory(for: args))
                 ok = await sync.publishIdentities()
                 log((ok ? "✅ " : "❌ ") + sync.status)
             }
             if ok, args.contains("--sync-phone") {
-                let sync = LabelingSync(projects: projects)
+                let sync = LabelingSync(projects: projects, pendingDirectory: LaunchGuard.pendingDirectory(for: args))
                 // --remake-copies [names…]: those videos' older phone copies
                 // made again (no names: every video's).
                 let remake = args.firstIndex(of: "--remake-copies").map { i in Set(args[(i + 1)...].prefix { !$0.hasPrefix("--") }) }
@@ -289,7 +296,7 @@ enum HeadlessProjects {
                 if args.contains("--apply") {
                     // Take what changed on the phone meanwhile first (frames
                     // reviewed there are skipped), then send the result back.
-                    let sync = LabelingSync(projects: projects)
+                    let sync = LabelingSync(projects: projects, pendingDirectory: LaunchGuard.pendingDirectory(for: args))
                     await sync.sync(videos: false)
                     store.apply(fitted)
                     for s in projects.sampler.sessions {
@@ -354,7 +361,7 @@ enum HeadlessProjects {
                 log(plan.status)
                 ok = plan.status.contains("is trained")
                 if ok {
-                    let sync = LabelingSync(projects: projects)
+                    let sync = LabelingSync(projects: projects, pendingDirectory: LaunchGuard.pendingDirectory(for: args))
                     await sync.sync(videos: false)
                 }
             }
