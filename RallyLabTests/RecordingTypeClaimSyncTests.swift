@@ -48,28 +48,32 @@ final class RecordingTypeClaimSyncTests: XCTestCase {
     /// A project with one recording: a footage file, its card with the file's fingerprint, its session (with cuts),
     /// and rally marks beside the footage; its row on the server with the published fingerprint.
     @discardableResult
-    private func project(_ name: String) throws -> (root: URL, row: LabelVideo) {
+    private func project(_ name: String, videos: [String] = ["video_01"]) throws -> (root: URL, row: LabelVideo) {
         let root = base.appendingPathComponent(name, isDirectory: true)
         try FileManager.default.createDirectory(at: root.appendingPathComponent("footage"), withIntermediateDirectories: true)
-        let footage = root.appendingPathComponent("footage/video_01.mp4")
-        try Data("\(name): video_01 footage".utf8).write(to: footage)
         let store = DatasetStore(root: root)
         try store.prepare()
-        var session = VideoSession(name: "video_01", sourcePath: footage.path, split: "train", addedAt: now, frames: [])
-        session.cuts = [CutRange(start: 0, end: 12)]
-        session.ralliesMarked = true
-        try store.save(session)
-        let fingerprint = ProjectsModel.readFileFingerprint(atPath: footage.path)
-        let card = SourceRegistryTests.clip("card_0", number: 1, videos: [SourceRegistryTests.video("video_01", fingerprint: fingerprint)])
+        var clips: [PlannedClip] = []
+        var rows: [LabelVideo] = []
+        for (n, video) in videos.enumerated() {
+            let footage = root.appendingPathComponent("footage/\(video).mp4")
+            try Data("\(name): \(video) footage".utf8).write(to: footage)
+            var session = VideoSession(name: video, sourcePath: footage.path, split: "train", addedAt: now, frames: [])
+            session.cuts = [CutRange(start: 0, end: 12)]
+            session.ralliesMarked = true
+            try store.save(session)
+            let fingerprint = ProjectsModel.readFileFingerprint(atPath: footage.path)
+            clips.append(SourceRegistryTests.clip("card_\(n)", number: n + 1, videos: [SourceRegistryTests.video(video, fingerprint: fingerprint)]))
+            try JSONEncoder().encode([RallyMarkRecord(startTime: 30, endTime: 36, kind: .rally, contacts: nil)]).write(to: RallyMarkModel.labelsURL(for: footage), options: .atomic)
+            rows.append(LabelVideo(id: UUID(), project: name, sessionName: video, title: "", surface: .beach, camera: .endlineGround, lighting: "",
+                                   split: "train", clipPath: "rallylab/\(name)/\(video)-v3.mp4", duration: 300, ralliesFound: [], status: .rallylab, updatedAt: now,
+                                   frameTimesDigest: nil, sourceFingerprint: fingerprint))
+        }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        try encoder.encode(Project(name: name, createdAt: now, framesPerRally: 2, clips: [card])).write(to: root.appendingPathComponent("project.json"))
-        try JSONEncoder().encode([RallyMarkRecord(startTime: 30, endTime: 36, kind: .rally, contacts: nil)]).write(to: RallyMarkModel.labelsURL(for: footage), options: .atomic)
-        let row = LabelVideo(id: UUID(), project: name, sessionName: "video_01", title: "", surface: .beach, camera: .endlineGround, lighting: "",
-                             split: "train", clipPath: "rallylab/\(name)/video_01-v3.mp4", duration: 300, ralliesFound: [], status: .rallylab, updatedAt: now,
-                             frameTimesDigest: nil, sourceFingerprint: fingerprint)
-        server.videos.append(row)
-        return (root, row)
+        try encoder.encode(Project(name: name, createdAt: now, framesPerRally: 2, clips: clips)).write(to: root.appendingPathComponent("project.json"))
+        server.videos.append(contentsOf: rows)
+        return (root, rows[0])
     }
 
     private func fingerprint(_ name: String) -> String { ProjectsModel.readFileFingerprint(atPath: base.appendingPathComponent("\(name)/footage/video_01.mp4").path)! }
@@ -83,11 +87,11 @@ final class RecordingTypeClaimSyncTests: XCTestCase {
         return claim
     }
 
-    private func record(_ name: String) throws -> FootageProperties.File? {
-        try FootageProperties.Store(root: base.appendingPathComponent(name)).load("video_01")
+    private func record(_ name: String, video: String = "video_01") throws -> FootageProperties.File? {
+        try FootageProperties.Store(root: base.appendingPathComponent(name)).load(video)
     }
 
-    private func recordURL(_ name: String) -> URL { FootageProperties.url(in: base.appendingPathComponent(name), video: "video_01") }
+    private func recordURL(_ name: String, video: String = "video_01") -> URL { FootageProperties.url(in: base.appendingPathComponent(name), video: video) }
 
     private func open(_ name: String) -> ProjectsModel.Opening {
         projects.open(base.appendingPathComponent(name, isDirectory: true))
@@ -269,6 +273,59 @@ final class RecordingTypeClaimSyncTests: XCTestCase {
         let awaited12 = await sync.sync(videos: false)
         XCTAssertTrue(awaited12)
         XCTAssertEqual(server.settled.count, 1)
+    }
+
+    func testAConfirmationMadeOnTheMacBetweenTwoSettlementsIsNotOverwrittenByTheLaterClaim() async throws {
+        let (_, row1) = try project("A", videos: ["video_01", "video_02"])
+        let opening = open("A")
+        let row2 = try XCTUnwrap(server.videos.first { $0.sessionName == "video_02" })
+        submit("continuous", for: row1)
+        submit("continuous", for: row2)
+        // The round takes the recordings in the order of their ids; it parks while the server settles the first one's
+        // claim, and meanwhile the owner confirms the second on the Mac.
+        let ordered = [row1, row2].sorted { $0.id.uuidString < $1.id.uuidString }
+        let first = ordered[0].sessionName!, later = ordered[1].sessionName!
+        server.hold("settleRecordingTypeClaim", at: 1)
+        let round = Task { await self.sync.sync(videos: false) }
+        let reached = await server.arrived()
+        XCTAssertTrue(reached, "the round never reached the hold; calls made: \(server.calls)")
+        try FootageTypeConfirmation.confirm(.edited, video: later, under: opening, projects: projects, by: "BW", at: EventReview.stamp(now.addingTimeInterval(60)))
+        server.release()
+        let ok = await round.value
+        XCTAssertTrue(ok)
+        XCTAssertEqual(try record("A", video: first)?.recordingType, .continuous, "the first claim applied")
+        let second = try XCTUnwrap(try record("A", video: later))
+        XCTAssertEqual(second.recordingType, .edited, "the Mac's newer decision stands")
+        XCTAssertEqual(second.recordingTypeBy, "BW")
+        XCTAssertEqual(settlements().map(\.status), [.accepted, .rejected])
+        XCTAssertEqual(settlements().last?.reason, "confirmed on the Mac as edited recording after this was sent — confirm again if that is wrong")
+    }
+
+    func testThePublishedTypeFollowsTheRecordAndIsClearedWithAnExplicitNullWhenTheRecordIsGone() async throws {
+        // A recording the videos round publishes (its name carries the surface, as project recordings' do).
+        let (root, row) = try project("A", videos: ["bch_v01"])
+        let opening = open("A")
+        // A type published earlier, no record on the Mac any more: cleared explicitly, not left as it was.
+        server.videos[0].recordingType = "edited"
+        server.videos[0].recordingTypeAt = now
+        let first = await sync.sync(videos: true)
+        XCTAssertTrue(first, sync.status)
+        XCTAssertEqual(server.cleared, [row.id])
+        XCTAssertNil(server.videos[0].recordingType); XCTAssertNil(server.videos[0].recordingTypeAt)
+        // A confirmation on the Mac is published with its time; nothing is cleared again.
+        try FootageTypeConfirmation.confirm(.continuous, video: "bch_v01", under: opening, projects: projects, by: "BW", at: "2026-11-04T11:00:00Z")
+        let second = await sync.sync(videos: true)
+        XCTAssertTrue(second, sync.status)
+        XCTAssertEqual(server.videos[0].recordingType, "continuous")
+        XCTAssertEqual(server.videos[0].recordingTypeAt, RecordingTypeClaims.parse("2026-11-04T11:00:00Z"))
+        XCTAssertEqual(server.cleared.count, 1)
+        // An unreadable record leaves what was published as it is.
+        try Data("{ not json".utf8).write(to: recordURL("A", video: "bch_v01"))
+        let third = await sync.sync(videos: true)
+        XCTAssertTrue(third, sync.status)
+        XCTAssertEqual(server.videos[0].recordingType, "continuous")
+        XCTAssertEqual(server.cleared.count, 1)
+        _ = root
     }
 
     // MARK: - The opening (A → B → A)

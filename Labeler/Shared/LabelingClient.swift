@@ -182,8 +182,21 @@ actor LabelingClient {
 
     // MARK: - Tables
 
-    func videos() async throws -> [LabelVideo] {
-        try await get("label_videos", query: "select=*&order=surface,session_name,created_at")
+    func videos() async throws -> [LabelVideo] { try await videos(since: nil) }
+
+    /// The rows changed since `since` (the phone's pull: the published type among what the Mac changes).
+    func videos(since: Date?) async throws -> [LabelVideo] {
+        try await get("label_videos", query: "select=*&order=surface,session_name,created_at" + Self.changed(since))
+    }
+
+    /// The published type taken off a row (leads; the Mac, when the recording's record is gone): an explicit null,
+    /// since the row's encoder leaves nil out and an upsert keeps a column it is not sent.
+    func clearPublishedRecordingType(_ videoId: UUID) async throws {
+        var request = try await rest("label_videos", query: "id=eq.\(videoId.uuidString.lowercased())")
+        request.httpMethod = "PATCH"
+        request.setValue("return=minimal", forHTTPHeaderField: "Prefer")
+        request.httpBody = Data(#"{"recording_type":null,"recording_type_at":null}"#.utf8)
+        _ = try await send(request)
     }
 
     /// Every video's rally times, or only those changed after `since`.

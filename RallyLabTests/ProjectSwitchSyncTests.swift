@@ -1069,6 +1069,15 @@ final class FakeLabeling: LabelingService {
         return claim
     }
 
+    var cleared: [UUID] = []
+
+    func clearPublishedRecordingType(_ videoId: UUID) async throws {
+        try begin("clearPublishedRecordingType")
+        if let i = videos.firstIndex(where: { $0.id == videoId }) { videos[i].recordingType = nil; videos[i].recordingTypeAt = nil }
+        cleared.append(videoId)
+        try await park("clearPublishedRecordingType")
+    }
+
     func save(_ state: LabelProjectState) async throws {
         try begin("save(state)")
         states.append(state)

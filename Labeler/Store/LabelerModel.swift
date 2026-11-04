@@ -151,6 +151,7 @@ final class LabelerModel: ReviewStore {
             lastPull = started
             lastEventsPull = started
             lastClaimsPull = started
+            lastVideosPull = started
             syncProblem = nil
             LocalStore.pruneClips(keeping: loaded.videos)
             LocalStore.save(snapshot, "snapshot.json")
@@ -227,6 +228,19 @@ final class LabelerModel: ReviewStore {
             } catch {
                 syncProblem = Self.describe("Couldn't fetch the footage-type claims", error)
             }
+            // The rows the Mac changed since (the published type among them): a settlement is shown beside the type
+            // the Mac has now, never beside an older one, and the type itself is never inferred from a claim.
+            do {
+                let rows = try await client.videos(since: (lastVideosPull ?? last).addingTimeInterval(-Self.pullOverlap))
+                for row in rows {
+                    snapshot.videos.removeAll { $0.id == row.id }
+                    snapshot.videos.append(row)
+                }
+                if !rows.isEmpty { LocalStore.save(snapshot, "snapshot.json") }
+                lastVideosPull = started
+            } catch {
+                syncProblem = Self.describe("Couldn't fetch the recordings", error)
+            }
             if !times.isEmpty || !tracks.isEmpty { LocalStore.save(snapshot, "snapshot.json") }
             lastPull = started
             isOffline = false
@@ -258,6 +272,7 @@ final class LabelerModel: ReviewStore {
     /// When the Stage 1 records were last fetched in full or incrementally (advances only on success).
     @ObservationIgnored private var lastEventsPull: Date?
     @ObservationIgnored private var lastClaimsPull: Date?
+    @ObservationIgnored private var lastVideosPull: Date?
 
     // MARK: - Footage-type claims (D-033)
 
