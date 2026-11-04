@@ -14,9 +14,9 @@
 //  Pre-tracked rallies inside a rally you mark are confirmed and trimmed
 //  to it. "That's every rally" turns down the ones you never marked, drops
 //  the found rallies you passed over, ends a cut still open at the
-//  recording's end, and finishes the video. Then the footage-type step as
-//  the phone can show it (FootageTypeNoteView, D-032): the facts, and that
-//  the type itself is confirmed on the Mac.
+//  recording's end, and finishes the video. Then the footage-type step
+//  (FootageTypeView, D-032 / D-033): the person's choice goes to the Mac as
+//  a claim, and the screen shows where it stands.
 //
 
 import AVFoundation
@@ -88,7 +88,7 @@ struct MarkRalliesView: View {
         .sensoryFeedback(.impact(weight: .light), trigger: tagger.lastEventAt)
         .sensoryFeedback(.success, trigger: times.rallies.count)
         .sheet(isPresented: $footageType, onDismiss: { dismiss() }) {
-            FootageTypeNoteView(cuts: times.cutRanges, duration: duration, complete: times.complete)
+            NavigationStack { FootageTypeView(model: model, video: video, duration: duration, afterPass: true) }
         }
     }
 
@@ -384,40 +384,6 @@ final class PhoneLiveTagStore: LiveTagStore {
         guard let range = cut as? CutRange else { return }
         model.update(video) { t in
             if let i = t.cuts?.firstIndex(of: range) { t.cuts?.remove(at: i) }
-        }
-    }
-}
-
-/// The footage-type step as the phone can show it: the facts about the pass, and where the recording's type is
-/// confirmed. The footage-properties record lives in the project on the Mac, and nothing on the phone or the server
-/// carries a recording's type yet — sending it needs a backend change the owner has not authorised — so the phone says
-/// so instead of keeping a copy of its own (D-032).
-struct FootageTypeNoteView: View {
-    let cuts: [CutRange]
-    let duration: Double
-    let complete: Bool
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    LabeledContent("Excluded intervals", value: cuts.isEmpty ? "none"
-                                   : "\(cuts.count) · \(String(format: "%.1f s", duration > 0 ? cuts.seconds(within: duration) : cuts.reduce(0) { $0 + $1.seconds })) not footage")
-                    if !cuts.isEmpty {
-                        Text(cuts.map { "\(clockText($0.start)) – \(clockText($0.end))" }.joined(separator: ", "))
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    LabeledContent("Rally pass", value: complete ? "every visible rally marked" : "not finished")
-                } header: {
-                    Text("Footage type")
-                } footer: {
-                    Text("Whether this recording is continuous or edited is a separate fact from the rallies being marked, and from the intervals you excluded — a cut for a partial rally or a replay never makes a recording edited. It is confirmed in RallyLab on the Mac, in the recording's footage-properties record. The phone can't send that confirmation yet: syncing it needs a backend change that has not been authorised.")
-                }
-            }
-            .navigationTitle("Footage type")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
     }
 }

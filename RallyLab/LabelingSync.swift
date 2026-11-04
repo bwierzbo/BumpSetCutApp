@@ -64,6 +64,8 @@ protocol LabelingService: Sendable {
     func rallyEvents(since: Date?) async throws -> [LabelRallyEvents]
     func saveRallyEvents(videoId: UUID, expected: Int, record: EventReview.File) async throws -> LabelRallyEvents
     func publishWithheld(project: String, names: [String]) async throws -> Int
+    func recordingTypeClaims(since: Date?) async throws -> [RecordingTypeClaim]
+    func settleRecordingTypeClaim(_ id: UUID, status: RecordingTypeClaim.Status, reason: String?, confirmedAt: Date?) async throws -> RecordingTypeClaim
     func save(_ state: LabelProjectState) async throws
     func reviewRally(_ verdict: LabelingClient.RallyVerdict) async throws
     func reviewFrames(_ track: UUID, _ edits: [LabelingClient.FrameEdit]) async throws
@@ -275,6 +277,11 @@ final class LabelingSync {
             let events = try await syncRallyEvents(opening)
             parts.append("boundary records \(events.pushed) sent · \(events.pulled) received" + (events.conflicts.isEmpty ? "" : " · conflicts kept for: \(events.conflicts.joined(separator: ", "))")
                          + (events.withheldPublished.map { " · withheld list published (\($0))" } ?? " · withheld list NOT published — no boundary record sent"))
+            let claims = try await syncRecordingTypeClaims(opening)
+            if claims.accepted + claims.rejected + claims.deferred.count > 0 {
+                parts.append("footage types from the phone \(claims.accepted) confirmed · \(claims.rejected) declined"
+                             + (claims.deferred.isEmpty ? "" : " · left for the next sync: \(claims.deferred.joined(separator: "; "))"))
+            }
             status = "Synced: " + parts.joined(separator: ", ") + "."
             lastSynced = Date()
             return true
@@ -430,6 +437,9 @@ final class LabelingSync {
         let sessions = try await Task.detached(priority: .utility) {
             try DatasetStore(root: root).loadSessionsStrict().filter { FileManager.default.fileExists(atPath: $0.sourcePath) && !withheld.contains($0.name) }
         }.value
+        // The recordings' types as the footage-properties records have them (D-033): published for the phone's
+        // display, a copy lead-written like the identities. Nothing published when the folder can't be read.
+        let properties = await Task.detached(priority: .utility) { try? FootageProperties.Store(root: root).loadAll() }.value
         for (i, session) in sessions.enumerated() {
             // Each recording's title and lighting are the open project's cards': the opening must still hold here,
             // on every pass of this loop (the pass before it awaited).
@@ -450,6 +460,16 @@ final class LabelingSync {
                 video.duration = (try? await AVURLAsset(url: source).load(.duration).seconds) ?? 0
             }
             video = await Self.withIdentities(video, source: source)
+            if let properties {
+                if let record = properties.records[session.name] {
+                    video.recordingType = record.recordingType.rawValue
+                    video.recordingTypeAt = record.recordingTypeAt.flatMap(RecordingTypeClaims.parse)
+                } else if properties.unreadable[session.name] == nil {
+                    // No record: nothing is confirmed. An unreadable one leaves what was published as it is.
+                    video.recordingType = nil
+                    video.recordingTypeAt = nil
+                }
+            }
             // A copy RallyLab made with an older encoding is made again when
             // asked (the new name tells the phone to fetch it); the old one is
             // removed. Remaking them all takes hours, so it isn't automatic.
@@ -913,6 +933,81 @@ final class LabelingSync {
         }) else { return false }
         let c = (a.cuts ?? []).sorted { $0.start < $1.start }, d = (b.cuts ?? []).sorted { $0.start < $1.start }
         return c.count == d.count && zip(c, d).allSatisfy { abs($0.start - $1.start) < 0.02 && abs($0.end - $1.end) < 0.02 }
+    }
+
+    // MARK: - 6. Recording-type claims from the phone (D-033)
+
+    /// The submitted claims of the captured project, each judged against the project as it is
+    /// (RecordingTypeClaims.decide) and, if accepted, written through the one writer of the type and read back
+    /// before the server hears of it. What is wrong with a claim is declined with a reason in plain words; what is
+    /// wrong on this Mac leaves the claim submitted for the next round. The write lands under `opening` only; a
+    /// settlement is a server-committed fact about a write already made, so it may follow the end of the opening.
+    private func syncRecordingTypeClaims(_ opening: ProjectsModel.Opening) async throws -> (accepted: Int, rejected: Int, deferred: [String]) {
+        let project = opening.name, root = opening.root
+        let submitted = try await client.recordingTypeClaims(since: nil).filter { $0.project == project && $0.status == .submitted }
+        guard !submitted.isEmpty else { return (0, 0, []) }
+        // The withheld closure and the records are the captured project's; both read off the main actor.
+        guard let withheld = await withheldClosure(root: root) else { return (0, 0, ["the withheld list can't be read — no claim judged"]) }
+        guard let records = await Task.detached(priority: .utility) { try? FootageProperties.Store(root: root).loadAll() }.value else {
+            return (0, 0, ["the footage-properties folder can't be read — no claim judged"])
+        }
+        try projects.require(opening)
+        let store = FootageProperties.Store(root: root)
+        var accepted = 0, rejected = 0
+        var deferred: [String] = []
+        for (_, group) in Dictionary(grouping: submitted, by: \.videoId).sorted(by: { $0.key.uuidString < $1.key.uuidString }) {
+            let ordered = group.sorted { $0.revision > $1.revision }
+            // Two still submitted for one recording (a race the server had not ordered when they were read): the newest counts.
+            for older in ordered.dropFirst() {
+                _ = try await client.settleRecordingTypeClaim(older.id, status: .rejected, reason: "replaced by a newer choice", confirmedAt: nil)
+                rejected += 1
+            }
+            let claim = ordered[0]
+            let name = DatasetStore.safeName(claim.sessionName)
+            try projects.require(opening)
+            guard try projects.session(named: name, in: opening) != nil else {
+                _ = try await client.settleRecordingTypeClaim(claim.id, status: .rejected, reason: "the recording is not in the project on the Mac", confirmedAt: nil)
+                rejected += 1
+                continue
+            }
+            let card = FootageTypeConfirmation.sourceFingerprint(of: name, in: projects.project)
+            let state: RecordingTypeClaims.RecordState
+            if let why = records.unreadable[name] { state = .unreadable(why) }
+            else if let r = records.records[name] { state = .record(type: r.recordingType.rawValue, by: r.recordingTypeBy, at: r.recordingTypeAt) }
+            else { state = .none }
+            switch RecordingTypeClaims.decide(claim: claim, cardFingerprint: card, withheld: withheld.contains(name), record: state) {
+            case .reject(let why):
+                _ = try await client.settleRecordingTypeClaim(claim.id, status: .rejected, reason: why, confirmedAt: nil)
+                rejected += 1
+            case .defer(let why):
+                deferred.append("\(name): \(why)")
+            case .alreadyApplied:
+                // The record carries this very claim (its acknowledgement was lost): acknowledged, nothing written again.
+                _ = try await client.settleRecordingTypeClaim(claim.id, status: .accepted, reason: nil,
+                                                             confirmedAt: records.records[name]?.recordingTypeAt.flatMap(RecordingTypeClaims.parse))
+                accepted += 1
+            case .accept:
+                guard let type = claim.kind.flatMap({ FootageProperties.RecordingType(rawValue: $0.rawValue) }) else { continue }
+                // The one writer, under the opening (no suspension between the check and the write), attributed to the
+                // phone's labeler and the claim at the claim's time; read back before the server hears of it.
+                try projects.require(opening)
+                let at = EventReview.stamp(claim.submittedAt)
+                do {
+                    _ = try store.confirmRecordingType(type, video: name, sourceFingerprint: card, by: RecordingTypeClaims.attribution(of: claim), at: at)
+                } catch {
+                    deferred.append("\(name): the record could not be written — \(error.localizedDescription)")
+                    continue
+                }
+                guard let back = try? store.load(name), back.recordingType == type, back.recordingTypeAt == at,
+                      RecordingTypeClaims.isAttributed(back.recordingTypeBy, to: claim) else {
+                    deferred.append("\(name): the record was written but does not read back as written")
+                    continue
+                }
+                _ = try await client.settleRecordingTypeClaim(claim.id, status: .accepted, reason: nil, confirmedAt: RecordingTypeClaims.parse(at))
+                accepted += 1
+            }
+        }
+        return (accepted, rejected, deferred)
     }
 
     // MARK: - Naming

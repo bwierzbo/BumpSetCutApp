@@ -248,6 +248,38 @@ actor LabelingClient {
         try await get("label_rally_events", query: "select=*" + Self.changed(since))
     }
 
+    // MARK: - Recording-type claims (migration 052; D-033)
+
+    /// The claims this account may read (049's rule), changed since `since`.
+    func recordingTypeClaims(since: Date? = nil) async throws -> [RecordingTypeClaim] {
+        try await get("label_recording_type_claims", query: "select=*" + Self.changed(since))
+    }
+
+    /// The phone's choice, as a claim (`recording_type_claim_submit`): idempotent by the claim's id. A refusal of the
+    /// claim itself — withheld, identity, input — comes back as `Failure.server` with the server's message.
+    func submitRecordingTypeClaim(_ pending: RecordingTypeClaims.Pending) async throws -> RecordingTypeClaim {
+        struct Params: Encodable { let p_id: String; let p_video: String; let p_type: String; let p_fingerprint: String }
+        var request = try await rest("rpc/recording_type_claim_submit", query: "")
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(Params(p_id: pending.id.uuidString.lowercased(), p_video: pending.videoId.uuidString.lowercased(),
+                                                           p_type: pending.kind.rawValue, p_fingerprint: pending.sourceFingerprint))
+        let rows = try Self.decoder.decode([RecordingTypeClaim].self, from: try await send(request))
+        guard let row = rows.first else { throw Failure.unreadable }
+        return row
+    }
+
+    /// The Mac's settlement (`recording_type_claim_settle`, leads only): accepted, with the record's confirmation
+    /// time, after the authoritative write; or rejected with a reason. The same settlement again is a no-op.
+    func settleRecordingTypeClaim(_ id: UUID, status: RecordingTypeClaim.Status, reason: String?, confirmedAt: Date?) async throws -> RecordingTypeClaim {
+        struct Params: Encodable { let p_id: String; let p_status: String; let p_reason: String?; let p_confirmed_at: Date? }
+        var request = try await rest("rpc/recording_type_claim_settle", query: "")
+        request.httpMethod = "POST"
+        request.httpBody = try Self.encoder.encode(Params(p_id: id.uuidString.lowercased(), p_status: status.rawValue, p_reason: reason, p_confirmed_at: confirmedAt))
+        let rows = try Self.decoder.decode([RecordingTypeClaim].self, from: try await send(request))
+        guard let row = rows.first else { throw Failure.unreadable }
+        return row
+    }
+
     /// Saves a record at the revision it was loaded from (0 = none on the server yet) through `rally_events_save`.
     /// The record travels with its own camelCase keys (never this client's snake-case encoder). A stale revision
     /// throws `RallyEventsConflict`; a withheld recording throws `Failure.server(403, "withheld: …")`.

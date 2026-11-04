@@ -33,6 +33,12 @@ struct VideoDetailView: View {
                 NavigationLink {
                     RallyTimesView(model: model, video: video)
                 } label: { Label("Edit rally times", systemImage: "slider.horizontal.3") }
+                // The footage type (D-033): chosen here, confirmed on the Mac; the state shown is the claim's.
+                NavigationLink {
+                    FootageTypeView(model: model, video: video, duration: video.duration, afterPass: false)
+                } label: {
+                    Label(footageTypeTitle, systemImage: "film.stack")
+                }
                 // Stage 1 rally boundaries (D-024): the same record and rules as RallyLab's Review tab.
                 NavigationLink {
                     RallyBoundariesPhoneView(model: model, video: video)
@@ -85,6 +91,19 @@ struct VideoDetailView: View {
         }
         .navigationTitle(video.name)
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// The footage-type entry with what the Mac has and where this phone's choice stands.
+    private var footageTypeTitle: String {
+        let published = video.recordingType.flatMap(RecordingTypeClaims.Kind.init(rawValue:))?.title.lowercased() ?? "not confirmed yet"
+        switch model.footageType(for: video) {
+        case .none: return "Footage type · \(published)"
+        case .pending: return "Footage type · \(published) · your choice is waiting to send"
+        case .submitted: return "Footage type · \(published) · your choice is waiting for the Mac"
+        case .accepted: return "Footage type · \(published)"
+        case .rejected: return "Footage type · \(published) · your choice was not accepted"
+        case .superseded: return "Footage type · \(published) · replaced by a newer choice"
+        }
     }
 
     /// The Stage 1 entry with where the review stands, so an unfinished recording is easy to resume.

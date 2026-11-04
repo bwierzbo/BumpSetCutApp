@@ -22,10 +22,13 @@ struct LabelSnapshot: Codable {
     var events: [LabelRallyEvents] = []
     /// The project's withheld recordings as published; nil = no list published for that project (nothing reviewable).
     var withheld: [String: [String]] = [:]
+    /// Footage-type claims (migration 052; D-033): this phone's and others', with their state.
+    var claims: [RecordingTypeClaim] = []
 
     init(videos: [LabelVideo] = [], times: [LabelRallyTimes] = [], tracks: [LabelTrack] = [], states: [LabelProjectState] = [],
-         events: [LabelRallyEvents] = [], withheld: [String: [String]] = [:]) {
+         events: [LabelRallyEvents] = [], withheld: [String: [String]] = [:], claims: [RecordingTypeClaim] = []) {
         self.videos = videos; self.times = times; self.tracks = tracks; self.states = states; self.events = events; self.withheld = withheld
+        self.claims = claims
     }
 
     init(from decoder: Decoder) throws {
@@ -36,6 +39,7 @@ struct LabelSnapshot: Codable {
         states = try c.decodeIfPresent([LabelProjectState].self, forKey: .states) ?? []
         events = try c.decodeIfPresent([LabelRallyEvents].self, forKey: .events) ?? []
         withheld = try c.decodeIfPresent([String: [String]].self, forKey: .withheld) ?? [:]
+        claims = try c.decodeIfPresent([RecordingTypeClaim].self, forKey: .claims) ?? []
     }
 }
 
@@ -57,8 +61,10 @@ struct Outbox: Codable {
 
     /// Stage 1 records waiting to be saved, by recording (the latest edit of each).
     var events: [UUID: PendingRallyEvents] = [:]
-    var isEmpty: Bool { times.isEmpty && tracks.isEmpty && frames.isEmpty && rallies.isEmpty && events.isEmpty }
-    var count: Int { times.count + tracks.count + frames.count + rallies.count + events.count }
+    /// Footage-type choices waiting to be sent, by claim id (D-033): durable until the server has them.
+    var claims: [UUID: RecordingTypeClaims.Pending] = [:]
+    var isEmpty: Bool { times.isEmpty && tracks.isEmpty && frames.isEmpty && rallies.isEmpty && events.isEmpty && claims.isEmpty }
+    var count: Int { times.count + tracks.count + frames.count + rallies.count + events.count + claims.count }
 
     init() {}
 
@@ -69,6 +75,7 @@ struct Outbox: Codable {
         frames = try c.decodeIfPresent([LabelingClient.FrameEdit].self, forKey: .frames) ?? []
         rallies = try c.decodeIfPresent([LabelingClient.RallyVerdict].self, forKey: .rallies) ?? []
         events = try c.decodeIfPresent([UUID: PendingRallyEvents].self, forKey: .events) ?? [:]
+        claims = try c.decodeIfPresent([UUID: RecordingTypeClaims.Pending].self, forKey: .claims) ?? [:]
     }
 }
 

@@ -129,6 +129,7 @@
 				Shared/RallyEvents.swift,
 				Shared/RallyEventsSync.swift,
 				Shared/RallyTimesBar.swift,
+				Shared/RecordingTypeClaims.swift,
 				Shared/RallyTrack.swift,
 				Shared/ReviewCanvas.swift,
 				Shared/ReviewViews.swift,

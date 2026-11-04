@@ -81,6 +81,11 @@ struct LabelVideo: Codable, Identifiable, Hashable {
     var frameTimesDigest: String?
     /// The original's content fingerprint (`file:<sha256>`, ProjectsModel.fileFingerprint), published with the copy.
     var sourceFingerprint: String?
+    /// The recording's type as the Mac's footage-properties record has it (`RecordingTypeClaims.Kind.rawValue`),
+    /// published by the Mac's RallyLab; nil until it publishes one. A copy for the phone's display, never the
+    /// authority (D-033). Set when an accepted claim is settled and whenever the Mac publishes its videos.
+    var recordingType: String? = nil
+    var recordingTypeAt: Date? = nil
 
     var name: String { sessionName ?? (title.isEmpty ? "Phone video" : title) }
 }
