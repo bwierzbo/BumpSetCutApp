@@ -258,25 +258,26 @@ enum LaunchGuard {
     /// `/private/tmp/…` but leaves an absent `/private/tmp/…/new` as it is, so a root and a destination under it could
     /// come out on different spellings and fail containment (seen on 2026-11-04, the first guarded --create).
     static func canonical(_ url: URL) -> URL {
-        // Dots handled by hand: Foundation's standardizing calls also strip `/private` from paths that exist.
-        var components: [String] = []
-        for part in url.path.split(separator: "/", omittingEmptySubsequences: true) {
+        // The longest existing prefix is taken with its `.` and `..` components as given, so realpath(3) resolves a
+        // symlink BEFORE a `..` that follows it (`root/link/..` is the link target's parent, not `root`; Codex on #147).
+        // Only the absent remainder is normalised by hand — nothing in it can be a symlink.
+        let raw = url.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        var existingCount = raw.count
+        while existingCount > 0, !FileManager.default.fileExists(atPath: "/" + raw.prefix(existingCount).joined(separator: "/")) {
+            existingCount -= 1
+        }
+        let existingPath = "/" + raw.prefix(existingCount).joined(separator: "/")
+        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+        let base = realpath(existingPath, &buffer).map { String(cString: $0) } ?? existingPath
+        var components = base.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        for part in raw.dropFirst(existingCount) {
             switch part {
             case ".": continue
             case "..": _ = components.popLast()
-            default: components.append(String(part))
+            default: components.append(part)
             }
         }
-        var existingCount = components.count
-        while existingCount > 0, !FileManager.default.fileExists(atPath: "/" + components.prefix(existingCount).joined(separator: "/")) {
-            existingCount -= 1
-        }
-        let existingPath = "/" + components.prefix(existingCount).joined(separator: "/")
-        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
-        let base = realpath(existingPath, &buffer).map { String(cString: $0) } ?? existingPath
-        let rest = components.dropFirst(existingCount)
-        let path = rest.isEmpty ? base : (base == "/" ? "" : base) + "/" + rest.joined(separator: "/")
-        return URL(fileURLWithPath: path, isDirectory: true)
+        return URL(fileURLWithPath: "/" + components.joined(separator: "/"), isDirectory: true)
     }
 
     // Paths here are already canonical (Files.resolve): compared as given — Foundation's standardising calls would

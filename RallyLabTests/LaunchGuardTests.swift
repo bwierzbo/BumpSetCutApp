@@ -292,6 +292,31 @@ final class LaunchGuardTests: XCTestCase {
         XCTAssertNil(LaunchGuard.refusal(for: mixed, home: home))
     }
 
+    func testCanonicalResolvesASymlinkBeforeAParentComponentThatFollowsIt() throws {
+        // root/link → outside/deep, so root/link/.. is OUTSIDE (the link target's parent), never root (Codex on #147).
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("launch-guard-dotdot-\(UUID().uuidString)", isDirectory: true)
+        let root = base.appendingPathComponent("root", isDirectory: true)
+        let outside = base.appendingPathComponent("outside", isDirectory: true)
+        let deep = outside.appendingPathComponent("deep", isDirectory: true)
+        for dir in [root, deep] { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
+        defer { try? FileManager.default.removeItem(at: base) }
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("link"), withDestinationURL: deep)
+        let viaLink = root.appendingPathComponent("link/..", isDirectory: true)
+        XCTAssertEqual(LaunchGuard.canonical(viaLink).path, LaunchGuard.canonical(outside).path)
+        XCTAssertEqual(LaunchGuard.canonical(root.appendingPathComponent("link/../absent", isDirectory: true)).path,
+                       LaunchGuard.canonical(outside).path + "/absent")
+        XCTAssertEqual(LaunchGuard.canonical(root.appendingPathComponent("absent/../Accept-x", isDirectory: true)).path,
+                       LaunchGuard.canonical(root).path + "/Accept-x", "an absent remainder is normalised textually")
+        // A root spelled through the link's parent is `outside`: a creation under `root` is outside it and refused.
+        let args = ["RallyLab", "--project", root.appendingPathComponent("Accept-new").path, "--project-root", viaLink.path,
+                    "--defaults-suite", "rallylab.test.dotdot", "--pending-dir", viaLink.appendingPathComponent("pending").path, "--create"]
+        XCTAssertNotNil(LaunchGuard.refusal(for: args, home: home))
+        // Spelled as it is, the same creation under the real root is accepted.
+        let plain = ["RallyLab", "--project", root.appendingPathComponent("Accept-new").path, "--project-root", root.path,
+                     "--defaults-suite", "rallylab.test.dotdot", "--pending-dir", root.appendingPathComponent("pending").path, "--create"]
+        XCTAssertNil(LaunchGuard.refusal(for: plain, home: home))
+    }
+
     func testIsSameFolderFollowsSymlinksOnBothSides() throws {
         let base = FileManager.default.temporaryDirectory.appendingPathComponent("launch-guard-same-\(UUID().uuidString)", isDirectory: true)
         let real = base.appendingPathComponent("real", isDirectory: true)
