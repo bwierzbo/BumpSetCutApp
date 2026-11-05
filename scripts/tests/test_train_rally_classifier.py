@@ -132,6 +132,25 @@ class MarkKinds(unittest.TestCase):
             self.assertNotIn("corpus (pooled)", out, "a lone negative-only export pools nothing")
             self.assertFalse(os.path.exists(weights), "no rally to fit: no weights from a negative-only export")
 
+    def test_an_excluded_span_masks_a_prediction_without_splitting_it(self):
+        # Contract fixture 14: a prediction over a marked non-rally and ordinary dead time is ONE false clip.
+        masked, unscored = t.mask_excluded([(70.0, 76.0), (30.0, 33.0)], [(72.0, 74.0), (30.0, 33.0)])
+        self.assertEqual(masked, [[(70.0, 72.0), (74.0, 76.0)]]); self.assertEqual(unscored, 1)
+        sc = t.score_intervals(masked, [(10.0, 20.0)])
+        self.assertEqual((sc["tp"], sc["fp"], sc["fn"]), (0, 1, 1), "one false clip, not two")
+        # Contract fixture 21: one prediction through the rally 10–29, a missed serve 30–31 and dead time to 40:
+        # matched on its two pieces (IoU 19/29), end error +11 from the scorable span's end.
+        pred, _ = t.mask_excluded([(10.0, 40.0)], [(30.0, 31.0)])
+        self.assertAlmostEqual(t.iou(pred[0], (10.0, 29.0)), 19 / 29)
+        sc = t.score_intervals(pred, [(10.0, 29.0)])
+        self.assertEqual((sc["tp"], sc["fp"], sc["fn"]), (1, 0, 0))
+        self.assertEqual((sc["start_mae"], sc["end_mae"]), (0.0, 11.0))
+        self.assertEqual(sc["matches"][0][0], (10.0, 40.0), "the match names the scorable span")
+        # A cut, unlike an excluded span, splits a decision into predictions of its own.
+        self.assertEqual(t.subtract_cuts([(70.0, 76.0)], [(72.0, 74.0)]), [(70.0, 72.0), (74.0, 76.0)])
+        # Plain (start, end) predictions score as before.
+        self.assertEqual(t.score_intervals([(10.0, 20.0)], [(10.0, 20.0)])["tp"], 1)
+
     def test_frame_metrics_leave_the_excluded_frames_out(self):
         y = np.array([1, 1, 0, 0, 0, 0], dtype=float)
         probs = np.array([0.9, 0.8, 0.2, 0.1, 0.95, 0.9])
@@ -160,6 +179,7 @@ class MarkKinds(unittest.TestCase):
             weights = os.path.join(d, "weights.json")
             out = _run([path], weights)
             self.assertIn("rallies 1  excluded spans (missed serves, not a rally) 1", out)
+            self.assertIn("baseline clips unscored inside an excluded span 1", out)
             self.assertIn("baseline (rule decider) : P 0.500  R 1.000", out,
                           "the clip over the missed serve is unscored; the one at 45–47 is the false clip")
             self.assertTrue(os.path.exists(weights))

@@ -74,6 +74,10 @@ final class RallyLabModel {
     /// to be complete (no project session over it, or not every rally marked), so what lies outside the
     /// labels is unknown, not not-rally time (RallyTruth). nil when it is complete.
     private(set) var markingProblem: String?
+    /// Why the labels are not known: the sidecar beside the video is missing or won't decode. nil once it was
+    /// read (an empty list included) or written. An unknown list is never an empty one: nothing is scored or
+    /// exported on it (the headless export refuses the same way through `RallyTruth.of`).
+    private(set) var labelsProblem: String?
 
     var labels: [EditableRally] = [] {
         didSet {
@@ -655,6 +659,7 @@ final class RallyLabModel {
         refreshCuts()
         if let cutsProblem { status = cutsProblem; return }
         if let markingProblem { status = "❌ Not exported: \(markingProblem)"; return }
+        if let labelsProblem { status = "❌ Not exported: \(labelsProblem)"; return }
         guard !evidence.isEmpty else {
             status = "Run the pipeline first — the export needs its frame evidence."
             return
@@ -842,6 +847,7 @@ final class RallyLabModel {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             try encoder.encode(payload).write(to: url, options: .atomic)
+            labelsProblem = nil
         } catch {
             status = "Failed to save labels: \(error.localizedDescription)"
         }
@@ -851,14 +857,36 @@ final class RallyLabModel {
         suppressLabelSideEffects = true
         defer { suppressLabelSideEffects = false }
         labels = []
-        guard let url = labelsFileURL, let data = try? Data(contentsOf: url) else { return }
-        do {
-            let decoded = try JSONDecoder().decode([RallyMarkRecord].self, from: data)
-            labels = decoded.map { EditableRally(start: $0.startTime, end: $0.endTime, kind: $0.kind, contacts: $0.contacts) }
-        } catch {
-            status = "Found \(url.lastPathComponent) but couldn't decode it: \(error.localizedDescription)"
+        labelsProblem = nil
+        guard let url = labelsFileURL else { return }
+        switch Self.readLabels(at: url) {
+        case .success(let read): labels = read
+        case .failure(let problem):
+            labelsProblem = problem.message
+            if problem.sidecarExists { status = problem.message }
         }
         recomputeScore()
+    }
+
+    /// The labels are not known.
+    struct LabelsUnknown: Error, Equatable {
+        let message: String
+        /// A sidecar is there but won't decode (said in the status line); absent, the video has no marks yet.
+        let sidecarExists: Bool
+    }
+
+    /// The marks in the sidecar: the list (empty included), or why it is unknown — absent, or there but
+    /// undecodable. Never an empty list for either (the headless exporter's rule, `RallyTruth.marks`).
+    nonisolated static func readLabels(at url: URL) -> Result<[EditableRally], LabelsUnknown> {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return .failure(LabelsUnknown(message: "no \(url.lastPathComponent) beside the video: its marks are not known", sidecarExists: false))
+        }
+        do {
+            let decoded = try JSONDecoder().decode([RallyMarkRecord].self, from: Data(contentsOf: url))
+            return .success(decoded.map { EditableRally(start: $0.startTime, end: $0.endTime, kind: $0.kind, contacts: $0.contacts) })
+        } catch {
+            return .failure(LabelsUnknown(message: "Found \(url.lastPathComponent) but couldn't decode it: \(error.localizedDescription)", sidecarExists: true))
+        }
     }
 
     // MARK: - Net detection
@@ -1227,7 +1255,7 @@ final class RallyLabModel {
     }
 
     private func recomputeScore() {
-        guard !evidence.isEmpty, cutsProblem == nil, markingProblem == nil else {
+        guard !evidence.isEmpty, cutsProblem == nil, markingProblem == nil, labelsProblem == nil else {
             score = nil
             return
         }

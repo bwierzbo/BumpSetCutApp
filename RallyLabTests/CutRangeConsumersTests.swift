@@ -367,8 +367,14 @@ final class CutRangeConsumersTests: XCTestCase {
         XCTAssertEqual(try RallyTruth.of(try XCTUnwrap(try TrainingDataExporter.session(forVideo: video, projectRoots: [project])))?.complete, false)
         try Data("{not json".utf8).write(to: marks)
         XCTAssertThrowsError(try RallyTruth.marks(inSidecarOf: video), "unreadable marks are unknown, never none")
+        // The Pipeline tab reads the same sidecar the same way: unknown (undecodable, or absent) is never an empty list.
+        func unknown(_ r: Result<[EditableRally], RallyLabModel.LabelsUnknown>) -> Bool? { if case .failure(let p) = r { return p.sidecarExists }; return nil }
+        XCTAssertEqual(unknown(RallyLabModel.readLabels(at: marks)), true)
         try FileManager.default.removeItem(at: marks)
         XCTAssertNil(try RallyTruth.marks(inSidecarOf: video))
+        XCTAssertEqual(unknown(RallyLabModel.readLabels(at: marks)), false)
+        try JSONEncoder().encode([RallyMarkRecord]()).write(to: marks)
+        XCTAssertEqual(try RallyLabModel.readLabels(at: marks).get().count, 0, "an empty list read is known: a complete pass with no rally")
         // A copy of the recording under another name and path is the same recording (by content), as the Pipeline tab sees it.
         let copy = root.appendingPathComponent("elsewhere.mp4"); try FileManager.default.copyItem(at: video, to: copy)
         XCTAssertEqual(try TrainingDataExporter.cutRanges(forVideo: copy, projectRoots: [project]), [cut(1, 2)])

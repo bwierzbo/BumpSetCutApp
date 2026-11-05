@@ -288,16 +288,48 @@ def decode_outside_cuts(times, probs, cuts, *args):
     return subtract_cuts(decoded, cuts)
 
 
+def mask_excluded(intervals, excluded, min_piece=0.1):
+    """Each prediction on its pieces outside the excluded spans (a missed serve, a "not a rally" mark),
+    the prediction staying ONE: a list of piece lists, in order; a prediction with nothing left outside
+    is unscored and left out (the scoring contract §2 — unlike a cut, an excluded span never splits a
+    prediction). Returns (masked, unscored)."""
+    masked, unscored = [], 0
+    for (s, e) in intervals:
+        pieces = subtract_cuts([(s, e)], excluded, min_piece)
+        if pieces:
+            masked.append(pieces)
+        else:
+            unscored += 1
+    return masked, unscored
+
+
 # ---------------------------------------------------------------- scoring
 
-def iou(a, b):
-    inter = max(0.0, min(a[1], b[1]) - max(a[0], b[0]))
-    union = (a[1] - a[0]) + (b[1] - b[0]) - inter
+def _pieces(p):
+    """A prediction as its scorable pieces: a plain (start, end), or a list of them."""
+    return p if isinstance(p, list) else [p]
+
+
+def hull(p):
+    """A prediction's scorable span: first to last scorable tick."""
+    pieces = _pieces(p)
+    return (pieces[0][0], pieces[-1][1])
+
+
+def overlap(p, g):
+    return sum(max(0.0, min(e, g[1]) - max(s, g[0])) for (s, e) in _pieces(p))
+
+
+def iou(p, g):
+    """IoU of a prediction (on its pieces) with a truth rally: the contract's masked IoU."""
+    inter = overlap(p, g)
+    union = sum(e - s for (s, e) in _pieces(p)) + (g[1] - g[0]) - inter
     return inter / union if union > 0 else 0.0
 
 
 def score_intervals(pred, truth, iou_threshold=0.5, boundary_tol=1.0):
-    """Port of RallySegmentationScorer.score (greedy IoU matching)."""
+    """Port of RallySegmentationScorer.score (greedy IoU matching); a prediction may be a list of
+    pieces (mask_excluded), matched on them, its boundaries read at the scorable span's ends."""
     pairs = sorted(
         ((i, j, iou(p, g)) for i, p in enumerate(pred) for j, g in enumerate(truth)
          if iou(p, g) >= iou_threshold),
@@ -308,7 +340,7 @@ def score_intervals(pred, truth, iou_threshold=0.5, boundary_tol=1.0):
             continue
         used_p.add(i)
         used_t.add(j)
-        matches.append((pred[i], truth[j], v))
+        matches.append((hull(pred[i]), truth[j], v))
     tp = len(matches)
     fp = len(pred) - tp
     fn = len(truth) - tp
@@ -430,9 +462,9 @@ def main():
         X, names, times, y = build_features(ex)
         cuts = [(c["start"], c["end"]) for c in ex.get("cuts", [])]   # not footage (D-030)
         excluded = subtract_cuts([(l["start"], l["end"]) for l in ex.get("excluded", [])], cuts)
-        mask = cuts + excluded   # neither rally nor not-rally: masked from training, decoding and scoring
-        labels = subtract_cuts([(l["start"], l["end"]) for l in ex["labels"]], mask)
-        baseline = subtract_cuts([(b["start"], b["end"]) for b in ex["baselineRaw"]], mask)
+        # A cut splits a decision; an excluded span masks a decision's pieces, the decision staying one.
+        labels = subtract_cuts([(l["start"], l["end"]) for l in ex["labels"]], cuts + excluded)
+        baseline, baseline_unscored = mask_excluded(subtract_cuts([(b["start"], b["end"]) for b in ex["baselineRaw"]], cuts), excluded)
         masked = np.zeros(len(times), dtype=bool)
         for (s_, e_) in excluded:
             masked |= (times >= s_) & (times <= e_)
@@ -442,7 +474,8 @@ def main():
         print(f"frames {len(times)}  duration {ex['duration']:.1f}s  "
               f"rallies {len(labels)}  excluded spans (missed serves, not a rally) {len(excluded)}  "
               f"in-rally frames {int(y.sum())} ({y.mean() * 100:.1f}%)"
-              + (f"  cut ranges {len(cuts)} ({sum(e - s for s, e in cuts):.1f}s not footage)" if cuts else ""))
+              + (f"  cut ranges {len(cuts)} ({sum(e - s for s, e in cuts):.1f}s not footage)" if cuts else "")
+              + (f"  baseline clips unscored inside an excluded span {baseline_unscored}" if baseline_unscored else ""))
         if negative_only:
             # No rally to fit a model on, and no model from elsewhere to judge it with: the baseline is scored for
             # false clips, the learned side is not reported and the recording stays out of the pooled comparison.
@@ -459,8 +492,8 @@ def main():
               f"acc@0.5 {'n/a' if acc is None else f'{acc:.3f}'}")
 
         h = HYST_DEFAULT
-        learned = decode_outside_cuts(times, probs, mask, h["enter"], h["exit"],
-                                      h["enter_sustain"], h["exit_sustain"])
+        learned, _ = mask_excluded(decode_outside_cuts(times, probs, cuts, h["enter"], h["exit"],
+                                                       h["enter_sustain"], h["exit_sustain"]), excluded)
         s_learned = score_intervals(learned, labels)
         s_baseline = score_intervals(baseline, labels)
         print(f"baseline (rule decider) : {fmt(s_baseline)}")
@@ -471,7 +504,7 @@ def main():
         for enter in (0.6, 0.7, 0.8):
             for exit_ in (0.2, 0.3, 0.4):
                 for ex_sus in (0.5, 0.8, 1.2):
-                    cand = decode_outside_cuts(times, probs, mask, enter, exit_, 0.2, ex_sus)
+                    cand, _ = mask_excluded(decode_outside_cuts(times, probs, cuts, enter, exit_, 0.2, ex_sus), excluded)
                     sc = score_intervals(cand, labels)
                     key = (sc["f1"], -(sc["start_mae"] + sc["end_mae"]))
                     if best is None or key > best[0]:
