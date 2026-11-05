@@ -22,6 +22,11 @@ final class LabelerModel: ReviewStore {
     private(set) var phase = Phase.starting
     private(set) var snapshot = LabelSnapshot()
     private(set) var outbox = Outbox()
+    /// Rows the server has accepted whose settlement the snapshot on the phone may not hold yet: they are written
+    /// with the outbox until the snapshot write that carries them has completed, so a launch after a kill in between
+    /// finds them still owed and sends them again (each send is a repeat the server takes as is) instead of loading
+    /// the older marks with nothing left to restore the accepted ones — and sending that older list next.
+    @ObservationIgnored private var settling = Outbox()
     private(set) var isLoading = false
     private(set) var isOffline = false
     /// Why the last load or send failed, while it keeps failing (the app
@@ -118,7 +123,7 @@ final class LabelerModel: ReviewStore {
     func signOut() async {
         await client.signOut()
         snapshot = LabelSnapshot()
-        LocalStore.save(snapshot, "snapshot.json")
+        LocalStore.saveInBackground(snapshot, "snapshot.json") {}
         phase = .signedOut
     }
 
@@ -154,7 +159,7 @@ final class LabelerModel: ReviewStore {
             lastVideosPull = started
             syncProblem = nil
             LocalStore.pruneClips(keeping: loaded.videos)
-            LocalStore.save(snapshot, "snapshot.json")
+            LocalStore.saveInBackground(snapshot, "snapshot.json") {}
             isOffline = false
             phase = .ready
         } catch LabelingClient.Failure.notSignedIn {
@@ -211,7 +216,7 @@ final class LabelerModel: ReviewStore {
                     snapshot.events.removeAll { $0.videoId == row.videoId }
                     snapshot.events.append(row)
                 }
-                if !events.isEmpty { LocalStore.save(snapshot, "snapshot.json") }
+                if !events.isEmpty { LocalStore.saveInBackground(snapshot, "snapshot.json") {} }
                 lastEventsPull = started
             } catch {
                 syncProblem = Self.describe("Couldn't fetch the boundary records", error)
@@ -236,12 +241,12 @@ final class LabelerModel: ReviewStore {
                     snapshot.videos.removeAll { $0.id == row.id }
                     snapshot.videos.append(row)
                 }
-                if !rows.isEmpty { LocalStore.save(snapshot, "snapshot.json") }
+                if !rows.isEmpty { LocalStore.saveInBackground(snapshot, "snapshot.json") {} }
                 lastVideosPull = started
             } catch {
                 syncProblem = Self.describe("Couldn't fetch the recordings", error)
             }
-            if !times.isEmpty || !tracks.isEmpty { LocalStore.save(snapshot, "snapshot.json") }
+            if !times.isEmpty || !tracks.isEmpty { LocalStore.saveInBackground(snapshot, "snapshot.json") {} }
             lastPull = started
             isOffline = false
         } catch {
@@ -303,10 +308,24 @@ final class LabelerModel: ReviewStore {
         for row in claims {
             snapshot.claims.removeAll { $0.id == row.id }
             snapshot.claims.append(row)
-            if outbox.claims[row.id] != nil { outbox.claims[row.id] = nil }
+            if let pending = outbox.claims[row.id] { outbox.claims[row.id] = nil; settling.claims[row.id] = pending }
         }
-        LocalStore.save(outbox, "outbox.json")
-        LocalStore.save(snapshot, "snapshot.json")
+        persist()
+    }
+
+    /// The outbox on the phone, at once, with the rows still settling behind it.
+    private func saveOutbox() { LocalStore.save(outbox.carrying(settling), "outbox.json") }
+
+    /// The outbox at once, then the snapshot off the main thread; the rows settling now leave the outbox file only
+    /// once that snapshot — the first that holds their settlement — is on the phone.
+    private func persist() {
+        saveOutbox()
+        let carried = settling
+        LocalStore.saveInBackground(snapshot, "snapshot.json") { [weak self] in
+            guard let self else { return }
+            settling.drop(carried)
+            saveOutbox()
+        }
     }
 
     /// The record as last loaded from the server for this recording, or the pending local edit.
@@ -324,7 +343,7 @@ final class LabelerModel: ReviewStore {
         let before = snapshot.events.count
         snapshot.events.removeAll { blocked.contains($0.videoId) }
         for id in blocked where outbox.events[id] != nil { eventIdentityProblems[id] = "withheld: this recording is not reviewable now; the edit is kept on this phone and not sent" }
-        if snapshot.events.count != before { LocalStore.save(snapshot, "snapshot.json") }
+        if snapshot.events.count != before { LocalStore.saveInBackground(snapshot, "snapshot.json") {} }
     }
 
     /// Whether the recording may be reviewed here: the project has a published withheld list and the recording is not on it.
@@ -383,8 +402,7 @@ final class LabelerModel: ReviewStore {
             outbox.events[video.id] = pending
         }
         eventConflicts[video.id] = nil
-        LocalStore.save(outbox, "outbox.json")
-        LocalStore.save(snapshot, "snapshot.json")
+        persist()
         queueFlush()
     }
 
@@ -662,7 +680,7 @@ final class LabelerModel: ReviewStore {
     // MARK: - Outbox
 
     private func queueFlush() {
-        LocalStore.save(outbox, "outbox.json")
+        saveOutbox()
         flushTask?.cancel()
         flushTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_000_000_000)
@@ -696,7 +714,7 @@ final class LabelerModel: ReviewStore {
         for (id, times) in outbox.times {
             do {
                 let saved = try await client.save(times)
-                if outbox.times[id] == times { outbox.times[id] = nil }
+                if outbox.times[id] == times { outbox.times[id] = nil; settling.times[id] = times }
                 snapshot.times.removeAll { $0.videoId == id }
                 snapshot.times.append(saved)
             } catch { isOffline = true; break }
@@ -715,7 +733,13 @@ final class LabelerModel: ReviewStore {
                     carried.record.revision = saved.revision
                     outbox.events[id] = carried
                 } else {
+                    // Settles at the revision the server assigned: sent again after a kill, it is a repeat on top of
+                    // the server's own copy, never a stale one.
+                    var done = pending
+                    done.expected = saved.revision
+                    done.record.revision = saved.revision
                     outbox.events[id] = nil
+                    settling.events[id] = done
                 }
                 snapshot.events.removeAll { $0.videoId == id }
                 snapshot.events.append(saved)
@@ -743,13 +767,14 @@ final class LabelerModel: ReviewStore {
             do {
                 let row = try await client.submitRecordingTypeClaim(pending)
                 outbox.claims[pending.id] = nil
+                settling.claims[pending.id] = pending
                 snapshot.claims.removeAll { $0.id == row.id }
                 snapshot.claims.append(row)
             } catch LabelingClient.Failure.server(_, let message) where RecordingTypeClaims.isRefusal(message) {
                 // Written to the outbox file at once, not at the end of the flush: a crash during the sends that follow
                 // would otherwise leave the refusal in memory only, and the refused choice would be sent again.
                 outbox.claims = RecordingTypeClaims.refusing(outbox.claims, id: pending.id, reason: message)
-                LocalStore.save(outbox, "outbox.json")
+                saveOutbox()
                 syncProblem = message
             } catch { isOffline = true; break }
         }
@@ -757,7 +782,7 @@ final class LabelerModel: ReviewStore {
         for verdict in outbox.rallies {
             do {
                 try await client.reviewRally(verdict)
-                if let i = outbox.rallies.firstIndex(of: verdict) { outbox.rallies.remove(at: i) }
+                if let i = outbox.rallies.firstIndex(of: verdict) { outbox.rallies.remove(at: i); settling.rallies.append(verdict) }
             } catch {
                 isOffline = true
                 break
@@ -769,6 +794,7 @@ final class LabelerModel: ReviewStore {
             do {
                 try await client.reviewFrames(track, edits)
                 outbox.frames.removeAll { edits.contains($0) }
+                settling.frames += edits
             } catch LabelingClient.Failure.server(let code, _) where code == 400 {
                 // Someone else is reviewing it: their decisions stand.
                 outbox.frames.removeAll { edits.contains($0) }
@@ -783,6 +809,7 @@ final class LabelerModel: ReviewStore {
                 try await client.save(tracks)
                 for t in tracks where outbox.tracks[t.id] == t {
                     outbox.tracks[t.id] = nil
+                    settling.tracks[t.id] = t
                     snapshot.tracks.removeAll { $0.id == t.id }
                     snapshot.tracks.append(t)
                 }
@@ -792,8 +819,7 @@ final class LabelerModel: ReviewStore {
                 syncProblem = Self.describe("Couldn't send \(tracks.count) tracked rall\(tracks.count == 1 ? "y" : "ies")", error)
             }
         }
-        LocalStore.save(outbox, "outbox.json")
-        LocalStore.save(snapshot, "snapshot.json")
+        persist()
     }
 
     // MARK: - Clips
@@ -938,7 +964,7 @@ final class LabelerModel: ReviewStore {
                                    camera: request.camera, lighting: request.lighting, split: "train", clipPath: path,
                                    duration: duration, ralliesFound: [], status: .uploaded, updatedAt: nil)
             snapshot.videos.append(try await client.save(video))
-            LocalStore.save(snapshot, "snapshot.json")
+            LocalStore.saveInBackground(snapshot, "snapshot.json") {}
             return true
         } catch {
             self.error = "Upload failed: \(error.localizedDescription)"

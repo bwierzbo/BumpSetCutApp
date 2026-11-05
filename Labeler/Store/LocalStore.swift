@@ -13,7 +13,7 @@
 import Foundation
 
 /// Everything the app shows, as last loaded.
-struct LabelSnapshot: Codable {
+struct LabelSnapshot: Codable, Sendable {
     var videos: [LabelVideo] = []
     var times: [LabelRallyTimes] = []
     var tracks: [LabelTrack] = []
@@ -65,6 +65,29 @@ struct Outbox: Codable {
     var claims: [UUID: RecordingTypeClaims.Pending] = [:]
     var isEmpty: Bool { times.isEmpty && tracks.isEmpty && frames.isEmpty && rallies.isEmpty && events.isEmpty && claims.isEmpty }
     var count: Int { times.count + tracks.count + frames.count + rallies.count + events.count + claims.count }
+
+    /// This outbox with `settling`'s rows behind it: a live edit of the same thing wins, and the settled checks and
+    /// decisions come first, as they were made.
+    func carrying(_ settling: Outbox) -> Outbox {
+        var all = self
+        all.times.merge(settling.times) { mine, _ in mine }
+        all.tracks.merge(settling.tracks) { mine, _ in mine }
+        all.events.merge(settling.events) { mine, _ in mine }
+        all.claims.merge(settling.claims) { mine, _ in mine }
+        all.frames = settling.frames + frames
+        all.rallies = settling.rallies + rallies
+        return all
+    }
+
+    /// Takes `carried`'s rows out, each only where it is still the same row.
+    mutating func drop(_ carried: Outbox) {
+        for (id, row) in carried.times where times[id] == row { times[id] = nil }
+        for (id, row) in carried.tracks where tracks[id] == row { tracks[id] = nil }
+        for (id, row) in carried.events where events[id] == row { events[id] = nil }
+        for (id, row) in carried.claims where claims[id] == row { claims[id] = nil }
+        for edit in carried.frames { if let i = frames.firstIndex(of: edit) { frames.remove(at: i) } }
+        for verdict in carried.rallies { if let i = rallies.firstIndex(of: verdict) { rallies.remove(at: i) } }
+    }
 
     init() {}
 
@@ -127,9 +150,25 @@ enum LocalStore {
         (try? Data(contentsOf: support.appendingPathComponent(name))).flatMap { try? decoder.decode(T.self, from: $0) }
     }
 
+    /// Written before returning: the outbox (what this phone still owes the server) and the day's count are small,
+    /// and an edit counts as kept only once this has returned.
     static func save<T: Encodable>(_ value: T, _ name: String) {
         if let data = try? encoder.encode(value) { try? data.write(to: support.appendingPathComponent(name), options: .atomic) }
     }
+
+    /// Encoded and written off the main thread, one write at a time in the order asked, then `done` on the main
+    /// actor once the file holds this value. For the snapshot — the server's rows as last seen, with every tracked
+    /// rally's points: ~12 MB of JSON on a phone that labels Scratch — whose encoding on the main thread took
+    /// 370–410 ms on the owner's iPhone (2026-11-04), felt as a stutter about two seconds after every Dead ball.
+    /// A write still queued when the process dies is lost, so nothing may depend on it until `done` has run.
+    static func saveInBackground<T: Encodable & Sendable>(_ value: T, _ name: String, then done: @escaping @MainActor @Sendable () -> Void) {
+        writer.async {
+            if let data = try? makeEncoder().encode(value) { try? data.write(to: support.appendingPathComponent(name), options: .atomic) }
+            Task { @MainActor in done() }
+        }
+    }
+
+    private static let writer = DispatchQueue(label: "app.BumpSetCut.RallyLab.LocalStore.writer", qos: .userInitiated)
 
     // MARK: - A rally being tracked
 
@@ -226,11 +265,13 @@ enum LocalStore {
     /// A found rally by its start, to the tenth of a second.
     static func key(_ found: [Double]) -> Int { Int((found[0] * 10).rounded()) }
 
-    private static let encoder: JSONEncoder = {
+    private static let encoder: JSONEncoder = makeEncoder()
+
+    private static func makeEncoder() -> JSONEncoder {
         let e = JSONEncoder()
         e.dateEncodingStrategy = .iso8601
         return e
-    }()
+    }
     private static let decoder: JSONDecoder = {
         let d = JSONDecoder()
         d.dateDecodingStrategy = .iso8601
