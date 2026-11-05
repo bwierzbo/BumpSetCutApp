@@ -70,13 +70,13 @@ enum ServeReport {
                                                           minRallySec: base.minRallySec, padded: false)
             let starts = decided.map(\.range.start)
             let serves = decided.compactMap { $0.serve ?? detector.serve(in: frames, rallyStart: $0.range.start) }
-            today.add(clips: clips, truth: v.truth, cuts: v.mask)
+            today.add(clips: clips, truth: v.truth, cuts: v.cuts, excluded: v.excluded)
             // A clip starts at its first rally's serve, less the lead-in.
             for (n, lead) in leadIns.enumerated() {
                 let moved = clips.map { c in
                     serves.first { $0.contact >= c.start && $0.contact <= c.end }.map { Interval(start: max(0, $0.start - lead), end: c.end) } ?? c
                 }
-                anchored[n].add(clips: moved, truth: v.truth, cuts: v.mask)
+                anchored[n].add(clips: moved, truth: v.truth, cuts: v.cuts, excluded: v.excluded)
             }
             if verbose { log("\(v.session.name):") }
             var matched = Set<Double>()

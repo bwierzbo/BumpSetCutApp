@@ -327,6 +327,18 @@ def score_intervals(pred, truth, iou_threshold=0.5, boundary_tol=1.0):
     )
 
 
+def frame_metrics(y, probs, masked=None):
+    """Frame-level AUC and accuracy over the scorable frames only: the frames inside an excluded span
+    (a missed serve, a "not a rally" mark) are neither class and count in neither. None when there is
+    nothing to score."""
+    keep = np.ones(len(y), dtype=bool) if masked is None else ~masked
+    if keep.sum() == 0:
+        return None, None
+    yk, pk = y[keep], probs[keep]
+    auc = frame_auc(yk, pk)
+    return (None if np.isnan(auc) else float(auc)), float(((pk > 0.5) == (yk > 0.5)).mean())
+
+
 def frame_auc(y, p):
     """Rank-based AUC (Mann–Whitney)."""
     pos = p[y > 0.5]
@@ -432,13 +444,19 @@ def main():
               f"in-rally frames {int(y.sum())} ({y.mean() * 100:.1f}%)"
               + (f"  cut ranges {len(cuts)} ({sum(e - s for s, e in cuts):.1f}s not footage)" if cuts else ""))
         if negative_only:
+            # No rally to fit a model on, and no model from elsewhere to judge it with: the baseline is scored for
+            # false clips, the learned side is not reported and the recording stays out of the pooled comparison.
+            s_baseline = score_intervals(baseline, labels)
             print("negative-only: no rally in this recording — every frame outside the cuts and the excluded spans "
-                  "is not-rally time; scored for false clips, not fitted on its own")
+                  "is not-rally time; the rule decider is scored for false clips, nothing is fitted or compared")
+            print(f"baseline (rule decider) : {fmt(s_baseline)}")
+            print("learned : n/a (no rally to fit on; not in the pooled comparison)\n")
+            continue
 
         probs = out_of_fold_probs(X, y, times, labels, masked)
-        auc = frame_auc(y, probs)
-        acc = float(((probs > 0.5) == (y > 0.5)).mean())
-        print(f"frame-level (out-of-fold): AUC {'n/a (no rally)' if np.isnan(auc) else f'{auc:.4f}'}  acc@0.5 {acc:.3f}")
+        auc, acc = frame_metrics(y, probs, masked)
+        print(f"frame-level (out-of-fold, scorable frames): AUC {'n/a' if auc is None else f'{auc:.4f}'}  "
+              f"acc@0.5 {'n/a' if acc is None else f'{acc:.3f}'}")
 
         h = HYST_DEFAULT
         learned = decode_outside_cuts(times, probs, mask, h["enter"], h["exit"],
@@ -473,11 +491,7 @@ def main():
         all_truth.extend(labels)
 
         # final weights on ALL frames of this export (for the Swift port; the last export read sets them —
-        # a known limit of this single-video trainer). A negative-only export has no rally to fit: the weights
-        # from the last export with rallies stand.
-        if negative_only:
-            print()
-            continue
+        # a known limit of this single-video trainer).
         trainable = boundary_mask(times, labels) & ~masked
         mu = X[trainable].mean(axis=0)
         sd = X[trainable].std(axis=0)

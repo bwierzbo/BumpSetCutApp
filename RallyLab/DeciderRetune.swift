@@ -161,23 +161,22 @@ enum DeciderRetune {
     /// excluded spans first; a clip with nothing left is unscored.
     static func account(clips: [Interval], raw: [Interval], truth: [Interval], excluded: [Interval] = [], preservedShare: Double,
                         cuts: [CutRange] = []) -> Account {
+        // The cuts split every interval; the excluded spans mask each clip's pieces, the clip staying one (CutMask).
         let excluded = excluded.outside(cuts)
-        let mask = (cuts + excluded.map { CutRange(start: $0.start, end: $0.end) }).normalised()
-        let truth = truth.outside(mask), raw = raw.outside(mask)
-        let scorable = clips.map { [$0].outside(mask) }
-        let clips = scorable.flatMap { $0 }
+        let truth = truth.outside(cuts).outside(excluded.map { CutRange(start: $0.start, end: $0.end) })
+        let (clips, unscored) = clips.outside(cuts).scorable(excluding: excluded)
+        let (raw, _) = raw.outside(cuts).scorable(excluding: excluded)
         var a = Account()
         a.rallies = truth.count
         a.clips = clips.count
         a.excludedSpans = excluded.count
-        a.unscoredClips = scorable.filter(\.isEmpty).count
-        let clipUnion = union(clips), truthUnion = union(truth)
-        let matched = RallySegmentationScorer.score(predicted: clips, groundTruth: truth,
-                                                    config: ScoringConfig(iouMatchThreshold: 0.3, boundaryToleranceSec: 1.0))
+        a.unscoredClips = unscored
+        let clipUnion = union(clips.flatMap(\.pieces)), truthUnion = union(truth)
+        let matched = MaskedMatch(clips, truth: truth, iou: 0.3)
         let matchedTruth: [Interval] = matched.matches.map { $0.truth }
-        func coversMostOf(_ c: Interval, _ t: Interval) -> Bool { overlap(c, t) > 0.5 * (t.end - t.start) }
+        func coversMostOf(_ c: ScorableClip, _ t: Interval) -> Bool { c.overlap(t) > 0.5 * (t.end - t.start) }
         // A clip that covers more than half of two or more rallies merges them.
-        let mergingClips: [Interval] = clips.filter { c in
+        let mergingClips: [ScorableClip] = clips.filter { c in
             var covered = 0
             for t in truth where coversMostOf(c, t) { covered += 1 }
             return covered >= 2
@@ -189,9 +188,9 @@ enum DeciderRetune {
             for c in clipUnion { inside += overlap(c, t) }
             a.covered += inside
             var touching = 0, overHalfSecond = 0
-            for c in clips where overlap(c, t) > 0 {
+            for c in clips where c.overlap(t) > 0 {
                 touching += 1
-                if overlap(c, t) > 0.5 { overHalfSecond += 1 }
+                if c.overlap(t) > 0.5 { overHalfSecond += 1 }
             }
             if touching == 0 {
                 a.missed += 1
@@ -210,16 +209,14 @@ enum DeciderRetune {
             for t in truthUnion { insideTruth += overlap(c, t) }
             a.deadTime += (c.end - c.start) - insideTruth
         }
-        for c in clips where !truth.contains(where: { overlap(c, $0) > 0 }) { a.falseClips += 1 }
+        for c in clips where !truth.contains(where: { c.overlap($0) > 0 }) { a.falseClips += 1 }
         for m in matched.matches {
-            a.startErrors.append(m.pred.start - m.truth.start)
-            a.endErrors.append(m.pred.end - m.truth.end)
+            a.startErrors.append(m.clip.span.start - m.truth.start)
+            a.endErrors.append(m.clip.span.end - m.truth.end)
         }
-        let rawMatched = RallySegmentationScorer.score(predicted: raw, groundTruth: truth,
-                                                       config: ScoringConfig(iouMatchThreshold: 0.3, boundaryToleranceSec: 1.0))
-        for m in rawMatched.matches {
-            a.rawStartErrors.append(m.pred.start - m.truth.start)
-            a.rawEndErrors.append(m.pred.end - m.truth.end)
+        for m in MaskedMatch(raw, truth: truth, iou: 0.3).matches {
+            a.rawStartErrors.append(m.clip.span.start - m.truth.start)
+            a.rawEndErrors.append(m.clip.span.end - m.truth.end)
         }
         return a
     }

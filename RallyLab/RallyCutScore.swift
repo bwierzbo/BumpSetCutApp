@@ -44,24 +44,22 @@ enum RallyCutScore {
         var startErrors: [Double] = [], endErrors: [Double] = []
 
         /// `clips` and `truth` as the video holds them (outside the cuts); `excluded` the missed-serve and other
-        /// spans — the clips are scored on their pieces outside those, and one with nothing outside is unscored.
+        /// spans — each clip is scored on its pieces outside those, as one clip, and one with nothing outside is
+        /// unscored (the scoring contract §2; a cut, unlike an excluded span, splits a clip).
         mutating func add(clips: [Interval], truth: [Interval], excluded: [Interval] = [], iou: Double = 0.3) {
-            let mask = excluded.map { CutRange(start: $0.start, end: $0.end) }
-            let scorable = clips.map { [$0].outside(mask) }
-            unscored += scorable.filter(\.isEmpty).count
-            let clips = scorable.flatMap { $0 }
+            let (scored, unscoredHere) = clips.scorable(excluding: excluded)
+            unscored += unscoredHere
             self.truth += truth.count
-            self.clips += clips.count
-            let r = RallySegmentationScorer.score(predicted: clips, groundTruth: truth,
-                                                 config: ScoringConfig(iouMatchThreshold: iou, boundaryToleranceSec: 1.0))
-            found += r.truePositives
-            falseClips += r.unmatchedPredictions.filter { c in !truth.contains { overlap(c, $0) > 0 } }.count
-            missed += r.unmatchedGroundTruth.filter { t in !clips.contains { overlap($0, t) > 0 } }.count
-            merged += clips.filter { c in truth.filter { overlap(c, $0) > 0.5 * ($0.end - $0.start) }.count >= 2 }.count
-            split += truth.filter { t in clips.filter { overlap($0, t) > 0.5 } .count >= 2 }.count
+            self.clips += scored.count
+            let r = MaskedMatch(scored, truth: truth, iou: iou)
+            found += r.matches.count
+            falseClips += r.unmatchedClips.filter { c in !truth.contains { c.overlap($0) > 0 } }.count
+            missed += r.unmatchedTruth.filter { t in !scored.contains { $0.overlap(t) > 0 } }.count
+            merged += scored.filter { c in truth.filter { c.overlap($0) > 0.5 * ($0.end - $0.start) }.count >= 2 }.count
+            split += truth.filter { t in scored.filter { $0.overlap(t) > 0.5 }.count >= 2 }.count
             for m in r.matches {
-                startErrors.append(m.pred.start - m.truth.start)
-                endErrors.append(m.pred.end - m.truth.end)
+                startErrors.append(m.clip.span.start - m.truth.start)
+                endErrors.append(m.clip.span.end - m.truth.end)
             }
         }
 

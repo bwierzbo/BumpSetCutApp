@@ -1235,10 +1235,9 @@ final class RallyLabModel {
         // spans (a missed serve or a "not a rally" mark; RallyTruth) and the cuts — never the padded export
         // ranges, otherwise preroll/postroll reads as model error.
         let truth = self.truth
-        score = RallySegmentationScorer.score(
-            predicted: rawPredictions.outside(truth.mask),
-            groundTruth: truth.positiveIntervals
-        )
+        let (scored, _) = rawPredictions.outside(truth.cuts).scorable(excluding: truth.excludedIntervals)
+        score = MaskedMatch(scored, truth: truth.positiveIntervals, iou: ScoringConfig().iouMatchThreshold)
+            .result(tolerance: ScoringConfig().boundaryToleranceSec)
     }
 
     /// The labels and cuts as every consumer reads them: the rallies by kind, the excluded spans, the cuts, and

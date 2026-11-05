@@ -50,7 +50,7 @@ final class DeciderRetuneTests: XCTestCase {
         let c = DeciderRetune.account(clips: [iv(30, 33), iv(31, 38), iv(100, 102)], raw: [], truth: [iv(10, 20)], excluded: [iv(30, 33)], preservedShare: 0.95)
         XCTAssertEqual(c.rallies, 1); XCTAssertEqual(c.excludedSpans, 1)
         XCTAssertEqual(c.unscoredClips, 1, "the clip inside the missed serve")
-        XCTAssertEqual(c.clips, 2); XCTAssertEqual(c.falseClips, 2, "the piece 33–38 and the clip at 100–102")
+        XCTAssertEqual(c.clips, 2); XCTAssertEqual(c.falseClips, 2, "the clip 31–38 on its piece 33–38, and the clip at 100–102")
         XCTAssertEqual(c.deadTime, 7, accuracy: 1e-9, "5 + 2: nothing inside the excluded span")
     }
 

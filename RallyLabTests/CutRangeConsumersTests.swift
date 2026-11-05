@@ -36,6 +36,11 @@ final class CutRangeConsumersTests: XCTestCase {
         XCTAssertEqual(masked.rallies, 2); XCTAssertEqual(masked.covered, 20, accuracy: 1e-9)
         XCTAssertEqual(masked.falseClips, 1, "the replay clip is gone; the 70–72 clip stays")
         XCTAssertEqual(masked.deadTime, 6, accuracy: 1e-9, "1 + 1 + 1 + 1 + 2: the replay's 10 s are not dead time")
+        // A missed serve at 33–35 inside a false clip 30–40: the clip stays one false clip, its 2 s inside are not dead time;
+        // a clip wholly inside a missed serve is neither.
+        var excluded = PipelineTuner.Score()
+        excluded.add(clips: [iv(9, 21), iv(30, 40), iv(50, 52)], truth: [iv(10, 20)], excluded: [iv(33, 35), iv(50, 52)])
+        XCTAssertEqual(excluded.falseClips, 1); XCTAssertEqual(excluded.deadTime, 10, accuracy: 1e-9, "1 + 1 around the rally, 8 of the clip 30–40")
 
         // A rally whose serve the clip missed (the recording starts mid-rally, cut 0–12): not a rally to find.
         var start = PipelineTuner.Score()
@@ -55,9 +60,23 @@ final class CutRangeConsumersTests: XCTestCase {
         var e = RallyCutScore.Tally()
         e.add(clips: [iv(9, 21), iv(30, 33), iv(70, 76)], truth: [iv(10, 20)], excluded: [iv(30, 33), iv(72, 74)])
         XCTAssertEqual(e.truth, 1); XCTAssertEqual(e.found, 1)
-        XCTAssertEqual(e.unscored, 1); XCTAssertEqual(e.clips, 3, "the found clip and the two pieces of the straddling one")
-        XCTAssertEqual(e.falseClips, 2, "the pieces 70–72 and 74–76; the clip inside the missed serve is neither hit nor false")
+        XCTAssertEqual(e.unscored, 1); XCTAssertEqual(e.clips, 2, "the found clip and the clip over the missed serve at 72–74 — one clip, two pieces")
+        XCTAssertEqual(e.falseClips, 1, "the clip 70–76 is one false clip; the clip inside the missed serve is neither hit nor false")
         XCTAssertTrue(e.line.contains("1 unscored"))
+        // Contract fixture 21: one prediction runs through the rally 10–29, a missed serve 30–31 and dead time to 40;
+        // matched on its two pieces (IoU 19/29), end error +11 from the scorable span's end.
+        var f = RallyCutScore.Tally()
+        f.add(clips: [iv(10, 40)], truth: [iv(10, 29)], excluded: [iv(30, 31)], iou: 0.5)
+        XCTAssertEqual(f.found, 1); XCTAssertEqual(f.falseClips, 0); XCTAssertEqual(f.merged, 0); XCTAssertEqual(f.split, 0)
+        XCTAssertEqual(f.startErrors, [0]); XCTAssertEqual(f.endErrors, [11])
+        // Contract fixture 14: a prediction over a marked non-rally 60–62 and ordinary dead time: one false clip.
+        var g = RallyCutScore.Tally()
+        g.add(clips: [iv(10, 14), iv(58, 66)], truth: [iv(10, 14)], excluded: [iv(60, 62)], iou: 0.5)
+        XCTAssertEqual(g.found, 1); XCTAssertEqual(g.falseClips, 1); XCTAssertEqual(g.clips, 2); XCTAssertEqual(g.unscored, 0)
+        // The matcher itself: the pieces, the span, and a clip wholly inside an excluded span left out.
+        let (scored, unscored) = [iv(10, 40), iv(30, 31)].scorable(excluding: [iv(30, 31)])
+        XCTAssertEqual(unscored, 1); XCTAssertEqual(scored.map(\.pieces), [[iv(10, 30), iv(31, 40)]])
+        XCTAssertEqual(scored[0].span, iv(10, 40)); XCTAssertEqual(scored[0].seconds, 29); XCTAssertEqual(scored[0].iou(iv(10, 29)), 19.0 / 29, accuracy: 1e-9)
     }
 
     func testRetuneAccountingMasksTheExcludedSpansThroughTheCuts() {
@@ -68,13 +87,19 @@ final class CutRangeConsumersTests: XCTestCase {
         XCTAssertEqual(a.rallies, 2)
         XCTAssertEqual(a.excludedSpans, 0, "the missed-serve mark lay inside the cut")
         XCTAssertEqual(a.rallyTime, 16, accuracy: 1e-9, "10 + the piece 42–48")
-        XCTAssertEqual(a.clips, 2); XCTAssertEqual(a.falseClips, 0); XCTAssertEqual(a.unscoredClips, 1, "the clip inside the cut")
+        XCTAssertEqual(a.clips, 2); XCTAssertEqual(a.falseClips, 0)
+        XCTAssertEqual(a.unscoredClips, 0, "the clip inside the cut is gone with the cut (not footage), not unscored")
         XCTAssertEqual(a.deadTime, 3, accuracy: 1e-9, "1 + 1 around the first rally, 1 after the second")
         // A missed serve the cut only brushes keeps its piece outside, and masks the clip there like the cut does.
         let b = DeciderRetune.account(clips: [iv(42, 46), iv(50, 52)], raw: [], truth: truth, excluded: [iv(40, 45)], preservedShare: 0.95, cuts: [cut(28, 42)])
         XCTAssertEqual(b.excludedSpans, 1)
         XCTAssertEqual(b.rallyTime, 13, accuracy: 1e-9, "10 + the piece 45–48 of the second rally")
-        XCTAssertEqual(b.clips, 2, "the clip's piece 45–46 and the clip at 50–52"); XCTAssertEqual(b.unscoredClips, 0)
+        XCTAssertEqual(b.clips, 2, "the clip on its piece 45–46 and the clip at 50–52"); XCTAssertEqual(b.unscoredClips, 0)
+        // An excluded span inside a clip never splits it (unlike a cut): one clip, matched on its pieces, one false clip.
+        let c = DeciderRetune.account(clips: [iv(10, 40), iv(70, 76)], raw: [iv(10, 40)], truth: [iv(10, 29)], excluded: [iv(30, 31), iv(72, 74)], preservedShare: 0.95)
+        XCTAssertEqual(c.clips, 2); XCTAssertEqual(c.falseClips, 1); XCTAssertEqual(c.unscoredClips, 0)
+        XCTAssertEqual(c.preserved, 1); XCTAssertEqual(c.endErrors, [11]); XCTAssertEqual(c.rawEndErrors, [11])
+        XCTAssertEqual(c.deadTime, 14, accuracy: 1e-9, "10 of 10–40 outside the rally and the missed serve, 4 of 70–76")
     }
 
     // MARK: - Sampling, net frame, test set

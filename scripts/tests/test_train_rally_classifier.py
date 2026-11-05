@@ -126,9 +126,22 @@ class MarkKinds(unittest.TestCase):
             out = _run([path], weights)
             self.assertIn("negative-only", out)
             self.assertIn("excluded spans (missed serves, not a rally) 1", out)
-            self.assertIn("AUC n/a (no rally)", out)
             self.assertIn("baseline (rule decider) : P 0.000  R 0.000", out, "the clip at 30–33 is a false clip; the one inside the missed serve is unscored")
+            self.assertIn("learned : n/a", out, "no model is fitted or judged on a recording without a rally")
+            self.assertNotIn("frame-level", out, "no synthetic frame metrics either")
+            self.assertNotIn("corpus (pooled)", out, "a lone negative-only export pools nothing")
             self.assertFalse(os.path.exists(weights), "no rally to fit: no weights from a negative-only export")
+
+    def test_frame_metrics_leave_the_excluded_frames_out(self):
+        y = np.array([1, 1, 0, 0, 0, 0], dtype=float)
+        probs = np.array([0.9, 0.8, 0.2, 0.1, 0.95, 0.9])
+        masked = np.array([False, False, False, False, True, True])
+        auc, acc = t.frame_metrics(y, probs, masked)
+        self.assertEqual((auc, acc), (1.0, 1.0), "the two confident frames inside the missed serve are neither class")
+        auc_all, acc_all = t.frame_metrics(y, probs)
+        self.assertLess(auc_all, 1.0); self.assertLess(acc_all, 1.0)
+        self.assertEqual(t.frame_metrics(y, probs, np.ones(6, dtype=bool)), (None, None), "nothing scorable")
+        self.assertEqual(t.frame_metrics(np.zeros(3), np.zeros(3))[0], None, "no positive: no AUC")
 
     def test_a_complete_export_with_rallies_trains_on_its_labels_only(self):
         # A rally at 10–20 and a missed serve at 30–32, both with the ball flying: only the rally is a positive;

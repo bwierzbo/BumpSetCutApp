@@ -183,10 +183,9 @@ enum PipelineTuner {
         let session: VideoSession
         /// The rallies (kind rally, or none — a legacy mark), whole; the score takes them outside the cuts (RallyTruth).
         let truth: [Interval]
-        /// The missed serves and "not a rally" marks, whole: excluded spans the score masks with, like the cuts.
+        /// The missed serves and "not a rally" marks, whole: excluded spans the score masks each clip with (the
+        /// clip staying one; a cut splits it).
         var excluded: [Interval] = []
-        /// What the score masks: the cut ranges and the excluded spans.
-        var mask: [CutRange] { (cuts + excluded.map { CutRange(start: $0.start, end: $0.end) }).normalised() }
         /// The recording's cut ranges (not footage; D-030): the score sees truth and clips outside them.
         var cuts: [CutRange] { session.cutRanges }
     }
@@ -214,10 +213,13 @@ enum PipelineTuner {
 
         /// `cuts`: the recording's cut ranges — truth and clips count only outside them, so a
         /// replay the pipeline cut is neither dead time nor a false clip, and a rally inside one
-        /// is not a rally to find (D-030).
-        mutating func add(clips: [Interval], truth: [Interval], cuts: [CutRange] = []) {
-            let clips = clips.outside(cuts), truth = truth.outside(cuts)
-            let merged = Self.union(clips)
+        /// is not a rally to find (D-030). `excluded`: the missed serves and other marks — each
+        /// clip counts on its pieces outside them, as one clip; one with nothing outside is unscored.
+        mutating func add(clips: [Interval], truth: [Interval], cuts: [CutRange] = [], excluded: [Interval] = []) {
+            let excluded = excluded.outside(cuts)
+            let truth = truth.outside(cuts).outside(excluded.map { CutRange(start: $0.start, end: $0.end) })
+            let (clips, _) = clips.outside(cuts).scorable(excluding: excluded)
+            let merged = Self.union(clips.flatMap(\.pieces))
             for t in truth {
                 let length = max(0, t.end - t.start)
                 guard length > 0 else { continue }
@@ -231,7 +233,7 @@ enum PipelineTuner {
             for c in merged {
                 deadTime += (c.end - c.start) - truthUnion.reduce(0) { $0 + RallyCutScore.overlap(c, $1) }
             }
-            falseClips += clips.filter { c in !truth.contains { RallyCutScore.overlap(c, $0) > 0 } }.count
+            falseClips += clips.filter { c in !truth.contains { c.overlap($0) > 0 } }.count
         }
 
         static func + (a: Score, b: Score) -> Score {
@@ -267,7 +269,7 @@ enum PipelineTuner {
     static func score(_ passes: [Pass], _ settings: Settings) -> Score {
         passes.reduce(Score()) { total, pass in
             var s = Score()
-            s.add(clips: clips(pass, settings), truth: pass.video.truth, cuts: pass.video.mask)
+            s.add(clips: clips(pass, settings), truth: pass.video.truth, cuts: pass.video.cuts, excluded: pass.video.excluded)
             return total + s
         }
     }
