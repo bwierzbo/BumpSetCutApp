@@ -127,29 +127,20 @@ enum LocalStore {
         (try? Data(contentsOf: support.appendingPathComponent(name))).flatMap { try? decoder.decode(T.self, from: $0) }
     }
 
-    static func save<T: Encodable>(_ value: T, _ name: String) {
-        if let data = try? encoder.encode(value) { try? data.write(to: support.appendingPathComponent(name), options: .atomic) }
-    }
-
-    /// The snapshot — the server's rows as last seen, with every tracked rally's points: ~12 MB of JSON on a phone that
-    /// labels Scratch — is encoded and written off the main thread, one write at a time in the order asked, so a tap
-    /// never waits on it (measured on the owner's iPhone, 2026-11-04: 370–410 ms per save on the main thread, felt as a
-    /// stutter about two seconds after every Dead ball). The outbox stays synchronous: it is the durable record of what
-    /// this phone still owes the server, small, and saved at once.
-    /// A burst of saves (every tap updates a video, flushes and saves) writes only the newest value: each queued save
-    /// carries the whole file, so an older one still waiting is dropped.
-    static func saveInBackground<T: Encodable & Sendable>(_ value: T, _ name: String) {
-        queued.lock(); let mine = (queued.generation[name] ?? 0) &+ 1; queued.generation[name] = mine; queued.unlock()
+    /// Every file is encoded and written on one serial queue, in the order the saves were asked, so the files on
+    /// the phone always hold states the app held, in that order — never a later outbox beside an earlier snapshot.
+    /// Nothing here runs on the main thread: the snapshot (the server's rows as last seen, with every tracked
+    /// rally's points) is ~12 MB of JSON on a phone that labels Scratch, and encoding it on the main thread took
+    /// 370–410 ms on the owner's iPhone (2026-11-04), felt as a stutter about two seconds after every Dead ball.
+    /// A save that is still queued when the process dies is lost: the model orders its saves so that the outbox
+    /// (what this phone still owes the server) is never written without the snapshot it was settled against.
+    static func save<T: Encodable & Sendable>(_ value: T, _ name: String) {
         writer.async {
-            queued.lock(); let newest = queued.generation[name]; queued.unlock()
-            guard newest == mine else { return }
             if let data = try? makeEncoder().encode(value) { try? data.write(to: support.appendingPathComponent(name), options: .atomic) }
         }
     }
 
-    private static let writer = DispatchQueue(label: "app.BumpSetCut.RallyLab.LocalStore.writer", qos: .utility)
-    private static let queued = Queued()
-    private final class Queued: NSLock, @unchecked Sendable { var generation: [String: UInt64] = [:] }
+    private static let writer = DispatchQueue(label: "app.BumpSetCut.RallyLab.LocalStore.writer", qos: .userInitiated)
 
     // MARK: - A rally being tracked
 
@@ -245,8 +236,6 @@ enum LocalStore {
 
     /// A found rally by its start, to the tenth of a second.
     static func key(_ found: [Double]) -> Int { Int((found[0] * 10).rounded()) }
-
-    private static let encoder: JSONEncoder = makeEncoder()
 
     private static func makeEncoder() -> JSONEncoder {
         let e = JSONEncoder()
