@@ -22,7 +22,11 @@ enum RallyCutScore {
 
     struct Video {
         let name: String
+        /// The rallies (kind rally, or none — a legacy mark), outside the cuts and the excluded spans (RallyTruth).
         let truth: [Interval]
+        /// The missed serves and "not a rally" marks, outside the cuts: excluded spans. `clips` are their pieces
+        /// outside them too — one wholly inside is unscored, neither a hit nor a false clip (the scoring contract).
+        var excluded: [Interval] = []
         let evidence: [VideoProcessor.FrameEvidence]
         let duration: Double
         let clips: [Interval]
@@ -35,9 +39,17 @@ enum RallyCutScore {
 
     struct Tally {
         var truth = 0, clips = 0, found = 0, falseClips = 0, missed = 0, merged = 0, split = 0
+        /// Clips wholly inside a missed serve or a "not a rally" mark: unscored, neither hit nor false clip.
+        var unscored = 0
         var startErrors: [Double] = [], endErrors: [Double] = []
 
-        mutating func add(clips: [Interval], truth: [Interval], iou: Double = 0.3) {
+        /// `clips` and `truth` as the video holds them (outside the cuts); `excluded` the missed-serve and other
+        /// spans — the clips are scored on their pieces outside those, and one with nothing outside is unscored.
+        mutating func add(clips: [Interval], truth: [Interval], excluded: [Interval] = [], iou: Double = 0.3) {
+            let mask = excluded.map { CutRange(start: $0.start, end: $0.end) }
+            let scorable = clips.map { [$0].outside(mask) }
+            unscored += scorable.filter(\.isEmpty).count
+            let clips = scorable.flatMap { $0 }
             self.truth += truth.count
             self.clips += clips.count
             let r = RallySegmentationScorer.score(predicted: clips, groundTruth: truth,
@@ -60,18 +72,21 @@ enum RallyCutScore {
                 return String(format: "%+.1fs", s[s.count / 2])
             }
             let within = zip(startErrors, endErrors).filter { abs($0) <= 1 && abs($1) <= 1 }.count
-            return "\(found)/\(truth) rallies found · \(missed) missed · \(falseClips) false clips · \(merged) merged clips · \(split) split"
+            return "\(found)/\(truth) rallies found · \(missed) missed · \(falseClips) false clips" + (unscored > 0 ? " · \(unscored) unscored (inside a missed serve)" : "") + " · \(merged) merged clips · \(split) split"
                 + " · start \(med(startErrors)) end \(med(endErrors)) (median) · both ends within 1 s: \(within)/\(max(found, 0))"
         }
     }
 
     static func overlap(_ a: Interval, _ b: Interval) -> Double { max(0, min(a.end, b.end) - max(a.start, b.start)) }
 
+    /// nil without readable marks, and for a recording whose pass is not complete: what lies outside its
+    /// marks is unknown, not dead, so neither false clips nor dead time can be counted (RallyTruth). The truth
+    /// is the rallies; the missed serves and other marks are excluded spans the replayed clips are masked with.
     @MainActor
     static func process(_ session: VideoSession, config: ProcessorConfig = ProcessorConfig()) async -> Video? {
         let video = URL(fileURLWithPath: session.sourcePath)
-        guard let data = try? Data(contentsOf: RallyMarkModel.labelsURL(for: video)),
-              let labels = try? JSONDecoder().decode([LabeledRally].self, from: data) else { return nil }
+        if let why = RallyTruth.incompleteReason(session) { print("⏭ \(session.name): \(why)"); return nil }
+        guard let truth = try? RallyTruth.of(session) else { return nil }
         let processor = VideoProcessor()
         processor.config = config
         processor.collectFrameEvidence = true
@@ -84,8 +99,8 @@ enum RallyCutScore {
             print("❌ \(session.name): \(error.localizedDescription)")
             return nil
         }
-        let cuts = session.cutRanges
-        return Video(name: session.name, truth: labels.map { Interval(start: $0.startTime, end: $0.endTime) }.outside(cuts),
+        let cuts = truth.cuts
+        return Video(name: session.name, truth: truth.positiveIntervals, excluded: truth.excludedIntervals,
                      evidence: processor.frameEvidence, duration: processor.lastVideoDurationSec,
                      clips: segments.map { Interval(start: $0.startTime, end: $0.endTime) }.outside(cuts), serves: processor.serves,
                      cuts: cuts)
@@ -128,8 +143,8 @@ enum RallyCutScore {
         var all = Tally()
         for v in videos {
             var t = Tally()
-            t.add(clips: v.clips, truth: v.truth)
-            all.add(clips: v.clips, truth: v.truth)
+            t.add(clips: v.clips, truth: v.truth, excluded: v.excluded)
+            all.add(clips: v.clips, truth: v.truth, excluded: v.excluded)
             log("  \(v.name): \(t.line)")
         }
         log("  ALL (\(videos.count) videos): \(all.line)")
@@ -150,7 +165,7 @@ enum RallyCutScore {
         var rows: [(String, Tally)] = []
         for (label, config) in variants {
             var t = Tally()
-            for v in videos { t.add(clips: replay(v, config: config), truth: v.truth) }
+            for v in videos { t.add(clips: replay(v, config: config), truth: v.truth, excluded: v.excluded) }
             rows.append((label, t))
         }
         log("    " + rows[0].0 + " → " + rows[0].1.line)

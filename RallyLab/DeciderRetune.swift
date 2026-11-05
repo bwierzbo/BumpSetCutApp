@@ -121,10 +121,9 @@ enum DeciderRetune {
     struct Account: Codable, Equatable {
         var rallies = 0, preserved = 0, clipped = 0, merged = 0, split = 0, partial = 0, missed = 0
         var clips = 0, falseClips = 0
-        /// Marks closed with N (a serve nothing followed: into the net, long, wide): in the classes above like
-        /// every mark, and counted here on their own — a one-second flight is under the decider's shortest rally
-        /// and the shortest clip, so the pipeline misses most by design.
-        var missedServeMarks = 0, missedServeMarksMissed = 0
+        /// The missed serves and "not a rally" marks (outside the cuts): excluded spans, masked like the cuts (the
+        /// scoring contract; owner, 2026-11-04) — and the clips that lay wholly inside one, unscored.
+        var excludedSpans = 0, unscoredClips = 0
         var rallyTime = 0.0, covered = 0.0, deadTime = 0.0
         /// Delivered clip − marked rally, over one-to-one matches (IoU ≥ 0.3).
         var startErrors: [Double] = [], endErrors: [Double] = []
@@ -135,7 +134,7 @@ enum DeciderRetune {
             Account(rallies: a.rallies + b.rallies, preserved: a.preserved + b.preserved, clipped: a.clipped + b.clipped,
                     merged: a.merged + b.merged, split: a.split + b.split, partial: a.partial + b.partial, missed: a.missed + b.missed,
                     clips: a.clips + b.clips, falseClips: a.falseClips + b.falseClips,
-                    missedServeMarks: a.missedServeMarks + b.missedServeMarks, missedServeMarksMissed: a.missedServeMarksMissed + b.missedServeMarksMissed,
+                    excludedSpans: a.excludedSpans + b.excludedSpans, unscoredClips: a.unscoredClips + b.unscoredClips,
                     rallyTime: a.rallyTime + b.rallyTime, covered: a.covered + b.covered, deadTime: a.deadTime + b.deadTime,
                     startErrors: a.startErrors + b.startErrors, endErrors: a.endErrors + b.endErrors,
                     rawStartErrors: a.rawStartErrors + b.rawStartErrors, rawEndErrors: a.rawEndErrors + b.rawEndErrors)
@@ -157,23 +156,21 @@ enum DeciderRetune {
     }
 
     /// The accounting of one video: `clips` delivered (padded, joined), `raw` their raw decided spans, `truth` the
-    /// marks, `kinds` each mark's kind in the same order (nil when the mark has none). `cuts`: the recording's cut
-    /// ranges (not footage; D-030) — kinds are lined up with the marks first, then every interval is taken outside
-    /// the cuts, each truth piece keeping its mark's kind.
-    static func account(clips: [Interval], raw: [Interval], truth: [Interval], kinds: [RallyKind?], preservedShare: Double,
+    /// rallies (RallyTruth: kind rally, or a legacy mark with none), `excluded` the missed serves and other marks.
+    /// `cuts`: the recording's cut ranges (not footage; D-030). Every interval is taken outside the cuts and the
+    /// excluded spans first; a clip with nothing left is unscored.
+    static func account(clips: [Interval], raw: [Interval], truth: [Interval], excluded: [Interval] = [], preservedShare: Double,
                         cuts: [CutRange] = []) -> Account {
-        var truth = truth, kinds = kinds, clips = clips, raw = raw
-        if !cuts.isEmpty {
-            var pieces: [Interval] = [], pieceKinds: [RallyKind?] = []
-            for (i, t) in truth.enumerated() {
-                for piece in [t].outside(cuts) { pieces.append(piece); pieceKinds.append(i < kinds.count ? kinds[i] : nil) }
-            }
-            truth = pieces; kinds = pieceKinds
-            clips = clips.outside(cuts); raw = raw.outside(cuts)
-        }
+        let excluded = excluded.outside(cuts)
+        let mask = (cuts + excluded.map { CutRange(start: $0.start, end: $0.end) }).normalised()
+        let truth = truth.outside(mask), raw = raw.outside(mask)
+        let scorable = clips.map { [$0].outside(mask) }
+        let clips = scorable.flatMap { $0 }
         var a = Account()
         a.rallies = truth.count
         a.clips = clips.count
+        a.excludedSpans = excluded.count
+        a.unscoredClips = scorable.filter(\.isEmpty).count
         let clipUnion = union(clips), truthUnion = union(truth)
         let matched = RallySegmentationScorer.score(predicted: clips, groundTruth: truth,
                                                     config: ScoringConfig(iouMatchThreshold: 0.3, boundaryToleranceSec: 1.0))
@@ -185,11 +182,9 @@ enum DeciderRetune {
             for t in truth where coversMostOf(c, t) { covered += 1 }
             return covered >= 2
         }
-        for (index, t) in truth.enumerated() {
+        for t in truth {
             let length = max(0, t.end - t.start)
             a.rallyTime += length
-            let missedServeMark = index < kinds.count && kinds[index] == .missedServe
-            if missedServeMark { a.missedServeMarks += 1 }
             var inside = 0.0
             for c in clipUnion { inside += overlap(c, t) }
             a.covered += inside
@@ -200,7 +195,6 @@ enum DeciderRetune {
             }
             if touching == 0 {
                 a.missed += 1
-                if missedServeMark { a.missedServeMarksMissed += 1 }
             } else if mergingClips.contains(where: { coversMostOf($0, t) }) {
                 a.merged += 1
             } else if overHalfSecond >= 2 {
@@ -370,14 +364,6 @@ enum DeciderRetune {
         for n in pool where groups[n] == nil { log("❌ \(n) is not in the split manifest."); return false }
         var videos: [String: PipelineTuner.Video] = [:]
         for v in PipelineTuner.videos(pool, sampler: projects.sampler, log: log) { videos[v.session.name] = v }
-        // Each mark's kind, in the marks' order (the same file and order PipelineTuner.videos read the times from).
-        var kinds: [String: [RallyKind?]] = [:]
-        for v in videos.values {
-            let file = RallyMarkModel.labelsURL(for: URL(fileURLWithPath: v.session.sourcePath))
-            guard let data = try? Data(contentsOf: file), let marks = try? JSONDecoder().decode([RallyMarkRecord].self, from: data),
-                  marks.count == v.truth.count else { log("❌ \(v.session.name): the marks' kinds can't be read beside their times."); return false }
-            kinds[v.session.name] = marks.map(\.kind)
-        }
         let unmarked = pool.filter { videos[$0] == nil }
         guard unmarked.isEmpty else { log("❌ Not every rally is marked (or not in the project): \(unmarked.joined(separator: ", "))"); return false }
         log("Plan \(plan.id) (sha256 \(planSHA.prefix(16))): tune \(plan.tune.count) recordings in \(Set(plan.tune.compactMap { groups[$0] }).count) groups · eval \(plan.eval.count) in \(Set(plan.eval.compactMap { groups[$0] }).count) groups · \(candidates(plan.grid).count) candidates")
@@ -450,7 +436,7 @@ enum DeciderRetune {
             let p = passes[model]![video]!
             let config = candidate.apply(to: configs[model]!)
             let (clips, raw) = replay(evidence: p.evidence, duration: p.duration, config: config, minRallySec: plan.minRallySec)
-            return Self.account(clips: clips, raw: raw, truth: p.video.truth, kinds: kinds[video] ?? [], preservedShare: plan.preservedShare,
+            return Self.account(clips: clips, raw: raw, truth: p.video.truth, excluded: p.video.excluded, preservedShare: plan.preservedShare,
                                 cuts: p.video.cuts)
         }
         func condition(_ label: String, _ model: String, _ candidate: Candidate) -> Condition {
@@ -500,10 +486,10 @@ enum DeciderRetune {
     static func line(_ a: Account) -> String {
         func med(_ v: [Double]) -> String { Account.median(v).map { String(format: "%+.1f", $0) } ?? "—" }
         return "\(a.rallies) | \(a.preserved) | \(a.clipped) | \(a.merged) | \(a.split) | \(a.partial) | \(a.missed) | \(a.clips) | \(a.falseClips) | "
-            + String(format: "%.1f", a.rallies > 0 ? a.deadTime / Double(a.rallies) : 0) + " | \(med(a.startErrors)) / \(med(a.endErrors)) | \(med(a.rawStartErrors)) / \(med(a.rawEndErrors)) | \(a.within1s) | \(a.missedServeMarks) (\(a.missedServeMarksMissed))"
+            + String(format: "%.1f", a.rallies > 0 ? a.deadTime / Double(a.rallies) : 0) + " | \(med(a.startErrors)) / \(med(a.endErrors)) | \(med(a.rawStartErrors)) / \(med(a.rawEndErrors)) | \(a.within1s) | \(a.excludedSpans) (\(a.unscoredClips))"
     }
 
-    static let header = "| condition | rallies | preserved | clipped | merged | split | partial | missed | clips | false | dead s/rally | start/end (padded) | start/end (raw) | both within 1 s | missed-serve marks (of them missed) |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
+    static let header = "| condition | rallies | preserved | clipped | merged | split | partial | missed | clips | false | dead s/rally | start/end (padded) | start/end (raw) | both within 1 s | excluded missed-serve/other spans (clips unscored inside them) |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
 
     static func markdown(_ r: Report, pool: [String]) -> String {
         var md: [String] = ["# Decider retune — \(r.plan.id)", "",

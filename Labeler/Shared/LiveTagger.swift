@@ -4,7 +4,9 @@
 //
 //  Live tagging's state and rules, the same on the Mac and the phone: a
 //  serve opens a rally; a dead ball closes it as a rally, "missed serve"
-//  or "not a rally" close it as one of those. Each press is backed up for
+//  closes it as one (a serve nothing followed: an excluded span for scoring
+//  and training, like the "not a rally" kind the keys no longer offer —
+//  owner, 2026-11-04). Each press is backed up for
 //  the reaction it took and snapped to the nearest moment the pre-tracked
 //  ball changed course, appeared or went dead. Undo takes back the last
 //  press, reopening a closed rally.
@@ -33,9 +35,11 @@ protocol LiveTagStore: AnyObject {
     /// Save a rally; the handle is what `delete` takes.
     func mark(start: Double, end: Double, kind: RallyKind) -> AnyHashable
     func delete(_ mark: AnyHashable)
-    /// Pre-tracked rallies mostly inside the marked one are rallies, trimmed
-    /// to it. Returns them as they were.
-    func confirmPretracked(start: Double, end: Double) -> [TrackedRally]
+    /// The pre-tracked rallies mostly inside the mark follow its kind: a rally
+    /// confirms them, trimmed to it; a missed serve or a "not a rally" turns
+    /// them down as they are (RallyTruth.pretrackedChanges). Returns them as
+    /// they were.
+    func confirmPretracked(start: Double, end: Double, kind: RallyKind) -> [TrackedRally]
     /// Pre-tracked rallies back as they were.
     func restore(_ rallies: [TrackedRally])
     /// The rallies marked so far that overlap `start ..< end`.
@@ -150,8 +154,8 @@ final class LiveTagger {
              + (cutEnd.map { " · the cut ended at \(clockText($0))" } ?? ""))
     }
 
-    /// D, M or N: the open rally ends here — as a rally, a missed serve, or
-    /// something that wasn't a rally.
+    /// D or M: the open rally ends here — as a rally, or a missed serve. (`.other`
+    /// is kept for the marks that have it; no key makes one any more.)
     func close(as kind: RallyKind, _ p: Press) {
         guard cutFrom == nil else { note("Cut open — X ends it, or S at the next serve"); return }
         guard let open else { note("No rally open — S starts one"); return }
@@ -163,7 +167,7 @@ final class LiveTagger {
 
     private func close(as kind: RallyKind, at end: Double) {
         guard let open else { return }
-        let before = store.confirmPretracked(start: open, end: end)
+        let before = store.confirmPretracked(start: open, end: end, kind: kind)
         let mark = store.mark(start: open, end: end, kind: kind)
         done.append(.rally(Closed(mark: mark, start: open, end: end, kind: kind, before: before)))
         self.open = nil
@@ -180,7 +184,7 @@ final class LiveTagger {
             note("Cut \(clockText(from)) – \(clockText(t)) · not footage")
             return
         }
-        guard open == nil else { note("Close the rally first (D, M or N) — a cut can't start inside one"); return }
+        guard open == nil else { note("Close the rally first (D or M) — a cut can't start inside one"); return }
         cutFrom = t
         note("Cut from \(clockText(t)) · X to end it, or S at the next serve")
     }
@@ -188,7 +192,7 @@ final class LiveTagger {
     /// ⇧X: the clip starts in the middle of a rally — a cut from its start,
     /// which the next serve ends.
     func cutFromStart() {
-        guard open == nil else { note("Close the rally first (D, M or N)"); return }
+        guard open == nil else { note("Close the rally first (D or M)"); return }
         guard cutFrom == nil else { note("A cut is open already — X ends it"); return }
         cutFrom = 0
         note("Cut from the start · S at the next serve ends it")

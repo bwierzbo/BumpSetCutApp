@@ -181,8 +181,12 @@ enum PipelineTuner {
 
     struct Video {
         let session: VideoSession
-        /// The marks as read — whole, so a reader that lines kinds up with them by index can.
+        /// The rallies (kind rally, or none — a legacy mark), whole; the score takes them outside the cuts (RallyTruth).
         let truth: [Interval]
+        /// The missed serves and "not a rally" marks, whole: excluded spans the score masks with, like the cuts.
+        var excluded: [Interval] = []
+        /// What the score masks: the cut ranges and the excluded spans.
+        var mask: [CutRange] { (cuts + excluded.map { CutRange(start: $0.start, end: $0.end) }).normalised() }
         /// The recording's cut ranges (not footage; D-030): the score sees truth and clips outside them.
         var cuts: [CutRange] { session.cutRanges }
     }
@@ -263,7 +267,7 @@ enum PipelineTuner {
     static func score(_ passes: [Pass], _ settings: Settings) -> Score {
         passes.reduce(Score()) { total, pass in
             var s = Score()
-            s.add(clips: clips(pass, settings), truth: pass.video.truth, cuts: pass.video.cuts)
+            s.add(clips: clips(pass, settings), truth: pass.video.truth, cuts: pass.video.mask)
             return total + s
         }
     }
@@ -364,10 +368,11 @@ enum PipelineTuner {
     static func videos(_ names: [String], sampler: SamplerModel, log: (String) -> Void) -> [Video] {
         names.compactMap { name in
             guard let session = sampler.sessions.first(where: { $0.name == name }) else { log("  ⚠️ \(name): not in the project"); return nil }
-            guard session.ralliesMarked == true,
-                  let labels = try? JSONDecoder().decode([LabeledRally].self, from: Data(contentsOf: RallyMarkModel.labelsURL(for: URL(fileURLWithPath: session.sourcePath))))
+            guard session.ralliesMarked == true, let marks = try? RallyTruth.marks(inSidecarOf: URL(fileURLWithPath: session.sourcePath))
             else { log("  · \(name): not every rally marked yet — left out"); return nil }
-            return Video(session: session, truth: labels.map { Interval(start: $0.startTime, end: $0.endTime) })
+            // Whole marks, by kind: the score and the retune take them outside the cuts themselves.
+            let truth = RallyTruth(marks: marks, cuts: [], complete: true)
+            return Video(session: session, truth: truth.positiveIntervals, excluded: truth.excludedIntervals)
         }
     }
 

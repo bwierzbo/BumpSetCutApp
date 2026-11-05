@@ -341,13 +341,16 @@ def frame_auc(y, p):
 
 # ------------------------------------------------------------------- main
 
-def out_of_fold_probs(X, y, times, labels, n_folds=6):
+def out_of_fold_probs(X, y, times, labels, masked=None, n_folds=6):
     """Time-blocked CV: every frame's probability comes from a model that
-    never saw that frame's time block. Returns stitched probabilities."""
+    never saw that frame's time block. `masked` frames (inside an excluded
+    span) train nothing. Returns stitched probabilities."""
     n = len(y)
     edges = np.linspace(times[0], times[-1] + 1e-9, n_folds + 1)
     probs = np.zeros(n)
     trainable = boundary_mask(times, labels)
+    if masked is not None:
+        trainable &= ~masked
     for k in range(n_folds):
         in_fold = (times >= edges[k]) & (times < edges[k + 1])
         train = ~in_fold & trainable
@@ -365,6 +368,26 @@ def fmt(s):
     return (f"P {s['precision']:.3f}  R {s['recall']:.3f}  F1 {s['f1']:.3f}  "
             f"(TP {s['tp']} FP {s['fp']} FN {s['fn']})  "
             f"startMAE {s['start_mae']:.2f}s endMAE {s['end_mae']:.2f}s")
+
+
+# An export this trainer reads: schema 2 (2026-11-04) carries the rallies by kind in `labels`, the missed
+# serves and "not a rally" marks in `excluded` (the scoring contract's excluded spans: no frame of them trains,
+# a decision inside one is unscored — masked like the cut ranges) and `complete: true` (every rally marked, so
+# every frame outside `labels`, `excluded` and `cuts` is not-rally time). A schema-1 export decoded every mark
+# as a rally and is refused: re-export it.
+SCHEMA = 2
+WEIGHTS_OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rally_classifier_weights.json")
+
+
+def refusal(ex):
+    """Why an export is not read, or None."""
+    schema = ex.get("schema", 1)
+    if schema < SCHEMA:
+        return (f"schema {schema} export, written before the marks' kinds were read (2026-11-04): its labels may count "
+                f"missed serves as rallies — re-export it with RallyLab --export-training-data; skipped")
+    if not ex.get("complete", False):
+        return "not a complete marking pass: what lies outside its labels is unknown, not not-rally time; skipped"
+    return None
 
 
 def main():
@@ -385,26 +408,40 @@ def main():
     weights_out = None
 
     for path, ex in exports:
+        why = refusal(ex)
+        if why:
+            print(f"=== {ex.get('video', os.path.basename(path))} ===\n{why}\n")
+            continue
         if not ex["frames"]:
             print(f"=== {ex['video']} ===\nno frames (every one lies inside a cut range, D-030) — skipped\n")
             continue
         X, names, times, y = build_features(ex)
-        cuts = [(c["start"], c["end"]) for c in ex.get("cuts", [])]   # not footage (D-030); absent in exports from before
-        labels = subtract_cuts([(l["start"], l["end"]) for l in ex["labels"]], cuts)
-        baseline = subtract_cuts([(b["start"], b["end"]) for b in ex["baselineRaw"]], cuts)
+        cuts = [(c["start"], c["end"]) for c in ex.get("cuts", [])]   # not footage (D-030)
+        excluded = subtract_cuts([(l["start"], l["end"]) for l in ex.get("excluded", [])], cuts)
+        mask = cuts + excluded   # neither rally nor not-rally: masked from training, decoding and scoring
+        labels = subtract_cuts([(l["start"], l["end"]) for l in ex["labels"]], mask)
+        baseline = subtract_cuts([(b["start"], b["end"]) for b in ex["baselineRaw"]], mask)
+        masked = np.zeros(len(times), dtype=bool)
+        for (s_, e_) in excluded:
+            masked |= (times >= s_) & (times <= e_)
+        negative_only = int(y.sum()) == 0
 
         print(f"=== {ex['video']} ===")
         print(f"frames {len(times)}  duration {ex['duration']:.1f}s  "
-              f"labels {len(labels)}  in-rally frames {int(y.sum())} ({y.mean() * 100:.1f}%)"
+              f"rallies {len(labels)}  excluded spans (missed serves, not a rally) {len(excluded)}  "
+              f"in-rally frames {int(y.sum())} ({y.mean() * 100:.1f}%)"
               + (f"  cut ranges {len(cuts)} ({sum(e - s for s, e in cuts):.1f}s not footage)" if cuts else ""))
+        if negative_only:
+            print("negative-only: no rally in this recording — every frame outside the cuts and the excluded spans "
+                  "is not-rally time; scored for false clips, not fitted on its own")
 
-        probs = out_of_fold_probs(X, y, times, labels)
+        probs = out_of_fold_probs(X, y, times, labels, masked)
         auc = frame_auc(y, probs)
         acc = float(((probs > 0.5) == (y > 0.5)).mean())
-        print(f"frame-level (out-of-fold): AUC {auc:.4f}  acc@0.5 {acc:.3f}")
+        print(f"frame-level (out-of-fold): AUC {'n/a (no rally)' if np.isnan(auc) else f'{auc:.4f}'}  acc@0.5 {acc:.3f}")
 
         h = HYST_DEFAULT
-        learned = decode_outside_cuts(times, probs, cuts, h["enter"], h["exit"],
+        learned = decode_outside_cuts(times, probs, mask, h["enter"], h["exit"],
                                       h["enter_sustain"], h["exit_sustain"])
         s_learned = score_intervals(learned, labels)
         s_baseline = score_intervals(baseline, labels)
@@ -416,7 +453,7 @@ def main():
         for enter in (0.6, 0.7, 0.8):
             for exit_ in (0.2, 0.3, 0.4):
                 for ex_sus in (0.5, 0.8, 1.2):
-                    cand = decode_outside_cuts(times, probs, cuts, enter, exit_, 0.2, ex_sus)
+                    cand = decode_outside_cuts(times, probs, mask, enter, exit_, 0.2, ex_sus)
                     sc = score_intervals(cand, labels)
                     key = (sc["f1"], -(sc["start_mae"] + sc["end_mae"]))
                     if best is None or key > best[0]:
@@ -435,8 +472,13 @@ def main():
         all_baseline.append((baseline, labels))
         all_truth.extend(labels)
 
-        # final weights on ALL frames of all data (for the Swift port)
-        trainable = boundary_mask(times, labels)
+        # final weights on ALL frames of this export (for the Swift port; the last export read sets them —
+        # a known limit of this single-video trainer). A negative-only export has no rally to fit: the weights
+        # from the last export with rallies stand.
+        if negative_only:
+            print()
+            continue
+        trainable = boundary_mask(times, labels) & ~masked
         mu = X[trainable].mean(axis=0)
         sd = X[trainable].std(axis=0)
         sd[sd < 1e-9] = 1.0
@@ -465,8 +507,7 @@ def main():
         print(f"learned : {fmt(pooled_l)}")
 
     if weights_out:
-        out = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                           "rally_classifier_weights.json")
+        out = WEIGHTS_OUT
         with open(out, "w") as f:
             json.dump(weights_out, f, indent=2)
         print(f"weights written → {out}")

@@ -2,7 +2,7 @@
 name: roadmap-amendments
 status: living (CI-BSC-021)
 created: 2026-10-22T02:29:29Z
-updated: 2026-11-03T02:42:42Z
+updated: 2026-11-05T01:20:21Z
 ---
 
 # Roadmap amendments
@@ -33,6 +33,7 @@ Decisions logged after the roadmap whose entries change the plan. The section co
 
 | Decision | Date | Roadmap section affected | Change |
 |---|---|---|---|
+| D-028 (amendment 2026-11-04) | 2026-11-04 | Phase 1A (event truth), Phase 2 (scoring contract consumers), RallyLab workflow | The marking pass drops the N key; `missedServe` / `other` marks are excluded spans for every scorer, tuner and exporter (one shared reading, `RallyTruth`), and not-rally time exists only for a complete pass. Earlier scores that counted missed serves as rallies are superseded (MARK_KIND_IMPACT_AUDIT_2026-11-04.md). |
 | D-016 | 2026-10-21 | Two independent validation products (final-test collection) | The seven provisional candidates are not promotable; the roadmap's new-footage final-test collection is the only path to a verified `final_test`. |
 | D-017 | 2026-10-21 | not named in the entry (owner to confirm) | Adds a model-lineage holdout (16 recordings) withheld from all future training, distinct from the final test; new lineages preregister before evaluating on it. |
 | D-018 | 2026-10-21 | not named in the entry (owner to confirm) | L2 training only from a manifest-generated package with a fail-closed preflight; preregistration from a fixed template is mandatory before any L2 training. |

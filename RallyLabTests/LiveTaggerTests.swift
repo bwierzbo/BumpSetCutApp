@@ -38,8 +38,24 @@ final class LiveTaggerTests: XCTestCase {
             guard let h = mark as? Int, let m = handles.removeValue(forKey: h), let i = marks.firstIndex(of: m) else { return }
             marks.remove(at: i)
         }
-        func confirmPretracked(start: Double, end: Double) -> [TrackedRally] { [] }
-        func restore(_ rallies: [TrackedRally]) {}
+        /// Every ask to settle the pre-tracked rallies under a mark, with the kind it came with; and every restore.
+        var settled: [(start: Double, end: Double, kind: RallyKind)] = []
+        var restored: [[TrackedRally]] = []
+        var pretracked: [TrackedRally] = []
+        func confirmPretracked(start: Double, end: Double, kind: RallyKind) -> [TrackedRally] {
+            settled.append((start, end, kind))
+            return RallyTruth.pretrackedChanges(pretracked, start: start, end: end, kind: kind).map { change in
+                if let i = pretracked.firstIndex(where: { $0.id == change.before.id }) {
+                    pretracked[i] = change.after
+                    pretracked[i].isRally = change.isRally
+                }
+                return change.before
+            }
+        }
+        func restore(_ rallies: [TrackedRally]) {
+            restored.append(rallies)
+            for r in rallies { if let i = pretracked.firstIndex(where: { $0.id == r.id }) { pretracked[i] = r } }
+        }
         func marks(overlapping start: Double, _ end: Double) -> [LiveTagger.ExistingMark] {
             handles.filter { min($0.value.end, end) - max($0.value.start, start) > 0 }
                 .sorted { $0.key < $1.key }
@@ -73,6 +89,31 @@ final class LiveTaggerTests: XCTestCase {
         tagger.serve(paused(20))
         tagger.close(as: .other, paused(25))
         XCTAssertEqual(store.marks.map(\.kind), [.missedServe, .other])
+    }
+
+    func testAMissedServeTurnsDownThePretrackedRallyUnderItAndUndoRestoresIt() {
+        let store = Store()
+        let id = UUID()
+        var under = TrackedRally(id: id, start: 10, end: 20, points: stride(from: 10.0, through: 20, by: 0.5).map {
+            TrackPoint(time: $0, state: .visible, origin: .auto, box: TrackCandidate(rect: CGRect(x: 0.5, y: 0.5, width: 0.02, height: 0.03), confidence: 0.9), reviewed: false)
+        }, candidates: [], done: false)
+        under.machine = true
+        store.pretracked = [under]
+        let tagger = LiveTagger(tracks: [], store: store)
+        tagger.serve(paused(9))
+        tagger.close(as: .missedServe, paused(21))
+        XCTAssertEqual(store.settled.map(\.kind), [.missedServe], "the store settles the pre-tracked rallies by the mark's kind")
+        XCTAssertEqual(store.pretracked[0].isRally, false)
+        XCTAssertEqual(store.pretracked[0].points.count, 21, "kept whole")
+        tagger.undo()
+        XCTAssertEqual(store.restored.count, 1)
+        XCTAssertEqual(store.pretracked[0], under, "as it was: not looked at")
+        XCTAssertEqual(store.marks, [])
+        tagger.close(as: .rally, paused(21))
+        XCTAssertEqual(store.settled.map(\.kind), [.missedServe, .rally])
+        XCTAssertEqual(store.pretracked[0].isRally, true)
+        tagger.undo()
+        XCTAssertEqual(store.pretracked[0], under)
     }
 
     func testNothingClosesWithoutAServe() {
@@ -172,7 +213,7 @@ final class LiveTaggerTests: XCTestCase {
         tagger.serve(paused(10))
         tagger.cut(paused(12))
         XCTAssertNil(tagger.cutFrom)
-        XCTAssertEqual(tagger.recentNote, "Close the rally first (D, M or N) — a cut can't start inside one")
+        XCTAssertEqual(tagger.recentNote, "Close the rally first (D or M) — a cut can't start inside one")
         tagger.cutFromStart()
         XCTAssertNil(tagger.cutFrom)
         tagger.close(as: .rally, paused(18))
@@ -196,7 +237,7 @@ final class LiveTaggerTests: XCTestCase {
         XCTAssertEqual(store.cuts, [CutRange(start: 0, end: 12.1)])
         XCTAssertEqual(tagger.open, 12.4)
         tagger.cutFromStart()
-        XCTAssertEqual(tagger.recentNote, "Close the rally first (D, M or N)")
+        XCTAssertEqual(tagger.recentNote, "Close the rally first (D or M)")
     }
 
     func testACutTakesTheMarksMostlyInsideItAndUndoBringsThemBack() {
