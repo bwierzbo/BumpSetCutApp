@@ -35,6 +35,8 @@ Scratch on 2026-10-30: 167 recordings; the 21 withheld and the 8 handheld (disjo
 
 **The public Roboflow dataset** (`bumpsetcut/volleyball-ykkmn-grgwy`: 547 images at 640×640, classes ball 481 / net 586, no version generated) is a second source. Its images are stretched to square with generic names, so their provenance is unknown; they are kept apart from ours in training (their own folder, their own split), and a model is reported on our frames alone as well as on both.
 
+**Avais Beach Volleyball: rejected** (owner, 2026-11-02). It was approved for use after PR #132 §F.4, then forked, versioned and audited. 634 of its 636 images turned out to be one fixed camera at one FIVB event, with the same net box in every frame (it varies by about 0.003 of the frame): one example repeated, not new data. Its box sides are the net's side bands, inside the posts, so they don't match our post-to-post corners. The owner rejected it, and the downloaded data was deleted. What carries over: `scripts/desktop_training/prepare_external_net_dataset.py` audits an external YOLO net dataset (source groups, label checks, exact and near duplicates, a withheld-name guard on comparison folders) and writes a hashed, training-only package. Count cameras and events before images. Box-only data cannot teach the sides or corners unless its box extent has been checked against our label rule, and that includes the ykkmn photos already in use. Note: [AVAIS_NET_DATASET_AUDIT_2026-11-02.md](AVAIS_NET_DATASET_AUDIT_2026-11-02.md).
+
 **Split:** by recording group (clip card / alias / session / venue / uploader, as the split manifest defines them), never by frame — `_v2` copies of a recording share a net.
 
 ## 3. Handheld recordings and the training data (asked 2026-10-30)
