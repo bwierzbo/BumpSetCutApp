@@ -40,6 +40,9 @@ struct MarkRalliesView: View {
     @State private var tagger: LiveTagger
     /// The footage-type step after the pass; the screen closes when it does.
     @State private var footageType = false
+    /// Landscape keeps the marked list behind a button; this shows it.
+    @State private var marksShown = false
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     private static let speeds: [Float] = [0.5, 1, 2, 3, 4]
 
@@ -53,30 +56,8 @@ struct MarkRalliesView: View {
     private var times: LabelRallyTimes { model.rallyTimes(for: video) }
 
     var body: some View {
-        VStack(spacing: 0) {
-            PlayerLayer(player: player)
-                .aspectRatio(16 / 9, contentMode: .fit)
-                .background(.black)
-                .overlay(alignment: .bottomLeading) { state.padding(8) }
-                .overlay { if let loadError { Text(loadError).foregroundStyle(.white).padding() } }
-            RallyTimesBar(time: time, duration: duration, found: video.ralliesFound, marked: times.rallies,
-                          current: nil, pending: tagger.open,
-                          ticks: times.rallies.first { $0.start <= time && time <= $0.end }?.contacts?.map(\.time) ?? [],
-                          cuts: (times.cuts ?? []).map { [$0.start, $0.end] }, pendingCut: tagger.cutFrom)
-                .frame(height: 22)
-                .contentShape(Rectangle())
-                .gesture(SpatialTapGesture().onEnded { tap in seek(tap.location.x / max(barWidth, 1) * duration) })
-                .background(GeometryReader { geo in Color.clear.onAppear { barWidth = geo.size.width }.onChange(of: geo.size.width) { _, w in barWidth = w } })
-                .padding(.horizontal).padding(.top, 8)
-            HStack {
-                Text(clockText(time)).monospacedDigit()
-                Spacer()
-                Text("\(times.rallies.count) marked").monospacedDigit()
-            }
-            .font(.caption).foregroundStyle(.secondary).padding(.horizontal).padding(.top, 4)
-            keys.padding(.horizontal).padding(.top, 10)
-            transport.padding(.vertical, 8)
-            list
+        Group {
+            if verticalSizeClass == .compact { landscape } else { portrait }
         }
         .navigationTitle(video.name)
         .navigationBarTitleDisplayMode(.inline)
@@ -92,6 +73,96 @@ struct MarkRalliesView: View {
         .sheet(isPresented: $footageType, onDismiss: { dismiss() }) {
             NavigationStack { FootageTypeView(model: model, video: video, duration: duration, afterPass: true) }
         }
+        .sheet(isPresented: $marksShown) {
+            NavigationStack {
+                List { marks }
+                    .listStyle(.insetGrouped)
+                    .navigationTitle("Marked (\(times.rallies.count))")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar { Button("Done") { marksShown = false } }
+            }
+        }
+    }
+
+    /// Upright: the player, the timeline, the keys, the transport and the list, top to bottom.
+    private var portrait: some View {
+        VStack(spacing: 0) {
+            playerArea
+            timeline.padding(.horizontal).padding(.top, 8)
+            clockLine.padding(.horizontal).padding(.top, 4)
+            keys.padding(.horizontal).padding(.top, 10)
+            HStack(spacing: 18) {
+                transportButtons
+                speedPicker.frame(maxWidth: 230)
+            }
+            .font(.title3)
+            .padding(.horizontal).padding(.vertical, 8)
+            List {
+                finishSection
+                marks
+            }
+            .listStyle(.insetGrouped)
+        }
+    }
+
+    /// On its side: the player fills the left, as tall as the screen lets it, with the timeline under it; the keys,
+    /// the transport and the two closing buttons stand in a column on the right, so the video and the keys are on
+    /// screen together (the owner, device walkthrough 2026-11-04). The marked list opens from its button.
+    private var landscape: some View {
+        HStack(spacing: 12) {
+            VStack(spacing: 0) {
+                playerArea.frame(maxWidth: .infinity, maxHeight: .infinity)
+                timeline.padding(.top, 6)
+                clockLine.padding(.top, 4)
+            }
+            VStack(spacing: 8) {
+                keys
+                HStack(spacing: 0) { transportButtons.frame(maxWidth: .infinity) }.font(.title3)
+                speedPicker
+                HStack(spacing: 8) {
+                    Button { marksShown = true } label: {
+                        Label("Marked (\(times.rallies.count))", systemImage: "list.bullet").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    Button(action: finish) { Label("Every rally", systemImage: "flag.checkered").frame(maxWidth: .infinity) }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(finishBlocked)
+                }
+                .controlSize(.regular)
+                Spacer(minLength: 0)
+            }
+            .frame(width: 300)
+        }
+        .padding(.horizontal)
+        .padding(.bottom, 4)
+    }
+
+    private var playerArea: some View {
+        PlayerLayer(player: player)
+            .aspectRatio(16 / 9, contentMode: .fit)
+            .background(.black)
+            .overlay(alignment: .bottomLeading) { state.padding(8) }
+            .overlay { if let loadError { Text(loadError).foregroundStyle(.white).padding() } }
+    }
+
+    private var timeline: some View {
+        RallyTimesBar(time: time, duration: duration, found: video.ralliesFound, marked: times.rallies,
+                      current: nil, pending: tagger.open,
+                      ticks: times.rallies.first { $0.start <= time && time <= $0.end }?.contacts?.map(\.time) ?? [],
+                      cuts: (times.cuts ?? []).map { [$0.start, $0.end] }, pendingCut: tagger.cutFrom)
+            .frame(height: 22)
+            .contentShape(Rectangle())
+            .gesture(SpatialTapGesture().onEnded { tap in seek(tap.location.x / max(barWidth, 1) * duration) })
+            .background(GeometryReader { geo in Color.clear.onAppear { barWidth = geo.size.width }.onChange(of: geo.size.width) { _, w in barWidth = w } })
+    }
+
+    private var clockLine: some View {
+        HStack {
+            Text(clockText(time)).monospacedDigit()
+            Spacer()
+            Text("\(times.rallies.count) marked").monospacedDigit()
+        }
+        .font(.caption).foregroundStyle(.secondary)
     }
 
     @State private var barWidth: CGFloat = 1
@@ -167,81 +238,85 @@ struct MarkRalliesView: View {
         .padding(.vertical, 2)
     }
 
-    private var transport: some View {
-        HStack(spacing: 18) {
+    private var transportButtons: some View {
+        Group {
             Button { seek(time - 2) } label: { Image(systemName: "gobackward") }
             Button(action: togglePlay) { Image(systemName: isPlaying ? "pause.fill" : "play.fill").font(.title2) }
             Button { seek(time + 2) } label: { Image(systemName: "goforward") }
-            Picker("Speed", selection: $rate) {
-                ForEach(Self.speeds, id: \.self) { Text(String(format: "%g×", $0)).tag($0) }
-            }
-            .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 230)
-            .onChange(of: rate) { _, r in if isPlaying { player.rate = r } }
         }
-        .font(.title3)
-        .padding(.horizontal)
+    }
+
+    private var speedPicker: some View {
+        Picker("Speed", selection: $rate) {
+            ForEach(Self.speeds, id: \.self) { Text(String(format: "%g×", $0)).tag($0) }
+        }
+        .pickerStyle(.segmented).labelsHidden()
+        .onChange(of: rate) { _, r in if isPlaying { player.rate = r } }
     }
 
     // MARK: - The marked rallies
 
-    private var list: some View {
-        List {
-            Section {
-                Button {
-                    finish()
-                } label: { Label("That's every rally", systemImage: "flag.checkered").frame(maxWidth: .infinity) }
-                    .buttonStyle(.borderedProminent).controlSize(.large)
-                    .disabled(tagger.open != nil || (tagger.cutFrom != nil && duration <= 0))
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-            } footer: {
-                Text(tagger.open != nil ? "End the open rally first (Dead ball or Missed serve)."
-                     : tagger.cutFrom != nil ? "The open cut ends where the recording does: the rest is not footage. Then the video counts for scoring and the decision model."
-                     : "Every rally in the video is marked: the found rallies you didn't mark are turned down and the video counts for scoring and the decision model. What the footage is comes next.")
-            }
-            if let cuts = times.cuts, !cuts.isEmpty {
-                Section("Cut out (\(cuts.count))") {
-                    ForEach(cuts, id: \.self) { c in
-                        Button { play(from: c.start - 1) } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "scissors").foregroundStyle(.secondary).frame(width: 18)
-                                Text("\(clockText(c.start)) – \(clockText(c.end))").font(.callout.monospacedDigit())
-                                Spacer()
-                                Text(String(format: "%.1f s not footage", c.end - c.start)).font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                        .tint(.primary)
-                    }
-                    .onDelete { offsets in
-                        let gone = offsets.map { cuts[$0] }
-                        model.update(video) { $0.cuts?.removeAll { gone.contains($0) } }
-                    }
-                }
-            }
-            Section("Marked (\(times.rallies.count))") {
-                ForEach(times.rallies) { r in
-                    Button { play(from: r.start - 1) } label: {
+    private var finishBlocked: Bool { tagger.open != nil || (tagger.cutFrom != nil && duration <= 0) }
+
+    private var finishSection: some View {
+        Section {
+            Button {
+                finish()
+            } label: { Label("That's every rally", systemImage: "flag.checkered").frame(maxWidth: .infinity) }
+                .buttonStyle(.borderedProminent).controlSize(.large)
+                .disabled(finishBlocked)
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+        } footer: {
+            Text(tagger.open != nil ? "End the open rally first (Dead ball or Missed serve)."
+                 : tagger.cutFrom != nil ? "The open cut ends where the recording does: the rest is not footage. Then the video counts for scoring and the decision model."
+                 : "Every rally in the video is marked: the found rallies you didn't mark are turned down and the video counts for scoring and the decision model. What the footage is comes next.")
+        }
+    }
+
+    /// The cuts and the marked rallies; a tap plays from just before one (and closes the list when it is a sheet).
+    @ViewBuilder private var marks: some View {
+        if let cuts = times.cuts, !cuts.isEmpty {
+            Section("Cut out (\(cuts.count))") {
+                ForEach(cuts, id: \.self) { c in
+                    Button { marksShown = false; play(from: c.start - 1) } label: {
                         HStack(spacing: 8) {
-                            let kind = r.kind ?? .rally
-                            Image(systemName: kind == .rally ? "figure.volleyball" : kind == .missedServe ? "xmark.circle" : "minus.circle")
-                                .foregroundStyle(kind == .rally ? Color.orange : Color.secondary)
-                                .frame(width: 18)
-                            Text("\(clockText(r.start)) – \(clockText(r.end))").font(.callout.monospacedDigit())
+                            Image(systemName: "scissors").foregroundStyle(.secondary).frame(width: 18)
+                            Text("\(clockText(c.start)) – \(clockText(c.end))").font(.callout.monospacedDigit())
                             Spacer()
-                            Text(kind == .rally ? ((r.contacts ?? []).isEmpty ? String(format: "%.1f s", r.end - r.start)
-                                                   : "\(r.contacts!.count) touches") : kind.name)
-                                .font(.caption).foregroundStyle(.secondary)
+                            Text(String(format: "%.1f s not footage", c.end - c.start)).font(.caption).foregroundStyle(.secondary)
                         }
                     }
                     .tint(.primary)
                 }
                 .onDelete { offsets in
-                    let ids = offsets.map { times.rallies[$0].id }
-                    model.update(video) { $0.rallies.removeAll { ids.contains($0.id) } }
+                    let gone = offsets.map { cuts[$0] }
+                    model.update(video) { $0.cuts?.removeAll { gone.contains($0) } }
                 }
             }
         }
-        .listStyle(.insetGrouped)
+        Section("Marked (\(times.rallies.count))") {
+            ForEach(times.rallies) { r in
+                Button { marksShown = false; play(from: r.start - 1) } label: {
+                    HStack(spacing: 8) {
+                        let kind = r.kind ?? .rally
+                        Image(systemName: kind == .rally ? "figure.volleyball" : kind == .missedServe ? "xmark.circle" : "minus.circle")
+                            .foregroundStyle(kind == .rally ? Color.orange : Color.secondary)
+                            .frame(width: 18)
+                        Text("\(clockText(r.start)) – \(clockText(r.end))").font(.callout.monospacedDigit())
+                        Spacer()
+                        Text(kind == .rally ? ((r.contacts ?? []).isEmpty ? String(format: "%.1f s", r.end - r.start)
+                                               : "\(r.contacts!.count) touches") : kind.name)
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .tint(.primary)
+            }
+            .onDelete { offsets in
+                let ids = offsets.map { times.rallies[$0].id }
+                model.update(video) { $0.rallies.removeAll { ids.contains($0.id) } }
+            }
+        }
     }
 
     // MARK: - Presses
