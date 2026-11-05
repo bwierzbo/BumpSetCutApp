@@ -56,7 +56,11 @@ struct MarkRalliesView: View {
     private var times: LabelRallyTimes { model.rallyTimes(for: video) }
 
     var body: some View {
-        Group {
+        // One container for both layouts: a Group would hand the load and the cleanup below to whichever layout is
+        // showing, and a rotation would then tear the player down and load the clip again from the start while a
+        // rally stayed open in the tagger. The ZStack is the one view these attach to; turning the phone only swaps
+        // what is inside it, and the player, its observer and the open mark carry on.
+        ZStack {
             if verticalSizeClass == .compact { landscape } else { portrait }
         }
         .navigationTitle(video.name)
