@@ -23,6 +23,8 @@ struct OverviewView: View {
                     tile("\(progress.rallies)", "tracked rallies", .orange)
                     tile(progress.frames.formatted(), "labeled frames", .teal)
                     tile("\(videos.filter { model.rallyTimes(for: $0).complete }.count)/\(videos.count)", "videos finished", .purple)
+                    // Confirmed by a person (`recordingTypeAt`): a published default of unknown with no one behind it is not.
+                    tile("\(videos.filter { $0.recordingTypeAt != nil }.count)/\(videos.count)", "footage confirmed", .blue)
                 }
                 .listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
             }
@@ -81,7 +83,10 @@ struct VideoRow: View {
             Image(systemName: times.complete ? "checkmark.circle.fill" : times.rallies.isEmpty ? "circle" : "circle.lefthalf.filled")
                 .foregroundStyle(times.complete ? .green : times.rallies.isEmpty ? .secondary : .orange)
             VStack(alignment: .leading, spacing: 2) {
-                Text(video.name).font(.callout.monospaced()).lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(video.name).font(.callout.monospaced()).lineLimit(1)
+                    FootageTypeBadge(video: video, claim: model.footageType(for: video))
+                }
                 HStack(spacing: 6) {
                     Text("\(times.rallies.count) marked")
                     let plan = model.planVideo(video)
@@ -100,6 +105,52 @@ struct VideoRow: View {
                     .padding(.horizontal, 6).padding(.vertical, 1)
                     .background(Color.purple.opacity(0.15), in: Capsule()).foregroundStyle(.purple)
             }
+        }
+    }
+}
+
+/// What the recording is — continuous, edited, unknown — as confirmed on the Mac (the published type), else as the
+/// phone's choice stands (sent and waiting, saved here, or refused); nothing yet is said too, so the list shows
+/// which recordings still need the footage-type step (D-032).
+struct FootageTypeBadge: View {
+    let video: LabelVideo
+    let claim: RecordingTypeClaims.Display
+
+    var body: some View {
+        let (word, icon, tint) = state
+        HStack(spacing: 3) {
+            Image(systemName: icon)
+            Text(word)
+        }
+        .font(.caption2.weight(.semibold))
+        .padding(.horizontal, 6).padding(.vertical, 1)
+        .background(tint.opacity(0.15), in: Capsule())
+        .foregroundStyle(tint)
+    }
+
+    private var state: (String, String, Color) {
+        // The published type counts only with a person behind it (`recordingTypeAt`; RecordingTypeClaims.reviewed):
+        // the Mac publishes the record's default of unknown too, and that is not a confirmation.
+        if let published = video.recordingType, video.recordingTypeAt != nil {
+            return (published == "unknown" ? "reviewed · unknown" : published, Self.icon(for: published),
+                    published == "continuous" ? .green : published == "edited" ? .orange : .gray)
+        }
+        switch claim {
+        case .none: return ("not yet reviewed", "questionmark.circle", .secondary)
+        case .pending(let p):
+            // The server refused the claim itself: it is never sent again, a new choice is needed (Display.statusText).
+            if p.refusal != nil { return ("\(p.kind.rawValue) · refused", "exclamationmark.triangle", .red) }
+            return ("\(p.kind.rawValue) · saved here", "tray", .secondary)
+        case .submitted(let c), .accepted(let c), .superseded(let c): return ("\(c.recordingType) · waiting for the Mac", "clock", .secondary)
+        case .rejected(let c, _): return ("\(c.recordingType) · refused", "exclamationmark.triangle", .red)
+        }
+    }
+
+    private static func icon(for type: String) -> String {
+        switch type {
+        case "continuous": return "film"
+        case "edited": return "scissors"
+        default: return "questionmark.video"
         }
     }
 }
