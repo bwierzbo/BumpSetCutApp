@@ -288,16 +288,48 @@ def decode_outside_cuts(times, probs, cuts, *args):
     return subtract_cuts(decoded, cuts)
 
 
+def mask_excluded(intervals, excluded, min_piece=0.1):
+    """Each prediction on its pieces outside the excluded spans (a missed serve, a "not a rally" mark),
+    the prediction staying ONE: a list of piece lists, in order; a prediction with nothing left outside
+    is unscored and left out (the scoring contract §2 — unlike a cut, an excluded span never splits a
+    prediction). Returns (masked, unscored)."""
+    masked, unscored = [], 0
+    for (s, e) in intervals:
+        pieces = subtract_cuts([(s, e)], excluded, min_piece)
+        if pieces:
+            masked.append(pieces)
+        else:
+            unscored += 1
+    return masked, unscored
+
+
 # ---------------------------------------------------------------- scoring
 
-def iou(a, b):
-    inter = max(0.0, min(a[1], b[1]) - max(a[0], b[0]))
-    union = (a[1] - a[0]) + (b[1] - b[0]) - inter
+def _pieces(p):
+    """A prediction as its scorable pieces: a plain (start, end), or a list of them."""
+    return p if isinstance(p, list) else [p]
+
+
+def hull(p):
+    """A prediction's scorable span: first to last scorable tick."""
+    pieces = _pieces(p)
+    return (pieces[0][0], pieces[-1][1])
+
+
+def overlap(p, g):
+    return sum(max(0.0, min(e, g[1]) - max(s, g[0])) for (s, e) in _pieces(p))
+
+
+def iou(p, g):
+    """IoU of a prediction (on its pieces) with a truth rally: the contract's masked IoU."""
+    inter = overlap(p, g)
+    union = sum(e - s for (s, e) in _pieces(p)) + (g[1] - g[0]) - inter
     return inter / union if union > 0 else 0.0
 
 
 def score_intervals(pred, truth, iou_threshold=0.5, boundary_tol=1.0):
-    """Port of RallySegmentationScorer.score (greedy IoU matching)."""
+    """Port of RallySegmentationScorer.score (greedy IoU matching); a prediction may be a list of
+    pieces (mask_excluded), matched on them, its boundaries read at the scorable span's ends."""
     pairs = sorted(
         ((i, j, iou(p, g)) for i, p in enumerate(pred) for j, g in enumerate(truth)
          if iou(p, g) >= iou_threshold),
@@ -308,7 +340,7 @@ def score_intervals(pred, truth, iou_threshold=0.5, boundary_tol=1.0):
             continue
         used_p.add(i)
         used_t.add(j)
-        matches.append((pred[i], truth[j], v))
+        matches.append((hull(pred[i]), truth[j], v))
     tp = len(matches)
     fp = len(pred) - tp
     fn = len(truth) - tp
@@ -327,6 +359,18 @@ def score_intervals(pred, truth, iou_threshold=0.5, boundary_tol=1.0):
     )
 
 
+def frame_metrics(y, probs, masked=None):
+    """Frame-level AUC and accuracy over the scorable frames only: the frames inside an excluded span
+    (a missed serve, a "not a rally" mark) are neither class and count in neither. None when there is
+    nothing to score."""
+    keep = np.ones(len(y), dtype=bool) if masked is None else ~masked
+    if keep.sum() == 0:
+        return None, None
+    yk, pk = y[keep], probs[keep]
+    auc = frame_auc(yk, pk)
+    return (None if np.isnan(auc) else float(auc)), float(((pk > 0.5) == (yk > 0.5)).mean())
+
+
 def frame_auc(y, p):
     """Rank-based AUC (Mann–Whitney)."""
     pos = p[y > 0.5]
@@ -341,13 +385,16 @@ def frame_auc(y, p):
 
 # ------------------------------------------------------------------- main
 
-def out_of_fold_probs(X, y, times, labels, n_folds=6):
+def out_of_fold_probs(X, y, times, labels, masked=None, n_folds=6):
     """Time-blocked CV: every frame's probability comes from a model that
-    never saw that frame's time block. Returns stitched probabilities."""
+    never saw that frame's time block. `masked` frames (inside an excluded
+    span) train nothing. Returns stitched probabilities."""
     n = len(y)
     edges = np.linspace(times[0], times[-1] + 1e-9, n_folds + 1)
     probs = np.zeros(n)
     trainable = boundary_mask(times, labels)
+    if masked is not None:
+        trainable &= ~masked
     for k in range(n_folds):
         in_fold = (times >= edges[k]) & (times < edges[k + 1])
         train = ~in_fold & trainable
@@ -365,6 +412,26 @@ def fmt(s):
     return (f"P {s['precision']:.3f}  R {s['recall']:.3f}  F1 {s['f1']:.3f}  "
             f"(TP {s['tp']} FP {s['fp']} FN {s['fn']})  "
             f"startMAE {s['start_mae']:.2f}s endMAE {s['end_mae']:.2f}s")
+
+
+# An export this trainer reads: schema 2 (2026-11-04) carries the rallies by kind in `labels`, the missed
+# serves and "not a rally" marks in `excluded` (the scoring contract's excluded spans: no frame of them trains,
+# a decision inside one is unscored — masked like the cut ranges) and `complete: true` (every rally marked, so
+# every frame outside `labels`, `excluded` and `cuts` is not-rally time). A schema-1 export decoded every mark
+# as a rally and is refused: re-export it.
+SCHEMA = 2
+WEIGHTS_OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rally_classifier_weights.json")
+
+
+def refusal(ex):
+    """Why an export is not read, or None."""
+    schema = ex.get("schema", 1)
+    if schema < SCHEMA:
+        return (f"schema {schema} export, written before the marks' kinds were read (2026-11-04): its labels may count "
+                f"missed serves as rallies — re-export it with RallyLab --export-training-data; skipped")
+    if not ex.get("complete", False):
+        return "not a complete marking pass: what lies outside its labels is unknown, not not-rally time; skipped"
+    return None
 
 
 def main():
@@ -385,27 +452,48 @@ def main():
     weights_out = None
 
     for path, ex in exports:
+        why = refusal(ex)
+        if why:
+            print(f"=== {ex.get('video', os.path.basename(path))} ===\n{why}\n")
+            continue
         if not ex["frames"]:
             print(f"=== {ex['video']} ===\nno frames (every one lies inside a cut range, D-030) — skipped\n")
             continue
         X, names, times, y = build_features(ex)
-        cuts = [(c["start"], c["end"]) for c in ex.get("cuts", [])]   # not footage (D-030); absent in exports from before
-        labels = subtract_cuts([(l["start"], l["end"]) for l in ex["labels"]], cuts)
-        baseline = subtract_cuts([(b["start"], b["end"]) for b in ex["baselineRaw"]], cuts)
+        cuts = [(c["start"], c["end"]) for c in ex.get("cuts", [])]   # not footage (D-030)
+        excluded = subtract_cuts([(l["start"], l["end"]) for l in ex.get("excluded", [])], cuts)
+        # A cut splits a decision; an excluded span masks a decision's pieces, the decision staying one.
+        labels = subtract_cuts([(l["start"], l["end"]) for l in ex["labels"]], cuts + excluded)
+        baseline, baseline_unscored = mask_excluded(subtract_cuts([(b["start"], b["end"]) for b in ex["baselineRaw"]], cuts), excluded)
+        masked = np.zeros(len(times), dtype=bool)
+        for (s_, e_) in excluded:
+            masked |= (times >= s_) & (times <= e_)
+        negative_only = int(y.sum()) == 0
 
         print(f"=== {ex['video']} ===")
         print(f"frames {len(times)}  duration {ex['duration']:.1f}s  "
-              f"labels {len(labels)}  in-rally frames {int(y.sum())} ({y.mean() * 100:.1f}%)"
-              + (f"  cut ranges {len(cuts)} ({sum(e - s for s, e in cuts):.1f}s not footage)" if cuts else ""))
+              f"rallies {len(labels)}  excluded spans (missed serves, not a rally) {len(excluded)}  "
+              f"in-rally frames {int(y.sum())} ({y.mean() * 100:.1f}%)"
+              + (f"  cut ranges {len(cuts)} ({sum(e - s for s, e in cuts):.1f}s not footage)" if cuts else "")
+              + (f"  baseline clips unscored inside an excluded span {baseline_unscored}" if baseline_unscored else ""))
+        if negative_only:
+            # No rally to fit a model on, and no model from elsewhere to judge it with: the baseline is scored for
+            # false clips, the learned side is not reported and the recording stays out of the pooled comparison.
+            s_baseline = score_intervals(baseline, labels)
+            print("negative-only: no rally in this recording — every frame outside the cuts and the excluded spans "
+                  "is not-rally time; the rule decider is scored for false clips, nothing is fitted or compared")
+            print(f"baseline (rule decider) : {fmt(s_baseline)}")
+            print("learned : n/a (no rally to fit on; not in the pooled comparison)\n")
+            continue
 
-        probs = out_of_fold_probs(X, y, times, labels)
-        auc = frame_auc(y, probs)
-        acc = float(((probs > 0.5) == (y > 0.5)).mean())
-        print(f"frame-level (out-of-fold): AUC {auc:.4f}  acc@0.5 {acc:.3f}")
+        probs = out_of_fold_probs(X, y, times, labels, masked)
+        auc, acc = frame_metrics(y, probs, masked)
+        print(f"frame-level (out-of-fold, scorable frames): AUC {'n/a' if auc is None else f'{auc:.4f}'}  "
+              f"acc@0.5 {'n/a' if acc is None else f'{acc:.3f}'}")
 
         h = HYST_DEFAULT
-        learned = decode_outside_cuts(times, probs, cuts, h["enter"], h["exit"],
-                                      h["enter_sustain"], h["exit_sustain"])
+        learned, _ = mask_excluded(decode_outside_cuts(times, probs, cuts, h["enter"], h["exit"],
+                                                       h["enter_sustain"], h["exit_sustain"]), excluded)
         s_learned = score_intervals(learned, labels)
         s_baseline = score_intervals(baseline, labels)
         print(f"baseline (rule decider) : {fmt(s_baseline)}")
@@ -416,7 +504,7 @@ def main():
         for enter in (0.6, 0.7, 0.8):
             for exit_ in (0.2, 0.3, 0.4):
                 for ex_sus in (0.5, 0.8, 1.2):
-                    cand = decode_outside_cuts(times, probs, cuts, enter, exit_, 0.2, ex_sus)
+                    cand, _ = mask_excluded(decode_outside_cuts(times, probs, cuts, enter, exit_, 0.2, ex_sus), excluded)
                     sc = score_intervals(cand, labels)
                     key = (sc["f1"], -(sc["start_mae"] + sc["end_mae"]))
                     if best is None or key > best[0]:
@@ -435,8 +523,9 @@ def main():
         all_baseline.append((baseline, labels))
         all_truth.extend(labels)
 
-        # final weights on ALL frames of all data (for the Swift port)
-        trainable = boundary_mask(times, labels)
+        # final weights on ALL frames of this export (for the Swift port; the last export read sets them —
+        # a known limit of this single-video trainer).
+        trainable = boundary_mask(times, labels) & ~masked
         mu = X[trainable].mean(axis=0)
         sd = X[trainable].std(axis=0)
         sd[sd < 1e-9] = 1.0
@@ -465,8 +554,7 @@ def main():
         print(f"learned : {fmt(pooled_l)}")
 
     if weights_out:
-        out = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                           "rally_classifier_weights.json")
+        out = WEIGHTS_OUT
         with open(out, "w") as f:
             json.dump(weights_out, f, indent=2)
         print(f"weights written → {out}")

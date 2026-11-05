@@ -443,7 +443,7 @@ enum HeadlessProjects {
                     log("\(clip):")
                     guard let v = await RallyCutScore.process(session, config: effective) else { log("   no rally times or couldn't process"); continue }
                     var t = RallyCutScore.Tally()
-                    t.add(clips: v.clips, truth: v.truth)
+                    t.add(clips: v.clips, truth: v.truth, excluded: v.excluded)
                     log("   " + t.line)
                     RallyCutScore.diagnose(v, log: log)
                 }

@@ -181,8 +181,11 @@ enum PipelineTuner {
 
     struct Video {
         let session: VideoSession
-        /// The marks as read — whole, so a reader that lines kinds up with them by index can.
+        /// The rallies (kind rally, or none — a legacy mark), whole; the score takes them outside the cuts (RallyTruth).
         let truth: [Interval]
+        /// The missed serves and "not a rally" marks, whole: excluded spans the score masks each clip with (the
+        /// clip staying one; a cut splits it).
+        var excluded: [Interval] = []
         /// The recording's cut ranges (not footage; D-030): the score sees truth and clips outside them.
         var cuts: [CutRange] { session.cutRanges }
     }
@@ -210,10 +213,13 @@ enum PipelineTuner {
 
         /// `cuts`: the recording's cut ranges — truth and clips count only outside them, so a
         /// replay the pipeline cut is neither dead time nor a false clip, and a rally inside one
-        /// is not a rally to find (D-030).
-        mutating func add(clips: [Interval], truth: [Interval], cuts: [CutRange] = []) {
-            let clips = clips.outside(cuts), truth = truth.outside(cuts)
-            let merged = Self.union(clips)
+        /// is not a rally to find (D-030). `excluded`: the missed serves and other marks — each
+        /// clip counts on its pieces outside them, as one clip; one with nothing outside is unscored.
+        mutating func add(clips: [Interval], truth: [Interval], cuts: [CutRange] = [], excluded: [Interval] = []) {
+            let excluded = excluded.outside(cuts)
+            let truth = truth.outside(cuts).outside(excluded.map { CutRange(start: $0.start, end: $0.end) })
+            let (clips, _) = clips.outside(cuts).scorable(excluding: excluded)
+            let merged = Self.union(clips.flatMap(\.pieces))
             for t in truth {
                 let length = max(0, t.end - t.start)
                 guard length > 0 else { continue }
@@ -227,7 +233,7 @@ enum PipelineTuner {
             for c in merged {
                 deadTime += (c.end - c.start) - truthUnion.reduce(0) { $0 + RallyCutScore.overlap(c, $1) }
             }
-            falseClips += clips.filter { c in !truth.contains { RallyCutScore.overlap(c, $0) > 0 } }.count
+            falseClips += clips.filter { c in !truth.contains { c.overlap($0) > 0 } }.count
         }
 
         static func + (a: Score, b: Score) -> Score {
@@ -263,7 +269,7 @@ enum PipelineTuner {
     static func score(_ passes: [Pass], _ settings: Settings) -> Score {
         passes.reduce(Score()) { total, pass in
             var s = Score()
-            s.add(clips: clips(pass, settings), truth: pass.video.truth, cuts: pass.video.cuts)
+            s.add(clips: clips(pass, settings), truth: pass.video.truth, cuts: pass.video.cuts, excluded: pass.video.excluded)
             return total + s
         }
     }
@@ -364,10 +370,11 @@ enum PipelineTuner {
     static func videos(_ names: [String], sampler: SamplerModel, log: (String) -> Void) -> [Video] {
         names.compactMap { name in
             guard let session = sampler.sessions.first(where: { $0.name == name }) else { log("  ⚠️ \(name): not in the project"); return nil }
-            guard session.ralliesMarked == true,
-                  let labels = try? JSONDecoder().decode([LabeledRally].self, from: Data(contentsOf: RallyMarkModel.labelsURL(for: URL(fileURLWithPath: session.sourcePath))))
+            guard session.ralliesMarked == true, let marks = try? RallyTruth.marks(inSidecarOf: URL(fileURLWithPath: session.sourcePath))
             else { log("  · \(name): not every rally marked yet — left out"); return nil }
-            return Video(session: session, truth: labels.map { Interval(start: $0.startTime, end: $0.endTime) })
+            // Whole marks, by kind: the score and the retune take them outside the cuts themselves.
+            let truth = RallyTruth(marks: marks, cuts: [], complete: true)
+            return Video(session: session, truth: truth.positiveIntervals, excluded: truth.excludedIntervals)
         }
     }
 

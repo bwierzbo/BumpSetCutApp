@@ -36,6 +36,11 @@ final class CutRangeConsumersTests: XCTestCase {
         XCTAssertEqual(masked.rallies, 2); XCTAssertEqual(masked.covered, 20, accuracy: 1e-9)
         XCTAssertEqual(masked.falseClips, 1, "the replay clip is gone; the 70–72 clip stays")
         XCTAssertEqual(masked.deadTime, 6, accuracy: 1e-9, "1 + 1 + 1 + 1 + 2: the replay's 10 s are not dead time")
+        // A missed serve at 33–35 inside a false clip 30–40: the clip stays one false clip, its 2 s inside are not dead time;
+        // a clip wholly inside a missed serve is neither.
+        var excluded = PipelineTuner.Score()
+        excluded.add(clips: [iv(9, 21), iv(30, 40), iv(50, 52)], truth: [iv(10, 20)], excluded: [iv(33, 35), iv(50, 52)])
+        XCTAssertEqual(excluded.falseClips, 1); XCTAssertEqual(excluded.deadTime, 10, accuracy: 1e-9, "1 + 1 around the rally, 8 of the clip 30–40")
 
         // A rally whose serve the clip missed (the recording starts mid-rally, cut 0–12): not a rally to find.
         var start = PipelineTuner.Score()
@@ -50,22 +55,51 @@ final class CutRangeConsumersTests: XCTestCase {
         var t = RallyCutScore.Tally()
         t.add(clips: [iv(9, 21), iv(30, 40), iv(49, 61)].outside(cuts), truth: [iv(10, 20), iv(50, 60)].outside(cuts))
         XCTAssertEqual(t.truth, 2); XCTAssertEqual(t.found, 2); XCTAssertEqual(t.falseClips, 0); XCTAssertEqual(t.clips, 2)
+        // A missed serve is an excluded span: the clip inside it is unscored, not a false clip; one straddling it is
+        // scored on its piece outside; the rally count never includes it.
+        var e = RallyCutScore.Tally()
+        e.add(clips: [iv(9, 21), iv(30, 33), iv(70, 76)], truth: [iv(10, 20)], excluded: [iv(30, 33), iv(72, 74)])
+        XCTAssertEqual(e.truth, 1); XCTAssertEqual(e.found, 1)
+        XCTAssertEqual(e.unscored, 1); XCTAssertEqual(e.clips, 2, "the found clip and the clip over the missed serve at 72–74 — one clip, two pieces")
+        XCTAssertEqual(e.falseClips, 1, "the clip 70–76 is one false clip; the clip inside the missed serve is neither hit nor false")
+        XCTAssertTrue(e.line.contains("1 unscored"))
+        // Contract fixture 21: one prediction runs through the rally 10–29, a missed serve 30–31 and dead time to 40;
+        // matched on its two pieces (IoU 19/29), end error +11 from the scorable span's end.
+        var f = RallyCutScore.Tally()
+        f.add(clips: [iv(10, 40)], truth: [iv(10, 29)], excluded: [iv(30, 31)], iou: 0.5)
+        XCTAssertEqual(f.found, 1); XCTAssertEqual(f.falseClips, 0); XCTAssertEqual(f.merged, 0); XCTAssertEqual(f.split, 0)
+        XCTAssertEqual(f.startErrors, [0]); XCTAssertEqual(f.endErrors, [11])
+        // Contract fixture 14: a prediction over a marked non-rally 60–62 and ordinary dead time: one false clip.
+        var g = RallyCutScore.Tally()
+        g.add(clips: [iv(10, 14), iv(58, 66)], truth: [iv(10, 14)], excluded: [iv(60, 62)], iou: 0.5)
+        XCTAssertEqual(g.found, 1); XCTAssertEqual(g.falseClips, 1); XCTAssertEqual(g.clips, 2); XCTAssertEqual(g.unscored, 0)
+        // The matcher itself: the pieces, the span, and a clip wholly inside an excluded span left out.
+        let (scored, unscored) = [iv(10, 40), iv(30, 31)].scorable(excluding: [iv(30, 31)])
+        XCTAssertEqual(unscored, 1); XCTAssertEqual(scored.map(\.pieces), [[iv(10, 30), iv(31, 40)]])
+        XCTAssertEqual(scored[0].span, iv(10, 40)); XCTAssertEqual(scored[0].seconds, 29); XCTAssertEqual(scored[0].iou(iv(10, 29)), 19.0 / 29, accuracy: 1e-9)
     }
 
-    func testRetuneAccountingKeepsEachMarksKindThroughTheMask() {
-        // Three marks: a rally, a missed serve inside the cut (gone), a rally the cut takes the start of.
-        let truth = [iv(10, 20), iv(30, 33), iv(38, 48)]
-        let kinds: [RallyKind?] = [.rally, .missedServe, .rally]
-        let a = DeciderRetune.account(clips: [iv(9, 21), iv(29, 34), iv(41, 49)], raw: [iv(10, 20)], truth: truth, kinds: kinds,
+    func testRetuneAccountingMasksTheExcludedSpansThroughTheCuts() {
+        // Three marks: a rally, a missed serve inside the cut (gone with it), a rally the cut takes the start of.
+        let truth = [iv(10, 20), iv(38, 48)]
+        let a = DeciderRetune.account(clips: [iv(9, 21), iv(29, 34), iv(41, 49)], raw: [iv(10, 20)], truth: truth, excluded: [iv(30, 33)],
                                       preservedShare: 0.95, cuts: [cut(28, 42)])
         XCTAssertEqual(a.rallies, 2)
-        XCTAssertEqual(a.missedServeMarks, 0, "the missed-serve mark lay inside the cut")
+        XCTAssertEqual(a.excludedSpans, 0, "the missed-serve mark lay inside the cut")
         XCTAssertEqual(a.rallyTime, 16, accuracy: 1e-9, "10 + the piece 42–48")
         XCTAssertEqual(a.clips, 2); XCTAssertEqual(a.falseClips, 0)
+        XCTAssertEqual(a.unscoredClips, 0, "the clip inside the cut is gone with the cut (not footage), not unscored")
         XCTAssertEqual(a.deadTime, 3, accuracy: 1e-9, "1 + 1 around the first rally, 1 after the second")
-        // With the mark's kind on the surviving piece: a missed-serve mark at 38–48 would still count.
-        let b = DeciderRetune.account(clips: [], raw: [], truth: truth, kinds: [.rally, .rally, .missedServe], preservedShare: 0.95, cuts: [cut(28, 42)])
-        XCTAssertEqual(b.missedServeMarks, 1); XCTAssertEqual(b.missedServeMarksMissed, 1)
+        // A missed serve the cut only brushes keeps its piece outside, and masks the clip there like the cut does.
+        let b = DeciderRetune.account(clips: [iv(42, 46), iv(50, 52)], raw: [], truth: truth, excluded: [iv(40, 45)], preservedShare: 0.95, cuts: [cut(28, 42)])
+        XCTAssertEqual(b.excludedSpans, 1)
+        XCTAssertEqual(b.rallyTime, 13, accuracy: 1e-9, "10 + the piece 45–48 of the second rally")
+        XCTAssertEqual(b.clips, 2, "the clip on its piece 45–46 and the clip at 50–52"); XCTAssertEqual(b.unscoredClips, 0)
+        // An excluded span inside a clip never splits it (unlike a cut): one clip, matched on its pieces, one false clip.
+        let c = DeciderRetune.account(clips: [iv(10, 40), iv(70, 76)], raw: [iv(10, 40)], truth: [iv(10, 29)], excluded: [iv(30, 31), iv(72, 74)], preservedShare: 0.95)
+        XCTAssertEqual(c.clips, 2); XCTAssertEqual(c.falseClips, 1); XCTAssertEqual(c.unscoredClips, 0)
+        XCTAssertEqual(c.preserved, 1); XCTAssertEqual(c.endErrors, [11]); XCTAssertEqual(c.rawEndErrors, [11])
+        XCTAssertEqual(c.deadTime, 14, accuracy: 1e-9, "10 of 10–40 outside the rally and the missed serve, 4 of 70–76")
     }
 
     // MARK: - Sampling, net frame, test set
@@ -260,23 +294,36 @@ final class CutRangeConsumersTests: XCTestCase {
                                          rSquared: nil, gravitySignature: nil, movementType: nil, rejectionReason: nil, candidates: [],
                                          detectedNet: net.map { DetectedNet(box: CGRect(x: 0.1, y: $0, width: 0.8, height: 0.1), confidence: 0.9) })
         }
+        func truth(_ marks: [(Double, Double, RallyKind?)], cuts: [CutRange] = []) -> RallyTruth {
+            RallyTruth(marks: marks.map { RallyTruth.Mark(start: $0.0, end: $0.1, kind: $0.2) }, cuts: cuts, complete: true)
+        }
         // The net too comes from footage: a replay inside a leading cut, shot from another view, found the net elsewhere.
         let viewed = TrainingDataExporter.makeExport(videoName: "v.mp4", duration: 100,
                                                      evidence: [frame(1, net: 0.8), frame(2, net: 0.8), frame(20, net: 0.4), frame(21, net: 0.4)],
-                                                     labels: [], baselineRaw: [], cuts: [cut(0, 10)])
+                                                     truth: truth([], cuts: [cut(0, 10)]), baselineRaw: [])
         XCTAssertEqual(viewed.netTopY ?? -1, 0.5, accuracy: 1e-9, "the net of the first retained frame, not the replay's")
         XCTAssertEqual(viewed.netBottomY ?? -1, 0.4, accuracy: 1e-9)
         XCTAssertEqual(viewed.frames.map(\.t), [20, 21])
+        XCTAssertEqual(viewed.schema, 2); XCTAssertTrue(viewed.complete)
+        // Schema 2: the rallies by kind in `labels`, the missed serves and other marks in `excluded` (frames kept, for the
+        // trainer to mask), a legacy mark with no kind a rally.
         let export = TrainingDataExporter.makeExport(videoName: "v.mp4", duration: 100, evidence: stride(from: 0.0, to: 100, by: 1).map { frame($0) },
-                                                     labels: [iv(10, 20), iv(30, 40)], baselineRaw: [iv(9, 21), iv(31, 39)], cuts: [cut(15, 35)])
+                                                     truth: truth([(10, 20, .rally), (30, 40, nil), (50, 53, .missedServe), (60, 62, .other)], cuts: [cut(15, 35)]),
+                                                     baselineRaw: [iv(9, 21), iv(31, 39), iv(50, 53)])
         XCTAssertEqual(export.frames.count, 80)
         XCTAssertFalse(export.frames.contains { (15..<35).contains($0.t) })
+        XCTAssertTrue(export.frames.contains { $0.t == 51 }, "the frames of an excluded span stay: the trainer masks them")
         XCTAssertEqual(export.labels.map { [$0.start, $0.end] }, [[10, 15], [35, 40]])
-        XCTAssertEqual(export.baselineRaw.map { [$0.start, $0.end] }, [[9, 15], [35, 39]])
+        XCTAssertEqual(export.excluded.map { [$0.start, $0.end] }, [[50, 53], [60, 62]])
+        XCTAssertEqual(export.baselineRaw.map { [$0.start, $0.end] }, [[9, 15], [35, 39], [50, 53]], "the baseline is masked by the cuts only; the trainer masks the excluded spans")
         XCTAssertEqual(export.cuts.map { [$0.start, $0.end] }, [[15, 35]], "the trainer masks its own decisions with them")
         let whole = TrainingDataExporter.makeExport(videoName: "v.mp4", duration: 100, evidence: stride(from: 0.0, to: 100, by: 1).map { frame($0) },
-                                                    labels: [iv(10, 20)], baselineRaw: [iv(9, 21)], cuts: [cut(0, 100)])
+                                                    truth: truth([(10, 20, .rally)], cuts: [cut(0, 100)]), baselineRaw: [iv(9, 21)])
         XCTAssertTrue(whole.frames.isEmpty && whole.labels.isEmpty && whole.baselineRaw.isEmpty, "a recording cut whole: nothing to train on")
+        // A complete pass with no rally: a negative-only export, every frame outside the cuts not-rally time.
+        let none = TrainingDataExporter.makeExport(videoName: "v.mp4", duration: 100, evidence: stride(from: 0.0, to: 100, by: 1).map { frame($0) },
+                                                   truth: truth([(40, 42, .missedServe)]), baselineRaw: [])
+        XCTAssertEqual(none.frames.count, 100); XCTAssertTrue(none.labels.isEmpty); XCTAssertEqual(none.excluded.count, 1); XCTAssertTrue(none.complete)
         // …and the empty export is still written, replacing an earlier one with the frames in it: the trainer
         // reads sidecars without the project, so a stale one would train on the cut footage.
         let sidecar = FileManager.default.temporaryDirectory.appendingPathComponent("v-\(UUID().uuidString).trainingdata.json")
@@ -301,6 +348,33 @@ final class CutRangeConsumersTests: XCTestCase {
         XCTAssertEqual(try TrainingDataExporter.cutRanges(forVideo: video, projectRoots: [project]), [cut(1, 2)])
         let other = root.appendingPathComponent("footage/other.mp4"); try Data([1, 2, 3]).write(to: other)
         XCTAssertEqual(try TrainingDataExporter.cutRanges(forVideo: other, projectRoots: [project]), [])
+        // The export fails closed on the pass: a video no project knows cannot prove it complete, a session not
+        // finished is refused, a finished one goes.
+        XCTAssertNotNil(try TrainingDataExporter.exportRefusal(forVideo: other, projectRoots: [project]), "no session over it")
+        XCTAssertNotNil(try TrainingDataExporter.exportRefusal(forVideo: video, projectRoots: [project]), "not every rally marked")
+        session.ralliesMarked = true
+        try DatasetStore(root: project).save(session)
+        XCTAssertNil(try TrainingDataExporter.exportRefusal(forVideo: video, projectRoots: [project]))
+        // …and the session's truth reads the sidecar by kind, outside its cuts, complete.
+        let marks = RallyMarkModel.labelsURL(for: video)
+        try JSONEncoder().encode([RallyMarkRecord(startTime: 0.5, endTime: 3, kind: nil, contacts: nil),
+                                  RallyMarkRecord(startTime: 5, endTime: 6, kind: .missedServe, contacts: nil)]).write(to: marks)
+        let read = try XCTUnwrap(try RallyTruth.of(try XCTUnwrap(try TrainingDataExporter.session(forVideo: video, projectRoots: [project]))))
+        XCTAssertEqual(read.positives, [RallyTruth.Span(start: 0.5, end: 1), RallyTruth.Span(start: 2, end: 3)])
+        XCTAssertEqual(read.excluded, [RallyTruth.Span(start: 5, end: 6)]); XCTAssertTrue(read.complete)
+        session.ralliesMarked = false
+        try DatasetStore(root: project).save(session)
+        XCTAssertEqual(try RallyTruth.of(try XCTUnwrap(try TrainingDataExporter.session(forVideo: video, projectRoots: [project])))?.complete, false)
+        try Data("{not json".utf8).write(to: marks)
+        XCTAssertThrowsError(try RallyTruth.marks(inSidecarOf: video), "unreadable marks are unknown, never none")
+        // The Pipeline tab reads the same sidecar the same way: unknown (undecodable, or absent) is never an empty list.
+        func unknown(_ r: Result<[EditableRally], RallyLabModel.LabelsUnknown>) -> Bool? { if case .failure(let p) = r { return p.sidecarExists }; return nil }
+        XCTAssertEqual(unknown(RallyLabModel.readLabels(at: marks)), true)
+        try FileManager.default.removeItem(at: marks)
+        XCTAssertNil(try RallyTruth.marks(inSidecarOf: video))
+        XCTAssertEqual(unknown(RallyLabModel.readLabels(at: marks)), false)
+        try JSONEncoder().encode([RallyMarkRecord]()).write(to: marks)
+        XCTAssertEqual(try RallyLabModel.readLabels(at: marks).get().count, 0, "an empty list read is known: a complete pass with no rally")
         // A copy of the recording under another name and path is the same recording (by content), as the Pipeline tab sees it.
         let copy = root.appendingPathComponent("elsewhere.mp4"); try FileManager.default.copyItem(at: video, to: copy)
         XCTAssertEqual(try TrainingDataExporter.cutRanges(forVideo: copy, projectRoots: [project]), [cut(1, 2)])

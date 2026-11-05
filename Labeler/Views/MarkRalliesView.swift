@@ -4,7 +4,9 @@
 //
 //  Mark every rally in a video in one pass, live, as the Mac does: watch
 //  at ½–4× and tap one key per event. Serve starts a rally; Dead ball ends
-//  it; Missed serve and Not a rally end it as one of those. Cut takes out
+//  it; Missed serve ends it as one (a serve nothing followed: no rally
+//  there, an excluded span for scoring and training — owner, 2026-11-04).
+//  Cut takes out
 //  a stretch that is not footage (an instant replay), from one tap to the
 //  next; Starts mid-rally cuts from the clip's start to the next serve
 //  (D-030). Undo takes back the last tap. The touches inside a rally are
@@ -143,8 +145,6 @@ struct MarkRalliesView: View {
             HStack(spacing: 8) {
                 Button { tagger.close(as: .missedServe, press()) } label: { keyLabel("Missed serve", "M") }
                     .buttonStyle(.bordered).tint(.red)
-                Button { tagger.close(as: .other, press()) } label: { keyLabel("Not a rally", "N") }
-                    .buttonStyle(.bordered).tint(.red)
                 Button { tagger.undo() } label: { keyLabel("Undo", "Z") }
                     .buttonStyle(.bordered)
             }
@@ -195,7 +195,7 @@ struct MarkRalliesView: View {
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
             } footer: {
-                Text(tagger.open != nil ? "End the open rally first (Dead ball or Not a rally)."
+                Text(tagger.open != nil ? "End the open rally first (Dead ball or Missed serve)."
                      : tagger.cutFrom != nil ? "The open cut ends where the recording does: the rest is not footage. Then the video counts for scoring and the decision model."
                      : "Every rally in the video is marked: the found rallies you didn't mark are turned down and the video counts for scoring and the decision model. What the footage is comes next.")
             }
@@ -264,13 +264,15 @@ struct MarkRalliesView: View {
         }
         player.pause()
         isPlaying = false
-        let marks = times.rallies
-        let cuts = times.cutRanges
-        func covered(_ a: Double, _ b: Double) -> Bool { marks.contains { min($0.end, b) - max($0.start, a) > 0.5 * (b - a) } }
-        for t in model.tracks(for: video) where t.isMachine && t.isRally == nil && !covered(t.start, t.end) && !cuts.overlaps(t.start, t.end) {
+        // A missed serve covers nothing: a pre-tracked or found rally there is no rally (RallyTruth).
+        let truth = RallyTruth(marks: times.rallies.map { RallyTruth.Mark(start: $0.start, end: $0.end, kind: $0.kind) },
+                               cuts: times.cuts ?? [], complete: true)
+        let cuts = truth.cuts
+        for t in model.tracks(for: video) where t.isMachine && t.isRally == nil && !truth.coveredByRally(t.start, t.end) && !cuts.overlaps(t.start, t.end) {
             model.setIsRally(false, AnnotationReview.RallyCheck(video: video.id.uuidString, track: t.id, start: t.start, end: t.end))
         }
-        for f in model.openFound(in: video) where !covered(f[0], f[1]) && !cuts.overlaps(f[0], f[1]) {
+        let rejected = LocalStore.rejected(video)
+        for f in video.ralliesFound where !rejected.contains(LocalStore.key(f)) && truth.rallySeconds(within: f[0], f[1]) <= 0.3 && !cuts.overlaps(f[0], f[1]) {
             model.rejectFound(f, in: video)
         }
         model.update(video) { $0.complete = true }
@@ -343,16 +345,13 @@ final class PhoneLiveTagStore: LiveTagStore {
         model.update(video) { $0.rallies.removeAll { $0.id == id } }
     }
 
-    func confirmPretracked(start: Double, end: Double) -> [TrackedRally] {
-        var before: [TrackedRally] = []
-        for t in model.tracks(for: video) where t.isMachine && min(t.end, end) - max(t.start, start) > 0.5 * (t.end - t.start) {
-            let rally = t.rally
-            before.append(rally)
-            let check = AnnotationReview.RallyCheck(video: video.id.uuidString, track: t.id, start: t.start, end: t.end)
-            model.replace(check, with: rally.trimmed(start: start, end: end))
-            model.setIsRally(true, check)
+    func confirmPretracked(start: Double, end: Double, kind: RallyKind) -> [TrackedRally] {
+        RallyTruth.pretrackedChanges(model.tracks(for: video).map(\.rally), start: start, end: end, kind: kind).map { change in
+            let check = AnnotationReview.RallyCheck(video: video.id.uuidString, track: change.before.id, start: change.before.start, end: change.before.end)
+            if change.after != change.before { model.replace(check, with: change.after) }
+            model.setIsRally(change.isRally, check)
+            return change.before
         }
-        return before
     }
 
     func restore(_ rallies: [TrackedRally]) {
