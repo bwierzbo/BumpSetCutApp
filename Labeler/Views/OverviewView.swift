@@ -23,7 +23,8 @@ struct OverviewView: View {
                     tile("\(progress.rallies)", "tracked rallies", .orange)
                     tile(progress.frames.formatted(), "labeled frames", .teal)
                     tile("\(videos.filter { model.rallyTimes(for: $0).complete }.count)/\(videos.count)", "videos finished", .purple)
-                    tile("\(videos.filter { $0.recordingType != nil }.count)/\(videos.count)", "footage confirmed", .blue)
+                    // Confirmed by a person (`recordingTypeAt`): a published default of unknown with no one behind it is not.
+                    tile("\(videos.filter { $0.recordingTypeAt != nil }.count)/\(videos.count)", "footage confirmed", .blue)
                 }
                 .listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
             }
@@ -128,12 +129,18 @@ struct FootageTypeBadge: View {
     }
 
     private var state: (String, String, Color) {
-        if let published = video.recordingType {
-            return (published, Self.icon(for: published), published == "continuous" ? .green : published == "edited" ? .orange : .gray)
+        // The published type counts only with a person behind it (`recordingTypeAt`; RecordingTypeClaims.reviewed):
+        // the Mac publishes the record's default of unknown too, and that is not a confirmation.
+        if let published = video.recordingType, video.recordingTypeAt != nil {
+            return (published == "unknown" ? "reviewed · unknown" : published, Self.icon(for: published),
+                    published == "continuous" ? .green : published == "edited" ? .orange : .gray)
         }
         switch claim {
-        case .none: return ("no footage type", "questionmark.circle", .secondary)
-        case .pending(let p): return ("\(p.kind.rawValue) · saved here", "tray", .secondary)
+        case .none: return ("not yet reviewed", "questionmark.circle", .secondary)
+        case .pending(let p):
+            // The server refused the claim itself: it is never sent again, a new choice is needed (Display.statusText).
+            if p.refusal != nil { return ("\(p.kind.rawValue) · refused", "exclamationmark.triangle", .red) }
+            return ("\(p.kind.rawValue) · saved here", "tray", .secondary)
         case .submitted(let c), .accepted(let c), .superseded(let c): return ("\(c.recordingType) · waiting for the Mac", "clock", .secondary)
         case .rejected(let c, _): return ("\(c.recordingType) · refused", "exclamationmark.triangle", .red)
         }
