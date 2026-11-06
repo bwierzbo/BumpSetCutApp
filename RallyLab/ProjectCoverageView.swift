@@ -333,8 +333,13 @@ struct FootageTypeList: View {
     }
 
     var rows: [Row] {
+        let project = projects.project
         let all = projects.sampler.sessions.map { s -> Row in
-            let record = records[DatasetStore.safeName(s.name)] ?? records[s.name]
+            // A record bound to another file's fingerprint (the recording was replaced under its name) is not this
+            // recording's confirmation — the confirmation step's and the source index's rule.
+            let record = (records[DatasetStore.safeName(s.name)] ?? records[s.name]).flatMap { r in
+                FootageTypeConfirmation.anotherFile(r, sourceFingerprint: FootageTypeConfirmation.sourceFingerprint(of: s.name, in: project)) == nil ? r : nil
+            }
             let confirmed = record.flatMap { r in r.recordingTypeAt == nil ? nil : (r.recordingType, r.recordingTypeBy, r.recordingTypeAt) }
             return Row(name: s.name, marked: s.ralliesMarked ?? false, confirmed: confirmed, claim: claims[s.name],
                        unreadable: unreadable[DatasetStore.safeName(s.name)] ?? unreadable[s.name])
@@ -403,7 +408,7 @@ struct FootageTypeList: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.background, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.primary.opacity(0.07)))
-        .task(id: reloads) { await load() }
+        .task(id: "\(reloads)-\(projects.opening?.generation.uuidString ?? "")") { await load() }
         .sheet(item: $confirming) { step in
             FootageTypeSheet(recording: FootageTypeConfirmation.Recording(step.session), opening: step.opening, projects: projects,
                              duration: nil, afterPass: false) {
@@ -413,20 +418,24 @@ struct FootageTypeList: View {
         }
     }
 
-    /// The records from the project's files; the phone's claims from the server (the newest per recording).
+    /// The records from the project's files; the phone's claims from the server (the newest per recording). Read
+    /// for the opening in force when the load began: another project opened meanwhile keeps nothing of it (the
+    /// task restarts for the new opening), and nothing read for the old one lands on the new one's names.
     private func load() async {
-        if let opening = projects.opening {
-            if let all = try? FootageProperties.Store(root: opening.root).loadAll() { records = all.records; unreadable = all.unreadable }
-            do {
-                let rows = try await LabelingClient.shared.recordingTypeClaims(since: nil).filter { $0.project == opening.name }
-                var newest: [String: RecordingTypeClaim] = [:]
-                for c in rows where (newest[c.sessionName].map { ($0.revision, $0.submittedAt) < (c.revision, c.submittedAt) } ?? true) { newest[c.sessionName] = c }
-                claims = newest
-                claimsProblem = nil
-            } catch {
-                claims = [:]
-                claimsProblem = "The phone's choices can't be read: \(error.localizedDescription) (sign in under Plan)"
-            }
+        records = [:]; unreadable = [:]; claims = [:]; claimsProblem = nil
+        guard let opening = projects.opening else { return }
+        if let all = try? FootageProperties.Store(root: opening.root).loadAll() { records = all.records; unreadable = all.unreadable }
+        do {
+            let rows = try await LabelingClient.shared.recordingTypeClaims(since: nil).filter { $0.project == opening.name }
+            guard projects.opening == opening else { return }
+            var newest: [String: RecordingTypeClaim] = [:]
+            for c in rows where (newest[c.sessionName].map { ($0.revision, $0.submittedAt) < (c.revision, c.submittedAt) } ?? true) { newest[c.sessionName] = c }
+            claims = newest
+            claimsProblem = nil
+        } catch {
+            guard projects.opening == opening else { return }
+            claims = [:]
+            claimsProblem = "The phone's choices can't be read: \(error.localizedDescription) (sign in under Plan)"
         }
     }
 
