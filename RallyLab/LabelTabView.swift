@@ -77,7 +77,7 @@ struct LabelTabView: View {
             case .review:
                 NavigationStack { ReviewHomeView(store: review, progress: review.progress) }
             case .coverage:
-                ProjectCoverageView(projects: projects)
+                ProjectCoverageView(projects: projects) { active = $0 }
             case .plan:
                 ProjectPlanView(projects: projects, library: library, phone: phone) { session in
                     active = jobs.first { $0.video == session.name }

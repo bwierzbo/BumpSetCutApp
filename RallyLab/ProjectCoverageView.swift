@@ -15,6 +15,9 @@ import SwiftUI
 
 struct ProjectCoverageView: View {
     let projects: ProjectsModel
+    /// Open a recording's task from a row: the marking pass, or its next rally to track (owner, 2026-11-05: "in
+    /// coverage I need to be able to see the screen where I mark the rallies and everything else").
+    var open: (LabelQueue.Job) -> Void = { _ in }
 
     var body: some View {
         let c = Coverage(sessions: projects.sampler.sessions)
@@ -82,18 +85,20 @@ struct ProjectCoverageView: View {
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.primary.opacity(0.07)))
                 }
 
-                FootageTypeList(projects: projects)
+                FootageTypeList(projects: projects, open: open)
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Every video").font(.title3.weight(.bold))
                     Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 6) {
                         GridRow {
-                            ForEach(["Video", "Split", "On Mac", "Rallies", "Guesses left", "Rally times", "Sampled"], id: \.self) {
+                            ForEach(["Video", "Split", "On Mac", "Rallies", "Guesses left", "Rally times", "Sampled", ""], id: \.self) {
                                 Text($0).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                             }
                         }
                         Divider().gridCellUnsizedAxes(.horizontal)
-                        ForEach(c.videos) { VideoRow(video: $0) }
+                        ForEach(c.videos) { video in
+                            VideoRow(video: video) { OpenButtons(name: video.name, projects: projects, open: open) }
+                        }
                     }
                     .padding(16)
                     .background(.background, in: RoundedRectangle(cornerRadius: 12))
@@ -220,6 +225,7 @@ struct Coverage {
 
 private struct VideoRow: View {
     let video: Coverage.Video
+    let actions: () -> OpenButtons
 
     private var rallyTimesTint: Color {
         switch video.rallyTimes {
@@ -243,7 +249,28 @@ private struct VideoRow: View {
             Chip(text: video.rallyTimes, tint: rallyTimesTint)
             Text("\(video.sampled)").font(.caption.monospacedDigit())
                 .foregroundStyle(video.onMac ? Color.primary : Color.red)
+            actions()
         }
+    }
+}
+
+/// From any row straight to the recording's work: the marking pass (Mark the rallies), or its next rally to track.
+struct OpenButtons: View {
+    let name: String
+    let projects: ProjectsModel
+    let open: (LabelQueue.Job) -> Void
+
+    var body: some View {
+        let session = projects.sampler.sessions.first { $0.name == name }
+        HStack(spacing: 6) {
+            Button("Mark") { open(.review(name)) }
+                .help("Mark the rallies in this recording (the live pass)")
+            Button("Track") { if let s = session, let rally = LabelQueue.Video(session: s).nextRally { open(.track(name, rally)) } }
+                .disabled(session.flatMap { LabelQueue.Video(session: $0).nextRally } == nil)
+                .help("Track the next rally of this recording frame by frame")
+        }
+        .controlSize(.small)
+        .disabled(session == nil)
     }
 }
 
@@ -305,6 +332,7 @@ private struct Chip: View {
 /// footage it is".
 struct FootageTypeList: View {
     let projects: ProjectsModel
+    var open: (LabelQueue.Job) -> Void = { _ in }
 
     @State private var claims: [String: RecordingTypeClaim] = [:]
     @State private var claimsProblem: String?
@@ -371,7 +399,7 @@ struct FootageTypeList: View {
             } else {
                 Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 6) {
                     GridRow {
-                        ForEach(["Video", "Pass", "Footage type", "Phone", ""], id: \.self) {
+                        ForEach(["Video", "Pass", "Footage type", "Phone", "", " "], id: \.self) {
                             Text($0).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                         }
                     }
@@ -399,6 +427,7 @@ struct FootageTypeList: View {
                                 confirming = Confirming(session: session, opening: opening)
                             }
                             .controlSize(.small).disabled(projects.opening == nil)
+                            OpenButtons(name: row.name, projects: projects, open: open)
                         }
                     }
                 }
