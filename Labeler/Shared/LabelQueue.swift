@@ -64,7 +64,9 @@ enum LabelQueue {
     static let tracksPerReview = 3
 
     static func jobs(_ videos: [Video], round: TrainingPlan.Round?) -> [Job] {
-        let progress = PlanProgress(videos: videos.map(\.plan), round: round)
+        // A set-aside recording is no candidate for the plan either (its slot goes to another recording), while
+        // its frames still count in the round's totals.
+        let progress = PlanProgress(videos: videos.map { $0.backlog ? $0.plan.unavailable : $0.plan }, round: round)
         let byName = Dictionary(videos.map { ($0.plan.name, $0) }) { a, _ in a }
         var track: [Job] = progress.queue.compactMap { p in
             byName[p.name].flatMap { $0.backlog ? nil : $0.nextRally.map { .track(p.name, $0) } }

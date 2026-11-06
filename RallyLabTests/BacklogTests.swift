@@ -32,6 +32,29 @@ final class BacklogTests: XCTestCase {
         XCTAssertEqual(LabelQueue.markingJobs(back).map(\.video).first, "b")
     }
 
+    func testASetAsideRecordingIsNoCandidateForThePlanEither() {
+        // Every preferred candidate set aside: the plan's slots go to the others instead of standing empty.
+        let rally = LabelRally(start: 10, end: 20)
+        let aside = (0..<8).map { video("aside\($0)", found: 20, backlog: true, rally: rally) }
+        let others = (0..<3).map { video("other\($0)", found: 1, rally: rally) }
+        let jobs = LabelQueue.jobs(aside + others, round: TrainingPlan.rounds.first)
+        XCTAssertFalse(jobs.contains { $0.video.hasPrefix("aside") })
+        XCTAssertTrue(others.allSatisfy { o in jobs.contains(.track(o.plan.name, rally)) }, "\(jobs)")
+        XCTAssertFalse(aside[0].plan.unavailable.available); XCTAssertEqual(aside[0].plan.unavailable.name, "aside0")
+    }
+
+    func testAPublishedRowNeverCarriesTheBacklog() throws {
+        var row = LabelVideo(id: UUID(), project: "P", sessionName: "v", title: "", surface: .beach, camera: .endlineGround, lighting: "",
+                             split: "train", clipPath: nil, duration: 0, ralliesFound: [], status: .rallylab, updatedAt: nil)
+        row.backlogReason = "poor footage"; row.backlogAt = Date(); row.backlogBy = UUID()
+        let e = JSONEncoder(); e.keyEncodingStrategy = .convertToSnakeCase
+        let json = String(decoding: try e.encode(row), as: UTF8.self)
+        XCTAssertFalse(json.contains("backlog"), "only setBacklog writes the backlog: \(json)")
+        XCTAssertTrue(json.contains("\"session_name\":\"v\""))
+        let d = JSONDecoder(); d.keyDecodingStrategy = .convertFromSnakeCase
+        XCTAssertFalse(try d.decode(LabelVideo.self, from: try e.encode(row)).isBacklogged)
+    }
+
     func testThePatchSetsAsideOrPutsBackWithExplicitNulls() {
         let at = Date(timeIntervalSince1970: 1_800_000_000)
         let by = UUID(uuidString: "139A3DC5-DB9A-400C-A00E-7C7102F8E62C")!

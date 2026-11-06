@@ -95,6 +95,35 @@ struct LabelVideo: Codable, Identifiable, Hashable {
     var isBacklogged: Bool { backlogAt != nil }
 
     var name: String { sessionName ?? (title.isEmpty ? "Phone video" : title) }
+
+    enum CodingKeys: String, CodingKey {
+        case id, project, sessionName, title, surface, camera, lighting, split, clipPath, duration, ralliesFound, status, updatedAt
+        case frameTimesDigest, sourceFingerprint, recordingType, recordingTypeAt, backlogReason, backlogAt, backlogBy
+    }
+
+    /// A row as the apps write it: everything but the backlog, which only `LabelingClient.setBacklog` changes —
+    /// a publication of the row (the Mac listing it, the phone uploading it) never resends a backlog state it read
+    /// earlier over a newer one.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encodeIfPresent(project, forKey: .project)
+        try c.encodeIfPresent(sessionName, forKey: .sessionName)
+        try c.encode(title, forKey: .title)
+        try c.encode(surface, forKey: .surface)
+        try c.encode(camera, forKey: .camera)
+        try c.encode(lighting, forKey: .lighting)
+        try c.encode(split, forKey: .split)
+        try c.encodeIfPresent(clipPath, forKey: .clipPath)
+        try c.encode(duration, forKey: .duration)
+        try c.encode(ralliesFound, forKey: .ralliesFound)
+        try c.encode(status, forKey: .status)
+        try c.encodeIfPresent(updatedAt, forKey: .updatedAt)
+        try c.encodeIfPresent(frameTimesDigest, forKey: .frameTimesDigest)
+        try c.encodeIfPresent(sourceFingerprint, forKey: .sourceFingerprint)
+        try c.encodeIfPresent(recordingType, forKey: .recordingType)
+        try c.encodeIfPresent(recordingTypeAt, forKey: .recordingTypeAt)
+    }
 }
 
 /// A rally's start and end, seconds into the video.
