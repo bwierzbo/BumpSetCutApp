@@ -91,7 +91,9 @@ final class LabelingLive {
             case "broadcast":
                 let notice = (payload?["payload"] as? [String: Any])
                 if (notice?["by"] as? String)?.lowercased() != me { changed() }
-            case "phx_error", "phx_close", "system" where (payload?["status"] as? String) == "error":
+            case "phx_error", "phx_close":
+                return joined
+            case "system" where (payload?["status"] as? String) == "error":
                 return joined
             default:
                 break
