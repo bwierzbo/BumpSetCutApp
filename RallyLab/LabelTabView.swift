@@ -96,7 +96,9 @@ struct LabelTabView: View {
         case .review:
             LiveTagView(session: session, marker: marker, review: review, paths: paths, projects: projects, isActive: isActive,
                         onClose: { active = nil }, onDone: next,
-                        onSkip: { reason in Task { try? await phone.setBacklog(session: session.name, reason: reason) }; next() })
+                        // Set aside on the server first; only then on to the next task (which can no longer be this
+                        // recording's). A failure stays on screen in the sync status and the pass stays open.
+                        onSkip: { reason in Task { if await phone.setBacklog(session: session.name, reason: reason) { next() } } })
         }
     }
 

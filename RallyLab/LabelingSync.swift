@@ -744,16 +744,29 @@ final class LabelingSync {
     /// Set a recording aside (the backlog) or put it back (`reason` nil), from the Mac: written on the server
     /// first (the authority both devices read), then on the session. Throws when not signed in or the recording
     /// has no row yet (it has never been published for the phone).
-    func setBacklog(session name: String, reason: String?) async throws {
-        guard let opening = projects.opening else { return }
-        guard let row = try await client.videos().first(where: { $0.project == opening.name && $0.sessionName == name }) else {
-            throw LabelingClient.Failure.server(404, "\(name) has no row on the server yet — it is listed for the phone by a full sync round")
+    /// True once the server and the session have it; false — with why in `status` — when not signed in, the
+    /// recording has no row yet, or the server could not be reached. Nothing is set aside on a false.
+    @discardableResult
+    func setBacklog(session name: String, reason: String?) async -> Bool {
+        guard let opening = projects.opening else { status = "No project open — nothing to set aside."; return false }
+        do {
+            guard let row = try await client.videos().first(where: { $0.project == opening.name && $0.sessionName == name }) else {
+                status = "\(name) has no row on the server yet (a full sync round lists it for the phone) — not set aside."
+                return false
+            }
+            let at = Date()
+            try await client.setBacklog(row.id, reason: reason, at: at)
+            try projects.require(opening)
+            projects.sampler.setBacklog(reason: reason, at: reason == nil ? nil : at, session: name)
+            status = reason == nil ? "\(name) is back in the queue." : "\(name) set aside: \(reason!)."
+            return true
+        } catch LabelingClient.Failure.notSignedIn {
+            status = "Sign in to sync with the phone — \(name) was not set aside."
+            return false
+        } catch {
+            status = "\(name) was not set aside: \(error.localizedDescription)"
+            return false
         }
-        let at = Date()
-        try await client.setBacklog(row.id, reason: reason, at: at)
-        try projects.require(opening)
-        projects.sampler.setBacklog(reason: reason, at: reason == nil ? nil : at, session: name)
-        status = reason == nil ? "\(name) is back in the queue." : "\(name) set aside: \(reason!)."
     }
 
     private func syncRallyTimes(_ opening: ProjectsModel.Opening) async throws -> (pushed: Int, pulled: Int, unreadable: [String]) {
