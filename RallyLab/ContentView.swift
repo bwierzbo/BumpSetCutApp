@@ -136,7 +136,8 @@ struct ContentView: View {
                 .tabItem { Label("Phase 1", systemImage: "point.topleft.down.curvedto.point.bottomright.up") }
                 .tag(Tab.fsm)
         }
-        .frame(minWidth: 1040, minHeight: 680)
+        // Half of a 16-inch screen fits (the owner tiles RallyLab beside a terminal, 2026-11-05); the tabs reflow.
+        .frame(minWidth: 700, minHeight: 600)
         .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.movie, .video]) { result in
             if case .success(let url) = result { model.loadVideo(url) }
         }
