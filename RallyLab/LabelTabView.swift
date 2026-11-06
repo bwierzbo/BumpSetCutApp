@@ -95,7 +95,8 @@ struct LabelTabView: View {
                            onClose: { active = nil }, onDone: next)
         case .review:
             LiveTagView(session: session, marker: marker, review: review, paths: paths, projects: projects, isActive: isActive,
-                        onClose: { active = nil }, onDone: next)
+                        onClose: { active = nil }, onDone: next,
+                        onSkip: { reason in Task { try? await phone.setBacklog(session: session.name, reason: reason) }; next() })
         }
     }
 
@@ -124,7 +125,7 @@ extension LabelQueue.Video {
         let unfinished = tracks.filter(\.isOpen).map(\.bounds).outsideCuts(cuts)
         let open = TrackLabelModel.untracked(marked + found, tracks: tracks).outsideCuts(cuts)
         self.init(plan: PlanVideo(session: s), nextRally: (unfinished + open).first, found: found.count,
-                  marked: marked.count, complete: s.ralliesMarked ?? false)
+                  marked: marked.count, complete: s.ralliesMarked ?? false, backlog: s.backlogAt != nil)
     }
 }
 

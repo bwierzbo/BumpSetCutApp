@@ -44,6 +44,13 @@ struct LabelSnapshot: Codable, Sendable {
 }
 
 /// A Stage 1 record edited on the phone and not saved yet: the record and the server revision it was loaded from.
+/// A recording set aside (reason, when) or put back (both nil), waiting to be sent; who, the server learns from
+/// the account that sends it.
+struct BacklogChange: Codable, Equatable, Sendable {
+    var reason: String?
+    var at: Date?
+}
+
 struct PendingRallyEvents: Codable, Equatable {
     var videoId: UUID
     var expected: Int
@@ -63,8 +70,10 @@ struct Outbox: Codable {
     var events: [UUID: PendingRallyEvents] = [:]
     /// Footage-type choices waiting to be sent, by claim id (D-033): durable until the server has them.
     var claims: [UUID: RecordingTypeClaims.Pending] = [:]
-    var isEmpty: Bool { times.isEmpty && tracks.isEmpty && frames.isEmpty && rallies.isEmpty && events.isEmpty && claims.isEmpty }
-    var count: Int { times.count + tracks.count + frames.count + rallies.count + events.count + claims.count }
+    /// Recordings set aside or put back (the backlog), by video: the latest change, sent as it is.
+    var backlog: [UUID: BacklogChange] = [:]
+    var isEmpty: Bool { times.isEmpty && tracks.isEmpty && frames.isEmpty && rallies.isEmpty && events.isEmpty && claims.isEmpty && backlog.isEmpty }
+    var count: Int { times.count + tracks.count + frames.count + rallies.count + events.count + claims.count + backlog.count }
 
     /// This outbox with `settling`'s rows behind it: a live edit of the same thing wins, and the settled checks and
     /// decisions come first, as they were made.
@@ -74,6 +83,7 @@ struct Outbox: Codable {
         all.tracks.merge(settling.tracks) { mine, _ in mine }
         all.events.merge(settling.events) { mine, _ in mine }
         all.claims.merge(settling.claims) { mine, _ in mine }
+        all.backlog.merge(settling.backlog) { mine, _ in mine }
         all.frames = settling.frames + frames
         all.rallies = settling.rallies + rallies
         return all
@@ -85,6 +95,7 @@ struct Outbox: Codable {
         for (id, row) in carried.tracks where tracks[id] == row { tracks[id] = nil }
         for (id, row) in carried.events where events[id] == row { events[id] = nil }
         for (id, row) in carried.claims where claims[id] == row { claims[id] = nil }
+        for (id, row) in carried.backlog where backlog[id] == row { backlog[id] = nil }
         for edit in carried.frames { if let i = frames.firstIndex(of: edit) { frames.remove(at: i) } }
         for verdict in carried.rallies { if let i = rallies.firstIndex(of: verdict) { rallies.remove(at: i) } }
     }
@@ -99,6 +110,7 @@ struct Outbox: Codable {
         rallies = try c.decodeIfPresent([LabelingClient.RallyVerdict].self, forKey: .rallies) ?? []
         events = try c.decodeIfPresent([UUID: PendingRallyEvents].self, forKey: .events) ?? [:]
         claims = try c.decodeIfPresent([UUID: RecordingTypeClaims.Pending].self, forKey: .claims) ?? [:]
+        backlog = try c.decodeIfPresent([UUID: BacklogChange].self, forKey: .backlog) ?? [:]
     }
 }
 

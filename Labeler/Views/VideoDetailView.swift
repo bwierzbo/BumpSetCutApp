@@ -12,16 +12,25 @@ import SwiftUI
 struct VideoDetailView: View {
     let model: LabelerModel
     let video: LabelVideo
+    @State private var skipping = false
 
     var body: some View {
         let times = model.rallyTimes(for: video)
         let tracks = model.tracks(for: video)
         let untracked = model.untrackedRallies(in: video)
+        // The row as the model has it now (the one handed in may predate a skip or a put-back).
+        let current = model.video(video.id) ?? video
         List {
             Section {
                 LabeledContent("Surface", value: "\(video.surface.rawValue) · \(video.camera.title)")
                 LabeledContent("Split", value: video.split)
                 LabeledContent("Rally times", value: times.complete ? "every rally marked (\(times.rallies.count))" : "\(times.rallies.count) marked")
+                if current.isBacklogged {
+                    LabeledContent("Backlog", value: current.backlogReason ?? "set aside")
+                    Button { model.setBacklog(current, reason: nil) } label: { Label("Put back in the queue", systemImage: "arrow.uturn.backward") }
+                } else {
+                    Button { skipping = true } label: { Label("Skip this video…", systemImage: "arrow.uturn.forward") }
+                }
             }
             Section("Rally times") {
                 NavigationLink {
@@ -89,6 +98,7 @@ struct VideoDetailView: View {
                 }
             }
         }
+        .backlogDialog(isPresented: $skipping, video: current, model: model)
         .navigationTitle(video.name)
         .navigationBarTitleDisplayMode(.inline)
     }

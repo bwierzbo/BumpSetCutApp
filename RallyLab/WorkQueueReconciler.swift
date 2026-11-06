@@ -85,6 +85,11 @@ enum WorkQueueReconciler {
                     return (a == .quarantined ? .quarantined : .blocked, "not admitted: \(a.rawValue)",
                             "not admitted (\(a.rawValue)\(why)) — judged by the source index from the project's records; no labeling task is actionable")
                 }
+                // Set aside by a labeler (the backlog, migration 053): no task until someone puts it back. Not
+                // withheld, not excluded — the marks it has stand.
+                if s.backlogAt != nil {
+                    return (.blocked, "backlog", "set aside (the backlog): \(s.backlogReason ?? "no reason given") — put it back on the phone or the Mac to label it")
+                }
                 return nil
             }()
 

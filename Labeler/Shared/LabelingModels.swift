@@ -86,6 +86,13 @@ struct LabelVideo: Codable, Identifiable, Hashable {
     /// authority (D-033). Set when an accepted claim is settled and whenever the Mac publishes its videos.
     var recordingType: String? = nil
     var recordingTypeAt: Date? = nil
+    /// Set aside from labeling (the backlog; migration 053): why, when, by whom. Not withheld, not excluded —
+    /// the marks it has still count; it leaves the queues until someone puts it back. nil: not set aside.
+    var backlogReason: String? = nil
+    var backlogAt: Date? = nil
+    var backlogBy: UUID? = nil
+
+    var isBacklogged: Bool { backlogAt != nil }
 
     var name: String { sessionName ?? (title.isEmpty ? "Phone video" : title) }
 }

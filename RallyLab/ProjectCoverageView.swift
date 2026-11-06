@@ -163,7 +163,7 @@ struct Coverage {
             let sampled = s.frames.filter { $0.keep && $0.reviewed }.count
             let guesses = TrackLabelModel.suggestions(from: s, excluding: tracks).count
             let labels = RallyMarkModel.labelsURL(for: URL(fileURLWithPath: s.sourcePath))
-            let rallyTimes = (s.ralliesMarked ?? false) ? "marked" : FileManager.default.fileExists(atPath: labels.path) ? "partial" : "—"
+            let rallyTimes = s.backlogAt != nil ? "backlog" : (s.ralliesMarked ?? false) ? "marked" : FileManager.default.fileExists(atPath: labels.path) ? "partial" : "—"
             var row = rows[env] ?? Row()
             if s.split == "val" {
                 row.valRallies += done.count
@@ -231,6 +231,7 @@ private struct VideoRow: View {
         switch video.rallyTimes {
         case "marked": return ReviewStyle.yours
         case "partial": return ReviewStyle.guess
+        case "backlog": return .orange
         default: return .secondary
         }
     }

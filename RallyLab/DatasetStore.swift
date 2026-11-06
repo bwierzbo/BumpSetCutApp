@@ -105,6 +105,10 @@ struct VideoSession: Codable, Identifiable, Equatable {
     /// middle of a rally, an editor put an instant replay in — as marked in
     /// the live pass (raw, as marked; read through `cutRanges`). D-030.
     var cuts: [CutRange]? = nil
+    /// Set aside from labeling (the backlog, migration 053): why and when; the server's value, copied by the
+    /// sync. nil: not set aside.
+    var backlogReason: String? = nil
+    var backlogAt: Date? = nil
 
     /// The cut ranges as every consumer reads them: normalised.
     var cutRanges: [CutRange] { (cuts ?? []).normalised() }

@@ -214,6 +214,29 @@ actor LabelingClient {
         return Data(#"{"recording_type":null,"recording_type_at":null,"updated_at":"\#(f.string(from: date))"}"#.utf8)
     }
 
+    /// Set a recording aside (the backlog, migration 053) or put it back (`reason` nil): the three columns as
+    /// explicit values, nulls included, and the row's date, so a pull of the rows changed since sees it.
+    func setBacklog(_ videoId: UUID, reason: String?, at date: Date = Date()) async throws {
+        var request = try await rest("label_videos", query: "id=eq.\(videoId.uuidString.lowercased())")
+        request.httpMethod = "PATCH"
+        request.setValue("return=minimal", forHTTPHeaderField: "Prefer")
+        request.httpBody = Self.backlogPayload(reason: reason, by: userId, at: date)
+        _ = try await send(request)
+    }
+
+    /// The PATCH body for the backlog: set aside (reason, time, who) or put back (all three null); the row's date
+    /// either way. Keys in a fixed order, so the exact payload is testable.
+    static func backlogPayload(reason: String?, by: UUID?, at date: Date) -> Data {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        let stamp = f.string(from: date)
+        func json(_ s: String) -> String { String(data: (try? JSONEncoder().encode(s)) ?? Data("\"\"".utf8), encoding: .utf8) ?? "\"\"" }
+        if let reason {
+            return Data(#"{"backlog_reason":\#(json(reason)),"backlog_at":"\#(stamp)","backlog_by":\#(by.map { json($0.uuidString.lowercased()) } ?? "null"),"updated_at":"\#(stamp)"}"#.utf8)
+        }
+        return Data(#"{"backlog_reason":null,"backlog_at":null,"backlog_by":null,"updated_at":"\#(stamp)"}"#.utf8)
+    }
+
     /// Every video's rally times, or only those changed after `since`.
     func rallyTimes(since: Date? = nil) async throws -> [LabelRallyTimes] {
         try await get("label_rally_times", query: "select=*" + Self.changed(since))

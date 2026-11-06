@@ -68,6 +68,7 @@ protocol LabelingService: Sendable {
     func recordingTypeClaim(id: UUID) async throws -> RecordingTypeClaim?
     func settleRecordingTypeClaim(_ id: UUID, status: RecordingTypeClaim.Status, reason: String?, confirmedAt: Date?) async throws -> RecordingTypeClaim
     func clearPublishedRecordingType(_ videoId: UUID) async throws
+    func setBacklog(_ videoId: UUID, reason: String?, at: Date) async throws
     func save(_ state: LabelProjectState) async throws
     func reviewRally(_ verdict: LabelingClient.RallyVerdict) async throws
     func reviewFrames(_ track: UUID, _ edits: [LabelingClient.FrameEdit]) async throws
@@ -740,6 +741,21 @@ final class LabelingSync {
         catch { return .unreadable(error.localizedDescription) }
     }
 
+    /// Set a recording aside (the backlog) or put it back (`reason` nil), from the Mac: written on the server
+    /// first (the authority both devices read), then on the session. Throws when not signed in or the recording
+    /// has no row yet (it has never been published for the phone).
+    func setBacklog(session name: String, reason: String?) async throws {
+        guard let opening = projects.opening else { return }
+        guard let row = try await client.videos().first(where: { $0.project == opening.name && $0.sessionName == name }) else {
+            throw LabelingClient.Failure.server(404, "\(name) has no row on the server yet — it is listed for the phone by a full sync round")
+        }
+        let at = Date()
+        try await client.setBacklog(row.id, reason: reason, at: at)
+        try projects.require(opening)
+        projects.sampler.setBacklog(reason: reason, at: reason == nil ? nil : at, session: name)
+        status = reason == nil ? "\(name) is back in the queue." : "\(name) set aside: \(reason!)."
+    }
+
     private func syncRallyTimes(_ opening: ProjectsModel.Opening) async throws -> (pushed: Int, pulled: Int, unreadable: [String]) {
         let videos = try await client.videos().filter { $0.project == opening.name && $0.sessionName != nil }
         let remote = Dictionary(uniqueKeysWithValues: try await client.rallyTimes(since: nil).map { ($0.videoId, $0) })
@@ -757,6 +773,11 @@ final class LabelingSync {
             case .present(let rallies): localRallies = rallies
             }
             let localChanged = (try? labels.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
+            // The backlog is the server's (either device may set a recording aside or put it back; the last change
+            // stands): the session takes the row's value whenever it differs.
+            if session.backlogReason != video.backlogReason || session.backlogAt != video.backlogAt {
+                projects.sampler.setBacklog(reason: video.backlogReason, at: video.backlogAt, session: name)
+            }
             // The Mac always says what the cuts are (an empty list when none), so the server's value is its own.
             let local = localRallies.map { rallies in
                 LabelRallyTimes(videoId: video.id,

@@ -42,6 +42,8 @@ struct MarkRalliesView: View {
     @State private var footageType = false
     /// Landscape keeps the marked list behind a button; this shows it.
     @State private var marksShown = false
+    /// Skip this video: the reasons on offer (the backlog).
+    @State private var skipping = false
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     private static let speeds: [Float] = [0.5, 1, 2, 3, 4]
@@ -65,6 +67,14 @@ struct MarkRalliesView: View {
         }
         .navigationTitle(video.name)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button { skipping = true } label: { Label("Skip this video…", systemImage: "arrow.uturn.forward") }
+                } label: { Image(systemName: "ellipsis.circle") }
+            }
+        }
+        .backlogDialog(isPresented: $skipping, video: video, model: model) { dismiss() }
         .task { await load() }
         .onDisappear {
             player.pause()

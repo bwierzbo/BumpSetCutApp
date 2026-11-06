@@ -14,6 +14,7 @@ struct NextView: View {
     @Bindable var model: LabelerModel
     @Binding var path: NavigationPath
     @State private var offlineBusy = false
+    @State private var skipping: LabelVideo?
 
     var body: some View {
         let tasks = model.tasks
@@ -24,6 +25,8 @@ struct NextView: View {
                 roundCard(progress)
                 if let first = tasks.first {
                     NavigationLink(value: first) { taskCard(first, big: true) }.buttonStyle(.plain)
+                    Button { skipping = first.video } label: { Label("Skip this video…", systemImage: "arrow.uturn.forward") }
+                        .font(.callout).padding(.horizontal, 4)
                 } else {
                     ContentUnavailableView("Nothing to do", systemImage: "checkmark.seal",
                                            description: Text("Every video's rallies are marked and the round has its frames. Sync from RallyLab on the Mac for more."))
@@ -40,6 +43,7 @@ struct NextView: View {
         }
         .refreshable { await model.reload() }
         .onAppear { model.prefetch() }
+        .backlogDialog(video: $skipping, model: model)
         .navigationTitle("Next")
         .toolbar {
             if model.isOffline || !model.outbox.isEmpty {
@@ -196,5 +200,37 @@ extension LabelerModel.LabelTask {
         case .review(let v): MarkRalliesView(model: model, video: v)
         case .track(let v, let r): TrackTaskView(model: model, video: v, span: r)
         }
+    }
+}
+
+/// "Skip this video…": the reasons on offer; the choice sets the recording aside (the backlog, migration 053) —
+/// it leaves the queue on both devices until put back, and the marks made so far stay.
+struct BacklogDialog: ViewModifier {
+    @Binding var video: LabelVideo?
+    let model: LabelerModel
+    var afterSkip: () -> Void = {}
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog("Skip this video?", isPresented: Binding(get: { video != nil }, set: { if !$0 { video = nil } }),
+                                   titleVisibility: .visible, presenting: video) { v in
+            ForEach(BacklogReason.allCases, id: \.self) { reason in
+                Button(reason.title) { model.setBacklog(v, reason: reason.rawValue); afterSkip() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { v in
+            Text("\(v.name) leaves the queue on the phone and the Mac until it is put back (Videos → Backlog). The rallies marked so far stay.")
+        }
+    }
+}
+
+extension View {
+    func backlogDialog(video: Binding<LabelVideo?>, model: LabelerModel, afterSkip: @escaping () -> Void = {}) -> some View {
+        modifier(BacklogDialog(video: video, model: model, afterSkip: afterSkip))
+    }
+
+    /// The same, for one known video and a yes/no flag.
+    func backlogDialog(isPresented: Binding<Bool>, video: LabelVideo, model: LabelerModel, afterSkip: @escaping () -> Void = {}) -> some View {
+        modifier(BacklogDialog(video: Binding(get: { isPresented.wrappedValue ? video : nil }, set: { isPresented.wrappedValue = $0 != nil }),
+                               model: model, afterSkip: afterSkip))
     }
 }

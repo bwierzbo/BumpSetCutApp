@@ -580,7 +580,7 @@ final class LabelerModel: ReviewStore {
         videos.map { v in
             let times = rallyTimes(for: v)
             return LabelQueue.Video(plan: planVideo(v), nextRally: nextRally(in: v),
-                                    found: v.ralliesFound.count, marked: times.rallies.count, complete: times.complete)
+                                    found: v.ralliesFound.count, marked: times.rallies.count, complete: times.complete, backlog: v.isBacklogged)
         }
     }
 
@@ -648,6 +648,22 @@ final class LabelerModel: ReviewStore {
             t.rallies.append(rally)
         }
     }
+
+    /// Set a recording aside (the backlog; it leaves the queue until put back) or put it back (`reason` nil): shown
+    /// at once, written to the outbox, sent on the next flush. The marks it has stay as they are.
+    func setBacklog(_ video: LabelVideo, reason: String?) {
+        let change = BacklogChange(reason: reason, at: reason == nil ? nil : Date())
+        if let i = snapshot.videos.firstIndex(where: { $0.id == video.id }) {
+            snapshot.videos[i].backlogReason = change.reason
+            snapshot.videos[i].backlogAt = change.at
+            snapshot.videos[i].backlogBy = nil
+        }
+        outbox.backlog[video.id] = change
+        queueFlush()
+    }
+
+    /// The recordings set aside, newest first.
+    var backlog: [LabelVideo] { videos.filter(\.isBacklogged).sorted { ($0.backlogAt ?? .distantPast) > ($1.backlogAt ?? .distantPast) } }
 
     func rejectFound(_ found: [Double], in video: LabelVideo) {
         LocalStore.reject(found, in: video)
@@ -776,6 +792,19 @@ final class LabelerModel: ReviewStore {
                 outbox.claims = RecordingTypeClaims.refusing(outbox.claims, id: pending.id, reason: message)
                 saveOutbox()
                 syncProblem = message
+            } catch { isOffline = true; break }
+        }
+        // Recordings set aside or put back: the latest change per recording, as it is (the last writer wins on
+        // the server, the same as the Mac's own change). A refusal (the recording not readable here any more)
+        // drops the change and says so; a transient failure leaves it for the next flush.
+        for (videoId, change) in outbox.backlog {
+            do {
+                try await client.setBacklog(videoId, reason: change.reason, at: change.at ?? Date())
+                outbox.backlog[videoId] = nil
+                settling.backlog[videoId] = change
+            } catch LabelingClient.Failure.server(let code, let message) where code == 403 || code == 400 {
+                outbox.backlog[videoId] = nil
+                syncProblem = "Couldn't set \(video(videoId)?.name ?? "a recording") aside: \(message)"
             } catch { isOffline = true; break }
         }
         // Rally checks, in the order they were made (a taken-back one last).

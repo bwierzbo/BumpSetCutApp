@@ -1093,6 +1093,17 @@ final class FakeLabeling: LabelingService {
         return claim
     }
 
+    var backlogged: [(UUID, String?, Date)] = []
+
+    func setBacklog(_ videoId: UUID, reason: String?, at: Date) async throws {
+        try begin("setBacklog")
+        if let i = videos.firstIndex(where: { $0.id == videoId }) {
+            videos[i].backlogReason = reason; videos[i].backlogAt = reason == nil ? nil : at; videos[i].updatedAt = at
+        }
+        backlogged.append((videoId, reason, at))
+        try await park("setBacklog")
+    }
+
     var cleared: [UUID] = []
 
     func clearPublishedRecordingType(_ videoId: UUID) async throws {

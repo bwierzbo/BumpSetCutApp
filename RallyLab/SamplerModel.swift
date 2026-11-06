@@ -1229,6 +1229,11 @@ final class SamplerModel {
         modify(session: name) { $0.ralliesMarked = marked }
     }
 
+    /// The backlog (migration 053): set aside with a reason and a time, or put back (both nil).
+    func setBacklog(reason: String?, at: Date?, session name: String) {
+        modify(session: name) { $0.backlogReason = reason; $0.backlogAt = at }
+    }
+
     /// Mark the rallies → X: the video's cut ranges, raw as marked (D-030). The Sampler's own
     /// dataset (images/, labels/, data.yaml) follows: a sampled frame inside a cut is parked under
     /// excluded/, one no longer inside comes back.
