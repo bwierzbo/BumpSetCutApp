@@ -101,11 +101,19 @@ struct LabelVideo: Codable, Identifiable, Hashable {
         case frameTimesDigest, sourceFingerprint, recordingType, recordingTypeAt, backlogReason, backlogAt, backlogBy
     }
 
-    /// A row as the apps write it: everything but the backlog, which only `LabelingClient.setBacklog` changes —
-    /// a publication of the row (the Mac listing it, the phone uploading it) never resends a backlog state it read
-    /// earlier over a newer one.
+    /// Set on the encoder that publishes rows to the server (`LabelingClient`): the backlog is left out of the
+    /// payload, since only `LabelingClient.setBacklog` changes it — a publication of the row (the Mac listing it,
+    /// the phone uploading it) must never resend a backlog state read earlier over a newer one. A local encoder
+    /// (the phone's snapshot) keeps it, or a set-aside would be lost over a restart.
+    static let publicationKey = CodingUserInfoKey(rawValue: "LabelVideo.publication")!
+
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
+        if encoder.userInfo[Self.publicationKey] as? Bool != true {
+            try c.encodeIfPresent(backlogReason, forKey: .backlogReason)
+            try c.encodeIfPresent(backlogAt, forKey: .backlogAt)
+            try c.encodeIfPresent(backlogBy, forKey: .backlogBy)
+        }
         try c.encode(id, forKey: .id)
         try c.encodeIfPresent(project, forKey: .project)
         try c.encodeIfPresent(sessionName, forKey: .sessionName)

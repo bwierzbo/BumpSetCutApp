@@ -43,16 +43,22 @@ final class BacklogTests: XCTestCase {
         XCTAssertFalse(aside[0].plan.unavailable.available); XCTAssertEqual(aside[0].plan.unavailable.name, "aside0")
     }
 
-    func testAPublishedRowNeverCarriesTheBacklog() throws {
+    func testAPublishedRowNeverCarriesTheBacklogButALocalCopyKeepsIt() throws {
         var row = LabelVideo(id: UUID(), project: "P", sessionName: "v", title: "", surface: .beach, camera: .endlineGround, lighting: "",
                              split: "train", clipPath: nil, duration: 0, ralliesFound: [], status: .rallylab, updatedAt: nil)
-        row.backlogReason = "poor footage"; row.backlogAt = Date(); row.backlogBy = UUID()
-        let e = JSONEncoder(); e.keyEncodingStrategy = .convertToSnakeCase
-        let json = String(decoding: try e.encode(row), as: UTF8.self)
+        row.backlogReason = "poor footage"; row.backlogAt = Date(timeIntervalSince1970: 1_800_000_000); row.backlogBy = UUID()
+        // Published (the client's encoder): no backlog in the payload — only setBacklog writes it.
+        let publish = JSONEncoder(); publish.keyEncodingStrategy = .convertToSnakeCase; publish.userInfo[LabelVideo.publicationKey] = true
+        let json = String(decoding: try publish.encode(row), as: UTF8.self)
         XCTAssertFalse(json.contains("backlog"), "only setBacklog writes the backlog: \(json)")
         XCTAssertTrue(json.contains("\"session_name\":\"v\""))
         let d = JSONDecoder(); d.keyDecodingStrategy = .convertFromSnakeCase
-        XCTAssertFalse(try d.decode(LabelVideo.self, from: try e.encode(row)).isBacklogged)
+        XCTAssertFalse(try d.decode(LabelVideo.self, from: try publish.encode(row)).isBacklogged)
+        // Kept locally (the phone's snapshot, a plain encoder): a set-aside survives a restart.
+        let local = JSONEncoder(); local.dateEncodingStrategy = .iso8601
+        let back = JSONDecoder(); back.dateDecodingStrategy = .iso8601
+        let round = try back.decode(LabelVideo.self, from: try local.encode(row))
+        XCTAssertTrue(round.isBacklogged); XCTAssertEqual(round.backlogReason, "poor footage"); XCTAssertEqual(round.backlogAt, row.backlogAt); XCTAssertEqual(round.backlogBy, row.backlogBy)
     }
 
     func testThePatchSetsAsideOrPutsBackWithExplicitNulls() {

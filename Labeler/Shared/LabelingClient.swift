@@ -712,6 +712,7 @@ actor LabelingClient {
     private static let encoder: JSONEncoder = {
         let e = JSONEncoder()
         e.keyEncodingStrategy = .convertToSnakeCase
+        e.userInfo[LabelVideo.publicationKey] = true   // rows published without their backlog (only setBacklog writes it)
         e.dateEncodingStrategy = .iso8601
         return e
     }()
