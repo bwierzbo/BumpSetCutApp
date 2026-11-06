@@ -778,6 +778,12 @@ final class LabelingSync {
             // The session is the captured project's (the lookup refuses once the opening ended); from it to the write
             // below there is no suspension point but the push's own save, after which nothing of the recording is written.
             guard let name = video.sessionName, let session = try projects.session(named: name, in: opening) else { continue }
+            // The backlog is the server's (either device may set a recording aside or put it back; the last change
+            // stands): the session takes the row's value whenever it differs — before the label file is read, since
+            // the backlog has nothing to do with it and an unreadable file must not keep a skip from the Mac.
+            if session.backlogReason != video.backlogReason || session.backlogAt != video.backlogAt {
+                projects.sampler.setBacklog(reason: video.backlogReason, at: video.backlogAt, session: name)
+            }
             let labels = RallyMarkModel.labelsURL(for: URL(fileURLWithPath: session.sourcePath))
             let localRallies: [RallyMarkRecord]?
             switch Self.rallyTimes(at: labels) {
@@ -786,11 +792,6 @@ final class LabelingSync {
             case .present(let rallies): localRallies = rallies
             }
             let localChanged = (try? labels.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
-            // The backlog is the server's (either device may set a recording aside or put it back; the last change
-            // stands): the session takes the row's value whenever it differs.
-            if session.backlogReason != video.backlogReason || session.backlogAt != video.backlogAt {
-                projects.sampler.setBacklog(reason: video.backlogReason, at: video.backlogAt, session: name)
-            }
             // The Mac always says what the cuts are (an empty list when none), so the server's value is its own.
             let local = localRallies.map { rallies in
                 LabelRallyTimes(videoId: video.id,

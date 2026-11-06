@@ -18,6 +18,9 @@ struct ProjectCoverageView: View {
     /// Open a recording's task from a row: the marking pass, or its next rally to track (owner, 2026-11-05: "in
     /// coverage I need to be able to see the screen where I mark the rallies and everything else").
     var open: (LabelQueue.Job) -> Void = { _ in }
+    /// Put a set-aside recording back in the queue (the backlog; server first, then the session) — the Mac's way
+    /// back for a recording the phone never lists (no phone copy).
+    var putBack: (String) -> Void = { _ in }
 
     var body: some View {
         let c = Coverage(sessions: projects.sampler.sessions)
@@ -85,7 +88,7 @@ struct ProjectCoverageView: View {
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.primary.opacity(0.07)))
                 }
 
-                FootageTypeList(projects: projects, open: open)
+                FootageTypeList(projects: projects, open: open, putBack: putBack)
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Every video").font(.title3.weight(.bold))
@@ -97,7 +100,7 @@ struct ProjectCoverageView: View {
                         }
                         Divider().gridCellUnsizedAxes(.horizontal)
                         ForEach(c.videos) { video in
-                            VideoRow(video: video) { OpenButtons(name: video.name, projects: projects, open: open) }
+                            VideoRow(video: video) { OpenButtons(name: video.name, projects: projects, open: open, putBack: putBack) }
                         }
                     }
                     .padding(16)
@@ -260,6 +263,7 @@ struct OpenButtons: View {
     let name: String
     let projects: ProjectsModel
     let open: (LabelQueue.Job) -> Void
+    var putBack: (String) -> Void = { _ in }
 
     var body: some View {
         let session = projects.sampler.sessions.first { $0.name == name }
@@ -269,6 +273,10 @@ struct OpenButtons: View {
             Button("Track") { if let s = session, let rally = LabelQueue.Video(session: s).nextRally { open(.track(name, rally)) } }
                 .disabled(session.flatMap { LabelQueue.Video(session: $0).nextRally } == nil)
                 .help("Track the next rally of this recording frame by frame")
+            if session?.backlogAt != nil {
+                Button("Put back") { putBack(name) }
+                    .help("Set aside (the backlog): \(session?.backlogReason ?? "no reason given") — put it back in the queue on the phone and the Mac")
+            }
         }
         .controlSize(.small)
         .disabled(session == nil)
@@ -334,6 +342,7 @@ private struct Chip: View {
 struct FootageTypeList: View {
     let projects: ProjectsModel
     var open: (LabelQueue.Job) -> Void = { _ in }
+    var putBack: (String) -> Void = { _ in }
 
     @State private var claims: [String: RecordingTypeClaim] = [:]
     @State private var claimsProblem: String?
@@ -428,7 +437,7 @@ struct FootageTypeList: View {
                                 confirming = Confirming(session: session, opening: opening)
                             }
                             .controlSize(.small).disabled(projects.opening == nil)
-                            OpenButtons(name: row.name, projects: projects, open: open)
+                            OpenButtons(name: row.name, projects: projects, open: open, putBack: putBack)
                         }
                     }
                 }
