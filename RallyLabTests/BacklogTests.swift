@@ -62,13 +62,15 @@ final class BacklogTests: XCTestCase {
     }
 
     func testThePatchSetsAsideOrPutsBackWithExplicitNulls() {
-        let at = Date(timeIntervalSince1970: 1_800_000_000)
+        // Set aside at 08:00, sent (after an offline wait) at 09:30: `backlog_at` keeps the person's time, the row's
+        // date is the write's, so another device's pull of the rows changed since sees it.
+        let at = Date(timeIntervalSince1970: 1_800_000_000), written = at.addingTimeInterval(90 * 60)
         let by = UUID(uuidString: "139A3DC5-DB9A-400C-A00E-7C7102F8E62C")!
-        XCTAssertEqual(String(decoding: LabelingClient.backlogPayload(reason: "poor footage", by: by, at: at), as: UTF8.self),
-                       #"{"backlog_reason":"poor footage","backlog_at":"2027-01-15T08:00:00Z","backlog_by":"139a3dc5-db9a-400c-a00e-7c7102f8e62c","updated_at":"2027-01-15T08:00:00Z"}"#)
-        XCTAssertEqual(String(decoding: LabelingClient.backlogPayload(reason: nil, by: by, at: at), as: UTF8.self),
-                       #"{"backlog_reason":null,"backlog_at":null,"backlog_by":null,"updated_at":"2027-01-15T08:00:00Z"}"#)
-        XCTAssertEqual(String(decoding: LabelingClient.backlogPayload(reason: "a \"quoted\" reason", by: nil, at: at), as: UTF8.self),
+        XCTAssertEqual(String(decoding: LabelingClient.backlogPayload(reason: "poor footage", by: by, at: at, written: written), as: UTF8.self),
+                       #"{"backlog_reason":"poor footage","backlog_at":"2027-01-15T08:00:00Z","backlog_by":"139a3dc5-db9a-400c-a00e-7c7102f8e62c","updated_at":"2027-01-15T09:30:00Z"}"#)
+        XCTAssertEqual(String(decoding: LabelingClient.backlogPayload(reason: nil, by: by, at: at, written: written), as: UTF8.self),
+                       #"{"backlog_reason":null,"backlog_at":null,"backlog_by":null,"updated_at":"2027-01-15T09:30:00Z"}"#)
+        XCTAssertEqual(String(decoding: LabelingClient.backlogPayload(reason: "a \"quoted\" reason", by: nil, at: at, written: at), as: UTF8.self),
                        #"{"backlog_reason":"a \"quoted\" reason","backlog_at":"2027-01-15T08:00:00Z","backlog_by":null,"updated_at":"2027-01-15T08:00:00Z"}"#)
     }
 
