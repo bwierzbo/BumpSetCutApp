@@ -1043,6 +1043,8 @@ final class LabelingSync {
         let me = await client.userId
         let rows = Dictionary(try await client.videos().map { ($0.id, $0.sourceFingerprint) }, uniquingKeysWith: { a, _ in a })
         try projects.require(opening)
+        // Read when asked, not once: a check made in Coverage while this round runs counts in it.
+        func counts(_ c: RecordingTypeClaim) -> Bool { (me != nil && c.submittedBy == me) || leadChecked.contains(c.id) }
         let store = FootageProperties.Store(root: root)
         var accepted = 0, rejected = 0, awaiting = 0
         var deferred: [String] = []
@@ -1064,6 +1066,7 @@ final class LabelingSync {
                 attempts += 1
                 guard let fresh = try await client.recordingTypeClaim(id: claim.id) else { break }   // gone with its recording
                 if fresh.status != .submitted {
+                    leadChecked.remove(claim.id)   // settled or replaced: a check of it has nothing left to apply
                     guard let newer = try await newestSubmittedClaim(for: claim.videoId) else { break }
                     claim = newer
                     continue
@@ -1077,7 +1080,7 @@ final class LabelingSync {
                 }
                 // Another labeler's choice waits for the lead's check; this account's own counts now (the claim in hand,
                 // after any replacement above: a newer choice from someone else is not covered by a check of the older).
-                guard (me != nil && claim.submittedBy == me) || leadChecked.contains(claim.id) else {
+                guard counts(claim) else {
                     awaiting += 1
                     break
                 }
@@ -1102,6 +1105,7 @@ final class LabelingSync {
                 switch RecordingTypeClaims.decide(claim: claim, publishedFingerprint: published, withheld: withheld?.contains(name) ?? false, record: state) {
                 case .reject(let why):
                     _ = try await client.settleRecordingTypeClaim(claim.id, status: .rejected, reason: why, confirmedAt: nil)
+                    leadChecked.remove(claim.id)
                     rejected += 1
                 case .defer(let why):
                     deferred.append("\(name): \(why)")
@@ -1109,6 +1113,7 @@ final class LabelingSync {
                     // The record carries this very claim (its acknowledgement was lost): acknowledged, nothing written again.
                     _ = try await client.settleRecordingTypeClaim(claim.id, status: .accepted, reason: nil,
                                                                  confirmedAt: onFile?.recordingTypeAt.flatMap(RecordingTypeClaims.parse))
+                    leadChecked.remove(claim.id)
                     accepted += 1
                 case .accept:
                     guard let type = claim.kind.flatMap({ FootageProperties.RecordingType(rawValue: $0.rawValue) }) else { break }
@@ -1132,19 +1137,41 @@ final class LabelingSync {
                             throw URLError(.networkConnectionLost)   // the acknowledgement lost after the write (fault injection)
                         }
                         _ = try await client.settleRecordingTypeClaim(claim.id, status: .accepted, reason: nil, confirmedAt: RecordingTypeClaims.parse(at))
+                        leadChecked.remove(claim.id)
                         accepted += 1
                     } catch LabelingClient.Failure.server(_, let message) where message.hasPrefix("conflict:") {
                         // Superseded between the check above and this settlement: what is on file is a replaced choice.
-                        // The replacement is applied now (it is the newer decision, so it takes the record over).
-                        if let newer = try await newestSubmittedClaim(for: claim.videoId), attempts < 3 { claim = newer; continue }
+                        // The replacement is applied now when it counts (it is the newer decision, so it takes the record
+                        // over). One that waits for the lead's check cannot take it over yet, so the replaced choice is
+                        // taken off first: the record goes back to what it was before this round wrote it — unless a
+                        // confirmation on this Mac replaced it meanwhile — and the replacement waits.
+                        leadChecked.remove(claim.id)
+                        let newer = try await newestSubmittedClaim(for: claim.videoId)
+                        if let newer, counts(newer), attempts < 3 { claim = newer; continue }
+                        if let newer, !counts(newer) {
+                            do {
+                                try restore(name, to: onFile, over: claim, store: store, root: root)
+                                awaiting += 1
+                            } catch {
+                                deferred.append("\(name): a replaced choice is on file and could not be taken off — \(error.localizedDescription)")
+                            }
+                            break
+                        }
                         deferred.append("\(name): the choice applied was replaced on the phone as it was confirmed; the replacement is applied by the next sync")
                     }
                 }
                 break
             }
         }
-        leadChecked.formIntersection(Set(submitted.map(\.id)))
         return (accepted, rejected, awaiting, deferred)
+    }
+
+    /// The record put back as it was before `claim` was written over it (removed when there was none), only while what
+    /// is on file is still that claim's write: a confirmation made on this Mac since is left as it is.
+    private func restore(_ name: String, to previous: FootageProperties.File?, over claim: RecordingTypeClaim,
+                         store: FootageProperties.Store, root: URL) throws {
+        guard let current = try store.load(name), RecordingTypeClaims.isAttributed(current.recordingTypeBy, to: claim) else { return }
+        if let previous { try store.save(previous) } else { try FileManager.default.removeItem(at: FootageProperties.url(in: root, video: name)) }
     }
 
     /// Other labelers' choices the lead accepted on this Mac, applied by the next round (in memory: a check is made

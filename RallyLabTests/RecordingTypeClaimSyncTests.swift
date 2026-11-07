@@ -520,6 +520,58 @@ final class RecordingTypeClaimSyncTests: XCTestCase {
         XCTAssertTrue(sync.status.contains("2 confirmed · 0 declined"), sync.status)
     }
 
+    func testACheckedClaimReplacedAsItIsSettledIsTakenOffAndTheUncheckedReplacementWaits() async throws {
+        // Another labeler's choice, accepted by the lead; the labeler replaces it while the Mac re-checks it. The Mac
+        // writes the checked choice, the settlement comes back a conflict, and the replacement has not been looked at:
+        // the record goes back to what it was (none), and the replacement waits for the lead.
+        let (_, row) = try project("A")
+        open("A")
+        let labeler = UUID()
+        let old = submit("continuous", for: row, by: labeler)
+        let checked = await sync.checkClaim(old, accept: true)
+        XCTAssertNil(checked)
+        server.hold("recordingTypeClaim", at: 1)
+        let round = Task { await self.sync.sync(videos: false) }
+        let reached = await server.arrived()
+        XCTAssertTrue(reached, "the round never reached the hold; calls made: \(server.calls)")
+        let replacement = server.phoneReplaces(video: row.id, with: "edited", at: now.addingTimeInterval(30))
+        server.release()
+        let ok = await round.value
+        XCTAssertTrue(ok, sync.status)
+        XCTAssertNil(try record("A"), "the replaced choice is not left on file")
+        XCTAssertEqual(server.claims[replacement.id]?.status, .submitted)
+        XCTAssertEqual(server.claims[old.id]?.status, .superseded)
+        XCTAssertTrue(sync.status.contains("1 from other labelers waiting for your check"), sync.status)
+        // Declining the replacement leaves nothing confirmed.
+        let declined = await sync.checkClaim(replacement, accept: false)
+        XCTAssertNil(declined)
+        let after = await sync.sync(videos: false)
+        XCTAssertTrue(after)
+        XCTAssertNil(try record("A"))
+    }
+
+    func testACheckMadeWhileARoundRunsIsKeptForTheNextRound() async throws {
+        let (_, row) = try project("A", videos: ["video_01", "video_02"])
+        let second = server.videos[1]
+        open("A")
+        submit("continuous", for: row)   // the lead's own: the round works on it
+        server.hold("recordingTypeClaim", at: 1)
+        let round = Task { await self.sync.sync(videos: false) }
+        let reached = await server.arrived()
+        XCTAssertTrue(reached, "the round never reached the hold; calls made: \(server.calls)")
+        // Meanwhile another labeler's choice arrives and the lead accepts it.
+        let theirs = submit("edited", for: second, by: UUID())
+        let checked = await sync.checkClaim(theirs, accept: true)
+        XCTAssertNil(checked)
+        server.release()
+        let ok = await round.value
+        XCTAssertTrue(ok, sync.status)
+        let next = await sync.sync(videos: false)
+        XCTAssertTrue(next, sync.status)
+        XCTAssertEqual(server.claims[theirs.id]?.status, .accepted, "the check survived the round that was running when it was made")
+        XCTAssertEqual(try XCTUnwrap(try record("A", video: "video_02")).recordingType, .edited)
+    }
+
     func testASupersessionThatLandsBetweenTheCheckAndTheSettlementIsAnsweredByApplyingTheReplacement() async throws {
         let (_, row) = try project("A")
         open("A")
