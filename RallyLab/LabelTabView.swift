@@ -77,7 +77,8 @@ struct LabelTabView: View {
             case .review:
                 NavigationStack { ReviewHomeView(store: review, progress: review.progress) }
             case .coverage:
-                ProjectCoverageView(projects: projects) { active = $0 }
+                ProjectCoverageView(projects: projects, open: { active = $0 },
+                                    putBack: { name in Task { await phone.setBacklog(session: name, reason: nil) } })
             case .plan:
                 ProjectPlanView(projects: projects, library: library, phone: phone) { session in
                     active = jobs.first { $0.video == session.name }
@@ -95,7 +96,10 @@ struct LabelTabView: View {
                            onClose: { active = nil }, onDone: next)
         case .review:
             LiveTagView(session: session, marker: marker, review: review, paths: paths, projects: projects, isActive: isActive,
-                        onClose: { active = nil }, onDone: next)
+                        onClose: { active = nil }, onDone: next,
+                        // Set aside on the server first; only then on to the next task (which can no longer be this
+                        // recording's). A failure stays on screen in the sync status and the pass stays open.
+                        onSkip: { reason in Task { if await phone.setBacklog(session: session.name, reason: reason) { next() } } })
         }
     }
 
@@ -124,7 +128,7 @@ extension LabelQueue.Video {
         let unfinished = tracks.filter(\.isOpen).map(\.bounds).outsideCuts(cuts)
         let open = TrackLabelModel.untracked(marked + found, tracks: tracks).outsideCuts(cuts)
         self.init(plan: PlanVideo(session: s), nextRally: (unfinished + open).first, found: found.count,
-                  marked: marked.count, complete: s.ralliesMarked ?? false)
+                  marked: marked.count, complete: s.ralliesMarked ?? false, backlog: s.backlogAt != nil)
     }
 }
 

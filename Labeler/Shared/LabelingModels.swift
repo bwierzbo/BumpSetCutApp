@@ -86,8 +86,52 @@ struct LabelVideo: Codable, Identifiable, Hashable {
     /// authority (D-033). Set when an accepted claim is settled and whenever the Mac publishes its videos.
     var recordingType: String? = nil
     var recordingTypeAt: Date? = nil
+    /// Set aside from labeling (the backlog; migration 053): why, when, by whom. Not withheld, not excluded —
+    /// the marks it has still count; it leaves the queues until someone puts it back. nil: not set aside.
+    var backlogReason: String? = nil
+    var backlogAt: Date? = nil
+    var backlogBy: UUID? = nil
+
+    var isBacklogged: Bool { backlogAt != nil }
 
     var name: String { sessionName ?? (title.isEmpty ? "Phone video" : title) }
+
+    enum CodingKeys: String, CodingKey {
+        case id, project, sessionName, title, surface, camera, lighting, split, clipPath, duration, ralliesFound, status, updatedAt
+        case frameTimesDigest, sourceFingerprint, recordingType, recordingTypeAt, backlogReason, backlogAt, backlogBy
+    }
+
+    /// Set on the encoder that publishes rows to the server (`LabelingClient`): the backlog is left out of the
+    /// payload, since only `LabelingClient.setBacklog` changes it — a publication of the row (the Mac listing it,
+    /// the phone uploading it) must never resend a backlog state read earlier over a newer one. A local encoder
+    /// (the phone's snapshot) keeps it, or a set-aside would be lost over a restart.
+    static let publicationKey = CodingUserInfoKey(rawValue: "LabelVideo.publication")!
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        if encoder.userInfo[Self.publicationKey] as? Bool != true {
+            try c.encodeIfPresent(backlogReason, forKey: .backlogReason)
+            try c.encodeIfPresent(backlogAt, forKey: .backlogAt)
+            try c.encodeIfPresent(backlogBy, forKey: .backlogBy)
+        }
+        try c.encode(id, forKey: .id)
+        try c.encodeIfPresent(project, forKey: .project)
+        try c.encodeIfPresent(sessionName, forKey: .sessionName)
+        try c.encode(title, forKey: .title)
+        try c.encode(surface, forKey: .surface)
+        try c.encode(camera, forKey: .camera)
+        try c.encode(lighting, forKey: .lighting)
+        try c.encode(split, forKey: .split)
+        try c.encodeIfPresent(clipPath, forKey: .clipPath)
+        try c.encode(duration, forKey: .duration)
+        try c.encode(ralliesFound, forKey: .ralliesFound)
+        try c.encode(status, forKey: .status)
+        try c.encodeIfPresent(updatedAt, forKey: .updatedAt)
+        try c.encodeIfPresent(frameTimesDigest, forKey: .frameTimesDigest)
+        try c.encodeIfPresent(sourceFingerprint, forKey: .sourceFingerprint)
+        try c.encodeIfPresent(recordingType, forKey: .recordingType)
+        try c.encodeIfPresent(recordingTypeAt, forKey: .recordingTypeAt)
+    }
 }
 
 /// A rally's start and end, seconds into the video.

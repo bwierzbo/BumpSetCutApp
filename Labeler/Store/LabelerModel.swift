@@ -256,9 +256,20 @@ final class LabelerModel: ReviewStore {
 
     // MARK: - Reading (local edits over what was loaded)
 
-    var videos: [LabelVideo] { snapshot.videos.filter { $0.clipPath != nil } }
+    /// The server's rows with this phone's unsent backlog changes on them: a skip or a put-back still in the
+    /// outbox shows and rules the queue however the rows were loaded or pulled since.
+    var videos: [LabelVideo] { snapshot.videos.filter { $0.clipPath != nil }.map(withPendingBacklog) }
 
-    func video(_ id: UUID) -> LabelVideo? { snapshot.videos.first { $0.id == id } }
+    func video(_ id: UUID) -> LabelVideo? { snapshot.videos.first { $0.id == id }.map(withPendingBacklog) }
+
+    private func withPendingBacklog(_ row: LabelVideo) -> LabelVideo {
+        guard let change = outbox.backlog[row.id] else { return row }
+        var r = row
+        r.backlogReason = change.reason
+        r.backlogAt = change.at
+        r.backlogBy = nil
+        return r
+    }
 
     func rallyTimes(for video: LabelVideo) -> LabelRallyTimes {
         outbox.times[video.id] ?? snapshot.times.first { $0.videoId == video.id }
@@ -580,7 +591,7 @@ final class LabelerModel: ReviewStore {
         videos.map { v in
             let times = rallyTimes(for: v)
             return LabelQueue.Video(plan: planVideo(v), nextRally: nextRally(in: v),
-                                    found: v.ralliesFound.count, marked: times.rallies.count, complete: times.complete)
+                                    found: v.ralliesFound.count, marked: times.rallies.count, complete: times.complete, backlog: v.isBacklogged)
         }
     }
 
@@ -648,6 +659,18 @@ final class LabelerModel: ReviewStore {
             t.rallies.append(rally)
         }
     }
+
+    /// Set a recording aside (the backlog; it leaves the queue until put back) or put it back (`reason` nil): shown
+    /// at once, written to the outbox, sent on the next flush. The marks it has stay as they are.
+    func setBacklog(_ video: LabelVideo, reason: String?) {
+        // The outbox entry is what the rows show until it is sent (`withPendingBacklog`); the row itself takes
+        // the value once the server has it, so a pull in between never hides an unsent choice.
+        outbox.backlog[video.id] = BacklogChange(reason: reason, at: reason == nil ? nil : Date())
+        queueFlush()
+    }
+
+    /// The recordings set aside, newest first.
+    var backlog: [LabelVideo] { videos.filter(\.isBacklogged).sorted { ($0.backlogAt ?? .distantPast) > ($1.backlogAt ?? .distantPast) } }
 
     func rejectFound(_ found: [Double], in video: LabelVideo) {
         LocalStore.reject(found, in: video)
@@ -776,6 +799,24 @@ final class LabelerModel: ReviewStore {
                 outbox.claims = RecordingTypeClaims.refusing(outbox.claims, id: pending.id, reason: message)
                 saveOutbox()
                 syncProblem = message
+            } catch { isOffline = true; break }
+        }
+        // Recordings set aside or put back: the latest change per recording, as it is (the last writer wins on
+        // the server, the same as the Mac's own change). A refusal (the recording not readable here any more)
+        // drops the change and says so; a transient failure leaves it for the next flush.
+        for (videoId, change) in outbox.backlog {
+            do {
+                try await client.setBacklog(videoId, reason: change.reason, at: change.at ?? Date())
+                // The row takes what the server now has; a newer change made while this one was in flight stays
+                // queued and goes next (the rally-times rule).
+                if let i = snapshot.videos.firstIndex(where: { $0.id == videoId }) {
+                    snapshot.videos[i].backlogReason = change.reason
+                    snapshot.videos[i].backlogAt = change.at
+                }
+                if outbox.backlog[videoId] == change { outbox.backlog[videoId] = nil; settling.backlog[videoId] = change }
+            } catch LabelingClient.Failure.server(let code, let message) where code == 403 || code == 400 {
+                if outbox.backlog[videoId] == change { outbox.backlog[videoId] = nil }
+                syncProblem = "Couldn't set \(video(videoId)?.name ?? "a recording") aside: \(message)"
             } catch { isOffline = true; break }
         }
         // Rally checks, in the order they were made (a taken-back one last).

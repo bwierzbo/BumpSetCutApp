@@ -33,6 +33,8 @@ struct LiveTagView: View {
     let isActive: Bool
     let onClose: () -> Void
     let onDone: () -> Void
+    /// Skip this recording: set aside with the reason (the backlog), then on to the next task.
+    let onSkip: (String) -> Void
 
     @State private var tagger: LiveTagger
     @State private var speed: Float = 1
@@ -49,7 +51,7 @@ struct LiveTagView: View {
     private static let speeds: [Float] = [0.5, 1, 2, 3, 4]
 
     init(session: VideoSession, marker: RallyMarkModel, review: ProjectReviewStore, paths: BallPathBuilder, projects: ProjectsModel, isActive: Bool,
-         onClose: @escaping () -> Void, onDone: @escaping () -> Void) {
+         onClose: @escaping () -> Void, onDone: @escaping () -> Void, onSkip: @escaping (String) -> Void = { _ in }) {
         self.session = session
         self.marker = marker
         self.review = review
@@ -58,6 +60,7 @@ struct LiveTagView: View {
         self.isActive = isActive
         self.onClose = onClose
         self.onDone = onDone
+        self.onSkip = onSkip
         _tagger = State(initialValue: LiveTagger(tracks: session.tracks ?? [],
                                                  store: ProjectLiveTagStore(session: session, marker: marker, review: review)))
     }
@@ -197,6 +200,13 @@ struct LiveTagView: View {
                 Spacer()
                 Text("Z takes back a press · ←/→ 2 s · ⌫ removes the rally here · X cuts out footage")
                     .font(.caption).foregroundStyle(.secondary)
+                Menu {
+                    ForEach(BacklogReason.allCases, id: \.self) { reason in
+                        Button(reason.title) { if marker.isPlaying { marker.togglePlay() }; onSkip(reason.rawValue) }
+                    }
+                } label: { Label("Skip…", systemImage: "arrow.uturn.forward") }
+                    .fixedSize()
+                    .help("Not a good one to mark: set it aside (the backlog) with a reason and go on to the next; the marks made so far stay")
                 Button { finish() } label: { Label("That's every rally", systemImage: "flag.checkered") }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.return, modifiers: .command)

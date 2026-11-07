@@ -214,6 +214,37 @@ actor LabelingClient {
         return Data(#"{"recording_type":null,"recording_type_at":null,"updated_at":"\#(f.string(from: date))"}"#.utf8)
     }
 
+    /// Set a recording aside (the backlog, migration 053) or put it back (`reason` nil): the three columns as
+    /// explicit values, nulls included. `backlog_at` is when the person set it aside (`at`, kept through an
+    /// offline wait); the row's `updated_at` is the moment of this write, so every other device's pull of the
+    /// rows changed since its last one sees the change however long the choice waited to be sent.
+    /// Throws a refusal (403) when the server changed no row: a recording this account may not write any more
+    /// (withheld since the choice was made, or gone) — PostgREST answers such a PATCH with success and nothing
+    /// changed, so the row written is asked for and required.
+    func setBacklog(_ videoId: UUID, reason: String?, at date: Date = Date()) async throws {
+        var request = try await rest("label_videos", query: "id=eq.\(videoId.uuidString.lowercased())")
+        request.httpMethod = "PATCH"
+        request.setValue("return=representation", forHTTPHeaderField: "Prefer")
+        request.httpBody = Self.backlogPayload(reason: reason, by: userId, at: date, written: Date())
+        let rows = try Self.decoder.decode([LabelVideo].self, from: try await send(request))
+        guard rows.count == 1 else {
+            throw Failure.server(403, "the recording is not open to labeling from this phone any more (withheld, or no longer listed) — the choice was not kept")
+        }
+    }
+
+    /// The PATCH body for the backlog: set aside (reason, the time it was set aside, who) or put back (all three
+    /// null); the row's date is the write's, either way. Keys in a fixed order, so the exact payload is testable.
+    static func backlogPayload(reason: String?, by: UUID?, at date: Date, written: Date) -> Data {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        let stamp = f.string(from: date), now = f.string(from: written)
+        func json(_ s: String) -> String { String(data: (try? JSONEncoder().encode(s)) ?? Data("\"\"".utf8), encoding: .utf8) ?? "\"\"" }
+        if let reason {
+            return Data(#"{"backlog_reason":\#(json(reason)),"backlog_at":"\#(stamp)","backlog_by":\#(by.map { json($0.uuidString.lowercased()) } ?? "null"),"updated_at":"\#(now)"}"#.utf8)
+        }
+        return Data(#"{"backlog_reason":null,"backlog_at":null,"backlog_by":null,"updated_at":"\#(now)"}"#.utf8)
+    }
+
     /// Every video's rally times, or only those changed after `since`.
     func rallyTimes(since: Date? = nil) async throws -> [LabelRallyTimes] {
         try await get("label_rally_times", query: "select=*" + Self.changed(since))
@@ -689,6 +720,7 @@ actor LabelingClient {
     private static let encoder: JSONEncoder = {
         let e = JSONEncoder()
         e.keyEncodingStrategy = .convertToSnakeCase
+        e.userInfo[LabelVideo.publicationKey] = true   // rows published without their backlog (only setBacklog writes it)
         e.dateEncodingStrategy = .iso8601
         return e
     }()

@@ -86,6 +86,11 @@ struct VideoRow: View {
                 HStack(spacing: 6) {
                     Text(video.name).font(.callout.monospaced()).lineLimit(1)
                     FootageTypeBadge(video: video, claim: model.footageType(for: video))
+                    if video.isBacklogged {
+                        Text(video.backlogReason.map { "backlog · \($0)" } ?? "backlog").font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 6).padding(.vertical, 1)
+                            .background(Color.orange.opacity(0.15), in: Capsule()).foregroundStyle(.orange)
+                    }
                 }
                 HStack(spacing: 6) {
                     Text("\(times.rallies.count) marked")

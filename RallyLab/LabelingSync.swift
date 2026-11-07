@@ -68,6 +68,7 @@ protocol LabelingService: Sendable {
     func recordingTypeClaim(id: UUID) async throws -> RecordingTypeClaim?
     func settleRecordingTypeClaim(_ id: UUID, status: RecordingTypeClaim.Status, reason: String?, confirmedAt: Date?) async throws -> RecordingTypeClaim
     func clearPublishedRecordingType(_ videoId: UUID) async throws
+    func setBacklog(_ videoId: UUID, reason: String?, at: Date) async throws
     func save(_ state: LabelProjectState) async throws
     func reviewRally(_ verdict: LabelingClient.RallyVerdict) async throws
     func reviewFrames(_ track: UUID, _ edits: [LabelingClient.FrameEdit]) async throws
@@ -740,6 +741,34 @@ final class LabelingSync {
         catch { return .unreadable(error.localizedDescription) }
     }
 
+    /// Set a recording aside (the backlog) or put it back (`reason` nil), from the Mac: written on the server
+    /// first (the authority both devices read), then on the session. Throws when not signed in or the recording
+    /// has no row yet (it has never been published for the phone).
+    /// True once the server and the session have it; false — with why in `status` — when not signed in, the
+    /// recording has no row yet, or the server could not be reached. Nothing is set aside on a false.
+    @discardableResult
+    func setBacklog(session name: String, reason: String?) async -> Bool {
+        guard let opening = projects.opening else { status = "No project open — nothing to set aside."; return false }
+        do {
+            guard let row = try await client.videos().first(where: { $0.project == opening.name && $0.sessionName == name }) else {
+                status = "\(name) has no row on the server yet (a full sync round lists it for the phone) — not set aside."
+                return false
+            }
+            let at = Date()
+            try await client.setBacklog(row.id, reason: reason, at: at)
+            try projects.require(opening)
+            projects.sampler.setBacklog(reason: reason, at: reason == nil ? nil : at, session: name)
+            status = reason == nil ? "\(name) is back in the queue." : "\(name) set aside: \(reason!)."
+            return true
+        } catch LabelingClient.Failure.notSignedIn {
+            status = "Sign in to sync with the phone — \(name) was not set aside."
+            return false
+        } catch {
+            status = "\(name) was not set aside: \(error.localizedDescription)"
+            return false
+        }
+    }
+
     private func syncRallyTimes(_ opening: ProjectsModel.Opening) async throws -> (pushed: Int, pulled: Int, unreadable: [String]) {
         let videos = try await client.videos().filter { $0.project == opening.name && $0.sessionName != nil }
         let remote = Dictionary(uniqueKeysWithValues: try await client.rallyTimes(since: nil).map { ($0.videoId, $0) })
@@ -749,6 +778,12 @@ final class LabelingSync {
             // The session is the captured project's (the lookup refuses once the opening ended); from it to the write
             // below there is no suspension point but the push's own save, after which nothing of the recording is written.
             guard let name = video.sessionName, let session = try projects.session(named: name, in: opening) else { continue }
+            // The backlog is the server's (either device may set a recording aside or put it back; the last change
+            // stands): the session takes the row's value whenever it differs — before the label file is read, since
+            // the backlog has nothing to do with it and an unreadable file must not keep a skip from the Mac.
+            if session.backlogReason != video.backlogReason || session.backlogAt != video.backlogAt {
+                projects.sampler.setBacklog(reason: video.backlogReason, at: video.backlogAt, session: name)
+            }
             let labels = RallyMarkModel.labelsURL(for: URL(fileURLWithPath: session.sourcePath))
             let localRallies: [RallyMarkRecord]?
             switch Self.rallyTimes(at: labels) {

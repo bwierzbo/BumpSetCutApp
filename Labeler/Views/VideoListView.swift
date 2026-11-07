@@ -17,7 +17,7 @@ struct VideoListView: View {
     var body: some View {
         List {
             ForEach(LabelSurface.allCases) { surface in
-                let videos = sorted(model.videos.filter { $0.surface == surface })
+                let videos = sorted(model.videos.filter { $0.surface == surface && !$0.isBacklogged })
                 if !videos.isEmpty {
                     Section {
                         ForEach(videos) { video in
@@ -27,6 +27,22 @@ struct VideoListView: View {
                         let done = videos.filter { model.rallyTimes(for: $0).complete }.count
                         Label("\(surface.rawValue) · \(done)/\(videos.count) finished", systemImage: surface.icon)
                     }
+                }
+            }
+            // Set aside (the backlog): out of the queue on both devices until put back; swipe to put one back.
+            let backlog = model.backlog
+            if !backlog.isEmpty {
+                Section {
+                    ForEach(backlog) { video in
+                        NavigationLink(value: video) { VideoRow(model: model, video: video) }
+                            .swipeActions(edge: .trailing) {
+                                Button { model.setBacklog(video, reason: nil) } label: { Label("Put back", systemImage: "arrow.uturn.backward") }.tint(.green)
+                            }
+                    }
+                } header: {
+                    Label("Backlog · \(backlog.count) set aside", systemImage: "arrow.uturn.forward")
+                } footer: {
+                    Text("Not good to mark for now. They stay out of Next on the phone and the Mac until put back; the marks they have stay.")
                 }
             }
         }
