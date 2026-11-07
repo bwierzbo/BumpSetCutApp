@@ -1,8 +1,8 @@
 ---
 name: rally-classifier-dataset-contract
-status: proposed v1 (owner review); nothing writes it yet — the exporter is a separate RallyLab PR; `scripts/rally_classifier/validate_dataset.py` validates it
+status: proposed v1 (owner review); written by `RallyLab --project <name> --export-rally-classifier-dataset <dataset>` (`RallyLab/RallyClassifierExporter.swift`, 2026-11-07), not yet run on a real project; `scripts/rally_classifier/validate_dataset.py` validates it
 created: 2026-11-03T18:55:00Z
-updated: 2026-11-03T18:55:00Z
+updated: 2026-11-07T17:47:31Z
 decision: D-001, D-002, D-010, D-017, D-018 (the isolation and preflight pattern applied to this model), D-021 (time base and excluded spans), D-023, D-031 (per-model eligibility); D-030 (cut ranges, proposed) for compatibility
 ---
 
