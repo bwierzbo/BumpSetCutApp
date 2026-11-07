@@ -51,6 +51,8 @@ import Observation
 /// apart from the client's progress-reporting ones.
 protocol LabelingService: Sendable {
     var hasSession: Bool { get async }
+    /// The signed-in account (this Mac's): a claim it sent from the phone is the owner's own (D-033 amendment).
+    var userId: UUID? { get async }
     func signIn(email: String, password: String) async throws
     func signOut() async
     func isLabeler() async throws -> Bool
@@ -296,8 +298,9 @@ final class LabelingSync {
             parts.append("boundary records \(events.pushed) sent · \(events.pulled) received" + (events.conflicts.isEmpty ? "" : " · conflicts kept for: \(events.conflicts.joined(separator: ", "))")
                          + (events.withheldPublished.map { " · withheld list published (\($0))" } ?? " · withheld list NOT published — no boundary record sent"))
             let claims = try await syncRecordingTypeClaims(opening)
-            if claims.accepted + claims.rejected + claims.deferred.count > 0 {
+            if claims.accepted + claims.rejected + claims.awaiting + claims.deferred.count > 0 {
                 parts.append("footage types from the phone \(claims.accepted) confirmed · \(claims.rejected) declined"
+                             + (claims.awaiting == 0 ? "" : " · \(claims.awaiting) from other labelers waiting for your check (Coverage)")
                              + (claims.deferred.isEmpty ? "" : " · left for the next sync: \(claims.deferred.joined(separator: "; "))"))
             }
             status = "Synced: " + parts.joined(separator: ", ") + "."
@@ -1025,15 +1028,23 @@ final class LabelingSync {
     /// before the server hears of it. What is wrong with a claim is declined with a reason in plain words; what is
     /// wrong on this Mac leaves the claim submitted for the next round. The write lands under `opening` only; a
     /// settlement is a server-committed fact about a write already made, so it may follow the end of the opening.
-    private func syncRecordingTypeClaims(_ opening: ProjectsModel.Opening) async throws -> (accepted: Int, rejected: Int, deferred: [String]) {
+    private func syncRecordingTypeClaims(_ opening: ProjectsModel.Opening) async throws -> (accepted: Int, rejected: Int, awaiting: Int, deferred: [String]) {
         let project = opening.name, root = opening.root
         let submitted = try await client.recordingTypeClaims(since: nil).filter { $0.project == project && $0.status == .submitted }
-        guard !submitted.isEmpty else { return (0, 0, []) }
-        // The withheld closure is the captured project's, read off the main actor.
-        guard let withheld = await withheldClosure(root: root) else { return (0, 0, ["the withheld list can't be read — no claim judged"]) }
+        guard !submitted.isEmpty else { return (0, 0, 0, []) }
+        // Whose claim counts (D-033 amendment, 2026-11-07, the ball-label review's rule): a claim sent from this Mac's
+        // own account — the lead's — counts as a confirmation made on this Mac; another labeler's waits until the lead
+        // accepts it here (`checkClaim`). Either is judged against the identity the phone was given — the row's
+        // published fingerprint — not the file re-read now, so it settles with the footage away. The withheld closure
+        // (the captured project's, read off the main actor) refuses a withheld recording when it can be read; when it
+        // can't (a withheld recording's footage away from this Mac) the claim is judged without it, as a confirmation
+        // on this Mac is — the export refuses withheld recordings on its own.
+        let withheld = await withheldClosure(root: root)
+        let me = await client.userId
+        let rows = Dictionary(try await client.videos().map { ($0.id, $0.sourceFingerprint) }, uniquingKeysWith: { a, _ in a })
         try projects.require(opening)
         let store = FootageProperties.Store(root: root)
-        var accepted = 0, rejected = 0
+        var accepted = 0, rejected = 0, awaiting = 0
         var deferred: [String] = []
         for (_, group) in Dictionary(grouping: submitted, by: \.videoId).sorted(by: { $0.key.uuidString < $1.key.uuidString }) {
             let ordered = group.sorted { $0.revision > $1.revision }
@@ -1059,22 +1070,25 @@ final class LabelingSync {
                 }
                 let name = DatasetStore.safeName(claim.sessionName)
                 try projects.require(opening)
-                guard let session = try projects.session(named: name, in: opening) else {
+                guard try projects.session(named: name, in: opening) != nil else {
                     _ = try await client.settleRecordingTypeClaim(claim.id, status: .rejected, reason: "the recording is not in the project on the Mac", confirmedAt: nil)
                     rejected += 1
                     break
                 }
-                // The identity the claim is judged against is the one the phone was given: the published fingerprint of
-                // the session's file (what publishVideos/publishIdentities send as label_videos.source_fingerprint). The
-                // card's fingerprint is the origin's — a cut clip's differs — and binds the record, not the claim
-                // (found by the synthetic acceptance of 2026-11-04: every claim on cut footage was "file changed").
-                let sourcePath = session.sourcePath
-                let published = await Task.detached(priority: .utility) { ProjectsModel.fileFingerprint(atPath: sourcePath) }.value
-                try projects.require(opening)
-                // A file that can't be read now (the footage share away) is the Mac's problem, not the claim's: left
-                // submitted for the next round. Only a fingerprint read and found different declines it (Codex on #148).
+                // Another labeler's choice waits for the lead's check; this account's own counts now (the claim in hand,
+                // after any replacement above: a newer choice from someone else is not covered by a check of the older).
+                guard (me != nil && claim.submittedBy == me) || leadChecked.contains(claim.id) else {
+                    awaiting += 1
+                    break
+                }
+                // The identity the claim is judged against is the one the phone was given: the session file's fingerprint
+                // as this Mac published it (label_videos.source_fingerprint), read from the row rather than the file, so
+                // the claim settles with the footage away; a row published since with another file's fingerprint
+                // declines it ("file changed"). The card's fingerprint is the origin's — a cut clip's differs — and binds
+                // the record, not the claim (found by the synthetic acceptance of 2026-11-04).
+                let published = rows[claim.videoId] ?? nil
                 guard let published else {
-                    deferred.append("\(name): the recording's file can't be read on the Mac — judged next round")
+                    deferred.append("\(name): the recording has no published identity yet — judged next round")
                     break
                 }
                 let card = FootageTypeConfirmation.sourceFingerprint(of: name, in: projects.project)
@@ -1085,7 +1099,7 @@ final class LabelingSync {
                 var onFile: FootageProperties.File?
                 do { onFile = try store.load(name); state = onFile.map { .record(type: $0.recordingType.rawValue, by: $0.recordingTypeBy, at: $0.recordingTypeAt) } ?? .none }
                 catch { state = .unreadable(error.localizedDescription) }
-                switch RecordingTypeClaims.decide(claim: claim, publishedFingerprint: published, withheld: withheld.contains(name), record: state) {
+                switch RecordingTypeClaims.decide(claim: claim, publishedFingerprint: published, withheld: withheld?.contains(name) ?? false, record: state) {
                 case .reject(let why):
                     _ = try await client.settleRecordingTypeClaim(claim.id, status: .rejected, reason: why, confirmedAt: nil)
                     rejected += 1
@@ -1129,7 +1143,30 @@ final class LabelingSync {
                 break
             }
         }
-        return (accepted, rejected, deferred)
+        leadChecked.formIntersection(Set(submitted.map(\.id)))
+        return (accepted, rejected, awaiting, deferred)
+    }
+
+    /// Other labelers' choices the lead accepted on this Mac, applied by the next round (in memory: a check is made
+    /// again after a restart). Only ever a claim the lead looked at — never one that replaced it (judged per claim id).
+    @ObservationIgnored private var leadChecked: Set<UUID> = []
+
+    /// The lead's check of another labeler's footage-type choice (D-033 amendment): accepted, it is applied by the
+    /// claim round right away — judged there like the lead's own, written through the one writer; declined, it is
+    /// settled as not accepted, with that reason on the phone. Returns why it could not be done, if it could not.
+    func checkClaim(_ claim: RecordingTypeClaim, accept: Bool) async -> String? {
+        guard let opening = projects.opening, claim.project == opening.name else { return "The claim isn't the open project's." }
+        if accept {
+            leadChecked.insert(claim.id)
+            syncSoon()
+            return nil
+        }
+        do {
+            _ = try await client.settleRecordingTypeClaim(claim.id, status: .rejected, reason: "not accepted on the Mac — choose again if that is wrong", confirmedAt: nil)
+            return nil
+        } catch {
+            return "Couldn't decline it: \(error.localizedDescription)"
+        }
     }
 
     /// The newest claim still waiting for the recording, as the server has it now.
