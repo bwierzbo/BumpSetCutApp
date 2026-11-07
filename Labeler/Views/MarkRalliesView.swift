@@ -82,6 +82,9 @@ struct MarkRalliesView: View {
             }
         }
         .backlogDialog(isPresented: $skipping, video: video, model: model) { dismiss() }
+        // A rotation swaps the layout and with it the timeline mid-drag, cancelling the gesture without its end:
+        // the scrub ends here instead, where it was, so playback and the next drag start from a clean state.
+        .onChange(of: verticalSizeClass) { _, _ in if scrubbing { endScrub(landingAt: time) } }
         .task { await load() }
         .onDisappear {
             player.pause()
@@ -185,11 +188,7 @@ struct MarkRalliesView: View {
                     }
                     seek(drag.location.x / max(barWidth, 1) * duration, exact: false)
                 }
-                .onEnded { drag in
-                    scrubbing = false
-                    seek(drag.location.x / max(barWidth, 1) * duration)
-                    if playingBeforeScrub { player.playImmediately(atRate: rate); isPlaying = true }
-                })
+                .onEnded { drag in endScrub(landingAt: drag.location.x / max(barWidth, 1) * duration) })
             .background(GeometryReader { geo in Color.clear.onAppear { barWidth = geo.size.width }.onChange(of: geo.size.width) { _, w in barWidth = w } })
     }
 
@@ -419,6 +418,14 @@ struct MarkRalliesView: View {
         seekTarget = target
         seekExact = exact
         chaseSeek()
+    }
+
+    /// The drag is over (the finger lifted, or the layout changed under it): land exactly and play on if it was.
+    private func endScrub(landingAt t: Double) {
+        scrubbing = false
+        seek(t)
+        if playingBeforeScrub { player.playImmediately(atRate: rate); isPlaying = true }
+        playingBeforeScrub = false
     }
 
     /// One seek at a time; the newest target goes when it lands (the Mac's RallyMarkModel does the same).
