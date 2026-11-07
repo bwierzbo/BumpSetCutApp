@@ -114,13 +114,15 @@ final class RallyClassifierExporterTests: XCTestCase {
     private var manifestURL: URL { root.appendingPathComponent("manifests/manifest.json") }
 
     private func options(_ name: String = "Fixture-rc-1", resume: URL? = nil, validator: URL? = nil, python: String = "python3") -> X.Options {
-        var o = X.Options(name: name, out: out, resume: resume, validator: validator ?? self.validator, codeSha: String(repeating: "a", count: 40), tool: "test", now: now)
+        var o = X.Options(name: name, out: out, resume: resume, validator: validator ?? self.validator, codeSha: String(repeating: "a", count: 40),
+                          binarySha: String(repeating: "c", count: 64), tool: "test", now: now)
         o.python = python
         return o
     }
 
-    /// 60 s at 30 Hz: the ball in flight inside the rallies (a bouncing arc above the net), nothing between.
-    private func evidence(duration: Double = 60) -> X.Evidence {
+    /// 60 s at 30 Hz: the ball in flight inside the rallies (a bouncing arc above the net), nothing between — every
+    /// detection the multi-frame model's, which loaded (`detector`), unless `yolo` says otherwise.
+    private func evidence(duration: Double = 60, detector: URL? = ProcessorConfig().heatmapModel, yolo: Bool = false) -> X.Evidence {
         let net = DetectedNet(box: CGRect(x: 0.2, y: 0.4, width: 0.6, height: 0.1), confidence: 0.8)
         var frames: [VideoProcessor.FrameEvidence] = []
         var t = 0.0
@@ -128,7 +130,8 @@ final class RallyClassifierExporterTests: XCTestCase {
             let inRally = rallyTimes.contains { $0.0 <= t && t < $0.1 }
             let y = 0.7 + 0.2 * abs(sin(t * .pi))
             let point = CGPoint(x: 0.5, y: y)
-            let detection = VideoProcessor.BallDetection(bbox: CGRect(x: 0.49, y: y - 0.01, width: 0.02, height: 0.02), confidence: 0.9, isOffCourt: false)
+            let detection = VideoProcessor.BallDetection(bbox: CGRect(x: 0.49, y: y - 0.01, width: 0.02, height: 0.02), confidence: 0.9, isOffCourt: false,
+                                                         fromHeatmap: !yolo)
             let candidate = VideoProcessor.TrackCandidate(id: UUID(), point: point, score: 1, isProjectile: true, isSelected: true, isCourtExcluded: false,
                                                           ballSize: 0.02, roiRadius: 0.05, rSquared: 0.95, gravitySignature: 0.8, movementType: nil, rejectionReason: nil)
             frames.append(VideoProcessor.FrameEvidence(time: t, hasBall: inRally, isProjectile: inRally, detections: inRally ? [detection] : [],
@@ -136,14 +139,14 @@ final class RallyClassifierExporterTests: XCTestCase {
                                                        movementType: nil, rejectionReason: nil, candidates: inRally ? [candidate] : [], detectedNet: net, upright: true))
             t += 1.0 / 30
         }
-        return X.Evidence(frames: frames, duration: duration, frameRate: 30, aspect: 16.0 / 9)
+        return X.Evidence(frames: frames, duration: duration, frameRate: 30, aspect: 16.0 / 9, detector: detector)
     }
 
     /// The evidence source, counting the recordings it was asked for.
     private final class Calls { var names: [String] = [] }
 
-    private func source(_ calls: Calls, failing: String? = nil, before: (() throws -> Void)? = nil) -> X.EvidenceSource {
-        let ev = evidence()
+    private func source(_ calls: Calls, failing: String? = nil, before: (() throws -> Void)? = nil, evidence given: X.Evidence? = nil) -> X.EvidenceSource {
+        let ev = given ?? evidence()
         return { session, _ in
             calls.names.append(session.name)
             try before?()
@@ -400,6 +403,67 @@ final class RallyClassifierExporterTests: XCTestCase {
         } catch let f as X.Failure {
             guard case .resumeMismatch = f else { return XCTFail("\(f)") }
         }
+    }
+
+    func testAResumeRunsARecordingAgainWhenItsFootageWasReplaced() async throws {
+        try project([Spec(name: "bch_a"), Spec(name: "grs_b", split: "val")])
+        _ = try? await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(Calls(), failing: "grs_b"))
+        // bch_a's original is replaced under the same path between the cut-short run and the resume.
+        try Data("another file of bch_a, re-downloaded".utf8).write(to: footage("bch_a"))
+        let second = Calls()
+        var o = options(resume: out.appendingPathComponent(".staging-Fixture-rc-1", isDirectory: true))
+        o.now = now.addingTimeInterval(60)
+        let result = try await X.export(projectDir: root, manifestURL: manifestURL, options: o, evidence: source(second))
+        XCTAssertEqual(second.names.sorted(), ["bch_a", "grs_b"], "the replaced file's evidence is made again")
+        XCTAssertEqual(result.reused, [])
+    }
+
+    func testAResumeIsRefusedFromAnotherExecutable() async throws {
+        try project([Spec(name: "bch_a"), Spec(name: "grs_b", split: "val")])
+        _ = try? await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(Calls(), failing: "grs_b"))
+        var o = options(resume: out.appendingPathComponent(".staging-Fixture-rc-1", isDirectory: true))
+        o.binarySha = String(repeating: "d", count: 64)     // the same commit, another build
+        o.now = now.addingTimeInterval(60)
+        do {
+            _ = try await X.export(projectDir: root, manifestURL: manifestURL, options: o, evidence: source(Calls()))
+            XCTFail("resumed from another build")
+        } catch let f as X.Failure {
+            guard case .resumeMismatch = f else { return XCTFail("\(f)") }
+        }
+    }
+
+    // MARK: - The detector the evidence came from
+
+    func testEvidenceFromAFallbackDetectorIsRefused() async throws {
+        try project([Spec(name: "bch_a")])
+        do {
+            _ = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(Calls(), evidence: evidence(detector: nil)))
+            XCTFail("exported evidence of a detector that did not load")
+        } catch let f as X.Failure {
+            guard case .detectorNotUsed = f else { return XCTFail("\(f)") }
+        }
+        XCTAssertEqual(try ledger(), [])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: out.appendingPathComponent("Fixture-rc-1").path))
+    }
+
+    func testAYOLODetectionInTheEvidenceIsRefused() async throws {
+        try project([Spec(name: "bch_a")])
+        do {
+            _ = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(Calls(), evidence: evidence(yolo: true)))
+            XCTFail("exported YOLO detections under the multi-frame model's name")
+        } catch let f as X.Failure {
+            guard case .detectorNotUsed = f else { return XCTFail("\(f)") }
+        }
+        XCTAssertEqual(try ledger(), [])
+    }
+
+    func testThisBuildRecordsItsRevisionAndCarriesItsValidator() throws {
+        // The Record Source Revision phase ran for the RallyLab.app hosting these tests.
+        let revision = try XCTUnwrap(X.buildRevision(), "source-revision.txt missing from the app bundle")
+        XCTAssertTrue(revision.count == 40 || revision.hasSuffix("-dirty"), revision)
+        let bundled = try XCTUnwrap(Bundle.main.url(forResource: "validate_dataset", withExtension: "py"))
+        XCTAssertEqual(try Data(contentsOf: bundled), try Data(contentsOf: validator), "the validator built into the app is this tree's")
+        XCTAssertNotNil(X.executableSha256())
     }
 
     // MARK: - Steps, labels, segments, features

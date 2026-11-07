@@ -1114,25 +1114,25 @@ enum HeadlessProjects {
 
     /// `--export-rally-classifier-dataset <name>`: the split manifest rebuilt and audited (manifests/manifest.json), then
     /// RallyClassifierExporter — every guard, the plan, the validation and the ledger are in the operation; this
-    /// supplies the live detector, the validator in this build's source tree and the commit it was built from.
+    /// supplies the live detector and, from this build (the Record Source Revision phase), the commit it was compiled
+    /// from and the validator compiled with it.
     @MainActor
     private static func exportRallyClassifierDataset(_ projects: ProjectsModel, name: String, out: URL?, resume: URL?, variants: [String]?) async -> Bool {
         guard let dir = projects.projectDir else { log("❌ No project folder."); return false }
-        let manifests = dir.appendingPathComponent("manifests", isDirectory: true)
-        guard buildManifest(projects, out: manifests, audit: true) != nil else { return false }
-        let source = sourceTree()
-        guard let codeSha = await codeCommit(source) else {
-            log("❌ The commit this RallyLab was built from can't be read from \(source.path) (git): no dataset without it.")
+        guard let codeSha = RallyClassifierExporter.buildRevision(), let binarySha = RallyClassifierExporter.executableSha256(),
+              let validator = Bundle.main.url(forResource: "validate_dataset", withExtension: "py") else {
+            log("❌ This RallyLab build doesn't record the commit it was compiled from (source-revision.txt) or carry the dataset validator: rebuild it from a git checkout.")
             return false
         }
+        let manifests = dir.appendingPathComponent("manifests", isDirectory: true)
+        guard buildManifest(projects, out: manifests, audit: true) != nil else { return false }
         let destination = out ?? resume?.deletingLastPathComponent() ?? dir.appendingPathComponent("exports", isDirectory: true)
         do { try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true) } catch {
             log("❌ \(destination.path): \(error.localizedDescription)")
             return false
         }
-        var options = RallyClassifierExporter.Options(name: name, out: destination, resume: resume,
-                                                      validator: source.appendingPathComponent("scripts/rally_classifier/validate_dataset.py"),
-                                                      codeSha: codeSha, tool: "\(generator()) --export-rally-classifier-dataset")
+        var options = RallyClassifierExporter.Options(name: name, out: destination, resume: resume, validator: validator,
+                                                      codeSha: codeSha, binarySha: binarySha, tool: "\(generator()) --export-rally-classifier-dataset")
         if let variants { options.variants = variants }
         do {
             let result = try await RallyClassifierExporter.export(projectDir: dir, manifestURL: manifests.appendingPathComponent("manifest.json"),
@@ -1149,20 +1149,6 @@ enum HeadlessProjects {
             }
             return false
         }
-    }
-
-    /// The source tree this build was compiled from (this file's folder's parent).
-    private static func sourceTree() -> URL {
-        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-    }
-
-    /// `git rev-parse HEAD` in `tree`, with `-dirty` when the working tree has changes; nil when git can't say.
-    private static func codeCommit(_ tree: URL) async -> String? {
-        let head = await ToolEnvironment.run("git", ["-C", tree.path, "rev-parse", "HEAD"])
-        guard head.status == 0, let sha = head.lines.first, sha.count == 40 else { return nil }
-        let status = await ToolEnvironment.run("git", ["-C", tree.path, "status", "--porcelain"])
-        guard status.status == 0 else { return nil }
-        return status.lines.isEmpty ? sha : sha + "-dirty"
     }
 
     /// What the lineage rule (LineagePackage.isHumanLabeled) left out of the package, on record in the log.

@@ -415,6 +415,7 @@
 				RA11AB012E1C86F400000005 /* Sources */,
 				RA11AB012E1C86F400000006 /* Frameworks */,
 				RA11AB012E1C86F400000007 /* Resources */,
+				RA11AB012E1C86F40000000D /* Record Source Revision */,
 			);
 			buildRules = (
 			);
@@ -552,6 +553,30 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		RA11AB012E1C86F40000000D /* Record Source Revision */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Record Source Revision";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/source-revision.txt",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/validate_dataset.py",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# The commit this build was compiled from, read by RallyLab (BuildRevision): `<sha>`, `<sha>-dirty` when the\n# working tree had changes, or `unknown` when git can't say; and the dataset validator of the same tree. Written at\n# build time, so a dataset names the code that wrote it and is checked by the validator built with it, never the\n# checkout as it is when the app later runs.\nres=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nmkdir -p \"$res\"\nsha=$(git -C \"$SRCROOT\" rev-parse HEAD 2>/dev/null) || sha=unknown\nif [ \"$sha\" != unknown ] && [ -n \"$(git -C \"$SRCROOT\" status --porcelain 2>/dev/null)\" ]; then sha=\"$sha-dirty\"; fi\nprintf '%s' \"$sha\" > \"$res/source-revision.txt\"\ncp \"$SRCROOT/scripts/rally_classifier/validate_dataset.py\" \"$res/validate_dataset.py\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		2E49B3112E750001000TE5TS /* Sources */ = {
@@ -967,6 +992,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = app.BumpSetCut.RallyLab;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
@@ -992,6 +1018,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = app.BumpSetCut.RallyLab;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;

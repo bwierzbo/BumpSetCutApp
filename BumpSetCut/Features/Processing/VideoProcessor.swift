@@ -236,6 +236,11 @@ final class VideoProcessor: @unchecked Sendable {
     @ObservationIgnored private var heatWindows: HeatmapWindows?
     @ObservationIgnored private var heatLastTime: Double?
 
+    /// The multi-frame model the last run actually loaded, nil when it ran without one (no model configured, or the
+    /// configured one failed to load and the run fell back to YOLO) — so a caller that names the detector its evidence
+    /// came from can check it did.
+    var loadedHeatmapModel: URL? { heatDetector == nil ? nil : heatModelURL }
+
     /// Load the configured multi-frame model, if it changed.
     private func prepareHeatmap() {
         defer { heatWindows = heatDetector.map { HeatmapWindows(detector: $0, hop: config.heatmapHop) } }
