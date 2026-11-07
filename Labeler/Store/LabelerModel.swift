@@ -669,6 +669,19 @@ final class LabelerModel: ReviewStore {
         queueFlush()
     }
 
+    /// Marked all the way through, and nobody has said what the footage is: no type confirmed on the Mac, no
+    /// choice waiting from this phone or on the server (a refused or replaced one asks again). Set-aside ones wait.
+    var footageTypeToConfirm: [LabelVideo] {
+        videos.filter { v in
+            guard rallyTimes(for: v).complete, v.recordingTypeAt == nil, !v.isBacklogged else { return false }
+            switch footageType(for: v) {
+            case .none, .rejected, .superseded: return true
+            case .pending(let p): return p.refusal != nil
+            case .submitted, .accepted: return false
+            }
+        }.sorted { $0.name < $1.name }
+    }
+
     /// The recordings set aside, newest first.
     var backlog: [LabelVideo] { videos.filter(\.isBacklogged).sorted { ($0.backlogAt ?? .distantPast) > ($1.backlogAt ?? .distantPast) } }
 

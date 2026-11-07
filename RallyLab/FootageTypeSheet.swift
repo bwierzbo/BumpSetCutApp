@@ -10,6 +10,7 @@
 //  confirms the type; nothing here infers it.
 //
 
+import AVKit
 import SwiftUI
 
 struct FootageTypeSheet: View {
@@ -27,12 +28,22 @@ struct FootageTypeSheet: View {
     @State private var admission: Result<SourceRegistry.Admission?, Error>?
     @State private var choice: FootageProperties.RecordingType = .unknown
     @State private var problem: String?
+    @State private var player = AVPlayer()
 
     private static let types: [FootageProperties.RecordingType] = [.continuous, .edited, .unknown]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Footage type · \(recording.name)").font(.title3.weight(.semibold))
+            // Watch it first: replays, slow motion, zooms and jumps in time make it edited.
+            if FileManager.default.fileExists(atPath: recording.sourcePath) {
+                VideoPlayer(player: player).frame(height: 300)
+                    .onAppear { if player.currentItem == nil { player.replaceCurrentItem(with: AVPlayerItem(url: URL(fileURLWithPath: recording.sourcePath))) } }
+                    .onDisappear { player.pause(); player.replaceCurrentItem(with: nil) }
+            } else {
+                Label("The video isn't on this Mac — watch it on the phone's footage-type step, or bring the footage back.", systemImage: "externaldrive.badge.xmark")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
             if afterPass {
                 Text("Every visible rally is marked, and that is recorded. What the recording is, is a separate fact: say it here, or later from \"Footage type…\" on the marking screen.")
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -70,7 +81,7 @@ struct FootageTypeSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 600)
+        .frame(width: 640)
         .task { await load() }
     }
 

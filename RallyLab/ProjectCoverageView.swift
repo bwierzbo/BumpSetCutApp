@@ -367,7 +367,14 @@ struct FootageTypeList: View {
         /// The phone's newest claim, when there is one and nothing is confirmed yet.
         let claim: RecordingTypeClaim?
         let unreadable: String?
+        var backlog: Bool = false
         var needsConfirming: Bool { confirmed == nil }
+        /// Marked all the way through, no type confirmed, and no phone choice waiting for the Mac (a refused one
+        /// asks again); set-aside recordings wait.
+        var toConfirm: Bool {
+            guard marked, confirmed == nil, !backlog else { return false }
+            return claim.map { $0.status == .rejected || $0.status == .superseded } ?? true
+        }
     }
 
     var rows: [Row] {
@@ -380,7 +387,7 @@ struct FootageTypeList: View {
             }
             let confirmed = record.flatMap { r in r.recordingTypeAt == nil ? nil : (r.recordingType, r.recordingTypeBy, r.recordingTypeAt) }
             return Row(name: s.name, marked: s.ralliesMarked ?? false, confirmed: confirmed, claim: claims[s.name],
-                       unreadable: unreadable[DatasetStore.safeName(s.name)] ?? unreadable[s.name])
+                       unreadable: unreadable[DatasetStore.safeName(s.name)] ?? unreadable[s.name], backlog: s.backlogAt != nil)
         }
         // Marked and unconfirmed first (they gate training), then unmarked and unconfirmed, then the confirmed.
         return all.sorted { a, b in
@@ -391,7 +398,7 @@ struct FootageTypeList: View {
 
     var body: some View {
         let rows = rows
-        let shown = onlyUnconfirmed ? rows.filter(\.needsConfirming) : rows
+        let shown = onlyUnconfirmed ? rows.filter(\.toConfirm) : rows
         let marked = rows.filter(\.marked)
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
@@ -399,13 +406,13 @@ struct FootageTypeList: View {
                 Text("\(rows.count - rows.filter(\.needsConfirming).count) of \(rows.count) confirmed · \(marked.filter { !$0.needsConfirming }.count) of \(marked.count) marked recordings")
                     .font(.callout).foregroundStyle(.secondary)
                 Spacer()
-                Toggle("Only the ones still to confirm", isOn: $onlyUnconfirmed).toggleStyle(.checkbox).font(.callout)
+                Toggle("Only marked ones still to confirm (\(rows.filter(\.toConfirm).count))", isOn: $onlyUnconfirmed).toggleStyle(.checkbox).font(.callout)
             }
             if let claimsProblem {
                 Label(claimsProblem, systemImage: "iphone.slash").font(.caption).foregroundStyle(.secondary)
             }
             if shown.isEmpty {
-                Text(onlyUnconfirmed ? "Every recording has a confirmed footage type." : "No recordings.").font(.callout).foregroundStyle(.secondary)
+                Text(onlyUnconfirmed ? "Every marked recording has a footage type confirmed or waiting for the Mac." : "No recordings.").font(.callout).foregroundStyle(.secondary)
             } else {
                 Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 6) {
                     GridRow {

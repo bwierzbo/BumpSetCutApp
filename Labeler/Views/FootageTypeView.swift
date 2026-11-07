@@ -14,6 +14,7 @@
 //  classification, and no cuts is not "continuous".
 //
 
+import AVKit
 import SwiftUI
 
 struct FootageTypeView: View {
@@ -26,6 +27,9 @@ struct FootageTypeView: View {
 
     @State private var choice: RecordingTypeClaims.Kind?
     @State private var problem: String?
+    /// The recording, to watch before saying what it is (the clip on the phone, else streamed).
+    @State private var player: AVPlayer?
+    @State private var playerProblem: String?
 
     private var current: LabelVideo { model.video(video.id) ?? video }
     private var times: LabelRallyTimes { model.rallyTimes(for: current) }
@@ -35,6 +39,20 @@ struct FootageTypeView: View {
 
     var body: some View {
         List {
+            // Watch it first: replays, slow motion, zooms and jumps in time are what make a recording edited.
+            Section {
+                if let player {
+                    VideoPlayer(player: player)
+                        .aspectRatio(16 / 9, contentMode: .fit)
+                        .listRowInsets(EdgeInsets())
+                } else if let playerProblem {
+                    Text(playerProblem).font(.caption).foregroundStyle(.secondary)
+                } else {
+                    ProgressView().frame(maxWidth: .infinity)
+                }
+            } footer: {
+                Text("Look for instant replays, slow motion, zooms or jumps in time: any of them makes it an edited recording.")
+            }
             Section {
                 ForEach(RecordingTypeClaims.Kind.allCases, id: \.self) { kind in
                     Button { choice = kind } label: {
@@ -91,6 +109,12 @@ struct FootageTypeView: View {
                 }
             }
         }
+        .task {
+            guard player == nil else { return }
+            do { player = AVPlayer(url: try await model.playbackURL(for: current)) }
+            catch { playerProblem = "The recording can't be played here: \(error.localizedDescription)" }
+        }
+        .onDisappear { player?.pause(); player?.replaceCurrentItem(with: nil); player = nil }
         .navigationTitle("Footage type")
         .navigationBarTitleDisplayMode(.inline)
     }

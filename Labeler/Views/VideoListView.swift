@@ -16,6 +16,21 @@ struct VideoListView: View {
 
     var body: some View {
         List {
+            // Marked through with no footage type yet: say what each is (watch it in the step).
+            let toConfirm = model.footageTypeToConfirm
+            if !toConfirm.isEmpty {
+                Section {
+                    ForEach(toConfirm) { video in
+                        NavigationLink {
+                            FootageTypeView(model: model, video: video, duration: video.duration, afterPass: false)
+                        } label: { VideoRow(model: model, video: video) }
+                    }
+                } header: {
+                    Label("Footage type to confirm · \(toConfirm.count)", systemImage: "film.stack")
+                } footer: {
+                    Text("Every rally is marked in these; say whether each is continuous or edited.")
+                }
+            }
             ForEach(LabelSurface.allCases) { surface in
                 let videos = sorted(model.videos.filter { $0.surface == surface && !$0.isBacklogged })
                 if !videos.isEmpty {
