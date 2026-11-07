@@ -114,10 +114,11 @@ final class RecordingTypeClaimSyncTests: XCTestCase {
     }
 
     @discardableResult
-    private func submit(_ kind: String, for row: LabelVideo, fingerprint: String? = nil, revision: Int = 1, at: Date? = nil) -> RecordingTypeClaim {
+    /// A claim from the phone: by default sent from the lead's own account (this Mac's), which counts at once.
+    private func submit(_ kind: String, for row: LabelVideo, fingerprint: String? = nil, revision: Int = 1, at: Date? = nil, by: UUID? = nil) -> RecordingTypeClaim {
         let claim = RecordingTypeClaim(id: UUID(), videoId: row.id, project: row.project!, sessionName: row.sessionName!,
                                        sourceFingerprint: fingerprint ?? row.sourceFingerprint!, recordingType: kind, revision: revision, status: .submitted,
-                                       reason: nil, submittedBy: UUID(), submittedAt: at ?? now, settledBy: nil, settledAt: nil, updatedAt: at ?? now)
+                                       reason: nil, submittedBy: by ?? server.me, submittedAt: at ?? now, settledBy: nil, settledAt: nil, updatedAt: at ?? now)
         server.claims[claim.id] = claim
         return claim
     }
@@ -195,12 +196,15 @@ final class RecordingTypeClaimSyncTests: XCTestCase {
     }
 
     func testAClaimAboutAReplacedClipIsDeclinedAsFileChanged() async throws {
-        // The cut clip's bytes change after the claim was made: the published identity the claim names is gone.
+        // The cut clip's bytes change after the claim was made and the Mac publishes the new identity: the identity
+        // the claim names is gone.
         let (root, row, _, cut) = try cutProject("C")
         open("C")
         let claim = submit("edited", for: row)
         XCTAssertEqual(claim.sourceFingerprint, cut)
-        try Data("C: the cut clip, re-encoded afterwards".utf8).write(to: root.appendingPathComponent("footage/video_01.mp4"))
+        let clip = root.appendingPathComponent("footage/video_01.mp4")
+        try Data("C: the cut clip, re-encoded afterwards".utf8).write(to: clip)
+        server.videos[0].sourceFingerprint = ProjectsModel.readFileFingerprint(atPath: clip.path)
         let awaited = await sync.sync(videos: false)
         XCTAssertTrue(awaited)
         XCTAssertEqual(settlements().map(\.status), [.rejected])
@@ -208,27 +212,62 @@ final class RecordingTypeClaimSyncTests: XCTestCase {
         XCTAssertNil(try record("C"), "nothing written")
     }
 
-    func testAClaimWhoseClipCannotBeReadIsLeftForTheNextRoundAndAcceptedOnceTheFileIsBack() async throws {
-        // The footage share away: the clip's fingerprint can't be read. The claim stays submitted; nothing is written.
+    func testTheLeadsOwnClaimIsAcceptedWithTheFootageAwayFromTheMac() async throws {
+        // The footage share away: the clip can't be read. The lead's claim is judged against the identity the phone
+        // was given (the row's), as a confirmation on this Mac would be: accepted, bound to the card.
         let (root, row, origin, cut) = try cutProject("C")
         open("C")
         let claim = submit("continuous", for: row)
-        let clip = root.appendingPathComponent("footage/video_01.mp4")
-        let bytes = try Data(contentsOf: clip)
-        try FileManager.default.removeItem(at: clip)
+        try FileManager.default.removeItem(at: root.appendingPathComponent("footage/video_01.mp4"))
         let first = await sync.sync(videos: false)
         XCTAssertTrue(first)
-        XCTAssertEqual(settlements().count, 0, "not settled either way: \(settlements())")
-        XCTAssertEqual(server.claims[claim.id]?.status, .submitted)
-        XCTAssertNil(try record("C"), "nothing written")
-        XCTAssertTrue(sync.status.contains("left for the next sync") && sync.status.contains("can't be read"), sync.status)
-        // The share is back: the same claim is judged and accepted on the next round.
-        try bytes.write(to: clip)
-        let second = await sync.sync(videos: false)
-        XCTAssertTrue(second)
-        XCTAssertEqual(settlements().map(\.status), [.accepted])
+        XCTAssertEqual(settlements().map(\.status), [.accepted], "\(settlements())")
         XCTAssertEqual(claim.sourceFingerprint, cut)
         XCTAssertEqual(try XCTUnwrap(try record("C")).sourceFingerprint, origin)
+    }
+
+    func testAnotherLabelersClaimWaitsForTheLeadsCheckThenIsAppliedOrDeclined() async throws {
+        let (_, row) = try project("A", videos: ["video_01", "video_02"])
+        let second = server.videos[1]
+        open("A")
+        let theirs = submit("continuous", for: row, by: UUID())
+        let declined = submit("edited", for: second, by: UUID())
+        let first = await sync.sync(videos: false)
+        XCTAssertTrue(first)
+        XCTAssertEqual(settlements().count, 0, "nothing settled before the lead looked: \(settlements())")
+        XCTAssertNil(try record("A"), "nothing written")
+        XCTAssertTrue(sync.status.contains("2 from other labelers waiting for your check"), sync.status)
+        // The lead accepts one and declines the other.
+        let accepted = await sync.checkClaim(theirs, accept: true)
+        XCTAssertNil(accepted)
+        let refused = await sync.checkClaim(declined, accept: false)
+        XCTAssertNil(refused)
+        XCTAssertEqual(server.claims[declined.id]?.status, .rejected)
+        XCTAssertEqual(server.claims[declined.id]?.reason, "not accepted on the Mac — choose again if that is wrong")
+        let after = await sync.sync(videos: false)
+        XCTAssertTrue(after)
+        XCTAssertEqual(server.claims[theirs.id]?.status, .accepted)
+        let written = try XCTUnwrap(try record("A"))
+        XCTAssertEqual(written.recordingType, .continuous)
+        XCTAssertTrue(RecordingTypeClaims.isAttributed(written.recordingTypeBy, to: theirs))
+        XCTAssertNil(try record("A", video: "video_02"), "the declined choice wrote nothing")
+    }
+
+    func testALeadsCheckCoversTheClaimItLookedAtNotAReplacementSentSince() async throws {
+        let (_, row) = try project("A")
+        open("A")
+        let labeler = UUID()
+        let looked = submit("continuous", for: row, revision: 1, by: labeler)
+        let accepted = await sync.checkClaim(looked, accept: true)
+        XCTAssertNil(accepted)
+        // The labeler changes their mind before the round: the newer choice supersedes the one the lead accepted.
+        server.claims[looked.id]?.status = .superseded
+        let newer = submit("edited", for: row, revision: 2, at: now.addingTimeInterval(60), by: labeler)
+        let round = await sync.sync(videos: false)
+        XCTAssertTrue(round)
+        XCTAssertNil(try record("A"), "the replacement was never looked at: nothing written")
+        XCTAssertEqual(server.claims[newer.id]?.status, .submitted)
+        XCTAssertTrue(sync.status.contains("1 from other labelers waiting for your check"), sync.status)
     }
 
     func testALostAcknowledgementIsRecoveredByTheNextRoundWithoutASecondWrite() async throws {
@@ -251,8 +290,149 @@ final class RecordingTypeClaimSyncTests: XCTestCase {
         XCTAssertTrue(second)
         XCTAssertEqual(settlements().map(\.status), [.accepted])
         XCTAssertEqual(server.settled.last?.confirmedAt, RecordingTypeClaims.parse(written.recordingTypeAt!))
-        XCTAssertEqual(try snapshot("C"), before, "nothing written again")
+        XCTAssertEqual(try snapshot("C"), before.filter { !$0.key.contains("/footage-properties-journal/") }, "nothing written again; the journal is gone")
         XCTAssertEqual(try XCTUnwrap(try record("C")).sourceFingerprint, origin)
+    }
+
+    func testAnotherLabelersCheckedClaimWrittenBeforeARelaunchIsAcknowledgedWithoutANewCheck() async throws {
+        // The lead's check is in memory; the write happened, the acknowledgement was lost, RallyLab relaunched.
+        let (_, row) = try project("A")
+        open("A")
+        let theirs = submit("continuous", for: row, by: UUID())
+        let faulty = LabelingSync(projects: projects, client: server, pendingDirectory: base.appendingPathComponent("pending"), dropFirstSettlement: true)
+        let checked = await faulty.checkClaim(theirs, accept: true)
+        XCTAssertNil(checked)
+        let first = await faulty.sync(videos: false)
+        XCTAssertFalse(first, faulty.status)
+        XCTAssertTrue(RecordingTypeClaims.isAttributed(try XCTUnwrap(try record("A")).recordingTypeBy, to: theirs))
+        XCTAssertEqual(server.claims[theirs.id]?.status, .submitted)
+        let before = try snapshot("A")
+        // A fresh sync (the relaunch): no check in memory, the record on file carries the claim.
+        let second = await sync.sync(videos: false)
+        XCTAssertTrue(second, sync.status)
+        XCTAssertEqual(server.claims[theirs.id]?.status, .accepted)
+        XCTAssertEqual(try snapshot("A"), before.filter { !$0.key.contains("/footage-properties-journal/") }, "nothing written again; the journal is gone")
+    }
+
+    func testTwoReplacementsDuringOneRoundRollBackToTheRecordFromBeforeTheRound() async throws {
+        // A (the lead's) is written and replaced by B (the lead's, counts); B is written and replaced by C, another
+        // labeler's, unchecked. The record goes back to what it was before the round (none) — never to A.
+        let (_, row) = try project("A")
+        open("A")
+        let a = submit("continuous", for: row)
+        server.hold("recordingTypeClaim", at: 1)
+        let round = Task { await self.sync.sync(videos: false) }
+        let first = await server.arrived()
+        XCTAssertTrue(first, "the round never reached the first hold; calls made: \(server.calls)")
+        let b = server.phoneReplaces(video: row.id, with: "edited", at: now.addingTimeInterval(30))
+        server.release()
+        server.hold("recordingTypeClaim", at: 1)   // B's re-check
+        let second = await server.arrived()
+        XCTAssertTrue(second, "the round never reached the second hold; calls made: \(server.calls)")
+        let c = server.phoneReplaces(video: row.id, with: "unknown", at: now.addingTimeInterval(60))
+        server.claims[c.id]?.submittedBy = UUID()   // another labeler's
+        server.release()
+        let ok = await round.value
+        XCTAssertTrue(ok, sync.status)
+        XCTAssertNil(try record("A"), "neither A nor B is left on file")
+        XCTAssertEqual(server.claims[a.id]?.status, .superseded)
+        XCTAssertEqual(server.claims[b.id]?.status, .superseded)
+        XCTAssertEqual(server.claims[c.id]?.status, .submitted)
+    }
+
+    func testAWriteWhoseAcknowledgementWasLostComesOffWhenItsClaimIsReplacedBeforeTheNextRound() async throws {
+        // A checked claim is written, its settlement lost; the labeler replaces it before the next round, which the
+        // lead then declines. The journal outlives the round: the replaced write comes off, nothing stays confirmed.
+        let (root, row) = try project("A")
+        open("A")
+        let prior = FootageProperties.File(video: "video_01", sourceFingerprint: fingerprint("A"), recordingType: .edited,
+                                           recordingTypeBy: "BW", recordingTypeAt: "2026-11-01T10:00:00Z", spans: [], updatedAt: "2026-11-01T10:00:00Z")
+        try FootageProperties.Store(root: root).save(prior)
+        let labeler = UUID()
+        let a = submit("continuous", for: row, by: labeler)
+        let faulty = LabelingSync(projects: projects, client: server, pendingDirectory: base.appendingPathComponent("pending"), dropFirstSettlement: true)
+        let checked = await faulty.checkClaim(a, accept: true)
+        XCTAssertNil(checked)
+        let first = await faulty.sync(videos: false)
+        XCTAssertFalse(first, faulty.status)
+        XCTAssertEqual(try record("A")?.recordingType, .continuous, "written, not acknowledged")
+        let b = server.phoneReplaces(video: row.id, with: "unknown", at: now.addingTimeInterval(60))
+        // The next round (a fresh sync, as a relaunch): A comes off, the Mac's earlier record is back; B waits.
+        let second = await sync.sync(videos: false)
+        XCTAssertTrue(second, sync.status)
+        XCTAssertEqual(try record("A"), prior, "the record from before A's write")
+        XCTAssertEqual(server.claims[b.id]?.status, .submitted)
+        let declined = await sync.checkClaim(b, accept: false)
+        XCTAssertNil(declined)
+        let third = await sync.sync(videos: false)
+        XCTAssertTrue(third, sync.status)
+        XCTAssertEqual(try record("A"), prior)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: LabelingSync.ClaimWrite.url("video_01", root: root).path), "the journal is gone")
+    }
+
+    func testAnInterruptedReplacementWriteLeavesNoReplacedChoiceInForce() async throws {
+        // A was written (not acknowledged); the round journalled B and stopped before writing B's record. A is replaced
+        // on the server; B waits for the lead. The next round takes A off, and declining B leaves the record as before A.
+        let (root, row) = try project("A")
+        open("A")
+        let prior = FootageProperties.File(video: "video_01", sourceFingerprint: fingerprint("A"), recordingType: .edited,
+                                           recordingTypeBy: "BW", recordingTypeAt: "2026-11-01T10:00:00Z", spans: [], updatedAt: "2026-11-01T10:00:00Z")
+        let store = FootageProperties.Store(root: root)
+        try store.save(prior)
+        let labeler = UUID()
+        let a = submit("continuous", for: row, by: labeler)
+        _ = try store.confirmRecordingType(.continuous, video: "video_01", sourceFingerprint: fingerprint("A"),
+                                           by: RecordingTypeClaims.attribution(of: a), at: EventReview.stamp(a.submittedAt))
+        let b = server.phoneReplaces(video: row.id, with: "unknown", at: now.addingTimeInterval(60))
+        try LabelingSync.ClaimWrite(claims: [a.id, b.id], previous: prior).write("video_01", root: root)
+        let round = await sync.sync(videos: false)
+        XCTAssertTrue(round, sync.status)
+        XCTAssertEqual(try record("A"), prior, "A's replaced write came off")
+        XCTAssertEqual(server.claims[b.id]?.status, .submitted)
+        let declined = await sync.checkClaim(b, accept: false)
+        XCTAssertNil(declined)
+        let after = await sync.sync(videos: false)
+        XCTAssertTrue(after, sync.status)
+        XCTAssertEqual(try record("A"), prior)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: LabelingSync.ClaimWrite.url("video_01", root: root).path))
+    }
+
+    func testAClaimAlreadyWrittenCannotBeDeclinedAndIsAcknowledged() async throws {
+        let (_, row) = try project("A")
+        open("A")
+        let theirs = submit("continuous", for: row, by: UUID())
+        let faulty = LabelingSync(projects: projects, client: server, pendingDirectory: base.appendingPathComponent("pending"), dropFirstSettlement: true)
+        let checked = await faulty.checkClaim(theirs, accept: true)
+        XCTAssertNil(checked)
+        let first = await faulty.sync(videos: false)
+        XCTAssertFalse(first, faulty.status)
+        // Written, not acknowledged: Decline is refused, so the type on file and the server never disagree.
+        let refused = await sync.checkClaim(theirs, accept: false)
+        XCTAssertEqual(refused?.contains("already applied"), true, refused ?? "")
+        XCTAssertEqual(server.claims[theirs.id]?.status, .submitted)
+        let second = await sync.sync(videos: false)
+        XCTAssertTrue(second, sync.status)
+        XCTAssertEqual(server.claims[theirs.id]?.status, .accepted)
+    }
+
+    func testADeclineThatLandsWhileTheAcceptedClaimIsWrittenTakesTheWriteOff() async throws {
+        let (_, row) = try project("A")
+        open("A")
+        let theirs = submit("continuous", for: row, by: UUID())
+        let checked = await sync.checkClaim(theirs, accept: true)
+        XCTAssertNil(checked)
+        server.hold("recordingTypeClaim", at: 1)
+        let round = Task { await self.sync.sync(videos: false) }
+        let reached = await server.arrived()
+        XCTAssertTrue(reached, "the round never reached the hold; calls made: \(server.calls)")
+        // The lead changes their mind on another window: declined on the server before the Mac writes.
+        let declined = await sync.checkClaim(theirs, accept: false)
+        XCTAssertNil(declined)
+        server.release()
+        let ok = await round.value
+        XCTAssertTrue(ok, sync.status)
+        XCTAssertEqual(server.claims[theirs.id]?.status, .rejected)
+        XCTAssertNil(try record("A"), "the declined choice is not left on file")
     }
 
     func testAnExplicitUnknownIsAcceptedAndEstablishesNothing() async throws {
@@ -479,6 +659,58 @@ final class RecordingTypeClaimSyncTests: XCTestCase {
         XCTAssertEqual(settlements().map(\.status), [.accepted, .accepted])
         XCTAssertEqual(server.settled.last?.id, replacement.id)
         XCTAssertTrue(sync.status.contains("2 confirmed · 0 declined"), sync.status)
+    }
+
+    func testACheckedClaimReplacedAsItIsSettledIsTakenOffAndTheUncheckedReplacementWaits() async throws {
+        // Another labeler's choice, accepted by the lead; the labeler replaces it while the Mac re-checks it. The Mac
+        // writes the checked choice, the settlement comes back a conflict, and the replacement has not been looked at:
+        // the record goes back to what it was (none), and the replacement waits for the lead.
+        let (_, row) = try project("A")
+        open("A")
+        let labeler = UUID()
+        let old = submit("continuous", for: row, by: labeler)
+        let checked = await sync.checkClaim(old, accept: true)
+        XCTAssertNil(checked)
+        server.hold("recordingTypeClaim", at: 1)
+        let round = Task { await self.sync.sync(videos: false) }
+        let reached = await server.arrived()
+        XCTAssertTrue(reached, "the round never reached the hold; calls made: \(server.calls)")
+        let replacement = server.phoneReplaces(video: row.id, with: "edited", at: now.addingTimeInterval(30))
+        server.release()
+        let ok = await round.value
+        XCTAssertTrue(ok, sync.status)
+        XCTAssertNil(try record("A"), "the replaced choice is not left on file")
+        XCTAssertEqual(server.claims[replacement.id]?.status, .submitted)
+        XCTAssertEqual(server.claims[old.id]?.status, .superseded)
+        XCTAssertTrue(sync.status.contains("1 from other labelers waiting for your check"), sync.status)
+        // Declining the replacement leaves nothing confirmed.
+        let declined = await sync.checkClaim(replacement, accept: false)
+        XCTAssertNil(declined)
+        let after = await sync.sync(videos: false)
+        XCTAssertTrue(after)
+        XCTAssertNil(try record("A"))
+    }
+
+    func testACheckMadeWhileARoundRunsIsKeptForTheNextRound() async throws {
+        let (_, row) = try project("A", videos: ["video_01", "video_02"])
+        let second = server.videos[1]
+        open("A")
+        submit("continuous", for: row)   // the lead's own: the round works on it
+        server.hold("recordingTypeClaim", at: 1)
+        let round = Task { await self.sync.sync(videos: false) }
+        let reached = await server.arrived()
+        XCTAssertTrue(reached, "the round never reached the hold; calls made: \(server.calls)")
+        // Meanwhile another labeler's choice arrives and the lead accepts it.
+        let theirs = submit("edited", for: second, by: UUID())
+        let checked = await sync.checkClaim(theirs, accept: true)
+        XCTAssertNil(checked)
+        server.release()
+        let ok = await round.value
+        XCTAssertTrue(ok, sync.status)
+        let next = await sync.sync(videos: false)
+        XCTAssertTrue(next, sync.status)
+        XCTAssertEqual(server.claims[theirs.id]?.status, .accepted, "the check survived the round that was running when it was made")
+        XCTAssertEqual(try XCTUnwrap(try record("A", video: "video_02")).recordingType, .edited)
     }
 
     func testASupersessionThatLandsBetweenTheCheckAndTheSettlementIsAnsweredByApplyingTheReplacement() async throws {

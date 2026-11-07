@@ -921,6 +921,8 @@ final class ProjectSwitchSyncTests: XCTestCase {
 /// `CancellationError` when the waiting round is cancelled, as URLSession does.
 @MainActor
 final class FakeLabeling: LabelingService {
+    /// The signed-in account (the lead's, as the Mac's is).
+    var me: UUID? = UUID()
     var videos: [LabelVideo] = []
     var times: [UUID: LabelRallyTimes] = [:]
     var stamps: [LabelingClient.TrackStamp] = []
@@ -996,6 +998,7 @@ final class FakeLabeling: LabelingService {
     }
 
     var hasSession: Bool { true }
+    var userId: UUID? { me }
     func signIn(email: String, password: String) async throws {}
     func signOut() async {}
     func isLabeler() async throws -> Bool { true }
@@ -1099,10 +1102,10 @@ final class FakeLabeling: LabelingService {
             c.status = .superseded; c.reason = "replaced by a newer choice"; c.settledAt = at; c.updatedAt = at
             claims[id] = c
         }
-        let old = claims.values.filter { $0.videoId == video }.first!
+        let old = claims.values.filter { $0.videoId == video }.first!   // the same labeler changes their mind
         let revision = (claims.values.filter { $0.videoId == video }.map(\.revision).max() ?? 0) + 1
         let new = RecordingTypeClaim(id: UUID(), videoId: video, project: old.project, sessionName: old.sessionName, sourceFingerprint: old.sourceFingerprint,
-                                     recordingType: kind, revision: revision, status: .submitted, reason: nil, submittedBy: UUID(), submittedAt: at, settledBy: nil, settledAt: nil, updatedAt: at)
+                                     recordingType: kind, revision: revision, status: .submitted, reason: nil, submittedBy: old.submittedBy, submittedAt: at, settledBy: nil, settledAt: nil, updatedAt: at)
         claims[new.id] = new
         return new
     }

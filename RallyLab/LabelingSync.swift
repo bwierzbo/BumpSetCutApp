@@ -51,6 +51,8 @@ import Observation
 /// apart from the client's progress-reporting ones.
 protocol LabelingService: Sendable {
     var hasSession: Bool { get async }
+    /// The signed-in account (this Mac's): a claim it sent from the phone is the owner's own (D-033 amendment).
+    var userId: UUID? { get async }
     func signIn(email: String, password: String) async throws
     func signOut() async
     func isLabeler() async throws -> Bool
@@ -296,8 +298,9 @@ final class LabelingSync {
             parts.append("boundary records \(events.pushed) sent · \(events.pulled) received" + (events.conflicts.isEmpty ? "" : " · conflicts kept for: \(events.conflicts.joined(separator: ", "))")
                          + (events.withheldPublished.map { " · withheld list published (\($0))" } ?? " · withheld list NOT published — no boundary record sent"))
             let claims = try await syncRecordingTypeClaims(opening)
-            if claims.accepted + claims.rejected + claims.deferred.count > 0 {
+            if claims.accepted + claims.rejected + claims.awaiting + claims.deferred.count > 0 {
                 parts.append("footage types from the phone \(claims.accepted) confirmed · \(claims.rejected) declined"
+                             + (claims.awaiting == 0 ? "" : " · \(claims.awaiting) from other labelers waiting for your check (Coverage)")
                              + (claims.deferred.isEmpty ? "" : " · left for the next sync: \(claims.deferred.joined(separator: "; "))"))
             }
             status = "Synced: " + parts.joined(separator: ", ") + "."
@@ -1025,16 +1028,27 @@ final class LabelingSync {
     /// before the server hears of it. What is wrong with a claim is declined with a reason in plain words; what is
     /// wrong on this Mac leaves the claim submitted for the next round. The write lands under `opening` only; a
     /// settlement is a server-committed fact about a write already made, so it may follow the end of the opening.
-    private func syncRecordingTypeClaims(_ opening: ProjectsModel.Opening) async throws -> (accepted: Int, rejected: Int, deferred: [String]) {
+    private func syncRecordingTypeClaims(_ opening: ProjectsModel.Opening) async throws -> (accepted: Int, rejected: Int, awaiting: Int, deferred: [String]) {
         let project = opening.name, root = opening.root
+        // Writes of earlier rounds that never became the decision come off first (the journal; a relaunch keeps it).
+        var deferred = try await reconcileClaimWrites(opening)
         let submitted = try await client.recordingTypeClaims(since: nil).filter { $0.project == project && $0.status == .submitted }
-        guard !submitted.isEmpty else { return (0, 0, []) }
-        // The withheld closure is the captured project's, read off the main actor.
-        guard let withheld = await withheldClosure(root: root) else { return (0, 0, ["the withheld list can't be read — no claim judged"]) }
+        guard !submitted.isEmpty else { return (0, 0, 0, deferred) }
+        // Whose claim counts (D-033 amendment, 2026-11-07, the ball-label review's rule): a claim sent from this Mac's
+        // own account — the lead's — counts as a confirmation made on this Mac; another labeler's waits until the lead
+        // accepts it here (`checkClaim`). Either is judged against the identity the phone was given — the row's
+        // published fingerprint — not the file re-read now, so it settles with the footage away. The withheld closure
+        // (the captured project's, read off the main actor) refuses a withheld recording when it can be read; when it
+        // can't (a withheld recording's footage away from this Mac) the claim is judged without it, as a confirmation
+        // on this Mac is — the export refuses withheld recordings on its own.
+        let withheld = await withheldClosure(root: root)
+        let me = await client.userId
+        let rows = Dictionary(try await client.videos().map { ($0.id, $0.sourceFingerprint) }, uniquingKeysWith: { a, _ in a })
         try projects.require(opening)
+        // Read when asked, not once: a check made in Coverage while this round runs counts in it.
+        func counts(_ c: RecordingTypeClaim) -> Bool { (me != nil && c.submittedBy == me) || leadChecked.contains(c.id) }
         let store = FootageProperties.Store(root: root)
-        var accepted = 0, rejected = 0
-        var deferred: [String] = []
+        var accepted = 0, rejected = 0, awaiting = 0
         for (_, group) in Dictionary(grouping: submitted, by: \.videoId).sorted(by: { $0.key.uuidString < $1.key.uuidString }) {
             let ordered = group.sorted { $0.revision > $1.revision }
             // Two still submitted for one recording (a race the server had not ordered when they were read): the newest counts.
@@ -1053,28 +1067,35 @@ final class LabelingSync {
                 attempts += 1
                 guard let fresh = try await client.recordingTypeClaim(id: claim.id) else { break }   // gone with its recording
                 if fresh.status != .submitted {
+                    leadChecked.remove(claim.id)   // settled or replaced: a check of it has nothing left to apply
                     guard let newer = try await newestSubmittedClaim(for: claim.videoId) else { break }
                     claim = newer
                     continue
                 }
                 let name = DatasetStore.safeName(claim.sessionName)
                 try projects.require(opening)
-                guard let session = try projects.session(named: name, in: opening) else {
+                guard try projects.session(named: name, in: opening) != nil else {
                     _ = try await client.settleRecordingTypeClaim(claim.id, status: .rejected, reason: "the recording is not in the project on the Mac", confirmedAt: nil)
                     rejected += 1
                     break
                 }
-                // The identity the claim is judged against is the one the phone was given: the published fingerprint of
-                // the session's file (what publishVideos/publishIdentities send as label_videos.source_fingerprint). The
-                // card's fingerprint is the origin's — a cut clip's differs — and binds the record, not the claim
-                // (found by the synthetic acceptance of 2026-11-04: every claim on cut footage was "file changed").
-                let sourcePath = session.sourcePath
-                let published = await Task.detached(priority: .utility) { ProjectsModel.fileFingerprint(atPath: sourcePath) }.value
-                try projects.require(opening)
-                // A file that can't be read now (the footage share away) is the Mac's problem, not the claim's: left
-                // submitted for the next round. Only a fingerprint read and found different declines it (Codex on #148).
+                // Another labeler's choice waits for the lead's check; this account's own counts now (the claim in hand,
+                // after any replacement above: a newer choice from someone else is not covered by a check of the older).
+                // A claim already written on file by this Mac (its acknowledgement lost, the check gone with a relaunch)
+                // was checked when it was written: it goes on to be acknowledged, never asked about again.
+                let written = (try? store.load(name)).flatMap { $0 }.map { RecordingTypeClaims.isAttributed($0.recordingTypeBy, to: claim) } ?? false
+                guard counts(claim) || written else {
+                    awaiting += 1
+                    break
+                }
+                // The identity the claim is judged against is the one the phone was given: the session file's fingerprint
+                // as this Mac published it (label_videos.source_fingerprint), read from the row rather than the file, so
+                // the claim settles with the footage away; a row published since with another file's fingerprint
+                // declines it ("file changed"). The card's fingerprint is the origin's — a cut clip's differs — and binds
+                // the record, not the claim (found by the synthetic acceptance of 2026-11-04).
+                let published = rows[claim.videoId] ?? nil
                 guard let published else {
-                    deferred.append("\(name): the recording's file can't be read on the Mac — judged next round")
+                    deferred.append("\(name): the recording has no published identity yet — judged next round")
                     break
                 }
                 let card = FootageTypeConfirmation.sourceFingerprint(of: name, in: projects.project)
@@ -1085,9 +1106,10 @@ final class LabelingSync {
                 var onFile: FootageProperties.File?
                 do { onFile = try store.load(name); state = onFile.map { .record(type: $0.recordingType.rawValue, by: $0.recordingTypeBy, at: $0.recordingTypeAt) } ?? .none }
                 catch { state = .unreadable(error.localizedDescription) }
-                switch RecordingTypeClaims.decide(claim: claim, publishedFingerprint: published, withheld: withheld.contains(name), record: state) {
+                switch RecordingTypeClaims.decide(claim: claim, publishedFingerprint: published, withheld: withheld?.contains(name) ?? false, record: state) {
                 case .reject(let why):
                     _ = try await client.settleRecordingTypeClaim(claim.id, status: .rejected, reason: why, confirmedAt: nil)
+                    leadChecked.remove(claim.id)
                     rejected += 1
                 case .defer(let why):
                     deferred.append("\(name): \(why)")
@@ -1095,12 +1117,27 @@ final class LabelingSync {
                     // The record carries this very claim (its acknowledgement was lost): acknowledged, nothing written again.
                     _ = try await client.settleRecordingTypeClaim(claim.id, status: .accepted, reason: nil,
                                                                  confirmedAt: onFile?.recordingTypeAt.flatMap(RecordingTypeClaims.parse))
+                    leadChecked.remove(claim.id)
+                    try? ClaimWrite.drop(name, root: root)
                     accepted += 1
                 case .accept:
                     guard let type = claim.kind.flatMap({ FootageProperties.RecordingType(rawValue: $0.rawValue) }) else { break }
                     // The one writer, under the opening (no suspension since the record was read and the opening checked),
                     // attributed to the phone's labeler and the claim at the claim's time; read back before the server hears of it.
                     let at = EventReview.stamp(claim.submittedAt)
+                    // The journal first: the record this write replaces, kept until the claim is acknowledged — the state
+                    // before an earlier unacknowledged claim write when that write is what is on file, else what is on file
+                    // (a confirmation on this Mac since). A write the journal can't record is not made.
+                    do {
+                        // The chain of unacknowledged writes is kept whole until one is acknowledged: a write interrupted
+                        // between this journal and the record leaves the earlier write on file, still named here.
+                        let earlier = try ClaimWrite.read(name, root: root)
+                        let carried = earlier.flatMap { e in onFile.flatMap { e.isWrite($0) ? e : nil } }
+                        try ClaimWrite(claims: (carried?.claims ?? []) + [claim.id], previous: carried.map(\.previous) ?? onFile).write(name, root: root)
+                    } catch {
+                        deferred.append("\(name): the record's journal could not be written — \(error.localizedDescription)")
+                        break
+                    }
                     do {
                         _ = try store.confirmRecordingType(type, video: name, sourceFingerprint: card, by: RecordingTypeClaims.attribution(of: claim), at: at)
                     } catch {
@@ -1118,18 +1155,154 @@ final class LabelingSync {
                             throw URLError(.networkConnectionLost)   // the acknowledgement lost after the write (fault injection)
                         }
                         _ = try await client.settleRecordingTypeClaim(claim.id, status: .accepted, reason: nil, confirmedAt: RecordingTypeClaims.parse(at))
+                        leadChecked.remove(claim.id)
+                        try? ClaimWrite.drop(name, root: root)
                         accepted += 1
                     } catch LabelingClient.Failure.server(_, let message) where message.hasPrefix("conflict:") {
                         // Superseded between the check above and this settlement: what is on file is a replaced choice.
-                        // The replacement is applied now (it is the newer decision, so it takes the record over).
-                        if let newer = try await newestSubmittedClaim(for: claim.videoId), attempts < 3 { claim = newer; continue }
+                        // The replacement is applied now when it counts (it is the newer decision, so it takes the record
+                        // over; the journal keeps the state from before the first write). One that waits for the lead's
+                        // check cannot take it over yet, so the replaced choice is taken off first: the record goes back
+                        // to the journal's state — unless a confirmation on this Mac replaced it meanwhile — and the
+                        // replacement waits.
+                        leadChecked.remove(claim.id)
+                        let newer = try await newestSubmittedClaim(for: claim.videoId)
+                        if let newer, counts(newer), attempts < 3 { claim = newer; continue }
+                        // No replacement that counts: the write is not the decision (declined meanwhile, or replaced by a
+                        // choice that waits), so it comes off.
+                        if newer.map({ !counts($0) }) ?? true {
+                            do {
+                                try undo(name, claim: claim.id, store: store, root: root)
+                                if newer != nil { awaiting += 1 }
+                            } catch {
+                                deferred.append("\(name): a replaced choice is on file and could not be taken off — \(error.localizedDescription)")
+                            }
+                            break
+                        }
                         deferred.append("\(name): the choice applied was replaced on the phone as it was confirmed; the replacement is applied by the next sync")
                     }
                 }
                 break
             }
         }
-        return (accepted, rejected, deferred)
+        return (accepted, rejected, awaiting, deferred)
+    }
+
+    /// A claim's write on file not yet acknowledged, and the record it replaced (nil: none), kept beside the project's
+    /// records in `footage-properties-journal/<video>.json` until the claim is settled accepted. Durable, so a write whose
+    /// claim was replaced or declined while the Mac was away — the acknowledgement lost, RallyLab relaunched — still
+    /// comes off (`reconcileClaimWrites`).
+    struct ClaimWrite: Codable, Equatable {
+        /// The claims written over `previous` in turn, none acknowledged; the last is the one the round wrote last.
+        var claims: [UUID]
+        var previous: FootageProperties.File?
+        var claim: UUID? { claims.last }
+
+        /// The record is one of these claims' writes.
+        func isWrite(_ record: FootageProperties.File) -> Bool { claims.contains { Self.isWrite(of: $0, record) } }
+
+        static func url(_ name: String, root: URL) -> URL {
+            root.appendingPathComponent("footage-properties-journal", isDirectory: true).appendingPathComponent("\(DatasetStore.safeName(name)).json")
+        }
+        static func read(_ name: String, root: URL) throws -> ClaimWrite? {
+            let url = url(name, root: root)
+            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+            return try JSONDecoder().decode(ClaimWrite.self, from: Data(contentsOf: url))
+        }
+        func write(_ name: String, root: URL) throws {
+            let url = Self.url(name, root: root)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try JSONEncoder().encode(self).write(to: url, options: .atomic)
+        }
+        static func drop(_ name: String, root: URL) throws {
+            let url = url(name, root: root)
+            if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+        }
+        /// The record is that claim's write (`RecordingTypeClaims.attribution`).
+        static func isWrite(of claim: UUID, _ record: FootageProperties.File) -> Bool {
+            record.recordingTypeBy?.hasSuffix("claim \(claim.uuidString.lowercased())") == true
+        }
+    }
+
+    /// The claim's write taken off: the record put back as the journal has it (removed when there was none), only while
+    /// what is on file is still a write of the journal's chain — a confirmation made on this Mac since is left as it
+    /// is — and the journal dropped.
+    private func undo(_ name: String, claim: UUID, store: FootageProperties.Store, root: URL) throws {
+        guard let entry = try ClaimWrite.read(name, root: root), entry.claim == claim else { return }
+        if let current = try store.load(name), entry.isWrite(current) {
+            if let previous = entry.previous { try store.save(previous) } else { try FileManager.default.removeItem(at: FootageProperties.url(in: root, video: name)) }
+        }
+        try ClaimWrite.drop(name, root: root)
+    }
+
+    /// Every journalled write of the captured project, against its claim as the server has it now: acknowledged
+    /// (accepted) → the journal goes; still submitted → left for the round to acknowledge or replace; replaced,
+    /// declined or gone → the write comes off (`undo`). Returns what could not be reconciled, for the status.
+    private func reconcileClaimWrites(_ opening: ProjectsModel.Opening) async throws -> [String] {
+        let root = opening.root
+        let dir = ClaimWrite.url("x", root: root).deletingLastPathComponent()
+        guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return [] }
+        let store = FootageProperties.Store(root: root)
+        var problems: [String] = []
+        for url in files where url.pathExtension == "json" {
+            let name = url.deletingPathExtension().lastPathComponent
+            let entry: ClaimWrite
+            do { guard let e = try ClaimWrite.read(name, root: root) else { continue }; entry = e } catch {
+                problems.append("\(name): the record's journal can't be read — \(error.localizedDescription)")
+                continue
+            }
+            guard let last = entry.claim else { try? ClaimWrite.drop(name, root: root); continue }
+            let row = try await client.recordingTypeClaim(id: last)
+            try projects.require(opening)
+            switch row?.status {
+            case .submitted:
+                // The last claim still waits, but what is on file is an earlier claim's write (the last one's write was
+                // interrupted): that earlier choice was replaced, so it comes off now; the journal keeps the last claim
+                // over the restored record, for when it is written.
+                do {
+                    if let current = try store.load(name), entry.isWrite(current), !ClaimWrite.isWrite(of: last, current) {
+                        if let previous = entry.previous { try store.save(previous) } else { try FileManager.default.removeItem(at: FootageProperties.url(in: root, video: name)) }
+                        try ClaimWrite(claims: [last], previous: entry.previous).write(name, root: root)
+                    }
+                } catch {
+                    problems.append("\(name): a replaced choice is on file and could not be taken off — \(error.localizedDescription)")
+                }
+            case .accepted: try? ClaimWrite.drop(name, root: root)
+            default:
+                do { try undo(name, claim: last, store: store, root: root) } catch {
+                    problems.append("\(name): a replaced choice is on file and could not be taken off — \(error.localizedDescription)")
+                }
+            }
+        }
+        return problems
+    }
+
+    /// Other labelers' choices the lead accepted on this Mac, applied by the next round (in memory: a check is made
+    /// again after a restart). Only ever a claim the lead looked at — never one that replaced it (judged per claim id).
+    @ObservationIgnored private var leadChecked: Set<UUID> = []
+
+    /// The lead's check of another labeler's footage-type choice (D-033 amendment): accepted, it is applied by the
+    /// claim round right away — judged there like the lead's own, written through the one writer; declined, it is
+    /// settled as not accepted, with that reason on the phone. Returns why it could not be done, if it could not.
+    func checkClaim(_ claim: RecordingTypeClaim, accept: Bool) async -> String? {
+        guard let opening = projects.opening, claim.project == opening.name else { return "The claim isn't the open project's." }
+        if accept {
+            leadChecked.insert(claim.id)
+            syncSoon()
+            return nil
+        }
+        leadChecked.remove(claim.id)
+        // Already written on file (its acknowledgement on the way): declining it now would leave the type in force.
+        let name = DatasetStore.safeName(claim.sessionName)
+        if let onFile = try? FootageProperties.Store(root: opening.root).load(name), RecordingTypeClaims.isAttributed(onFile.recordingTypeBy, to: claim) {
+            return "\(claim.sessionName)'s choice is already applied on the Mac; use Change… to set another type."
+        }
+        do {
+            _ = try await client.settleRecordingTypeClaim(claim.id, status: .rejected, reason: "not accepted on the Mac — choose again if that is wrong", confirmedAt: nil)
+            return nil
+        } catch {
+            return "Couldn't decline it: \(error.localizedDescription)"
+        }
     }
 
     /// The newest claim still waiting for the recording, as the server has it now.
