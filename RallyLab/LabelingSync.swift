@@ -452,8 +452,14 @@ final class LabelingSync {
         guard let withheld = await withheldClosure(root: root) else { return (0, 0, []) }
         try projects.require(opening)
         // Decoding every session and asking the share whether each file is there is file work: off the main actor.
-        let sessions = try await Task.detached(priority: .utility) {
-            try DatasetStore(root: root).loadSessionsStrict().filter { FileManager.default.fileExists(atPath: $0.sourcePath) && !withheld.contains($0.name) }
+        // A recording whose original is not on this Mac (moved to the desktop) keeps its row as it is, copy and
+        // identities included — those are made from the file — but its type is still published: the record is
+        // here, and the phone's display should not wait for the footage to come back.
+        let (sessions, away) = try await Task.detached(priority: .utility) {
+            let all = try DatasetStore(root: root).loadSessionsStrict().filter { !withheld.contains($0.name) }
+            let here = all.filter { FileManager.default.fileExists(atPath: $0.sourcePath) }
+            let names = Set(here.map(\.name))
+            return (here, all.filter { !names.contains($0.name) })
         }.value
         // The recordings' types as the footage-properties records have them (D-033): published for the phone's
         // display, a copy lead-written like the identities. Nothing published when the folder can't be read.
@@ -481,24 +487,7 @@ final class LabelingSync {
                 video.duration = (try? await AVURLAsset(url: source).load(.duration).seconds) ?? 0
             }
             video = await Self.withIdentities(video, source: source)
-            if let properties {
-                // A record is this recording's only when it is bound to the card's file (the source index's rule,
-                // FootageTypeConfirmation.anotherFile): one left by a file replaced under the same name is not published.
-                let record = properties.records[session.name].flatMap { FootageTypeConfirmation.anotherFile($0, sourceFingerprint: card) == nil ? $0 : nil }
-                if let record {
-                    video.recordingType = record.recordingType.rawValue
-                    video.recordingTypeAt = record.recordingTypeAt.flatMap(RecordingTypeClaims.parse)
-                } else if properties.unreadable[session.name] == nil {
-                    // No record of this file: nothing is confirmed. A type published before is cleared with an explicit
-                    // null (the row's encoder leaves nil out, and the upsert keeps what it is not sent). An unreadable
-                    // record leaves what was published as it is.
-                    if let existing, existing.recordingType != nil || existing.recordingTypeAt != nil {
-                        try await client.clearPublishedRecordingType(existing.id)
-                    }
-                    video.recordingType = nil
-                    video.recordingTypeAt = nil
-                }
-            }
+            if let properties { try await publishType(of: session.name, on: &video, existing: existing, card: card, properties: properties) }
             // A copy RallyLab made with an older encoding is made again when
             // asked (the new name tells the phone to fetch it); the old one is
             // removed. Remaking them all takes hours, so it isn't automatic.
@@ -529,7 +518,38 @@ final class LabelingSync {
             }
             listed += 1
         }
+        // The recordings away from this Mac: only the type, on a row already published (a row is never made here
+        // without the file — its copy, duration and identities come from it).
+        if let properties {
+            for session in away {
+                try projects.require(opening)
+                guard let existing = remote.first(where: { $0.sessionName == session.name }) else { continue }
+                let card = FootageTypeConfirmation.sourceFingerprint(of: session.name, in: projects.project)
+                var video = existing
+                try await publishType(of: session.name, on: &video, existing: existing, card: card, properties: properties)
+                if video != existing { try await client.save(video) }
+            }
+        }
         return (listed, uploaded, failed)
+    }
+
+    /// The recording's type as its footage-properties record has it, onto the row to publish. A record is this
+    /// recording's only when it is bound to the card's file (the source index's rule, FootageTypeConfirmation.anotherFile):
+    /// one left by a file replaced under the same name is not published. No record of this file: nothing is confirmed,
+    /// and a type published before is cleared with an explicit null (the row's encoder leaves nil out, and the upsert
+    /// keeps what it is not sent). An unreadable record leaves what was published as it is.
+    private func publishType(of name: String, on video: inout LabelVideo, existing: LabelVideo?, card: String?,
+                             properties: (records: [String: FootageProperties.File], unreadable: [String: String])) async throws {
+        if let record = properties.records[name].flatMap({ FootageTypeConfirmation.anotherFile($0, sourceFingerprint: card) == nil ? $0 : nil }) {
+            video.recordingType = record.recordingType.rawValue
+            video.recordingTypeAt = record.recordingTypeAt.flatMap(RecordingTypeClaims.parse)
+        } else if properties.unreadable[name] == nil {
+            if let existing, existing.recordingType != nil || existing.recordingTypeAt != nil {
+                try await client.clearPublishedRecordingType(existing.id)
+            }
+            video.recordingType = nil
+            video.recordingTypeAt = nil
+        }
     }
 
     private func clipVideo(named videoId: String) -> ClipSource? {
