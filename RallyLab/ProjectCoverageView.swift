@@ -494,8 +494,12 @@ struct FootageTypeList: View {
     private func load() async {
         records = [:]; unreadable = [:]; claims = [:]; claimsProblem = nil
         guard let opening = projects.opening else { return }
-        me = await LabelingClient.shared.userId
-        names = Dictionary((try? await LabelingClient.shared.labelerSummary())?.map { ($0.labeler, $0.name) } ?? [], uniquingKeysWith: { a, _ in a })
+        let me = await LabelingClient.shared.userId
+        let names = (try? await LabelingClient.shared.labelerSummary())?.map { ($0.labeler, $0.name) } ?? []
+        // The awaits above suspend: a project opened meanwhile gets nothing of this one's.
+        guard !Task.isCancelled, projects.opening == opening else { return }
+        self.me = me
+        self.names = Dictionary(names, uniquingKeysWith: { a, _ in a })
         if let all = try? FootageProperties.Store(root: opening.root).loadAll() { records = all.records; unreadable = all.unreadable }
         do {
             let rows = try await LabelingClient.shared.recordingTypeClaims(since: nil).filter { $0.project == opening.name }

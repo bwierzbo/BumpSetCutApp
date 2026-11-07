@@ -294,6 +294,26 @@ final class RecordingTypeClaimSyncTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(try record("C")).sourceFingerprint, origin)
     }
 
+    func testAnotherLabelersCheckedClaimWrittenBeforeARelaunchIsAcknowledgedWithoutANewCheck() async throws {
+        // The lead's check is in memory; the write happened, the acknowledgement was lost, RallyLab relaunched.
+        let (_, row) = try project("A")
+        open("A")
+        let theirs = submit("continuous", for: row, by: UUID())
+        let faulty = LabelingSync(projects: projects, client: server, pendingDirectory: base.appendingPathComponent("pending"), dropFirstSettlement: true)
+        let checked = await faulty.checkClaim(theirs, accept: true)
+        XCTAssertNil(checked)
+        let first = await faulty.sync(videos: false)
+        XCTAssertFalse(first, faulty.status)
+        XCTAssertTrue(RecordingTypeClaims.isAttributed(try XCTUnwrap(try record("A")).recordingTypeBy, to: theirs))
+        XCTAssertEqual(server.claims[theirs.id]?.status, .submitted)
+        let before = try snapshot("A")
+        // A fresh sync (the relaunch): no check in memory, the record on file carries the claim.
+        let second = await sync.sync(videos: false)
+        XCTAssertTrue(second, sync.status)
+        XCTAssertEqual(server.claims[theirs.id]?.status, .accepted)
+        XCTAssertEqual(try snapshot("A"), before, "nothing written again")
+    }
+
     func testAnExplicitUnknownIsAcceptedAndEstablishesNothing() async throws {
         let (_, row) = try project("A")
         open("A")

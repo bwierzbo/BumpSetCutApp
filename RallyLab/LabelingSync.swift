@@ -1080,7 +1080,10 @@ final class LabelingSync {
                 }
                 // Another labeler's choice waits for the lead's check; this account's own counts now (the claim in hand,
                 // after any replacement above: a newer choice from someone else is not covered by a check of the older).
-                guard counts(claim) else {
+                // A claim already written on file by this Mac (its acknowledgement lost, the check gone with a relaunch)
+                // was checked when it was written: it goes on to be acknowledged, never asked about again.
+                let written = (try? store.load(name)).flatMap { $0 }.map { RecordingTypeClaims.isAttributed($0.recordingTypeBy, to: claim) } ?? false
+                guard counts(claim) || written else {
                     awaiting += 1
                     break
                 }
