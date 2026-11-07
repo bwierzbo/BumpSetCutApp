@@ -44,6 +44,13 @@ struct MarkRalliesView: View {
     @State private var marksShown = false
     /// Skip this video: the reasons on offer (the backlog).
     @State private var skipping = false
+    /// Scrubbing the timeline: one seek in flight at a time, the newest target waiting (AVPlayer piles up seeks
+    /// otherwise and the picture lags the finger); loose while the finger moves, exact when it lifts.
+    @State private var seeking = false
+    @State private var seekTarget: Double?
+    @State private var seekExact = true
+    @State private var scrubbing = false
+    @State private var playingBeforeScrub = false
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     private static let speeds: [Float] = [0.5, 1, 2, 3, 4]
@@ -166,7 +173,23 @@ struct MarkRalliesView: View {
                       cuts: (times.cuts ?? []).map { [$0.start, $0.end] }, pendingCut: tagger.cutFrom)
             .frame(height: 22)
             .contentShape(Rectangle())
-            .gesture(SpatialTapGesture().onEnded { tap in seek(tap.location.x / max(barWidth, 1) * duration) })
+            // A tap lands exactly where it falls; a drag scrubs — paused while the finger moves, the picture chasing
+            // it loosely (a frame within a tenth of a second shows at once), landing on the exact frame when it
+            // lifts, and playing on again if it was.
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { drag in
+                    if !scrubbing {
+                        scrubbing = true
+                        playingBeforeScrub = isPlaying
+                        if isPlaying { player.pause(); isPlaying = false }
+                    }
+                    seek(drag.location.x / max(barWidth, 1) * duration, exact: false)
+                }
+                .onEnded { drag in
+                    scrubbing = false
+                    seek(drag.location.x / max(barWidth, 1) * duration)
+                    if playingBeforeScrub { player.playImmediately(atRate: rate); isPlaying = true }
+                })
             .background(GeometryReader { geo in Color.clear.onAppear { barWidth = geo.size.width }.onChange(of: geo.size.width) { _, w in barWidth = w } })
     }
 
@@ -390,10 +413,26 @@ struct MarkRalliesView: View {
         }
     }
 
-    private func seek(_ t: Double) {
+    private func seek(_ t: Double, exact: Bool = true) {
         let target = min(max(0, t), max(duration, 0))
         time = target
-        player.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        seekTarget = target
+        seekExact = exact
+        chaseSeek()
+    }
+
+    /// One seek at a time; the newest target goes when it lands (the Mac's RallyMarkModel does the same).
+    private func chaseSeek() {
+        guard !seeking, let target = seekTarget else { return }
+        seeking = true
+        seekTarget = nil
+        let tolerance = seekExact ? CMTime.zero : CMTime(value: 1, timescale: 10)
+        player.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: tolerance, toleranceAfter: tolerance) { _ in
+            Task { @MainActor in
+                seeking = false
+                chaseSeek()
+            }
+        }
     }
 
     private func togglePlay() {

@@ -40,6 +40,9 @@ struct LiveTagView: View {
     @State private var speed: Float = 1
     /// The footage-type step on screen, under the opening the recording is marked in.
     @State private var footageType: FootageTypeStep?
+    /// Dragging the timeline: paused meanwhile, playing on again when the drag ends if it was.
+    @State private var scrubbing = false
+    @State private var playingBeforeScrub = false
 
     private struct FootageTypeStep: Identifiable {
         let id = UUID()
@@ -130,10 +133,23 @@ struct LiveTagView: View {
                 .frame(height: 22)
                 .overlay {
                     GeometryReader { geo in
+                        // A click lands exactly; a drag scrubs — the marker chases the pointer loosely (one seek
+                        // in flight, a frame within a tenth of a second) and lands exactly when the drag ends.
                         Color.clear.contentShape(Rectangle())
-                            .gesture(SpatialTapGesture().onEnded { tap in
-                                marker.seek(to: tap.location.x / max(geo.size.width, 1) * marker.duration)
-                            })
+                            .gesture(DragGesture(minimumDistance: 0)
+                                .onChanged { drag in
+                                    if !scrubbing {
+                                        scrubbing = true
+                                        playingBeforeScrub = marker.isPlaying
+                                        if marker.isPlaying { marker.togglePlay() }
+                                    }
+                                    marker.seek(to: drag.location.x / max(geo.size.width, 1) * marker.duration, exact: false)
+                                }
+                                .onEnded { drag in
+                                    scrubbing = false
+                                    marker.seek(to: drag.location.x / max(geo.size.width, 1) * marker.duration)
+                                    if playingBeforeScrub, !marker.isPlaying { marker.togglePlay() }
+                                })
                     }
                 }
             controls
