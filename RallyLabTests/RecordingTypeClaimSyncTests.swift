@@ -314,6 +314,32 @@ final class RecordingTypeClaimSyncTests: XCTestCase {
         XCTAssertEqual(try snapshot("A"), before, "nothing written again")
     }
 
+    func testTwoReplacementsDuringOneRoundRollBackToTheRecordFromBeforeTheRound() async throws {
+        // A (the lead's) is written and replaced by B (the lead's, counts); B is written and replaced by C, another
+        // labeler's, unchecked. The record goes back to what it was before the round (none) — never to A.
+        let (_, row) = try project("A")
+        open("A")
+        let a = submit("continuous", for: row)
+        server.hold("recordingTypeClaim", at: 1)
+        let round = Task { await self.sync.sync(videos: false) }
+        let first = await server.arrived()
+        XCTAssertTrue(first, "the round never reached the first hold; calls made: \(server.calls)")
+        let b = server.phoneReplaces(video: row.id, with: "edited", at: now.addingTimeInterval(30))
+        server.release()
+        server.hold("recordingTypeClaim", at: 1)   // B's re-check
+        let second = await server.arrived()
+        XCTAssertTrue(second, "the round never reached the second hold; calls made: \(server.calls)")
+        let c = server.phoneReplaces(video: row.id, with: "unknown", at: now.addingTimeInterval(60))
+        server.claims[c.id]?.submittedBy = UUID()   // another labeler's
+        server.release()
+        let ok = await round.value
+        XCTAssertTrue(ok, sync.status)
+        XCTAssertNil(try record("A"), "neither A nor B is left on file")
+        XCTAssertEqual(server.claims[a.id]?.status, .superseded)
+        XCTAssertEqual(server.claims[b.id]?.status, .superseded)
+        XCTAssertEqual(server.claims[c.id]?.status, .submitted)
+    }
+
     func testAClaimAlreadyWrittenCannotBeDeclinedAndIsAcknowledged() async throws {
         let (_, row) = try project("A")
         open("A")

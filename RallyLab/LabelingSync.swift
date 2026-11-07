@@ -1062,6 +1062,10 @@ final class LabelingSync {
             // same way, so a superseded choice never stays on file as the decision. Twice at most: a phone changing its
             // mind faster than that waits for the next round.
             var attempts = 0
+            // What was on file before this round wrote over it, kept across the retries (a rollback goes back to it,
+            // never to a superseded claim this round wrote), and the claim last written.
+            var beforeRound: FootageProperties.File??
+            var lastWritten: RecordingTypeClaim?
             while attempts < 3 {
                 attempts += 1
                 guard let fresh = try await client.recordingTypeClaim(id: claim.id) else { break }   // gone with its recording
@@ -1123,6 +1127,12 @@ final class LabelingSync {
                     // The one writer, under the opening (no suspension since the record was read and the opening checked),
                     // attributed to the phone's labeler and the claim at the claim's time; read back before the server hears of it.
                     let at = EventReview.stamp(claim.submittedAt)
+                    // On file now is either this round's last write (keep the state from before it) or a record no write
+                    // of this round made (a confirmation on this Mac since): that is what a rollback returns to.
+                    if beforeRound == nil || !(lastWritten.map { w in onFile.map { RecordingTypeClaims.isAttributed($0.recordingTypeBy, to: w) } ?? false } ?? false) {
+                        beforeRound = .some(onFile)
+                    }
+                    lastWritten = claim
                     do {
                         _ = try store.confirmRecordingType(type, video: name, sourceFingerprint: card, by: RecordingTypeClaims.attribution(of: claim), at: at)
                     } catch {
@@ -1155,7 +1165,7 @@ final class LabelingSync {
                         // choice that waits), so it comes off.
                         if newer.map({ !counts($0) }) ?? true {
                             do {
-                                try restore(name, to: onFile, over: claim, store: store, root: root)
+                                try restore(name, to: beforeRound ?? onFile, over: claim, store: store, root: root)
                                 if newer != nil { awaiting += 1 }
                             } catch {
                                 deferred.append("\(name): a replaced choice is on file and could not be taken off — \(error.localizedDescription)")
