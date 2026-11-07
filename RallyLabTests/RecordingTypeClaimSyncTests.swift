@@ -370,6 +370,33 @@ final class RecordingTypeClaimSyncTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: LabelingSync.ClaimWrite.url("video_01", root: root).path), "the journal is gone")
     }
 
+    func testAnInterruptedReplacementWriteLeavesNoReplacedChoiceInForce() async throws {
+        // A was written (not acknowledged); the round journalled B and stopped before writing B's record. A is replaced
+        // on the server; B waits for the lead. The next round takes A off, and declining B leaves the record as before A.
+        let (root, row) = try project("A")
+        open("A")
+        let prior = FootageProperties.File(video: "video_01", sourceFingerprint: fingerprint("A"), recordingType: .edited,
+                                           recordingTypeBy: "BW", recordingTypeAt: "2026-11-01T10:00:00Z", spans: [], updatedAt: "2026-11-01T10:00:00Z")
+        let store = FootageProperties.Store(root: root)
+        try store.save(prior)
+        let labeler = UUID()
+        let a = submit("continuous", for: row, by: labeler)
+        _ = try store.confirmRecordingType(.continuous, video: "video_01", sourceFingerprint: fingerprint("A"),
+                                           by: RecordingTypeClaims.attribution(of: a), at: EventReview.stamp(a.submittedAt))
+        let b = server.phoneReplaces(video: row.id, with: "unknown", at: now.addingTimeInterval(60))
+        try LabelingSync.ClaimWrite(claims: [a.id, b.id], previous: prior).write("video_01", root: root)
+        let round = await sync.sync(videos: false)
+        XCTAssertTrue(round, sync.status)
+        XCTAssertEqual(try record("A"), prior, "A's replaced write came off")
+        XCTAssertEqual(server.claims[b.id]?.status, .submitted)
+        let declined = await sync.checkClaim(b, accept: false)
+        XCTAssertNil(declined)
+        let after = await sync.sync(videos: false)
+        XCTAssertTrue(after, sync.status)
+        XCTAssertEqual(try record("A"), prior)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: LabelingSync.ClaimWrite.url("video_01", root: root).path))
+    }
+
     func testAClaimAlreadyWrittenCannotBeDeclinedAndIsAcknowledged() async throws {
         let (_, row) = try project("A")
         open("A")

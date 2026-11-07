@@ -1129,9 +1129,11 @@ final class LabelingSync {
                     // before an earlier unacknowledged claim write when that write is what is on file, else what is on file
                     // (a confirmation on this Mac since). A write the journal can't record is not made.
                     do {
+                        // The chain of unacknowledged writes is kept whole until one is acknowledged: a write interrupted
+                        // between this journal and the record leaves the earlier write on file, still named here.
                         let earlier = try ClaimWrite.read(name, root: root)
-                        let carried = earlier.flatMap { e in onFile.flatMap { ClaimWrite.isWrite(of: e.claim, $0) ? e : nil } }
-                        try ClaimWrite(claim: claim.id, previous: carried.map(\.previous) ?? onFile).write(name, root: root)
+                        let carried = earlier.flatMap { e in onFile.flatMap { e.isWrite($0) ? e : nil } }
+                        try ClaimWrite(claims: (carried?.claims ?? []) + [claim.id], previous: carried.map(\.previous) ?? onFile).write(name, root: root)
                     } catch {
                         deferred.append("\(name): the record's journal could not be written — \(error.localizedDescription)")
                         break
@@ -1191,8 +1193,13 @@ final class LabelingSync {
     /// claim was replaced or declined while the Mac was away — the acknowledgement lost, RallyLab relaunched — still
     /// comes off (`reconcileClaimWrites`).
     struct ClaimWrite: Codable, Equatable {
-        var claim: UUID
+        /// The claims written over `previous` in turn, none acknowledged; the last is the one the round wrote last.
+        var claims: [UUID]
         var previous: FootageProperties.File?
+        var claim: UUID? { claims.last }
+
+        /// The record is one of these claims' writes.
+        func isWrite(_ record: FootageProperties.File) -> Bool { claims.contains { Self.isWrite(of: $0, record) } }
 
         static func url(_ name: String, root: URL) -> URL {
             root.appendingPathComponent("footage-properties-journal", isDirectory: true).appendingPathComponent("\(DatasetStore.safeName(name)).json")
@@ -1218,11 +1225,11 @@ final class LabelingSync {
     }
 
     /// The claim's write taken off: the record put back as the journal has it (removed when there was none), only while
-    /// what is on file is still that claim's write — a confirmation made on this Mac since is left as it is — and the
-    /// journal dropped.
+    /// what is on file is still a write of the journal's chain — a confirmation made on this Mac since is left as it
+    /// is — and the journal dropped.
     private func undo(_ name: String, claim: UUID, store: FootageProperties.Store, root: URL) throws {
         guard let entry = try ClaimWrite.read(name, root: root), entry.claim == claim else { return }
-        if let current = try store.load(name), ClaimWrite.isWrite(of: claim, current) {
+        if let current = try store.load(name), entry.isWrite(current) {
             if let previous = entry.previous { try store.save(previous) } else { try FileManager.default.removeItem(at: FootageProperties.url(in: root, video: name)) }
         }
         try ClaimWrite.drop(name, root: root)
@@ -1244,13 +1251,25 @@ final class LabelingSync {
                 problems.append("\(name): the record's journal can't be read — \(error.localizedDescription)")
                 continue
             }
-            let row = try await client.recordingTypeClaim(id: entry.claim)
+            guard let last = entry.claim else { try? ClaimWrite.drop(name, root: root); continue }
+            let row = try await client.recordingTypeClaim(id: last)
             try projects.require(opening)
             switch row?.status {
-            case .submitted: continue
+            case .submitted:
+                // The last claim still waits, but what is on file is an earlier claim's write (the last one's write was
+                // interrupted): that earlier choice was replaced, so it comes off now; the journal keeps the last claim
+                // over the restored record, for when it is written.
+                do {
+                    if let current = try store.load(name), entry.isWrite(current), !ClaimWrite.isWrite(of: last, current) {
+                        if let previous = entry.previous { try store.save(previous) } else { try FileManager.default.removeItem(at: FootageProperties.url(in: root, video: name)) }
+                        try ClaimWrite(claims: [last], previous: entry.previous).write(name, root: root)
+                    }
+                } catch {
+                    problems.append("\(name): a replaced choice is on file and could not be taken off — \(error.localizedDescription)")
+                }
             case .accepted: try? ClaimWrite.drop(name, root: root)
             default:
-                do { try undo(name, claim: entry.claim, store: store, root: root) } catch {
+                do { try undo(name, claim: last, store: store, root: root) } catch {
                     problems.append("\(name): a replaced choice is on file and could not be taken off — \(error.localizedDescription)")
                 }
             }
