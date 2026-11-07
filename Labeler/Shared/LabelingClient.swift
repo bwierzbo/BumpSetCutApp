@@ -218,12 +218,18 @@ actor LabelingClient {
     /// explicit values, nulls included. `backlog_at` is when the person set it aside (`at`, kept through an
     /// offline wait); the row's `updated_at` is the moment of this write, so every other device's pull of the
     /// rows changed since its last one sees the change however long the choice waited to be sent.
+    /// Throws a refusal (403) when the server changed no row: a recording this account may not write any more
+    /// (withheld since the choice was made, or gone) — PostgREST answers such a PATCH with success and nothing
+    /// changed, so the row written is asked for and required.
     func setBacklog(_ videoId: UUID, reason: String?, at date: Date = Date()) async throws {
         var request = try await rest("label_videos", query: "id=eq.\(videoId.uuidString.lowercased())")
         request.httpMethod = "PATCH"
-        request.setValue("return=minimal", forHTTPHeaderField: "Prefer")
+        request.setValue("return=representation", forHTTPHeaderField: "Prefer")
         request.httpBody = Self.backlogPayload(reason: reason, by: userId, at: date, written: Date())
-        _ = try await send(request)
+        let rows = try Self.decoder.decode([LabelVideo].self, from: try await send(request))
+        guard rows.count == 1 else {
+            throw Failure.server(403, "the recording is not open to labeling from this phone any more (withheld, or no longer listed) — the choice was not kept")
+        }
     }
 
     /// The PATCH body for the backlog: set aside (reason, the time it was set aside, who) or put back (all three
