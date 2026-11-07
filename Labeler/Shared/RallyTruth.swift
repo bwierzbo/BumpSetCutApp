@@ -40,6 +40,9 @@ struct RallyTruth: Equatable {
     let positives: [Span]
     /// The missed serves and "not a rally" marks, outside the cuts: excluded spans.
     let excluded: [Span]
+    /// Every mark outside the cuts with its kind, in time order: `positives` and `excluded` are its two halves
+    /// (for a consumer that must keep a kind — the classifier dataset's excluded spans, a legacy mark's provenance).
+    let pieces: [Mark]
     /// The cut ranges, normalised: excluded.
     let cuts: [CutRange]
     /// Every rally in the recording is marked: the time outside the rallies and the cuts is not-rally time.
@@ -53,12 +56,12 @@ struct RallyTruth: Equatable {
 
     init(marks: [Mark], cuts: [CutRange], complete: Bool) {
         let cuts = cuts.normalised()
-        func pieces(_ m: Mark) -> [Span] {
-            cuts.outside(m.start, m.end).filter { $0.end - $0.start >= Self.sliver }.map { Span(start: $0.start, end: $0.end) }
+        let pieces = marks.sorted { $0.start < $1.start }.flatMap { m in
+            cuts.outside(m.start, m.end).filter { $0.end - $0.start >= Self.sliver }.map { Mark(start: $0.start, end: $0.end, kind: m.kind) }
         }
-        let sorted = marks.sorted { $0.start < $1.start }
-        positives = sorted.filter { Self.isRally($0.kind) }.flatMap(pieces)
-        excluded = sorted.filter { !Self.isRally($0.kind) }.flatMap(pieces)
+        self.pieces = pieces
+        positives = pieces.filter { Self.isRally($0.kind) }.map { Span(start: $0.start, end: $0.end) }
+        excluded = pieces.filter { !Self.isRally($0.kind) }.map { Span(start: $0.start, end: $0.end) }
         self.cuts = cuts
         self.complete = complete
     }

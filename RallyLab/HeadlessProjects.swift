@@ -54,6 +54,14 @@
 //             at least one frame; a pre-tracked rally nobody has looked at is left out whole, and no sure frame of the model's
 //             is ever a label (LineagePackage.isHumanLabeled, MultiFramePackage machineLabels: false).
 //             The project's data.yaml is not a lineage dataset.)
+//    RallyLab --project v3 --export-rally-classifier-dataset <name> [--out DIR] [--variants r0,r0_prime] [--resume DIR]
+//             (the learned rally classifier's dataset, rally_classifier_dataset_v1 — RallyClassifierExporter: the split
+//             manifest rebuilt and audited, the withheld closure refused before any video is read, the plan written to
+//             manifests/rally-classifier/<stamp>-plan.{json,md}, the detector run live per recording, steps + labels +
+//             the decider's baseline per variant, a Swift preflight and then scripts/rally_classifier/validate_dataset.py
+//             (python3 required), the exposure ledger, and only then the folder moved to DIR/<name> (default exports/).
+//             Refuses when a recording to export has no footage on this Mac. --resume DIR: the .staging-<name> folder of a
+//             run cut short; its verified recordings are kept. The GUI must be closed. Not training.)
 //    RallyLab --project v3 --event-inventory | --review-status   (Stage 1 rally-boundary review, D-024, read-only:
 //             per recording the legacy marks in <video>.rallylabels.json (all legacy_unverified) and the reviewed
 //             rallies, spans, coverage and completion in <video>.rallyevents.json; withheld recordings named, not
@@ -415,6 +423,12 @@ enum HeadlessProjects {
                 let out = value(after: "--out", in: args).map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
                 let resume = value(after: "--resume", in: args).map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
                 ok = await packageL2(projects, dryRun: args.contains("--dry-run"), longSide: side, out: out, resume: resume)
+            }
+            if ok, let name = value(after: "--export-rally-classifier-dataset", in: args) {
+                let out = value(after: "--out", in: args).map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
+                let resume = value(after: "--resume", in: args).map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
+                let variants = value(after: "--variants", in: args).map { $0.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) } }
+                ok = await exportRallyClassifierDataset(projects, name: name, out: out, resume: resume, variants: variants)
             }
             if ok, let model = value(after: "--add-model", in: args) {
                 await library.addModel(URL(fileURLWithPath: (model as NSString).expandingTildeInPath))
@@ -1096,6 +1110,59 @@ enum HeadlessProjects {
             log("❌ \(error.localizedDescription)")
             return false
         }
+    }
+
+    /// `--export-rally-classifier-dataset <name>`: the split manifest rebuilt and audited (manifests/manifest.json), then
+    /// RallyClassifierExporter — every guard, the plan, the validation and the ledger are in the operation; this
+    /// supplies the live detector, the validator in this build's source tree and the commit it was built from.
+    @MainActor
+    private static func exportRallyClassifierDataset(_ projects: ProjectsModel, name: String, out: URL?, resume: URL?, variants: [String]?) async -> Bool {
+        guard let dir = projects.projectDir else { log("❌ No project folder."); return false }
+        let manifests = dir.appendingPathComponent("manifests", isDirectory: true)
+        guard buildManifest(projects, out: manifests, audit: true) != nil else { return false }
+        let source = sourceTree()
+        guard let codeSha = await codeCommit(source) else {
+            log("❌ The commit this RallyLab was built from can't be read from \(source.path) (git): no dataset without it.")
+            return false
+        }
+        let destination = out ?? resume?.deletingLastPathComponent() ?? dir.appendingPathComponent("exports", isDirectory: true)
+        do { try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true) } catch {
+            log("❌ \(destination.path): \(error.localizedDescription)")
+            return false
+        }
+        var options = RallyClassifierExporter.Options(name: name, out: destination, resume: resume,
+                                                      validator: source.appendingPathComponent("scripts/rally_classifier/validate_dataset.py"),
+                                                      codeSha: codeSha, tool: "\(generator()) --export-rally-classifier-dataset")
+        if let variants { options.variants = variants }
+        do {
+            let result = try await RallyClassifierExporter.export(projectDir: dir, manifestURL: manifests.appendingPathComponent("manifest.json"),
+                                                                  options: options, evidence: RallyClassifierExporter.liveEvidence, log: { log($0) })
+            log("✅ \(RallyClassifierExporter.schemaVersion): \(result.recordings.count) recordings (\(result.leftOut.count) left out) → \(result.dataset.path)")
+            log("   digest \(result.digest) · manifest \(result.manifestSha256)")
+            log("   report: \(result.report.path)")
+            return true
+        } catch {
+            log("❌ \(error.localizedDescription)")
+            let staging = resume ?? destination.appendingPathComponent(".staging-\(name)", isDirectory: true)
+            if FileManager.default.fileExists(atPath: staging.path) {
+                log("   the finished recordings are kept in \(staging.path): run again with --resume \(staging.path)")
+            }
+            return false
+        }
+    }
+
+    /// The source tree this build was compiled from (this file's folder's parent).
+    private static func sourceTree() -> URL {
+        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+    }
+
+    /// `git rev-parse HEAD` in `tree`, with `-dirty` when the working tree has changes; nil when git can't say.
+    private static func codeCommit(_ tree: URL) async -> String? {
+        let head = await ToolEnvironment.run("git", ["-C", tree.path, "rev-parse", "HEAD"])
+        guard head.status == 0, let sha = head.lines.first, sha.count == 40 else { return nil }
+        let status = await ToolEnvironment.run("git", ["-C", tree.path, "status", "--porcelain"])
+        guard status.status == 0 else { return nil }
+        return status.lines.isEmpty ? sha : sha + "-dirty"
     }
 
     /// What the lineage rule (LineagePackage.isHumanLabeled) left out of the package, on record in the log.
