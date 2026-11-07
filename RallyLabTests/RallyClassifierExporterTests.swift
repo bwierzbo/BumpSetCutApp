@@ -190,7 +190,8 @@ final class RallyClassifierExporterTests: XCTestCase {
         XCTAssertEqual(m["pipelineConfigSha256"] as? String, ProcessorConfig().canonicalSHA256)
         let withheld = try XCTUnwrap(m["withheld"] as? [String: Any])
         XCTAssertEqual(withheld["names"] as? [String], ["bch_w"])
-        XCTAssertEqual(withheld["fingerprints"] as? [String], ["youtube:bch_w"])
+        let withheldFile = try XCTUnwrap(ProjectsModel.fileFingerprint(atPath: footage("bch_w").path))
+        XCTAssertEqual(withheld["fingerprints"] as? [String], [withheldFile, "youtube:bch_w"].sorted(), "the card's identity and the file's content")
         let variants = try XCTUnwrap((m["baseline"] as? [String: Any])?["variants"] as? [[String: Any]])
         XCTAssertEqual(variants.map { $0["name"] as? String }, ["r0", "r0_prime"])
         let recs = try XCTUnwrap(m["recordings"] as? [[String: Any]])
@@ -299,6 +300,35 @@ final class RallyClassifierExporterTests: XCTestCase {
             guard case .sharedIdentity(let e, let w, _) = error as? LineagePackage.PlanError else { return XCTFail("\(error)") }
             XCTAssertEqual([e, w], ["grs_c", "bch_b"])
         }
+    }
+
+    func testACopyOfWithheldFootageUnderAnotherCardIsRefusedByContent() async throws {
+        // grs_b's card and name are its own, but its original is the withheld bch_w's video, byte for byte.
+        try project([Spec(name: "bch_a"), Spec(name: "grs_b", split: "val")])
+        try FileManager.default.removeItem(at: footage("grs_b"))
+        try FileManager.default.copyItem(at: footage("bch_w"), to: footage("grs_b"))
+        let calls = Calls()
+        do {
+            _ = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(calls))
+            XCTFail("exported a copy of withheld footage")
+        } catch let f as X.Failure { XCTAssertEqual(f, .withheldContent(["grs_b"])) }
+        XCTAssertEqual(calls.names, [], "refused before the detector ran on anything")
+        XCTAssertEqual(try ledger(), [])
+    }
+
+    func testAWithheldRecordingWhoseVideoIsNotHereStopsTheRun() async throws {
+        // Without the withheld recording's file, a copy of it could not be recognised: nothing is exported.
+        try project([Spec(name: "bch_a")])
+        try FileManager.default.removeItem(at: footage("bch_w"))
+        let calls = Calls()
+        do {
+            _ = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(calls))
+            XCTFail("exported without the withheld recording's content identity")
+        } catch let f as X.Failure {
+            guard case .unreadable(let why) = f else { return XCTFail("\(f)") }
+            XCTAssertTrue(why.contains("bch_w"), why)
+        }
+        XCTAssertEqual(calls.names, [])
     }
 
     func testMissingFootageIsRefusedAfterThePlanIsWritten() async throws {

@@ -175,6 +175,7 @@ enum RallyClassifierExporter {
         case noCodeSha
         case planExists(URL)
         case footageMissing([String])
+        case withheldContent([String])
         case noRecordings
         case unreadable(String)
         case preflightFailed([String])
@@ -196,6 +197,7 @@ enum RallyClassifierExporter {
             case .noCodeSha: return "The commit or the executable the exporter was built as is unknown; no dataset is written without them."
             case .planExists(let u): return "\(u.path) already exists; run again."
             case .footageMissing(let v): return "The original of \(v.count) recording(s) to export is not on this Mac (\(v.joined(separator: ", "))): bring the footage back and run again (the plan is written)."
+            case .withheldContent(let v): return "The original of \(v.joined(separator: ", ")) is a withheld recording's video (by content): nothing is exported."
             case .noRecordings: return "No recording is eligible for the dataset (see the plan)."
             case .unreadable(let why): return why
             case .preflightFailed(let c): return "Preflight failed: \(c.joined(separator: ", ")). The staging folder was removed."
@@ -321,14 +323,27 @@ enum RallyClassifierExporter {
                             withheld: withheld, included: planned.map(\.video), footageMissing: missing.sorted(), leftOut: leftOut)
         try encode(plan).write(to: planURL, options: .withoutOverwriting)
         try planMarkdown(plan).write(to: records.appendingPathComponent("\(stamp)-plan.md"), atomically: true, encoding: .utf8)
-        let closureURL = records.appendingPathComponent("\(stamp)-closure.json")
-        try encode(withheld).write(to: closureURL, options: .withoutOverwriting)
         log("✅ plan: \(planned.count) recording(s) to export, \(leftOut.count) left out, \(missing.count) without footage → \(planURL.path)")
         guard missing.isEmpty else { throw Failure.footageMissing(missing.sorted()) }
         guard !planned.isEmpty else { throw Failure.noRecordings }
 
-        // Groups (contract §6): same card, alias group, uploader, confirmed source/session/venue, or fingerprint.
-        let groups = groupIds(planned.map(\.row))
+        // By content, as the L2 package checks it: every identity a withheld recording's video can have on disk
+        // (LineagePackage.protectedSourceFingerprints — a withheld recording with no file here can't be recognised and
+        // stops the run), and no recording to export whose original is one of them. The closure the dataset carries
+        // holds these too, so the preflight and the validator check them again.
+        let protectedContent: Set<String>
+        do { protectedContent = try LineagePackage.protectedSourceFingerprints(sessions: Array(sessions.values), withheld: closure, sources: sources) }
+        catch { throw Failure.unreadable(error.localizedDescription) }
+        let copies = planned.filter { protectedContent.contains($0.fileFingerprint) }.map(\.video)
+        guard copies.isEmpty else { throw Failure.withheldContent(copies) }
+        let withheldFull = Withheld(names: withheld.names, sourceIds: withheld.sourceIds,
+                                    fingerprints: Set(withheld.fingerprints).union(protectedContent).sorted())
+        let closureURL = records.appendingPathComponent("\(stamp)-closure.json")
+        try encode(withheldFull).write(to: closureURL, options: .withoutOverwriting)
+
+        // Groups (contract §6): same card, alias group, uploader, confirmed source/session/venue, or fingerprint —
+        // the card's or the file's (one video under two names is one group).
+        let groups = groupIds(planned.map(\.row), content: Dictionary(planned.map { ($0.video, $0.fileFingerprint) }, uniquingKeysWith: { a, _ in a }))
 
         // 4–5. Evidence, steps, baseline — into staging, journaled per recording.
         let identity = JournalIdentity(dataset: name, codeSha: options.codeSha, binarySha: options.binarySha, pipelineConfigSha256: configSha, detector: detector,
@@ -401,14 +416,16 @@ enum RallyClassifierExporter {
                 generator: Generator(tool: options.tool, codeSha: options.codeSha), project: manifest.project,
                 splitManifest: SplitHashes(projectJson: manifest.hashes.projectJson ?? "", sessions: manifest.hashes.sessions ?? "",
                                            validationJson: manifest.hashes.validationJson ?? "", manifestJson: manifestSha),
-                withheld: withheld, detector: detector, pipelineConfigSha256: configSha, timescale: timescale,
+                withheld: withheldFull, detector: detector, pipelineConfigSha256: configSha, timescale: timescale,
                 samplingHzNominal: samplingHzNominal, featureSchema: FeatureSchema(), labelSchema: LabelSchema(),
                 baseline: BaselineBlock(replayer: replayer, variants: identity.variants), recordings: recordingsOut)
             let manifestFile = staging.appendingPathComponent("dataset-manifest.json")
             try encode(manifestOut, pretty: true).write(to: manifestFile, options: .atomic)
 
             // Preflight (Swift), then the validator.
-            let checks = preflight(staging: staging, manifest: manifestOut, closure: closure, registry: bySource)
+            let checks = preflight(staging: staging, manifest: manifestOut, closure: closure, registry: bySource,
+                                   content: Dictionary(planned.map { ($0.video, $0.fileFingerprint) }, uniquingKeysWith: { a, _ in a }),
+                                   protectedContent: protectedContent)
             let failed = checks.filter { !$0.passed }
             guard failed.isEmpty else { throw Failure.preflightFailed(failed.map { "\($0.name) (\($0.detail))" }) }
             let validation = await validate(staging: staging, closure: closureURL, options: options)
@@ -474,7 +491,7 @@ enum RallyClassifierExporter {
 
     /// Recording groups over the planned rows: same card, alias group, uploader, confirmed sourceId / sessionId /
     /// venueId, or file fingerprint, transitively; a group is named by its smallest recording.
-    static func groupIds(_ rows: [ManifestVideo]) -> [String: String] {
+    static func groupIds(_ rows: [ManifestVideo], content: [String: String] = [:]) -> [String: String] {
         var parent = Dictionary(uniqueKeysWithValues: rows.map { ($0.video, $0.video) })
         func find(_ x: String) -> String { var r = x; while parent[r] != r { r = parent[r]! }; return r }
         var owner: [String: String] = [:]
@@ -484,6 +501,7 @@ enum RallyClassifierExporter {
             if let g = r.aliasGroup { keys.append("alias:" + g) }
             if let u = r.uploader, !u.isEmpty { keys.append("uploader:" + u) }
             if let f = r.fingerprint { keys.append("fp:" + f) }
+            if let f = content[r.video] { keys.append("fp:" + f) }
             for (k, v) in [("src:", r.sourceId), ("ses:", r.sessionId), ("ven:", r.venueId)] where v.origin == .confirmed {
                 if let value = v.value, !value.isEmpty { keys.append(k + value) }
             }
@@ -698,7 +716,10 @@ enum RallyClassifierExporter {
 
     // MARK: - Preflight and validation
 
-    static func preflight(staging: URL, manifest: DatasetManifest, closure: Set<String>, registry: [String: SourceRegistry.Source]) -> [Check] {
+    /// `content`: each exported recording's original by content fingerprint; `protectedContent`: every identity a
+    /// withheld recording's video can have on disk (LineagePackage.protectedSourceFingerprints).
+    static func preflight(staging: URL, manifest: DatasetManifest, closure: Set<String>, registry: [String: SourceRegistry.Source],
+                          content: [String: String], protectedContent: Set<String>) -> [Check] {
         var checks: [Check] = []
         func check(_ name: String, _ problems: [String], _ ok: String) {
             checks.append(Check(name: name, passed: problems.isEmpty, detail: problems.isEmpty ? ok : problems.prefix(5).joined(separator: "; ")))
@@ -730,6 +751,10 @@ enum RallyClassifierExporter {
             if let f = r.fingerprint, fps.contains(f) { return "\(r.recordingId) (fingerprint)" }
             return nil
         }, "no recording, source or file of the closure")
+        check("sources-not-protected", recs.compactMap { r in
+            guard let f = content[r.recordingId] else { return "\(r.recordingId): its original has no content fingerprint" }
+            return protectedContent.contains(f) || fps.contains(f) ? "\(r.recordingId): its original is a withheld recording's video" : nil
+        }, "every exported recording's original is fingerprinted and matches none of the \(protectedContent.count) withheld identities")
         check("admitted-and-eligible", recs.compactMap { r in
             guard let s = registry[r.recordingId] else { return "\(r.recordingId) not in the registry" }
             guard s.admission == .admitted else { return "\(r.recordingId) \(s.admission.rawValue)" }
