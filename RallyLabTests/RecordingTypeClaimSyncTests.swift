@@ -290,7 +290,7 @@ final class RecordingTypeClaimSyncTests: XCTestCase {
         XCTAssertTrue(second)
         XCTAssertEqual(settlements().map(\.status), [.accepted])
         XCTAssertEqual(server.settled.last?.confirmedAt, RecordingTypeClaims.parse(written.recordingTypeAt!))
-        XCTAssertEqual(try snapshot("C"), before, "nothing written again")
+        XCTAssertEqual(try snapshot("C"), before.filter { !$0.key.contains("/footage-properties-journal/") }, "nothing written again; the journal is gone")
         XCTAssertEqual(try XCTUnwrap(try record("C")).sourceFingerprint, origin)
     }
 
@@ -311,7 +311,7 @@ final class RecordingTypeClaimSyncTests: XCTestCase {
         let second = await sync.sync(videos: false)
         XCTAssertTrue(second, sync.status)
         XCTAssertEqual(server.claims[theirs.id]?.status, .accepted)
-        XCTAssertEqual(try snapshot("A"), before, "nothing written again")
+        XCTAssertEqual(try snapshot("A"), before.filter { !$0.key.contains("/footage-properties-journal/") }, "nothing written again; the journal is gone")
     }
 
     func testTwoReplacementsDuringOneRoundRollBackToTheRecordFromBeforeTheRound() async throws {
@@ -338,6 +338,36 @@ final class RecordingTypeClaimSyncTests: XCTestCase {
         XCTAssertEqual(server.claims[a.id]?.status, .superseded)
         XCTAssertEqual(server.claims[b.id]?.status, .superseded)
         XCTAssertEqual(server.claims[c.id]?.status, .submitted)
+    }
+
+    func testAWriteWhoseAcknowledgementWasLostComesOffWhenItsClaimIsReplacedBeforeTheNextRound() async throws {
+        // A checked claim is written, its settlement lost; the labeler replaces it before the next round, which the
+        // lead then declines. The journal outlives the round: the replaced write comes off, nothing stays confirmed.
+        let (root, row) = try project("A")
+        open("A")
+        let prior = FootageProperties.File(video: "video_01", sourceFingerprint: fingerprint("A"), recordingType: .edited,
+                                           recordingTypeBy: "BW", recordingTypeAt: "2026-11-01T10:00:00Z", spans: [], updatedAt: "2026-11-01T10:00:00Z")
+        try FootageProperties.Store(root: root).save(prior)
+        let labeler = UUID()
+        let a = submit("continuous", for: row, by: labeler)
+        let faulty = LabelingSync(projects: projects, client: server, pendingDirectory: base.appendingPathComponent("pending"), dropFirstSettlement: true)
+        let checked = await faulty.checkClaim(a, accept: true)
+        XCTAssertNil(checked)
+        let first = await faulty.sync(videos: false)
+        XCTAssertFalse(first, faulty.status)
+        XCTAssertEqual(try record("A")?.recordingType, .continuous, "written, not acknowledged")
+        let b = server.phoneReplaces(video: row.id, with: "unknown", at: now.addingTimeInterval(60))
+        // The next round (a fresh sync, as a relaunch): A comes off, the Mac's earlier record is back; B waits.
+        let second = await sync.sync(videos: false)
+        XCTAssertTrue(second, sync.status)
+        XCTAssertEqual(try record("A"), prior, "the record from before A's write")
+        XCTAssertEqual(server.claims[b.id]?.status, .submitted)
+        let declined = await sync.checkClaim(b, accept: false)
+        XCTAssertNil(declined)
+        let third = await sync.sync(videos: false)
+        XCTAssertTrue(third, sync.status)
+        XCTAssertEqual(try record("A"), prior)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: LabelingSync.ClaimWrite.url("video_01", root: root).path), "the journal is gone")
     }
 
     func testAClaimAlreadyWrittenCannotBeDeclinedAndIsAcknowledged() async throws {
