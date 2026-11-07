@@ -720,6 +720,37 @@ final class ProjectSwitchSyncTests: XCTestCase {
         XCTAssertEqual(server.savedVideos, [], "no row was filled from B's cards")
     }
 
+    func testATypeIsPublishedForARecordingWhoseFootageIsNotOnThisMac() async throws {
+        // bch_01's original is here; bch_02's and bch_03's were moved off the Mac. All three have the type on file.
+        let root = try project("A", videos: ["bch_01", "bch_02", "bch_03", "bch_04"])
+        open("A")
+        // bch_04 is away too, with a type published before and no record of it now: the copy is cleared.
+        var stale = row("A", "bch_04", clipPath: "rallylab/A/bch_04-v3.mp4")
+        stale.recordingType = "edited"; stale.recordingTypeAt = now
+        server.videos[server.videos.count - 1] = stale
+        row("A", "bch_01", clipPath: "rallylab/A/bch_01-v3.mp4")
+        row("A", "bch_02", clipPath: "rallylab/A/bch_02-v3.mp4")
+        let at = "2026-11-07T17:08:42Z"
+        for video in ["bch_01", "bch_02", "bch_03"] {
+            let card = ProjectsModel.readFileFingerprint(atPath: footage("A", video).path)
+            try FootageProperties.Store(root: root).save(FootageProperties.File(video: video, sourceFingerprint: card, recordingType: .continuous,
+                                                                                recordingTypeBy: "BW", recordingTypeAt: at, spans: [], updatedAt: at))
+        }
+        try FileManager.default.removeItem(at: footage("A", "bch_02"))
+        try FileManager.default.removeItem(at: footage("A", "bch_03"))
+        try FileManager.default.removeItem(at: footage("A", "bch_04"))
+        let outcome = await sync.sync(videos: true)
+        XCTAssertTrue(outcome, sync.status)
+        let saved = Dictionary(server.savedVideos.map { ($0.sessionName ?? "", $0) }, uniquingKeysWith: { $1 })
+        XCTAssertEqual(saved["bch_01"]?.recordingType, "continuous")
+        XCTAssertEqual(saved["bch_02"]?.recordingType, "continuous", "the type went up without the footage")
+        XCTAssertEqual(saved["bch_02"]?.recordingTypeAt, RecordingTypeClaims.parse(at))
+        XCTAssertEqual(saved["bch_02"]?.clipPath, "rallylab/A/bch_02-v3.mp4", "the rest of the row is as it was")
+        XCTAssertNil(saved["bch_03"], "no row is made for a recording whose footage is not here")
+        XCTAssertEqual(server.cleared, [stale.id], "a type with no record behind it is taken off, footage here or not")
+        XCTAssertEqual(server.uploads, [])
+    }
+
     func testBallPathsComeFromTheCapturedProjectNotTheOneOpenNow() async throws {
         try project("A"); try project("B")
         open("A")
