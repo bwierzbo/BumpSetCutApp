@@ -314,6 +314,44 @@ final class RecordingTypeClaimSyncTests: XCTestCase {
         XCTAssertEqual(try snapshot("A"), before, "nothing written again")
     }
 
+    func testAClaimAlreadyWrittenCannotBeDeclinedAndIsAcknowledged() async throws {
+        let (_, row) = try project("A")
+        open("A")
+        let theirs = submit("continuous", for: row, by: UUID())
+        let faulty = LabelingSync(projects: projects, client: server, pendingDirectory: base.appendingPathComponent("pending"), dropFirstSettlement: true)
+        let checked = await faulty.checkClaim(theirs, accept: true)
+        XCTAssertNil(checked)
+        let first = await faulty.sync(videos: false)
+        XCTAssertFalse(first, faulty.status)
+        // Written, not acknowledged: Decline is refused, so the type on file and the server never disagree.
+        let refused = await sync.checkClaim(theirs, accept: false)
+        XCTAssertEqual(refused?.contains("already applied"), true, refused ?? "")
+        XCTAssertEqual(server.claims[theirs.id]?.status, .submitted)
+        let second = await sync.sync(videos: false)
+        XCTAssertTrue(second, sync.status)
+        XCTAssertEqual(server.claims[theirs.id]?.status, .accepted)
+    }
+
+    func testADeclineThatLandsWhileTheAcceptedClaimIsWrittenTakesTheWriteOff() async throws {
+        let (_, row) = try project("A")
+        open("A")
+        let theirs = submit("continuous", for: row, by: UUID())
+        let checked = await sync.checkClaim(theirs, accept: true)
+        XCTAssertNil(checked)
+        server.hold("recordingTypeClaim", at: 1)
+        let round = Task { await self.sync.sync(videos: false) }
+        let reached = await server.arrived()
+        XCTAssertTrue(reached, "the round never reached the hold; calls made: \(server.calls)")
+        // The lead changes their mind on another window: declined on the server before the Mac writes.
+        let declined = await sync.checkClaim(theirs, accept: false)
+        XCTAssertNil(declined)
+        server.release()
+        let ok = await round.value
+        XCTAssertTrue(ok, sync.status)
+        XCTAssertEqual(server.claims[theirs.id]?.status, .rejected)
+        XCTAssertNil(try record("A"), "the declined choice is not left on file")
+    }
+
     func testAnExplicitUnknownIsAcceptedAndEstablishesNothing() async throws {
         let (_, row) = try project("A")
         open("A")

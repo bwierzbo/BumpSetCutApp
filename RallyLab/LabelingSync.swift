@@ -1151,10 +1151,12 @@ final class LabelingSync {
                         leadChecked.remove(claim.id)
                         let newer = try await newestSubmittedClaim(for: claim.videoId)
                         if let newer, counts(newer), attempts < 3 { claim = newer; continue }
-                        if let newer, !counts(newer) {
+                        // No replacement that counts: the write is not the decision (declined meanwhile, or replaced by a
+                        // choice that waits), so it comes off.
+                        if newer.map({ !counts($0) }) ?? true {
                             do {
                                 try restore(name, to: onFile, over: claim, store: store, root: root)
-                                awaiting += 1
+                                if newer != nil { awaiting += 1 }
                             } catch {
                                 deferred.append("\(name): a replaced choice is on file and could not be taken off — \(error.localizedDescription)")
                             }
@@ -1190,6 +1192,12 @@ final class LabelingSync {
             leadChecked.insert(claim.id)
             syncSoon()
             return nil
+        }
+        leadChecked.remove(claim.id)
+        // Already written on file (its acknowledgement on the way): declining it now would leave the type in force.
+        let name = DatasetStore.safeName(claim.sessionName)
+        if let onFile = try? FootageProperties.Store(root: opening.root).load(name), RecordingTypeClaims.isAttributed(onFile.recordingTypeBy, to: claim) {
+            return "\(claim.sessionName)'s choice is already applied on the Mac; use Change… to set another type."
         }
         do {
             _ = try await client.settleRecordingTypeClaim(claim.id, status: .rejected, reason: "not accepted on the Mac — choose again if that is wrong", confirmedAt: nil)
