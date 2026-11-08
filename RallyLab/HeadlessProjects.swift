@@ -62,6 +62,13 @@
 //             (python3 required), the exposure ledger, and only then the folder moved to DIR/<name> (default exports/).
 //             Refuses when a recording to export has no footage on this Mac. --resume DIR: the .staging-<name> folder of a
 //             run cut short; its verified recordings are kept. The GUI must be closed. Not training.)
+//    RallyLab --project v3 --player-features <run> --plan <plan.json> [--out DIR]   (player-feasibility research, Phase P0,
+//             PlayerFeaturesRun: a bounded plan of development recordings and intervals; the split manifest rebuilt and
+//             audited, the withheld closure and the content check refused before any video is read, the ledger
+//             (detector_evaluation) before the first frame; Apple Vision people + pose on the sampled frames of the local
+//             scrub proxies, a deterministic tracker, player_features_v1 in DIR/<run>/features (default
+//             exports/player-features), overlays + audit sample + runtime in DIR/<run>/diagnostics. Research only:
+//             not training, not the rally-classifier dataset, nothing the app or the pipeline reads.)
 //    RallyLab --project v3 --event-inventory | --review-status   (Stage 1 rally-boundary review, D-024, read-only:
 //             per recording the legacy marks in <video>.rallylabels.json (all legacy_unverified) and the reviewed
 //             rallies, spans, coverage and completion in <video>.rallyevents.json; withheld recordings named, not
@@ -429,6 +436,11 @@ enum HeadlessProjects {
                 let resume = value(after: "--resume", in: args).map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
                 let variants = value(after: "--variants", in: args).map { $0.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) } }
                 ok = await exportRallyClassifierDataset(projects, name: name, out: out, resume: resume, variants: variants)
+            }
+            if ok, let run = value(after: "--player-features", in: args) {
+                guard let planPath = value(after: "--plan", in: args) else { log("❌ --player-features needs --plan <plan.json>"); exit(2) }
+                let out = value(after: "--out", in: args).map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
+                ok = await playerFeatures(projects, name: run, plan: URL(fileURLWithPath: (planPath as NSString).expandingTildeInPath), out: out)
             }
             if ok, let model = value(after: "--add-model", in: args) {
                 await library.addModel(URL(fileURLWithPath: (model as NSString).expandingTildeInPath))
@@ -1147,6 +1159,39 @@ enum HeadlessProjects {
             if FileManager.default.fileExists(atPath: staging.path) {
                 log("   the finished recordings are kept in \(staging.path): run again with --resume \(staging.path)")
             }
+            return false
+        }
+    }
+
+    /// `--player-features <run> --plan <plan.json>`: the split manifest rebuilt and audited (manifests/manifest.json), then
+    /// PlayerFeaturesRun — every guard and the ledger are in the operation.
+    @MainActor
+    private static func playerFeatures(_ projects: ProjectsModel, name: String, plan planURL: URL, out: URL?) async -> Bool {
+        guard let dir = projects.projectDir else { log("❌ No project folder."); return false }
+        guard let codeSha = RallyClassifierExporter.buildRevision() else {
+            log("❌ This RallyLab build doesn't record the commit it was compiled from (source-revision.txt): rebuild it from a git checkout.")
+            return false
+        }
+        let plan: PlayerFeaturesRun.Plan
+        do { plan = try JSONDecoder().decode(PlayerFeaturesRun.Plan.self, from: Data(contentsOf: planURL)) } catch {
+            log("❌ \(planURL.path): \(error.localizedDescription)")
+            return false
+        }
+        let manifests = dir.appendingPathComponent("manifests", isDirectory: true)
+        guard buildManifest(projects, out: manifests, audit: true) != nil else { return false }
+        let destination = out ?? dir.appendingPathComponent("exports/player-features", isDirectory: true)
+        do { try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true) } catch {
+            log("❌ \(destination.path): \(error.localizedDescription)")
+            return false
+        }
+        do {
+            let result = try await PlayerFeaturesRun.run(projectDir: dir, manifestURL: manifests.appendingPathComponent("manifest.json"), name: name,
+                                                         plan: plan, out: destination, codeSha: codeSha, tool: "\(generator()) --player-features",
+                                                         log: { log($0) })
+            log("✅ \(PlayerFeatures.schemaVersion): \(result.frames) frames → \(result.folder.path) · manifest \(result.manifestSha256)")
+            return true
+        } catch {
+            log("❌ \(error.localizedDescription)")
             return false
         }
     }
