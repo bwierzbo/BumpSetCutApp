@@ -16,6 +16,10 @@ final class SegmentBuilder {
     struct BuiltSegment {
         let padded: CMTimeRange
         let raw: CMTimeRange
+        /// The raw rallies this segment joined, before the merge, each clamped to `padded`, in time order —
+        /// `raw` is their union. A short raw rally's pre-roll is capped before the merge, so the padded range
+        /// can be rebuilt from these and not from the union (the rally-classifier baseline stores them).
+        let parts: [CMTimeRange]
     }
 
     private let config: ProcessorConfig
@@ -46,7 +50,7 @@ final class SegmentBuilder {
     /// This will not apply additional pre/post roll; merging/filtering happens in `finalize`.
     func appendPadded(start: CMTime, end: CMTime) {
         let range = CMTimeRange(start: start, end: end)
-        segments.append(BuiltSegment(padded: range, raw: range))
+        segments.append(BuiltSegment(padded: range, raw: range, parts: [range]))
     }
 
     /// Append a **raw** segment that needs pre/post roll applied according to `config`.
@@ -96,7 +100,7 @@ final class SegmentBuilder {
             let raw = CMTimeCompare(rawEnd, rawStart) == 1
                 ? CMTimeRange(start: rawStart, end: rawEnd)
                 : padded
-            return BuiltSegment(padded: padded, raw: raw)
+            return BuiltSegment(padded: padded, raw: raw, parts: [raw])
         }
 
         // Merge small gaps (on clamped padded ranges); raws union across merges
@@ -107,8 +111,9 @@ final class SegmentBuilder {
                                          end: CMTimeMaximum(last.padded.end, seg.padded.end))
                 let raw = CMTimeRange(start: CMTimeMinimum(last.raw.start, seg.raw.start),
                                       end: CMTimeMaximum(last.raw.end, seg.raw.end))
+                let parts = (last.parts + seg.parts).sorted { CMTimeCompare($0.start, $1.start) < 0 }
                 _ = merged.popLast()
-                merged.append(BuiltSegment(padded: padded, raw: raw))
+                merged.append(BuiltSegment(padded: padded, raw: raw, parts: parts))
             } else {
                 merged.append(seg)
             }
@@ -130,7 +135,7 @@ final class SegmentBuilder {
         let post = CMTimeMakeWithSeconds(config.postroll, preferredTimescale: 600)
         let s = CMTimeMaximum(.zero, CMTimeSubtract(start, pre))
         let e = CMTimeAdd(end, post)
-        segments.append(BuiltSegment(padded: CMTimeRange(start: s, end: e),
-                                     raw: CMTimeRange(start: start, end: end)))
+        let raw = CMTimeRange(start: start, end: end)
+        segments.append(BuiltSegment(padded: CMTimeRange(start: s, end: e), raw: raw, parts: [raw]))
     }
 }

@@ -123,6 +123,22 @@ enum LineagePackage {
     /// The plan fails when the two disagree on any recording.
     static func plan(manifest: DatasetSplitManifest, audit: DatasetAudit, withheldClosure: Set<String>,
                      generator: String, now: Date = Date()) throws -> Plan {
+        let (withheld, eligible) = try isolation(manifest: manifest, audit: audit, withheldClosure: withheldClosure)
+        guard eligible.contains(where: { $0.packageSplit == "train" }) else { throw PlanError.noTrain }
+        guard eligible.contains(where: { $0.packageSplit == "val" }) else { throw PlanError.noVal }
+
+        let counts = Dictionary(grouping: audit.findings, by: \.severity).mapValues(\.count)
+        return Plan(lineage: lineage, project: manifest.project, createdAt: now, generator: generator,
+                    manifestHashes: manifest.hashes,
+                    audit: AuditSummary(hard: counts[.hard] ?? 0, soft: counts[.soft] ?? 0, info: counts[.info] ?? 0),
+                    withheld: withheld, withheldClosure: withheldClosure.sorted(), eligible: eligible)
+    }
+
+    /// The isolation every training package from the manifest must pass, whatever model it is for (the lineage
+    /// package, the rally-classifier dataset): no hard audit finding; every reserved row withheld; the closure and
+    /// the manifest agree on every recording; and no identity or alias group shared between a recording that may be
+    /// packaged and a withheld one. Throws the first violation; returns the withheld rows and the rest.
+    static func isolation(manifest: DatasetSplitManifest, audit: DatasetAudit, withheldClosure: Set<String>) throws -> (withheld: [Withheld], eligible: [Eligible]) {
         let hard = audit.findings.filter { $0.severity == .hard }.count
         guard hard == 0 else { throw PlanError.hardLeak(hard) }
 
@@ -161,14 +177,7 @@ enum LineagePackage {
                 throw PlanError.sharedIdentity(eligible: e.video, withheld: w, identity: "aliasGroup:" + g)
             }
         }
-        guard eligible.contains(where: { $0.packageSplit == "train" }) else { throw PlanError.noTrain }
-        guard eligible.contains(where: { $0.packageSplit == "val" }) else { throw PlanError.noVal }
-
-        let counts = Dictionary(grouping: audit.findings, by: \.severity).mapValues(\.count)
-        return Plan(lineage: lineage, project: manifest.project, createdAt: now, generator: generator,
-                    manifestHashes: manifest.hashes,
-                    audit: AuditSummary(hard: counts[.hard] ?? 0, soft: counts[.soft] ?? 0, info: counts[.info] ?? 0),
-                    withheld: withheld, withheldClosure: withheldClosure.sorted(), eligible: eligible)
+        return (withheld, eligible)
     }
 
     // MARK: - Preflight of a written package
