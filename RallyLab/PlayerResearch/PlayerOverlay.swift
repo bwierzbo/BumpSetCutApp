@@ -30,6 +30,19 @@ enum PlayerOverlay {
         (0.10, 0.85, 0.80), (0.98, 0.55, 0.10), (0.95, 0.45, 0.70), (0.60, 0.80, 0.20), (0.55, 0.55, 0.98),
     ]
 
+    /// What to draw; the run's JPEGs draw everything, the Player Lab window toggles each layer.
+    struct Options: Equatable, Sendable {
+        var boxes = true
+        var labels = true
+        var skeletons = true
+        var unmatchedPoses = true
+        var net = true
+        var lane = true
+        var tentative = true
+        var outOfCourt = true
+        var header = true
+    }
+
     static func color(_ track: Int, alpha: CGFloat = 1) -> CGColor {
         let c = palette[abs(track) % palette.count]
         return CGColor(red: c.0, green: c.1, blue: c.2, alpha: alpha)
@@ -64,20 +77,34 @@ enum PlayerOverlay {
         }
     }
 
-    /// The overlay as JPEG data, nil when the image can't be drawn.
+    /// The overlay as JPEG data (every layer), nil when the image can't be drawn.
     static func render(_ image: CGImage, frame: PlayerFeatures.Frame, recording: String, net: PlayerFeatures.NetGeometry?, lane: PlayerCourtLane?) -> Data? {
+        compose(image, frame: frame, recording: recording, net: net, lane: lane, options: Options()).flatMap(jpeg)
+    }
+
+    static func jpeg(_ image: CGImage) -> Data? {
+        let data = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else { return nil }
+        return data as Data
+    }
+
+    /// The frame with the chosen layers drawn on it.
+    static func compose(_ image: CGImage, frame: PlayerFeatures.Frame, recording: String, net: PlayerFeatures.NetGeometry?, lane: PlayerCourtLane?,
+                        options o: Options) -> CGImage? {
         let w = CGFloat(image.width), h = CGFloat(image.height)
         guard let ctx = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
-        if let net, net.corners.count == 4 {
+        if o.net, let net, net.corners.count == 4 {
             ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.8))
             ctx.setLineWidth(1.5)
             ctx.move(to: CGPoint(x: net.corners[0][0] * w, y: net.corners[0][1] * h))
             for c in net.corners.dropFirst() + [net.corners[0]] { ctx.addLine(to: CGPoint(x: c[0] * w, y: c[1] * h)) }
             ctx.strokePath()
         }
-        if let lane {
+        if o.lane, let lane {
             ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 0, alpha: 0.5))
             ctx.setLineWidth(1)
             ctx.setLineDash(phase: 0, lengths: [6, 4])
@@ -92,27 +119,23 @@ enum PlayerOverlay {
             ctx.strokePath()
             ctx.setLineDash(phase: 0, lengths: [])
         }
-        for p in frame.persons {
+        for p in frame.persons where (o.tentative || p.state == .confirmed) && (o.outOfCourt || p.court != .outside) {
             let col = color(p.track)
             ctx.setStrokeColor(col)
             ctx.setLineWidth(p.state == .confirmed ? 2.5 : 1)
             ctx.setLineDash(phase: 0, lengths: p.court == .outside ? [5, 4] : [])
-            ctx.stroke(CGRect(x: p.box.x * w, y: p.box.y * h, width: p.box.w * w, height: p.box.h * h))
+            if o.boxes { ctx.stroke(CGRect(x: p.box.x * w, y: p.box.y * h, width: p.box.w * w, height: p.box.h * h)) }
             ctx.setLineDash(phase: 0, lengths: [])
-            if let pose = p.pose { skeleton(pose, color: col, dashed: false, w: w, h: h, ctx: ctx) }
+            if o.skeletons, let pose = p.pose { skeleton(pose, color: col, dashed: false, w: w, h: h, ctx: ctx) }
+            guard o.labels else { continue }
             let tag = "#\(p.track)\(p.state == .tentative ? "?" : "")\(p.ambiguous ? "!" : "") \(p.court.rawValue)"
             text(tag, at: CGPoint(x: p.box.x * w, y: min(h - 14, p.box.maxY * h + 3)), size: 10, color: col, in: ctx)
         }
-        for pose in frame.unmatchedPoses { skeleton(pose, color: CGColor(gray: 1, alpha: 0.9), dashed: true, w: w, h: h, ctx: ctx) }
+        for pose in frame.unmatchedPoses where o.unmatchedPoses { skeleton(pose, color: CGColor(gray: 1, alpha: 0.9), dashed: true, w: w, h: h, ctx: ctx) }
         let header = String(format: "%@  %@  t=%.3fs tick=%d seg=%d%@  persons=%d poses=%d unmatched=%d", recording, frame.interval, frame.t, frame.tick,
                             frame.seg, frame.reset.map { " reset=\($0)" } ?? "", frame.persons.count, frame.persons.filter { $0.pose != nil }.count,
                             frame.unmatchedPoses.count)
-        text(header, at: CGPoint(x: 6, y: h - 16), size: 11, color: CGColor(gray: 1, alpha: 1), in: ctx)
-        guard let out = ctx.makeImage() else { return nil }
-        let data = NSMutableData()
-        guard let dest = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
-        CGImageDestinationAddImage(dest, out, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
-        guard CGImageDestinationFinalize(dest) else { return nil }
-        return data as Data
+        if o.header { text(header, at: CGPoint(x: 6, y: h - 16), size: 11, color: CGColor(gray: 1, alpha: 1), in: ctx) }
+        return ctx.makeImage()
     }
 }

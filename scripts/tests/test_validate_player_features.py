@@ -141,6 +141,15 @@ class SyntheticPlayerFeatures(unittest.TestCase):
         self.save_frames(f)
         self.refused("19 slots")
 
+    def test_box_may_extend_past_the_edge_but_must_overlap_the_frame(self):
+        f = self.frames()
+        f[0]["persons"][0]["box"] = {"x": 0.9, "y": -0.25, "w": 0.11, "h": 0.77}
+        self.save_frames(f)
+        self.assertTrue(v.validate(self.folder)["ok"])
+        f[0]["persons"][0]["box"] = {"x": 1.02, "y": 0.2, "w": 0.1, "h": 0.2}
+        self.save_frames(f)
+        self.refused("does not overlap the frame")
+
     def test_stray_file_is_refused(self):
         v.write_bytes(os.path.join(self.folder, "frames", "extra.txt"), b"x")
         self.refused("stray file")

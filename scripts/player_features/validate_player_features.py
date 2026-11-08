@@ -170,7 +170,9 @@ def validate(folder):
             for person in persons:
                 b = person.get("box") or {}
                 need(all(num(b.get(c)) for c in ("x", "y", "w", "h")) and b.get("w", 0) > 0 and b.get("h", 0) > 0, f"{q} bad box")
-                need(-0.01 <= b.get("x", 0) <= 1.01 and -0.01 <= b.get("y", 0) <= 1.01, f"{q} box outside the frame")
+                # Vision extends a person cut off by the frame edge beyond it (kept raw); the box must still overlap the frame.
+                need(b.get("x", 0) < 1 and b.get("x", 0) + b.get("w", 0) > 0 and b.get("y", 0) < 1 and b.get("y", 0) + b.get("h", 0) > 0,
+                     f"{q} box does not overlap the frame")
                 need(num(person.get("conf")) and 0 <= person["conf"] <= 1, f"{q} bad conf")
                 need(person.get("court") in COURT, f"{q} bad court")
                 if court_unknown:

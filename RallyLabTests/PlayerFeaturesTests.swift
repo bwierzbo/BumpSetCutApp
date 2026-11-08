@@ -283,4 +283,30 @@ final class PlayerFeaturesTests: XCTestCase {
         XCTAssertTrue(joints[0] is NSNull)
         XCTAssertEqual(person["court"] as? String, "unknown")
     }
+
+    // MARK: Summary (shared by the run's summary.json and the Player Lab window)
+
+    func testSummaryCountsTracksPosesAndExcludedFrames() {
+        let cut = PlayerFeatures.TickSpan(startTick: 360, endTick: 480, kind: "cut")
+        var asm = PlayerFrameAssembler(excluded: [cut], lane: nil)
+        let a = Box(x: 0.1, y: 0.2, w: 0.05, h: 0.2), b = Box(x: 0.6, y: 0.2, w: 0.05, h: 0.4)
+        let p = pose(["neck": (0.62, 0.5), "root": (0.62, 0.35), "left_ankle": (0.61, 0.21)])
+        let frames = [asm.add(raw(0.0, [a, b], poses: [p])), asm.add(raw(0.2, [a])), asm.add(raw(0.4, [a])),
+                      asm.add(raw(0.7, [], skipped: "cut")), asm.add(raw(0.9, [a]))]
+        let s = PlayerFeaturesSummary.stats(frames, laneKnown: false)
+        XCTAssertEqual(s.frames, 5)
+        XCTAssertEqual(s.analysed, 4)
+        XCTAssertEqual(s.personsPerFrame!, 5.0 / 4, accuracy: 1e-9)
+        XCTAssertNil(s.inCourtPerFrame, "no lane: not reported")
+        XCTAssertEqual(s.poseShare!, 1.0 / 5, accuracy: 1e-9)
+        XCTAssertEqual(s.jointsPerPose!, 3, accuracy: 1e-9)
+        XCTAssertEqual(s.tracks, 3, "a, b, and a again after the cut boundary")
+        XCTAssertEqual(s.confirmed, 1)
+        XCTAssertEqual(s.tentativeOnly, 2)
+        XCTAssertEqual(s.resets, ["interval_start": 1, "cut_boundary": 2])
+        let spans = PlayerFeaturesSummary.tracks(frames)
+        XCTAssertEqual(spans.map(\.id), [1, 2, 3])
+        XCTAssertEqual(spans[0].frames, [0, 1, 2])
+        XCTAssertEqual(spans[0].confirmedFrom, 2)
+    }
 }

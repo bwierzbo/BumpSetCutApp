@@ -2,32 +2,38 @@
 //  PlayerFeaturesRun.swift
 //  RallyLab
 //
-//  `RallyLab --project <name> --player-features <run> --plan <plan.json>`: the
-//  player-feasibility research run (Phase P0, docs/ml-roadmap/PLAYER_POSE_FEASIBILITY_P0_2026-11-08.md).
-//  One operation holds every guard and the ledger, so no caller can skip them:
+//  `RallyLab --player-lab-run <experiment> --source-project <project> --plan <plan.json> --run <name>`:
+//  the player-feasibility research run (Phase P0, docs/ml-roadmap/PLAYER_POSE_FEASIBILITY_P0_2026-11-08.md).
+//  It works in a separate **experiment folder** and only reads the source project: nothing
+//  of the source project — sessions, marks, splits, footage properties, manifests, the
+//  exposure ledger — is ever written, and the project is never opened by ProjectsModel
+//  (which can rewrite derived files). One operation holds every guard, so no caller can
+//  skip them:
 //
 //   1. the plan is bounded: at most `maxRecordings` recordings, intervals of at most
 //      `maxIntervalSec`, `maxTotalSec` in all, a sampling rate of at most `maxHz` —
 //      a pilot, never bulk processing;
-//   2. the split manifest (current, audited: no hard finding) and the withheld closure
+//   2. the source project's split manifest as written (current — a stale one is refused,
+//      never rebuilt here — and audited: no hard finding) and the withheld closure
 //      (ReservedVideos.lineageWithheldNames ∪ reservedNames; an empty closure is refused):
 //      a planned recording in it, sharing an identity or alias group with it
 //      (LineagePackage.isolation), or outside a development split is refused — before
 //      any video is opened;
 //   3. each recording admitted (SourceRegistry) and eligible for the rally classifier
 //      (TrainingEligibility: standard or restricted), whose features these would be;
-//   4. by content: the file to decode (the scrub proxy by default — the originals sit on
-//      the footage share) must not be any withheld recording's, known from project.json
-//      and from the withheld recordings' own local proxies; a withheld recording whose
-//      content can't be recognised here stops the run;
-//   5. the exposure ledger (`detector_evaluation`, an existing kind every RallyLab build
-//      reads) for every planned recording, before the first frame is decoded;
+//   4. footage: the recording's local scrub proxy (the originals sit on the footage share,
+//      which is not touched) is copied byte for byte into the experiment's footage/ and
+//      only the copy is decoded; by content, no copy may be a withheld recording's, known
+//      from project.json and from the withheld recordings' own local proxies (hashed, never
+//      decoded); a withheld recording whose content can't be recognised here stops the run;
+//   5. the experiment's own exposure ledger (`<experiment>/manifests/exposure-log.json`,
+//      kind `detector_evaluation`) for every planned recording, before the first frame is
+//      decoded — the source project's ledger is not written (owner, 2026-11-08);
 //   6. per recording, Vision on the sampled frames off the main actor, the assembler, the
 //      frame lines; overlays and the audit sample in diagnostics/; the manifest last, then
-//      the staging folder moved into place.
+//      the staging folder moved to `<experiment>/runs/<name>`.
 //
-//  Read-only towards the project otherwise: no session, mark, label, split or
-//  footage-properties record is written. No model is trained.
+//  No model is trained. The Player Lab window (PlayerLabView) reads the run folders.
 //
 
 import CryptoKit
@@ -46,7 +52,8 @@ enum PlayerFeaturesRun {
             var intervals: [PlayerFeatures.Interval]
         }
         var hz: Double = 5
-        /// `scrub_proxy` (default) or `original`.
+        /// `scrub_proxy`: the recording's local scrub proxy, copied into the experiment. The only source: an original
+        /// would be read from the footage share.
         var source: String = "scrub_proxy"
         /// Every n-th sampled frame gets an overlay.
         var overlayEvery: Int = 5
@@ -60,6 +67,8 @@ enum PlayerFeaturesRun {
         case planInvalid([String])
         case noManifest
         case staleManifest(String)
+        case sourceIsExperiment
+        case copyMismatch(String)
         case emptyClosure
         case refused([String])
         case protectedContentUnknown(String)
@@ -71,8 +80,10 @@ enum PlayerFeaturesRun {
             switch self {
             case .badName(let n): return "\(n) is not a usable run name (letters, digits, - _ . only)."
             case .planInvalid(let e): return "The plan is refused: " + e.joined(separator: "; ")
-            case .noManifest: return "No split manifest: run --manifest first."
-            case .staleManifest(let why): return "The split manifest is stale (\(why)): run --manifest again."
+            case .noManifest: return "The source project has no split manifest (manifests/manifest.json); this run never builds one."
+            case .staleManifest(let why): return "The source project's split manifest is stale (\(why)); this run never rebuilds it in the source project."
+            case .sourceIsExperiment: return "The experiment folder is, or is inside, the source project: an experiment never writes into the project it reads."
+            case .copyMismatch(let n): return "The copy of \(n)'s scrub proxy differs from its source: nothing is decoded."
             case .emptyClosure: return "The withheld closure is empty: nothing proves a withheld recording is kept out, so nothing is read."
             case .refused(let r): return "Refused before any video was opened: " + r.joined(separator: "; ")
             case .protectedContentUnknown(let n): return "Withheld recording \(n) can't be recognised by content on this Mac (no stored file fingerprint and no local copy to compare with): nothing is read."
@@ -89,7 +100,7 @@ enum PlayerFeaturesRun {
         if plan.recordings.isEmpty { e.append("no recordings") }
         if plan.recordings.count > maxRecordings { e.append("\(plan.recordings.count) recordings > \(maxRecordings)") }
         if !(plan.hz > 0 && plan.hz <= maxHz) { e.append("hz \(plan.hz) outside (0, \(maxHz)]") }
-        if !["scrub_proxy", "original"].contains(plan.source) { e.append("source \(plan.source) is neither scrub_proxy nor original") }
+        if plan.source != "scrub_proxy" { e.append("source \(plan.source): only scrub_proxy is supported (originals are on the footage share)") }
         if plan.overlayEvery < 1 { e.append("overlayEvery must be ≥ 1") }
         if Set(plan.recordings.map(\.recordingId)).count != plan.recordings.count { e.append("a recording is listed twice") }
         var total = 0.0
@@ -152,17 +163,25 @@ enum PlayerFeaturesRun {
 
     private static func sha256Hex(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 
+    static func experimentFootage(_ experiment: URL, _ recording: String) -> URL {
+        experiment.appendingPathComponent("footage", isDirectory: true).appendingPathComponent("\(recording).mp4")
+    }
+
     @discardableResult
-    static func run(projectDir: URL, manifestURL: URL, name: String, plan: Plan, out: URL, codeSha: String, tool: String,
+    static func run(sourceProject projectDir: URL, experiment: URL, name: String, plan: Plan, codeSha: String, tool: String,
                     now: Date = Date(), log: @escaping @Sendable (String) -> Void) async throws -> Result {
         let fm = FileManager.default
         guard RallyClassifierExporter.isSafeName(name) else { throw Failure.badName(name) }
         let problems = validate(plan)
         guard problems.isEmpty else { throw Failure.planInvalid(problems) }
+        let src = projectDir.standardizedFileURL.resolvingSymlinksInPath().path, exp = experiment.standardizedFileURL.resolvingSymlinksInPath().path
+        guard exp != src, !exp.hasPrefix(src + "/"), !src.hasPrefix(exp + "/") else { throw Failure.sourceIsExperiment }
+        let out = experiment.appendingPathComponent("runs", isDirectory: true)
         let final = out.appendingPathComponent(name, isDirectory: true)
         guard !fm.fileExists(atPath: final.path) else { throw Failure.exists(final.path) }
 
-        // 2. Manifest, audit, closure, isolation — before any video is opened.
+        // 2. Manifest (as written), audit, closure, isolation — before any video is opened.
+        let manifestURL = projectDir.appendingPathComponent("manifests/manifest.json")
         guard let manifest = try DatasetSplitManifest.readStrict(from: manifestURL) else { throw Failure.noManifest }
         let current = RallyClassifierExporter.currentHashes(projectDir)
         for (label, have, nowHash) in [("project.json", manifest.hashes.projectJson, current.projectJson),
@@ -181,51 +200,44 @@ enum PlayerFeaturesRun {
         let refusals = admissionRefusals(planned: planned, closure: closure, eligible: eligible, registry: registry, sessions: Set(sessions.keys))
         guard refusals.isEmpty else { throw Failure.refused(refusals) }
 
-        // 4. By content.
+        // 4. Footage: the local proxy, copied; the content check on the copies.
         let sources = ReservedVideos.sources(in: projectDir)
-        func decodeURL(_ session: VideoSession) -> URL {
-            plan.source == "original" ? URL(fileURLWithPath: session.sourcePath)
-                : ScrubProxy.url(for: URL(fileURLWithPath: session.sourcePath), in: projectDir)
-        }
+        func proxy(_ session: VideoSession) -> URL { ScrubProxy.url(for: URL(fileURLWithPath: session.sourcePath), in: projectDir) }
         var protected = Set<String>()
-        if plan.source == "original" {
-            protected = try LineagePackage.protectedSourceFingerprints(sessions: sessionsList, withheld: closure, sources: sources)
-        } else {
-            for w in closure.sorted() {
-                var mine = Set<String>()
-                if let f = sources[w]?.fingerprint, f.hasPrefix("file:") { mine.insert(f) }
-                if let s = sessions[w] {
-                    let proxy = decodeURL(s)
-                    if fm.fileExists(atPath: proxy.path), let f = ProjectsModel.fileFingerprint(atPath: proxy.path) { mine.insert(f) }
-                }
-                // A withheld recording with no session has no proxy; its stored file identity is what a copy would match.
-                guard !mine.isEmpty || sessions[w] == nil else { throw Failure.protectedContentUnknown(w) }
-                protected.formUnion(mine)
-            }
+        for w in closure.sorted() {
+            var mine = Set<String>()
+            if let f = sources[w]?.fingerprint, f.hasPrefix("file:") { mine.insert(f) }
+            if let s = sessions[w], fm.fileExists(atPath: proxy(s).path), let f = ProjectsModel.fileFingerprint(atPath: proxy(s).path) { mine.insert(f) }
+            // A withheld recording with no session has no proxy; its stored file identity is what a copy would match.
+            guard !mine.isEmpty || sessions[w] == nil else { throw Failure.protectedContentUnknown(w) }
+            protected.formUnion(mine)
         }
-        var decodeFiles: [String: (url: URL, fingerprint: String)] = [:]
         var missing: [String] = []
-        for name in planned {
-            let session = sessions[name]!
-            let url = decodeURL(session)
-            guard fm.fileExists(atPath: url.path), let f = ProjectsModel.fileFingerprint(atPath: url.path) else { missing.append("\(name): no \(plan.source) at \(url.path)"); continue }
-            if plan.source == "scrub_proxy", let orig = try? URL(fileURLWithPath: session.sourcePath).resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
-               let made = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate, made < orig {
-                missing.append("\(name): the scrub proxy is older than its original")
-                continue
-            }
-            decodeFiles[name] = (url, f)
-        }
+        for name in planned where !fm.fileExists(atPath: proxy(sessions[name]!).path) { missing.append("\(name): no local scrub proxy") }
         guard missing.isEmpty else { throw Failure.refused(missing) }
-        let copies = planned.filter { protected.contains(decodeFiles[$0]!.fingerprint) }
+        let sourcePrints = Dictionary(uniqueKeysWithValues: planned.map { ($0, ProjectsModel.readFileFingerprint(atPath: proxy(sessions[$0]!).path) ?? "") })
+        let copies = planned.filter { protected.contains(sourcePrints[$0]!) }
         guard copies.isEmpty else { throw Failure.withheldContent(copies) }
+        var decodeFiles: [String: (url: URL, fingerprint: String)] = [:]
+        do { try fm.createDirectory(at: experiment.appendingPathComponent("footage", isDirectory: true), withIntermediateDirectories: true) }
+        catch { throw Failure.write(error.localizedDescription) }
+        for name in planned {
+            let copy = experimentFootage(experiment, name)
+            if ProjectsModel.readFileFingerprint(atPath: copy.path) != sourcePrints[name] {
+                try? fm.removeItem(at: copy)
+                do { try fm.copyItem(at: proxy(sessions[name]!), to: copy) } catch { throw Failure.write(error.localizedDescription) }
+            }
+            // The whole file, not the head-and-tail fingerprint: the copy must be the proxy.
+            guard let a = DatasetSplitManifest.sha256(of: copy), a == DatasetSplitManifest.sha256(of: proxy(sessions[name]!)) else { throw Failure.copyMismatch(name) }
+            decodeFiles[name] = (copy, sourcePrints[name]!)
+        }
 
         // 5. The ledger, before the first frame.
         let ref = "\(PlayerFeatures.ledgerRef) \(name) vision-rect-r2+pose-r1 \(plan.hz)Hz \(plan.source)"
         try ExposureLog.record(videos: Set(planned), kind: .detectorEvaluation, ref: ref,
-                               note: "player-feasibility research P0 (D-034, proposed): Apple Vision people and pose on sampled frames; not training, not rally scoring",
-                               in: projectDir, now: now)
-        log("✅ ledger: \(planned.count) recording(s) recorded as detector_evaluation (\(ref))")
+                               note: "player-feasibility research P0 (D-034, proposed): Apple Vision people and pose on sampled frames of \(manifest.project); not training, not rally scoring; the source project's ledger is not written (owner, 2026-11-08)",
+                               in: experiment, now: now)
+        log("✅ experiment ledger: \(planned.count) recording(s) recorded as detector_evaluation (\(ref)) in \(ExposureLog.url(in: experiment).path)")
 
         // 6. Extraction.
         let staging = out.appendingPathComponent(".staging-\(name)", isDirectory: true)
@@ -243,6 +255,7 @@ enum PlayerFeaturesRun {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         var recordings: [PlayerFeatures.Recording] = []
+        var summary: [PlayerFeaturesSummary.Stats] = []
         var runtime: [[String: Any]] = []
         var audit: [String] = ["recording,interval,tick,t,overlay,persons,in_court,poses,unmatched_poses,visible_on_court_players,detected_on_court_players,missed_on_court_players,false_on_court_detections,off_court_detections,identity_switches_vs_previous_sampled,poses_plausible,reviewer,notes"]
         var totalFrames = 0
@@ -262,6 +275,7 @@ enum PlayerFeaturesRun {
             var assembler = PlayerFrameAssembler(excluded: cuts + breaks, lane: lane)
             var lines = Data()
             var frameCount = 0
+            var assembled: [PlayerFeatures.Frame] = []
             let recOverlays = overlaysDir.appendingPathComponent(item.recordingId, isDirectory: true)
             try fm.createDirectory(at: recOverlays, withIntermediateDirectories: true)
             var rectMs: [Double] = [], poseMs: [Double] = []
@@ -277,6 +291,7 @@ enum PlayerFeaturesRun {
                 var overlaid: [(PlayerFeatures.Frame, String)] = []
                 for raw in raws {
                     let frame = assembler.add(raw)
+                    assembled.append(frame)
                     lines.append(try encoder.encode(frame))
                     lines.append(0x0A)
                     frameCount += 1
@@ -315,7 +330,8 @@ enum PlayerFeaturesRun {
                 eligibilityReasons: elig[.rallyClassifier].reasons, net: net, courtUnknownReason: laneWhy,
                 cutRanges: cuts, timeBreakingSpans: breaks, intervals: item.intervals.sorted { $0.startSec < $1.startSec },
                 framesFile: framesName, framesSha256: sha256Hex(lines), frameCount: frameCount))
-            func pct(_ v: [Double], _ q: Double) -> Any { v.isEmpty ? NSNull() : v.sorted()[min(v.count - 1, Int((Double(v.count - 1) * q).rounded()))] }
+            summary += PlayerFeaturesSummary.recording(recordings[recordings.count - 1], frames: assembled)
+            func pct(_ v: [Double], _ q: Double) -> Any { PlayerFeaturesSummary.quantile(v, q) ?? NSNull() }
             runtime.append(["recording": item.recordingId, "frames": frameCount, "wallSec": Date().timeIntervalSince(wallStart),
                             "rectMsMedian": pct(rectMs, 0.5), "rectMsP95": pct(rectMs, 0.95),
                             "poseMsMedian": pct(poseMs, 0.5), "poseMsP95": pct(poseMs, 0.95)])
@@ -329,7 +345,8 @@ enum PlayerFeaturesRun {
         let closureText = (withheldNames + ["--"] + withheldSourceIds + ["--"] + withheldPrints).joined(separator: "\n")
         let manifestOut = PlayerFeatures.Manifest(
             schemaVersion: PlayerFeatures.schemaVersion, createdAt: RallyClassifierExporter.iso(now),
-            generator: ["tool": tool, "codeSha": codeSha, "run": name, "decoded": plan.source],
+            generator: ["tool": tool, "codeSha": codeSha, "run": name, "decoded": plan.source, "sourceProject": projectDir.path,
+                        "experiment": experiment.path, "ledger": ExposureLog.url(in: experiment).path],
             project: manifest.project,
             splitManifest: ["projectJson": manifest.hashes.projectJson ?? "", "sessions": manifest.hashes.sessions ?? "",
                             "validationJson": manifest.hashes.validationJson ?? "", "manifestJson": DatasetSplitManifest.sha256(of: manifestURL) ?? ""],
@@ -348,9 +365,11 @@ enum PlayerFeaturesRun {
             let runtimeDoc: [String: Any] = ["recordings": runtime, "process": usage.dictionary, "frames": totalFrames,
                                              "gpu": "not measured: per-process GPU utilisation needs powermetrics (root), not used",
                                              "host": ProcessInfo.processInfo.hostName, "activeProcessors": ProcessInfo.processInfo.activeProcessorCount]
+            try RallyClassifierExporter.encode(summary, pretty: true).write(to: diagnostics.appendingPathComponent("summary.json"))
             try JSONSerialization.data(withJSONObject: runtimeDoc, options: [.prettyPrinted, .sortedKeys]).write(to: diagnostics.appendingPathComponent("runtime.json"))
             let data = try RallyClassifierExporter.encode(manifestOut, pretty: true)
             try data.write(to: staging.appendingPathComponent("features/player-features-manifest.json"))
+            try fm.createDirectory(at: out, withIntermediateDirectories: true)
             try fm.moveItem(at: staging, to: final)
             return Result(folder: final, manifestSha256: sha256Hex(data), frames: totalFrames)
         } catch { throw Failure.write(error.localizedDescription) }
