@@ -30,7 +30,7 @@ pr: research/player-pose-feasibility-p0
 |---|---|---|---|
 | `p0-pilot-1` | `60b7693` + uncommitted tool changes | `6b8e8f813b03ef861ff93087df19e7a98cc2cbc62107f258f2050e73d0dec9b0` | audited (`diagnostics/audit-filled.csv`), GUI screenshots |
 | `p0-pilot-2` | `7f75e2d` + uncommitted decision-log edit | `c42c6f9be39b6bc0f661441be2c17da5f81b5077dc7a5fb00fe2ba81d007d64a` | identical to pilot 1 on 1,350/1,350 frames apart from `ms` |
-| `p0-pilot-3` | PILOT3_CODE | PILOT3_SHA | canonical: clean build of the PR's code |
+| `p0-pilot-3` | `0bcb381` (clean; the tool's code is unchanged since) | `954826e99e73000d193fac9a7751976dbf07a6c017ca43dc0005613f4525fa1e` | canonical; identical to pilot 1 on 1,350/1,350 frames apart from `ms`; Scratch unchanged before and after |
 
 ## Results (detail in the report)
 
@@ -38,7 +38,7 @@ pr: research/player-pose-feasibility-p0
 - **Pose.** The body-pose request found players the rectangles missed in 14 of the 36 frames (up to 5 per frame indoors). A detected player's pose reported 14–17 of 19 joints; poses were plausible in all 25 judgeable frames.
 - **Tracking.** Identities were stable for separated players. One identity switch occurred in a net cluster, flagged ambiguous on exactly those frames. Fragmentation follows detection gaps.
 - **Activity.** Scene movement features did not separate active play from between-rally time at this recall.
-- **Runtime.** About 4.5 ms (rectangles) + 5.3 ms (pose) per 960 px frame on an M3 Pro, under concurrent load; 0.56 CPU cores; 653 MB peak process memory; GPU not measured.
+- **Runtime (pilot 3).** About 4.0 ms (rectangles) + 4.9 ms (pose) median per 960 px frame on an M3 Pro, under concurrent load; 0.54 CPU cores; 652 MB peak process memory; GPU not measured.
 
 ## Conclusion
 

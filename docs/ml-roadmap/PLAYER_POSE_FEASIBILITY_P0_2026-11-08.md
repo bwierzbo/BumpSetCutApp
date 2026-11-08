@@ -11,7 +11,7 @@ experiment: EXP-20261108-player-pose-feasibility-p0
 
 **Question.** Could player positions, movement and 2D poses become useful inputs to the temporal rally classifier, alongside the ball? The eventual ablation is A: ball only, B: + player positions and movement, C: + poses, D: + ball–player interaction. P0 asks the step before that: **is player evidence extracted reliably enough to be worth an ablation at all?** This document answers that question for Apple Vision on the footage available locally. It makes no claim about rally classification: nothing here shows that players would improve rally cutting. That needs the matched ablation (§9), which is not authorised.
 
-**Answer, in one paragraph.** Not yet. Run on the local 960 px scrub proxies, Apple Vision's person-rectangle request found **28 % of on-court players** (68 of about 239) across 36 reviewed frames from six recordings. Recall was 29–44 % on beach, grass and portrait indoor, and **6 %** in a crowded landscape gym. When it does find someone, the box, the track and the pose are usually right: few false on-court detections, stable identities for well-separated players, and plausible 19-joint poses at about 16 joints per detected player. Vision's **body-pose request finds many of the people the rectangle request misses** (up to 4 per frame indoors). Both requests together cost about **10 ms per frame**, so a 5 Hz player channel is cheap. Scene-level movement features computed from players this incomplete do **not** separate active play from between-rally time (§6.6). The recommended next step (§9) is a bounded detection follow-up, not the classifier ablation: originals at full resolution once the footage share is free, pose detections as person candidates, and one licence-cleared alternative detector.
+**Answer, in one paragraph.** Not yet. Run on the local 960 px scrub proxies, Apple Vision's person-rectangle request found **28 % of on-court players** (68 of about 239) across 36 reviewed frames from six recordings. Recall was 29–44 % on beach, grass and portrait indoor, and **6 %** in a crowded landscape gym. When it does find someone, the box, the track and the pose are usually right: few false on-court detections, stable identities for well-separated players, and plausible 19-joint poses at about 16 joints per detected player. Vision's **body-pose request finds many of the people the rectangle request misses** (up to 4 per frame indoors). Both requests together cost about **9 ms per frame**, so a 5 Hz player channel is cheap. Scene-level movement features computed from players this incomplete do **not** separate active play from between-rally time (§6.6). The recommended next step (§9) is a bounded detection follow-up, not the classifier ablation: originals at full resolution once the footage share is free, pose detections as person candidates, and one licence-cleared alternative detector.
 
 ## 1. Scope and restrictions
 
@@ -87,11 +87,13 @@ experiment: EXP-20261108-player-pose-feasibility-p0
 |---|---|---|---|---|
 | `p0-pilot-1` | `60b7693` + uncommitted tool changes | 1,350 | ✅ valid (after the box-overlap rule fix, §7) | audit, GUI screenshots |
 | `p0-pilot-2` | `7f75e2d` + an uncommitted decision-log edit | 1,350 | ✅ | determinism check: identical to pilot 1 on 1,350 of 1,350 frames apart from `ms` |
-| `p0-pilot-3` | the PR head, clean (see the experiment record) | 1,350 | ✅ | canonical record |
+| `p0-pilot-3` | `0bcb381`, clean | 1,350 | ✅ | canonical record: manifest `954826e9…`; identical to pilot 1 on 1,350/1,350 frames apart from `ms` |
+
+The **visual pilot report** (Player Lab screenshots of every interval, layer toggles, the two identity sequences, every audit frame with its notes, runtime and isolation evidence) is `~/Movies/RallyLab/Experiments/player-pose-p0/report/index.html`. It is **local only**: it shows private footage, so it is not in git and not published.
 
 ### 5.3 Scratch untouched
 
-Before the first run, 20,267 Scratch files outside images, labels and proxies were listed with their modification times and sizes. After the runs the list was identical. The SHA-256 of `manifests/exposure-log.json` (`eb6feb18…`), `manifests/manifest.json` (`8dea6dbe…`) and `project.json` (`1364ee92…`) was unchanged. No proxy was rewritten. The six recordings' use is recorded in the experiment's own ledger (`detector_evaluation`, one row per recording per run).
+Before the first run (15:54 MST), 20,267 Scratch files outside images, labels and proxies were listed with their modification times and sizes. After all three runs (including the canonical one) the list was identical. The SHA-256 of `manifests/exposure-log.json` (`eb6feb18…`), `manifests/manifest.json` (`8dea6dbe…`) and `project.json` (`1364ee92…`) was unchanged. No proxy was rewritten. The six recordings' use is recorded in the experiment's own ledger (`detector_evaluation`, one row per recording per run).
 
 ## 6. Results
 
@@ -171,15 +173,16 @@ There is **no separation** between active play and between-rally time in these a
 
 ### 6.7 Runtime (Apple M3 Pro, 36 GB, macOS 26.4)
 
-- **Per frame** (960 px proxy frames, 5 Hz, run `p0-pilot-2`; per-recording medians):
+- **Per frame** (960 px proxy frames, 5 Hz, run `p0-pilot-3`; ranges over the six recordings):
 
 | | Median | p95 |
 |---|---|---|
-| Rectangle request | 4.4–4.5 ms | 5.1–6.7 ms |
-| Pose request | 5.1–5.5 ms | 5.8–6.5 ms |
+| Rectangle request | 3.9–4.0 ms | 4.6–4.9 ms |
+| Pose request | 4.8–5.0 ms | 5.2–5.6 ms |
 
-- **Per recording:** 225 frames in 3.4–4.3 s of wall time, including decode.
-- **Process:** about 0.56 CPU cores busy on average; peak resident memory 653 MB for the whole RallyLab process.
+- **Per run:** 1,350 frames in 19.5 s of wall time, including decode.
+- **Process:** about 0.54 CPU cores busy on average; peak resident memory 652 MB for the whole RallyLab process.
+- **Run to run:** `p0-pilot-2`, under the same load, measured 4.4–4.5 ms and 5.1–5.5 ms medians.
 - **GPU utilisation: not measured.** Per-process GPU figures need `powermetrics` as root, which was not used.
 - **Concurrent load:** all runs shared the machine with the rally-classifier export (heatmap model on the GPU), so these timings are under load, not a clean benchmark.
 - **Resolution:** at the originals' 1080p–4K the cost per frame will be higher; not measured.
