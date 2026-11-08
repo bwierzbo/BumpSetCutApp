@@ -27,7 +27,7 @@ enum PlayerFeatures {
     static let interactionVersion = "bpi_v1"
     static let timescale = 600
     static let coordinateSpace = "vision_normalized_upright"
-    static let ledgerRef = "--player-features"
+    static let ledgerRef = "--player-lab-run"
 
     /// The 19 joints of VNDetectHumanBodyPoseRequest revision 1, in the order every
     /// `joints` array is written (the manifest repeats it).
