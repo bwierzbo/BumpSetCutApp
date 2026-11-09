@@ -29,7 +29,8 @@
 //   5. the experiment's own exposure ledger (`<experiment>/manifests/exposure-log.json`,
 //      kind `detector_evaluation`) for every planned recording, before the first frame is
 //      decoded — the source project's ledger is not written (owner, 2026-11-08);
-//   6. per recording, Vision on the sampled frames off the main actor, the assembler, the
+//   6. per recording, the plan's detector (Apple Vision, or the research RTMDet + RTMPose models read from
+//      <experiment>/models/rtm) through its tiling on the sampled frames off the main actor, the assembler, the
 //      frame lines; overlays and the audit sample in diagnostics/; the manifest last, then
 //      the staging folder moved to `<experiment>/runs/<name>`.
 //
@@ -60,6 +61,18 @@ enum PlayerFeaturesRun {
         /// Overlay frames per interval put in the audit sample.
         var auditPerInterval: Int = 2
         var recordings: [Item]
+        /// `vision` (default: Apple Vision, the P0 baseline) or `rtm` (RTMDet + RTMPose from `<experiment>/models/rtm`,
+        /// research only). Optional so a plan written before it existed still reads.
+        var detector: String?
+        /// Columns and rows of overlapping tiles (default 1×1: the whole frame).
+        var tiles: [Int]?
+        var tileOverlap: Double?
+        /// The RTMDet person score a detection needs (default 0.3).
+        var minScore: Double?
+
+        var detectorName: String { detector ?? "vision" }
+        var tiling: PlayerTiling { PlayerTiling(cols: tiles?.first ?? 1, rows: tiles?.dropFirst().first ?? 1, overlap: tileOverlap ?? 0.15) }
+        var personMinScore: Double { minScore ?? 0.3 }
     }
 
     enum Failure: LocalizedError, Equatable {
@@ -102,6 +115,10 @@ enum PlayerFeaturesRun {
         if !(plan.hz > 0 && plan.hz <= maxHz) { e.append("hz \(plan.hz) outside (0, \(maxHz)]") }
         if plan.source != "scrub_proxy" { e.append("source \(plan.source): only scrub_proxy is supported (originals are on the footage share)") }
         if plan.overlayEvery < 1 { e.append("overlayEvery must be ≥ 1") }
+        if !["vision", "rtm"].contains(plan.detectorName) { e.append("detector \(plan.detectorName) is neither vision nor rtm") }
+        if let t = plan.tiles, t.count != 2 || !t.allSatisfy({ (1...4).contains($0) }) { e.append("tiles must be [columns, rows], each 1–4") }
+        if !(0..<0.5).contains(plan.tiling.overlap) { e.append("tileOverlap must be in [0, 0.5)") }
+        if !(0...1).contains(plan.personMinScore) { e.append("minScore must be in [0, 1]") }
         if Set(plan.recordings.map(\.recordingId)).count != plan.recordings.count { e.append("a recording is listed twice") }
         var total = 0.0
         for r in plan.recordings {
@@ -233,7 +250,15 @@ enum PlayerFeaturesRun {
         }
 
         // 5. The ledger, before the first frame.
-        let ref = "\(PlayerFeatures.ledgerRef) \(name) vision-rect-r2+pose-r1 \(plan.hz)Hz \(plan.source)"
+        let detector: PlayerDetector
+        do {
+            detector = plan.detectorName == "rtm"
+                ? try await RTMPlayerDetector(models: experiment.appendingPathComponent("models/rtm", isDirectory: true), minScore: plan.personMinScore)
+                : VisionPlayerDetector()
+        } catch { throw Failure.refused(["the \(plan.detectorName) detector can't be loaded: \(error.localizedDescription)"]) }
+        let tiling = plan.tiling
+        let detectorRef = plan.detectorName == "rtm" ? "rtmdet-m+rtmpose-m" : "vision-rect-r2+pose-r1"
+        let ref = "\(PlayerFeatures.ledgerRef) \(name) \(detectorRef) tiles=\(tiling.cols)x\(tiling.rows) \(plan.hz)Hz \(plan.source)"
         try ExposureLog.record(videos: Set(planned), kind: .detectorEvaluation, ref: ref,
                                note: "player-feasibility research P0 (D-034, proposed): Apple Vision people and pose on sampled frames of \(manifest.project); not training, not rally scoring; the source project's ledger is not written (owner, 2026-11-08)",
                                in: experiment, now: now)
@@ -285,7 +310,7 @@ enum PlayerFeaturesRun {
                 let every = plan.overlayEvery
                 let excludedTime = cuts + breaks
                 let raws = try await Task.detached(priority: .userInitiated) {
-                    try await PlayerVisionExtractor.run(url: file.url, facts: facts, interval: interval, hz: plan.hz,
+                    try await PlayerVisionExtractor.run(url: file.url, facts: facts, interval: interval, hz: plan.hz, detector: detector, tiling: tiling,
                                                         excluded: { exclusion(at: $0, in: excludedTime) }, wantsImage: { $0 % every == 0 })
                 }.value
                 var overlaid: [(PlayerFeatures.Frame, String)] = []
@@ -353,7 +378,7 @@ enum PlayerFeaturesRun {
             withheld: PlayerFeatures.Withheld(names: withheldNames, sourceIds: withheldSourceIds, fingerprints: withheldPrints,
                                               closureSha256: sha256Hex(Data(closureText.utf8))),
             timescale: PlayerFeatures.timescale, coordinateSpace: PlayerFeatures.coordinateSpace, jointNames: PlayerFeatures.jointNames,
-            detector: PlayerVisionExtractor.detectorDescription,
+            detector: detector.described.merging(tiling.described) { a, _ in a },
             sampling: ["hz": "\(plan.hz)", "rule": "first decoded frame at or after start + k/hz (presentation timestamps), never the same frame twice",
                        "tick": "round(t * 600)"],
             tracker: PlayerTracker.Settings().described.merging(PlayerFrameAssembler.Settings().described) { a, _ in a },

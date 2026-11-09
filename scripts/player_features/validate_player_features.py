@@ -205,7 +205,8 @@ def check_pose(pose, q, need):
     for slot in j:
         if slot is None:
             continue
-        need(all(num(slot.get(c)) for c in ("x", "y", "c")) and 0 < slot["c"] <= 1, f"{q} bad joint {slot}")
+        # The detector's raw joint score: Vision 0–1, RTMPose's SimCC score can exceed 1; a non-positive one is written null.
+        need(all(num(slot.get(c)) for c in ("x", "y", "c")) and slot["c"] > 0, f"{q} bad joint {slot}")
 
 
 def write_synthetic(out):

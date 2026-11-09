@@ -65,8 +65,9 @@ enum PlayerFeatures {
         }
     }
 
-    /// One joint: position (upright, Vision-normalised) and Vision's confidence. A joint
-    /// Vision did not recognise is written as null in its slot, never as zeros.
+    /// One joint: position (upright, Vision-normalised) and the detector's score for it (Vision: confidence 0–1;
+    /// RTMPose: the raw SimCC score, which can exceed 1). A joint the detector did not report is null in its slot,
+    /// never zeros.
     struct Joint: Codable, Equatable, Sendable {
         var x: Double, y: Double, c: Double
     }
@@ -140,7 +141,7 @@ enum PlayerFeatures {
         /// Another track's prediction overlapped this detection almost as well: the identity may have switched.
         var ambiguous: Bool
         var court: CourtMembership
-        /// The pose Vision found for this person, nil when none could be associated.
+        /// The detector's pose for this person, nil when it has none (Vision: none associated; RTMPose: not posed).
         var pose: Pose?
         var derived: PersonDerived
     }

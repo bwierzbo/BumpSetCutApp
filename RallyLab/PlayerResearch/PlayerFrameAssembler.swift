@@ -3,8 +3,8 @@
 //  RallyLab
 //
 //  Turns the extractor's raw frames into `player_features_v1` lines: segments
-//  (and so tracker resets), pose-to-person association, track identities, court
-//  membership and the derived features. Pure and deterministic — the same raw
+//  (and so tracker resets), track identities, court membership and the derived
+//  features (each detector pairs its own poses with its boxes, PlayerDetectors). Pure and deterministic — the same raw
 //  frames give the same lines — so it is tested without Vision or video.
 //
 //  A new segment starts, and the tracker and the derived history forget
@@ -22,12 +22,8 @@ struct PlayerFrameAssembler {
         var gapSec = 0.5
         /// Mean absolute luminance difference of the 32×18 thumbnails above which a camera cut is suspected.
         var cutDiff = 0.2
-        /// A pose belongs to a box when at least this share of its reported joints lies inside the box (widened by `poseMargin`).
-        var poseInside = 0.6
-        var poseMargin = 0.1
         var described: [String: String] {
-            ["gapSec": "\(gapSec)", "cutDiff": "\(cutDiff)", "thumbnail": "32x18 luminance, 4x4 patch means",
-             "poseAssociation": "greedy by share of reported joints inside the box widened by \(poseMargin) (>= \(poseInside)); ties by box then pose index"]
+            ["gapSec": "\(gapSec)", "cutDiff": "\(cutDiff)", "thumbnail": "32x18 luminance, 4x4 patch means"]
         }
     }
 
@@ -55,27 +51,6 @@ struct PlayerFrameAssembler {
         return zip(a, b).map { abs($0 - $1) }.reduce(0, +) / Double(a.count)
     }
 
-    /// Greedy pose → box association; returns the pose index for each box (nil = none) and the poses left over.
-    static func associate(boxes: [PlayerFeatures.Box], poses: [PlayerFeatures.Pose], inside: Double, margin: Double) -> (byBox: [Int?], unmatched: [Int]) {
-        var pairs: [(share: Double, b: Int, p: Int)] = []
-        for (pi, pose) in poses.enumerated() {
-            let pts = pose.joints.compactMap { $0 }
-            guard !pts.isEmpty else { continue }
-            for (bi, box) in boxes.enumerated() {
-                let share = Double(pts.filter { box.contains($0.x, $0.y, margin: margin) }.count) / Double(pts.count)
-                if share >= inside { pairs.append((share, bi, pi)) }
-            }
-        }
-        pairs.sort { a, b in a.share != b.share ? a.share > b.share : (a.b != b.b ? a.b < b.b : a.p < b.p) }
-        var byBox = [Int?](repeating: nil, count: boxes.count)
-        var used = Set<Int>()
-        for p in pairs where byBox[p.b] == nil && !used.contains(p.p) {
-            byBox[p.b] = p.p
-            used.insert(p.p)
-        }
-        return (byBox, poses.indices.filter { !used.contains($0) })
-    }
-
     mutating func add(_ raw: PlayerVisionExtractor.RawFrame) -> PlayerFeatures.Frame {
         let tick = PlayerFeatures.tick(raw.t)
         var reset: String?
@@ -98,24 +73,22 @@ struct PlayerFrameAssembler {
         }
         previous = (raw.t, raw.interval, raw.thumb, raw.skipped != nil)
 
-        let masks = PlayerFeatures.Masks(ran: raw.skipped == nil, skipped: raw.skipped, rectFailed: raw.rectFailed, poseFailed: raw.poseFailed)
+        let masks = PlayerFeatures.Masks(ran: raw.skipped == nil, skipped: raw.skipped, rectFailed: raw.detections.rectFailed, poseFailed: raw.detections.poseFailed)
         guard raw.skipped == nil else {
             return PlayerFeatures.Frame(t: raw.t, tick: tick, interval: raw.interval, seg: seg, reset: reset, frameDiff: nil, persons: [], unmatchedPoses: [],
                                         scene: derived.scene([]), masks: masks, ms: raw.ms)
         }
-        let boxes = raw.boxes.map(\.0)
-        let (byBox, unmatched) = Self.associate(boxes: boxes, poses: raw.poses, inside: settings.poseInside, margin: settings.poseMargin)
-        let assignments = tracker.update(boxes, at: raw.t)
+        let found = raw.detections.persons
+        let assignments = tracker.update(found.map(\.box), at: raw.t)
         var persons: [PlayerFeatures.Person] = []
         for (i, a) in assignments.enumerated() {
-            let box = boxes[i]
-            let pose = byBox[i].map { raw.poses[$0] }
+            let p = found[i]
             persons.append(PlayerFeatures.Person(
-                box: box, conf: raw.boxes[i].1, track: a.track, state: a.state, hits: a.hits, gap: a.gap, ambiguous: a.ambiguous,
-                court: lane?.membership(box) ?? .unknown, pose: pose,
-                derived: derived.observe(track: a.track, at: raw.t, box: box, pose: pose)))
+                box: p.box, conf: p.conf, track: a.track, state: a.state, hits: a.hits, gap: a.gap, ambiguous: a.ambiguous,
+                court: lane?.membership(p.box) ?? .unknown, pose: p.pose,
+                derived: derived.observe(track: a.track, at: raw.t, box: p.box, pose: p.pose)))
         }
         return PlayerFeatures.Frame(t: raw.t, tick: tick, interval: raw.interval, seg: seg, reset: reset, frameDiff: diff, persons: persons,
-                                    unmatchedPoses: unmatched.map { raw.poses[$0] }, scene: derived.scene(persons), masks: masks, ms: raw.ms)
+                                    unmatchedPoses: raw.detections.unpairedPoses, scene: derived.scene(persons), masks: masks, ms: raw.ms)
     }
 }

@@ -4,21 +4,18 @@
 //
 //  Decodes the frames of a recording's intervals with AVAssetReader at their
 //  presentation timestamps, picks one frame per sampling tick (the first decoded
-//  frame at or after `start + k / hz`, never the same frame twice), and runs Apple
-//  Vision on it — VNDetectHumanRectanglesRequest (revision 2, full body) and
-//  VNDetectHumanBodyPoseRequest (revision 1, 19 joints, several people) — with the
-//  orientation that turns the stored frame upright (VideoFrameGeometry, as the ball
-//  pipeline does when `applyVideoRotation` is on), so every coordinate is in the same
-//  upright, Vision-normalised space as `FrameEvidence`. Never on the main actor: the
-//  caller runs it from a detached task. Nothing is cached and no model is bundled —
-//  Vision's people models are part of macOS.
+//  frame at or after `start + k / hz`, never the same frame twice), turns it upright
+//  with the orientation the ball pipeline uses (VideoFrameGeometry, as with
+//  `applyVideoRotation`), and hands it to a PlayerDetector (Apple Vision, or the
+//  research RTMDet + RTMPose models) through the chosen PlayerTiling — so every
+//  coordinate is in the same upright, Vision-normalised space as `FrameEvidence`.
+//  Never on the main actor: the caller runs it from a detached task.
 //
 
 import AVFoundation
 import CoreImage
 import Foundation
 import ImageIO
-import Vision
 
 enum PlayerVisionExtractor {
     /// What one analysed (or deliberately skipped) frame produced, before tracking.
@@ -27,10 +24,7 @@ enum PlayerVisionExtractor {
         var interval: String
         /// nil when it ran; "cut" / "time_break" when the frame lies in excluded time.
         var skipped: String?
-        var boxes: [(PlayerFeatures.Box, Double)]
-        var poses: [PlayerFeatures.Pose]
-        var rectFailed: Bool
-        var poseFailed: Bool
+        var detections: PlayerDetections
         /// 32×18 luminance, 0–1, row-major; empty when skipped.
         var thumb: [Double]
         var ms: [String: Double]
@@ -58,23 +52,6 @@ enum PlayerVisionExtractor {
     }
 
     static let thumbWidth = 32, thumbHeight = 18
-
-    static let visionJoints: [VNHumanBodyPoseObservation.JointName] = [
-        .nose, .leftEye, .rightEye, .leftEar, .rightEar,
-        .neck, .leftShoulder, .rightShoulder, .leftElbow, .rightElbow,
-        .leftWrist, .rightWrist, .root, .leftHip, .rightHip,
-        .leftKnee, .rightKnee, .leftAnkle, .rightAnkle,
-    ]
-
-    static var detectorDescription: [String: String] {
-        let os = ProcessInfo.processInfo.operatingSystemVersion
-        return ["framework": "Apple Vision (system framework; no weights bundled or redistributed)",
-                "os": "macOS \(os.majorVersion).\(os.minorVersion).\(os.patchVersion) (\(ProcessInfo.processInfo.operatingSystemVersionString))",
-                "rectangles": "VNDetectHumanRectanglesRequest revision \(VNDetectHumanRectanglesRequestRevision2), upperBodyOnly false",
-                "pose": "VNDetectHumanBodyPoseRequest revision \(VNDetectHumanBodyPoseRequestRevision1), 19 joints, joints with confidence 0 written null",
-                "computeUnits": "Vision default (not pinned)",
-                "license": "Apple SDK / macOS licence; models are not shipped with or extracted by this tool"]
-    }
 
     static func facts(of url: URL) async throws -> FileFacts {
         let asset = AVURLAsset(url: url)
@@ -132,18 +109,9 @@ enum PlayerVisionExtractor {
         return out
     }
 
-    private static func pose(_ o: VNHumanBodyPoseObservation) -> PlayerFeatures.Pose {
-        let points = (try? o.recognizedPoints(.all)) ?? [:]
-        let joints: [PlayerFeatures.Joint?] = visionJoints.map { name in
-            guard let p = points[name], p.confidence > 0 else { return nil }
-            return PlayerFeatures.Joint(x: Double(p.location.x), y: Double(p.location.y), c: Double(p.confidence))
-        }
-        return PlayerFeatures.Pose(conf: Double(o.confidence), joints: joints)
-    }
-
-    /// Analyse one interval of `url`. `excluded(t)` names why a frame must not be analysed (cut, time break), nil when it may be;
-    /// `wantsImage(i)` asks for the upright image of the i-th sampled frame (overlays).
-    static func run(url: URL, facts: FileFacts, interval: PlayerFeatures.Interval, hz: Double,
+    /// Analyse one interval of `url` with `detector` through `tiling`. `excluded(t)` names why a frame must not be analysed
+    /// (cut, time break), nil when it may be; `wantsImage(i)` asks for the upright image of the i-th sampled frame (overlays).
+    static func run(url: URL, facts: FileFacts, interval: PlayerFeatures.Interval, hz: Double, detector: PlayerDetector, tiling: PlayerTiling,
                     excluded: (Double) -> String?, wantsImage: (Int) -> Bool) async throws -> [RawFrame] {
         let asset = AVURLAsset(url: url)
         guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw ExtractError.noVideoTrack(url) }
@@ -169,8 +137,7 @@ enum PlayerVisionExtractor {
             guard sampler.accept(t) else { continue }
             defer { sampledIndex += 1 }
             if let why = excluded(t) {
-                frames.append(RawFrame(t: t, interval: interval.name, skipped: why, boxes: [], poses: [], rectFailed: false, poseFailed: false,
-                                       thumb: [], ms: [:], image: nil))
+                frames.append(RawFrame(t: t, interval: interval.name, skipped: why, detections: PlayerDetections(), thumb: [], ms: [:], image: nil))
                 continue
             }
             guard let pix = CMSampleBufferGetImageBuffer(sample) else { continue }
@@ -179,34 +146,14 @@ enum PlayerVisionExtractor {
             let thumb = lumaThumb(pix)
             ms["thumb"] = Double(DispatchTime.now().uptimeNanoseconds - c0) / 1e6
 
-            let handler = VNImageRequestHandler(cvPixelBuffer: pix, orientation: facts.orientation, options: [:])
-            let rect = VNDetectHumanRectanglesRequest()
-            rect.revision = VNDetectHumanRectanglesRequestRevision2
-            rect.upperBodyOnly = false
-            let r0 = DispatchTime.now().uptimeNanoseconds
-            var rectFailed = false
-            do { try handler.perform([rect]) } catch { rectFailed = true }
-            ms["rect"] = Double(DispatchTime.now().uptimeNanoseconds - r0) / 1e6
-            let boxes: [(PlayerFeatures.Box, Double)] = (rect.results ?? []).map { o in
-                let b = o.boundingBox
-                return (PlayerFeatures.Box(x: Double(b.minX), y: Double(b.minY), w: Double(b.width), h: Double(b.height)), Double(o.confidence))
-            }
-
-            let poseRequest = VNDetectHumanBodyPoseRequest()
-            poseRequest.revision = VNDetectHumanBodyPoseRequestRevision1
-            let p0 = DispatchTime.now().uptimeNanoseconds
-            var poseFailed = false
-            do { try handler.perform([poseRequest]) } catch { poseFailed = true }
-            ms["pose"] = Double(DispatchTime.now().uptimeNanoseconds - p0) / 1e6
-            let poses = (poseRequest.results ?? []).map(pose)
-
-            var image: CGImage?
-            if wantsImage(sampledIndex) {
-                let ci = CIImage(cvPixelBuffer: pix).oriented(facts.orientation)
-                image = ciContext.createCGImage(ci, from: ci.extent)
-            }
-            frames.append(RawFrame(t: t, interval: interval.name, skipped: nil, boxes: boxes, poses: poses, rectFailed: rectFailed,
-                                   poseFailed: poseFailed, thumb: thumb, ms: ms, image: image))
+            let i0 = DispatchTime.now().uptimeNanoseconds
+            let ci = CIImage(cvPixelBuffer: pix).oriented(facts.orientation)
+            guard let upright = ciContext.createCGImage(ci, from: ci.extent) else { continue }
+            ms["image"] = Double(DispatchTime.now().uptimeNanoseconds - i0) / 1e6
+            let detections = tiling.detect(upright, with: detector)
+            ms.merge(detections.ms) { a, _ in a }
+            frames.append(RawFrame(t: t, interval: interval.name, skipped: nil, detections: detections, thumb: thumb, ms: ms,
+                                   image: wantsImage(sampledIndex) ? upright : nil))
         }
         if reader.status == .failed { throw ExtractError.readerFailed(url, reader.error?.localizedDescription ?? "unknown") }
         return frames

@@ -150,6 +150,15 @@ class SyntheticPlayerFeatures(unittest.TestCase):
         self.save_frames(f)
         self.refused("does not overlap the frame")
 
+    def test_joint_score_may_exceed_one_but_not_be_non_positive(self):
+        f = self.frames()
+        f[0]["persons"][0]["pose"]["joints"][0]["c"] = 1.3
+        self.save_frames(f)
+        self.assertTrue(v.validate(self.folder)["ok"], "RTMPose raw scores can exceed 1")
+        f[0]["persons"][0]["pose"]["joints"][0]["c"] = 0
+        self.save_frames(f)
+        self.refused("bad joint")
+
     def test_stray_file_is_refused(self):
         v.write_bytes(os.path.join(self.folder, "frames", "extra.txt"), b"x")
         self.refused("stray file")

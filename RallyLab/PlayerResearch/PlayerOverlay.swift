@@ -23,6 +23,8 @@ enum PlayerOverlay {
         ("neck", "left_shoulder"), ("neck", "right_shoulder"), ("left_shoulder", "left_elbow"), ("left_elbow", "left_wrist"),
         ("right_shoulder", "right_elbow"), ("right_elbow", "right_wrist"), ("nose", "left_eye"), ("nose", "right_eye"),
         ("left_eye", "left_ear"), ("right_eye", "right_ear"),
+        // The COCO-17 torso, for detectors without neck and root (RTMPose); with Vision they close the torso too.
+        ("left_shoulder", "right_shoulder"), ("left_hip", "right_hip"), ("left_shoulder", "left_hip"), ("right_shoulder", "right_hip"),
     ]
 
     private static let palette: [(CGFloat, CGFloat, CGFloat)] = [

@@ -19,9 +19,14 @@ final class PlayerFeaturesTests: XCTestCase {
 
     private func raw(_ t: Double, _ boxes: [Box], interval: String = "a", poses: [PlayerFeatures.Pose] = [], thumb: Double = 0.5,
                      skipped: String? = nil) -> PlayerVisionExtractor.RawFrame {
-        PlayerVisionExtractor.RawFrame(t: t, interval: interval, skipped: skipped, boxes: boxes.map { ($0, 0.9) }, poses: poses,
-                                       rectFailed: false, poseFailed: false,
-                                       thumb: skipped == nil ? Array(repeating: thumb, count: 32 * 18) : [], ms: [:], image: nil)
+        var d = PlayerDetections()
+        if skipped == nil {
+            let (byBox, unmatched) = PlayerDetections.associate(boxes: boxes, poses: poses)
+            d.persons = boxes.enumerated().map { i, b in .init(box: b, conf: 0.9, pose: byBox[i].map { poses[$0] }) }
+            d.unpairedPoses = unmatched.map { poses[$0] }
+        }
+        return PlayerVisionExtractor.RawFrame(t: t, interval: interval, skipped: skipped, detections: d,
+                                              thumb: skipped == nil ? Array(repeating: thumb, count: 32 * 18) : [], ms: [:], image: nil)
     }
 
     private func pose(_ named: [String: (Double, Double)], conf: Double = 0.8) -> PlayerFeatures.Pose {
@@ -119,7 +124,7 @@ final class PlayerFeaturesTests: XCTestCase {
         let boxes = [Box(x: 0.1, y: 0.1, w: 0.1, h: 0.3), Box(x: 0.6, y: 0.1, w: 0.1, h: 0.3)]
         let inSecond = pose(["neck": (0.65, 0.35), "root": (0.65, 0.25), "left_ankle": (0.64, 0.11)])
         let nowhere = pose(["neck": (0.4, 0.8), "root": (0.4, 0.7)])
-        let (byBox, unmatched) = PlayerFrameAssembler.associate(boxes: boxes, poses: [nowhere, inSecond], inside: 0.6, margin: 0.1)
+        let (byBox, unmatched) = PlayerDetections.associate(boxes: boxes, poses: [nowhere, inSecond])
         XCTAssertEqual(byBox, [nil, 1])
         XCTAssertEqual(unmatched, [0])
     }

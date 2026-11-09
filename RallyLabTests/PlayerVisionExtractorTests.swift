@@ -57,16 +57,17 @@ final class PlayerVisionExtractorTests: XCTestCase {
         XCTAssertEqual(facts.uprightHeight, 320)
         let interval = PlayerFeatures.Interval(name: "all", kind: .activePlay, startSec: 0, endSec: 2, selection: "test")
         let frames = try await PlayerVisionExtractor.run(url: url, facts: facts, interval: interval, hz: 5,
-                                                         excluded: { $0 >= 1.0 && $0 < 1.4 ? "cut" : nil }, wantsImage: { $0 == 0 })
+                                                         detector: VisionPlayerDetector(), tiling: PlayerTiling(), excluded: { $0 >= 1.0 && $0 < 1.4 ? "cut" : nil }, wantsImage: { $0 == 0 })
         XCTAssertEqual(frames.map { PlayerFeatures.tick($0.t) }, [0, 120, 240, 360, 480, 600, 720, 840, 960, 1080])
         XCTAssertEqual(frames.map(\.skipped), [nil, nil, nil, nil, nil, "cut", "cut", nil, nil, nil])
         for f in frames where f.skipped == nil {
-            XCTAssertFalse(f.rectFailed)
-            XCTAssertFalse(f.poseFailed)
-            XCTAssertTrue(f.boxes.isEmpty, "a flat grey frame has nobody in it")
+            XCTAssertFalse(f.detections.rectFailed)
+            XCTAssertFalse(f.detections.poseFailed)
+            XCTAssertTrue(f.detections.persons.isEmpty, "a flat grey frame has nobody in it")
             XCTAssertEqual(f.thumb.count, 32 * 18)
             XCTAssertNotNil(f.ms["rect"])
             XCTAssertNotNil(f.ms["pose"])
+            XCTAssertNotNil(f.ms["image"])
         }
         XCTAssertEqual(frames[0].image?.width, 180, "the overlay image is the upright frame")
         XCTAssertEqual(frames[0].image?.height, 320)
