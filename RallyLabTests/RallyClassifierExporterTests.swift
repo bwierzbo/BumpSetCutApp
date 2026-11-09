@@ -68,13 +68,14 @@ final class RallyClassifierExporterTests: XCTestCase {
 
     /// A project on disk: a card and a session per recording, the footage file, its marks, its footage type; the
     /// withheld `bch_w` (lineage holdout) and whatever `validation` names; then the split manifest, as `--manifest` writes it.
-    private func project(_ specs: [Spec], withheld: [String] = ["bch_w"], withheldSessionId: String? = nil, manifest: Bool = true) throws {
+    private func project(_ specs: [Spec], withheld: [String] = ["bch_w"], withheldSessionId: String? = nil, withheldFingerprint: String? = nil,
+                         manifest: Bool = true) throws {
         let fm = FileManager.default
         try fm.createDirectory(at: root.appendingPathComponent("footage"), withIntermediateDirectories: true)
         let store = DatasetStore(root: root)
         try store.prepare()
         var clips: [PlannedClip] = []
-        let all = specs + withheld.map { Spec(name: $0, split: "val", sessionId: withheldSessionId) }
+        let all = specs + withheld.map { Spec(name: $0, split: "val", sessionId: withheldSessionId, fingerprint: withheldFingerprint) }
         for (n, s) in all.enumerated() {
             try Data("footage of \(s.name)".utf8).write(to: footage(s.name))
             let src = ClipSource(kind: .link, origin: "https://youtu.be/\(s.name)", start: 0, length: 60, license: "permission",
@@ -339,6 +340,30 @@ final class RallyClassifierExporterTests: XCTestCase {
         XCTAssertEqual(Set(try ledger().map(\.video)), ["bch_a"])
     }
 
+    func testAWithheldRecordingWhoseVideoCantBeReachedStopsThePlan() async throws {
+        // 2026-11-09: the footage share stalled, so the withheld recording's video link could not be followed. It was
+        // skipped, the card's registered fingerprint (no longer its bytes) still passed as a `file:` identity, and a
+        // byte copy of the withheld footage under another card went into the plan. Unreachable is not "not here".
+        try project([Spec(name: "bch_a"), Spec(name: "grs_b", split: "val")], withheldFingerprint: "file:registered-before-a-re-encode")
+        let fm = FileManager.default
+        try fm.removeItem(at: footage("grs_b"))
+        try fm.copyItem(at: footage("bch_w"), to: footage("grs_b"))
+        try fm.removeItem(at: footage("bch_w"))
+        let share = base.appendingPathComponent("unreachable-share/bch_w.mp4").path
+        try fm.createSymbolicLink(atPath: footage("bch_w").path, withDestinationPath: share)
+        let calls = Calls()
+        do {
+            _ = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(calls))
+            XCTFail("planned without the withheld recording's content identity")
+        } catch let f as X.Failure {
+            guard case .unreadable(let why) = f else { return XCTFail("\(f)") }
+            XCTAssertTrue(why.contains("bch_w") && why.contains(footage("bch_w").path), why)
+        }
+        XCTAssertEqual(calls.names, [], "stopped before any recording ran")
+        XCTAssertFalse(fm.fileExists(atPath: out.appendingPathComponent(".staging-Fixture-rc-1").path))
+        XCTAssertEqual(try ledger(), [])
+    }
+
     func testThePlanAndThePreflightShareOneWithheldIdentityRule() {
         let w = X.Withheld(names: ["bch_w"], sourceIds: ["src:w"], fingerprints: ["file:w", "youtube:w"])
         XCTAssertEqual(X.withheldIdentity(name: "bch_w", sourceId: nil, fingerprint: nil, content: nil, in: w), "name")
@@ -466,6 +491,25 @@ final class RallyClassifierExporterTests: XCTestCase {
         let result = try await X.export(projectDir: root, manifestURL: manifestURL, options: o, evidence: source(second))
         XCTAssertEqual(second.names, ["grs_b"])
         XCTAssertEqual(result.reused, ["bch_a"])
+        XCTAssertEqual(result.recordings, ["bch_a", "grs_b"])
+    }
+
+    func testARunCutShortInItsFirstRecordingCanBeResumed() async throws {
+        // 2026-11-09: the share failed a read in the first recording, before any journal was written, and every
+        // --resume was refused ("no readable journal") although the run said to resume.
+        try project([Spec(name: "bch_a"), Spec(name: "grs_b", split: "val")])
+        do {
+            _ = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(Calls(), failing: "bch_a"))
+            XCTFail("the detector failed and the export went on")
+        } catch {}
+        let staging = out.appendingPathComponent(".staging-Fixture-rc-1", isDirectory: true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staging.path + ".journal.json"), "the journal exists with the staging folder")
+        let second = Calls()
+        var o = options(resume: staging)
+        o.now = now.addingTimeInterval(60)
+        let result = try await X.export(projectDir: root, manifestURL: manifestURL, options: o, evidence: source(second))
+        XCTAssertEqual(second.names, ["bch_a", "grs_b"])
+        XCTAssertEqual(result.reused, [])
         XCTAssertEqual(result.recordings, ["bch_a", "grs_b"])
     }
 

@@ -368,6 +368,8 @@ enum RallyClassifierExporter {
         }
         try fm.createDirectory(at: staging.appendingPathComponent("steps"), withIntermediateDirectories: true)
         try fm.createDirectory(at: staging.appendingPathComponent("baseline"), withIntermediateDirectories: true)
+        // Written now, not after the first recording: a run cut short in its first recording can be resumed.
+        try encode(journal).write(to: journalURL, options: .atomic)
         var recordingsOut: [Recording] = []
         var reused: [String] = []
         for (i, p) in planned.enumerated() {
