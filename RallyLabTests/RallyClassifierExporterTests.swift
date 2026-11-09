@@ -52,6 +52,8 @@ final class RallyClassifierExporterTests: XCTestCase {
         var cuts: [CutRange]? = nil
         /// The card's registered fingerprint, when not the link's own.
         var fingerprint: String? = nil
+        /// The uploader, when not one of its own.
+        var uploader: String? = nil
         var marks: [RallyMarkRecord] = [
             RallyMarkRecord(startTime: 5, endTime: 12, kind: .rally, contacts: nil),
             RallyMarkRecord(startTime: 20, endTime: 31, kind: nil, contacts: nil),
@@ -76,7 +78,7 @@ final class RallyClassifierExporterTests: XCTestCase {
         for (n, s) in all.enumerated() {
             try Data("footage of \(s.name)".utf8).write(to: footage(s.name))
             let src = ClipSource(kind: .link, origin: "https://youtu.be/\(s.name)", start: 0, length: 60, license: "permission",
-                                 title: s.name, uploader: "up\(n)", clipFile: footage(s.name).path, fetchedAt: F.day,
+                                 title: s.name, uploader: s.uploader ?? "up\(n)", clipFile: footage(s.name).path, fetchedAt: F.day,
                                  videoId: s.name, frames: nil, fingerprint: s.fingerprint ?? "youtube:\(s.name)", sourceId: nil, sessionId: s.sessionId, venueId: nil)
             clips.append(PlannedClip(id: s.name, number: n + 1, environment: s.name.hasPrefix("grs") ? "Grass" : s.name.hasPrefix("ind") ? "Indoor" : "Beach",
                                      camera: "End line, raised", lighting: "Sun", orientation: "Landscape", ball: "Beach", notes: "",
@@ -346,6 +348,23 @@ final class RallyClassifierExporterTests: XCTestCase {
         XCTAssertNil(X.withheldIdentity(name: "a", sourceId: "src:a", fingerprint: "youtube:a", content: "file:a", in: w))
     }
 
+    func testAGroupAcrossSplitsIsRefusedBeforeAnyVideoIsProcessed() async throws {
+        // Same uploader: one group (contract §6), which the audit calls soft but the validator refuses across splits.
+        try project([Spec(name: "bch_a", uploader: "Same Person"), Spec(name: "grs_b", split: "val", uploader: "Same Person"), Spec(name: "bch_c")])
+        let calls = Calls()
+        do {
+            _ = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(calls))
+            XCTFail("exported a group split across two splits")
+        } catch let f as X.Failure {
+            guard case .groupAcrossSplits(let g) = f else { return XCTFail("\(f)") }
+            XCTAssertEqual(g.count, 1)
+            XCTAssertTrue(g[0].contains("bch_a") && g[0].contains("grs_b") && !g[0].contains("bch_c"), g[0])
+        }
+        XCTAssertEqual(calls.names, [], "refused at the plan, before the detector ran")
+        XCTAssertEqual(try ledger(), [])
+        XCTAssertEqual(X.groupsAcrossSplits([(video: "a", group: "a", split: "train"), (video: "b", group: "a", split: "train")]), [])
+    }
+
     func testAWithheldRecordingWhoseVideoIsNotHereStopsTheRun() async throws {
         // Without the withheld recording's file, a copy of it could not be recognised: nothing is exported.
         try project([Spec(name: "bch_a")])
@@ -606,5 +625,39 @@ final class RallyClassifierExporterTests: XCTestCase {
         XCTAssertEqual(built[0].padded.start.seconds, 39.5, accuracy: 1e-9, "padded from the short raw, not from the 5 s union (which would pre-roll 2 s)")
         XCTAssertEqual(built[0].raw.start.seconds, 40.0, accuracy: 1e-9)
         XCTAssertEqual(CMTimeRangeGetEnd(built[0].raw).seconds, 45.0, accuracy: 1e-9)
+    }
+
+    func testAServeDatedIntoThePreviousRallysTailGivesOverlappingRawsTheValidatorAccepts() async throws {
+        // The decider dates the second rally back to its serve at 14 s, before the first raw rally closed at 15 s.
+        let builder = SegmentBuilder(config: ProcessorConfig())
+        func t(_ s: Double) -> CMTime { CMTimeMakeWithSeconds(s, preferredTimescale: 600) }
+        builder.observe(isActive: true, at: t(10))
+        builder.observe(isActive: false, at: t(15))
+        builder.observe(isActive: true, at: t(16), rallyStart: t(14))
+        builder.observe(isActive: false, at: t(20))
+        let built = builder.finalizeWithRaw(until: t(60))
+        XCTAssertEqual(built.count, 1)
+        XCTAssertEqual(built[0].parts.map { [$0.start.seconds, CMTimeRangeGetEnd($0).seconds] }, [[10, 15], [14, 20]], "in order by start, overlapping")
+
+        // The validator takes such a clip (in order by start) and still refuses raws out of order.
+        let script = """
+        import sys, json, os, tempfile
+        sys.path.insert(0, sys.argv[1]); import validate_dataset as v
+        def run(raws):
+            d = os.path.join(tempfile.mkdtemp(), "ds"); v.write_synthetic(d)
+            m = json.load(open(os.path.join(d, "dataset-manifest.json"))); rec = m["recordings"][0]
+            bp = os.path.join(d, rec["baselineFile"]); b = json.load(open(bp))
+            clip = b["variants"]["r0"][0]; s, e = clip["startTick"], clip["endTick"]
+            clip["rawSpans"] = [{"startTick": s + a, "endTick": s + z} for a, z in raws]
+            json.dump(b, open(bp, "w")); rec["baselineSha256"] = v.sha256_file(bp)
+            json.dump(m, open(os.path.join(d, "dataset-manifest.json"), "w"))
+            return [x for x in v.validate(d).errors if "rawSpans" in x]
+        print(json.dumps([run([(10, 40), (30, 60)]), run([(30, 60), (10, 40)])]))
+        """
+        let run = await ToolEnvironment.run("python3", ["-c", script, validator.deletingLastPathComponent().path])
+        let out = try XCTUnwrap(run.lines.last.flatMap { try JSONSerialization.jsonObject(with: Data($0.utf8)) as? [[String]] }, run.lines.joined(separator: "\n"))
+        XCTAssertEqual(out[0], [], "overlapping raws in order by start are valid")
+        XCTAssertEqual(out[1].count, 1, "raws out of order are not")
+        XCTAssertTrue(out[1].first?.contains("time order") ?? false, "\(out[1])")
     }
 }
