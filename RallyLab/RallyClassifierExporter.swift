@@ -178,6 +178,7 @@ enum RallyClassifierExporter {
         case noRecordings
         case unreadable(String)
         case preflightFailed([String])
+        case groupAcrossSplits([String])
         case validatorUnavailable(String)
         case validationFailed([String])
 
@@ -198,6 +199,7 @@ enum RallyClassifierExporter {
             case .footageMissing(let v): return "The original of \(v.count) recording(s) to export is not on this Mac (\(v.joined(separator: ", "))): bring the footage back and run again (the plan is written)."
             case .noRecordings: return "No recording is eligible for the dataset (see the plan)."
             case .unreadable(let why): return why
+            case .groupAcrossSplits(let g): return "A recording group spans more than one split (contract §6): \(g.joined(separator: "; ")). Put each group's recordings in one split, then run again. Nothing was processed."
             case .preflightFailed(let c): return "Preflight failed: \(c.joined(separator: ", ")). The staging folder was removed."
             case .validatorUnavailable(let why): return "The dataset validator could not run (\(why)); the dataset is not written unvalidated. The staging folder was removed."
             case .validationFailed(let e): return "The dataset validator refused the dataset: \(e.prefix(5).joined(separator: "; "))\(e.count > 5 ? " (+\(e.count - 5) more)" : ""). The staging folder was removed."
@@ -349,6 +351,9 @@ enum RallyClassifierExporter {
         // Groups (contract §6): same card, alias group, uploader, confirmed source/session/venue, or fingerprint —
         // the card's or the file's (one video under two names is one group).
         let groups = groupIds(planned.map(\.row), content: Dictionary(planned.map { ($0.video, $0.fileFingerprint) }, uniquingKeysWith: { a, _ in a }))
+        // One split per group, as the validator requires — checked here, before any video is processed, not after.
+        let straddling = groupsAcrossSplits(planned.map { (video: $0.video, group: groups[$0.video] ?? $0.video, split: $0.row.split.rawValue) })
+        guard straddling.isEmpty else { throw Failure.groupAcrossSplits(straddling) }
 
         // 4–5. Evidence, steps, baseline — into staging, journaled per recording.
         let identity = JournalIdentity(dataset: name, codeSha: options.codeSha, binarySha: options.binarySha, pipelineConfigSha256: configSha, detector: detector,
@@ -533,6 +538,16 @@ enum RallyClassifierExporter {
         var out: [String: String] = [:]
         for names in members.values { let id = names.min()!; for n in names { out[n] = id } }
         return out
+    }
+
+    /// Every group whose recordings sit in more than one split, described with its members by split; empty when none
+    /// does. The plan refuses such a group before processing and the preflight checks the written records with it.
+    static func groupsAcrossSplits(_ members: [(video: String, group: String, split: String)]) -> [String] {
+        Dictionary(grouping: members, by: \.group).compactMap { group, rows -> String? in
+            let bySplit = Dictionary(grouping: rows, by: \.split)
+            guard bySplit.count > 1 else { return nil }
+            return "group \(group) — " + bySplit.keys.sorted().map { "\($0): \(bySplit[$0]!.map(\.video).sorted().joined(separator: ", "))" }.joined(separator: " · ")
+        }.sorted()
     }
 
     /// What a recording's files are made from: if it is the same, a resumed run keeps them.
@@ -772,6 +787,8 @@ enum RallyClassifierExporter {
             guard let f = content[r.recordingId] else { return "\(r.recordingId): its original has no content fingerprint" }
             return protectedContent.contains(f) || fps.contains(f) ? "\(r.recordingId): its original is a withheld recording's video" : nil
         }, "every exported recording's original is fingerprinted and matches none of the \(protectedContent.count) withheld identities")
+        check("groups-in-one-split", groupsAcrossSplits(recs.map { (video: $0.recordingId, group: $0.groupId, split: $0.split) }),
+              "every recording group sits in one split")
         check("admitted-and-eligible", recs.compactMap { r in
             guard let s = registry[r.recordingId] else { return "\(r.recordingId) not in the registry" }
             guard s.admission == .admitted else { return "\(r.recordingId) \(s.admission.rawValue)" }
