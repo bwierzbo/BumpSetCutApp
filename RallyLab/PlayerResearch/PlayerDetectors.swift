@@ -375,19 +375,26 @@ final class RTMPlayerDetector: PlayerDetector, @unchecked Sendable {
 
 // MARK: - RF-DETR (Core ML, Apache-2.0 checkpoints) + Apple Vision pose
 
-/// Roboflow RF-DETR Small or Medium (COCO, Apache-2.0) exported by the package's own Core ML exporter
-/// (scripts/player_features/convert_rfdetr_coreml.py), with Apple Vision body pose run on each person's crop — the
-/// candidate stack that could ship without training: no research-only weights anywhere. The frame is stretched to the
-/// model's N×N (no letterbox), ImageNet-normalised; a person is a query whose sigmoid person score (sparse COCO slot 1)
-/// exceeds `minScore`. DETR needs no NMS and none is applied (tiling still merges across tiles). Vision poses few people
-/// under ~150 px tall, and enlarging their crops does not help (measured on the pilot, P1 report).
+/// Roboflow RF-DETR (COCO, Apache-2.0) exported by the package's own Core ML exporter
+/// (scripts/player_features/convert_rfdetr_coreml.py) — the candidate stack that could ship without training: no
+/// research-only weights anywhere. The frame is stretched to the model's N×N (no letterbox), ImageNet-normalised; DETR
+/// needs no NMS and none is applied (tiling still merges across tiles).
+///  • Small / Medium: a person is a query whose sigmoid person score (sparse COCO slot 1) exceeds `minScore`; Apple
+///    Vision body pose runs on each person's crop. Vision poses few people under ~150 px tall, and enlarging their crops
+///    does not help (measured on the pilot, P1 report).
+///  • Keypoint (preview): people and their COCO-17 joints in one pass; the person score is rfdetr's own — the sigmoid
+///    fused with the findability-weighted keypoint covariance trace (`traceAlpha`) — and each joint's score is its
+///    sigmoid "findable" probability.
 final class RFDETRPlayerDetector: PlayerDetector, @unchecked Sendable {
-    enum Size: String, CaseIterable, Sendable { case small, medium }
+    enum Size: String, CaseIterable, Sendable { case small, medium, keypoint }
     static func package(_ size: Size) -> String { "rfdetr_\(size.rawValue)_person.mlpackage" }
     static let personSlot = 1
     static let mean: [Float] = [0.485, 0.456, 0.406], std: [Float] = [0.229, 0.224, 0.225]
     /// Each person box is padded by this factor before Vision poses its crop (cut-off limbs are still in the crop).
     static let posePad = 1.25
+    /// rfdetr's `postprocess_trace_alpha` default (keypoint model only).
+    static let traceAlpha = 0.2
+    static let keypointCount = 17
 
     let size: Size
     let minScore: Double
@@ -419,12 +426,17 @@ final class RFDETRPlayerDetector: PlayerDetector, @unchecked Sendable {
     var described: [String: String] {
         identity.merging([
             "name": "rfdetr-\(size.rawValue)",
-            "detector": "RF-DETR \(size.rawValue.capitalized) COCO (Roboflow rfdetr, own Core ML export), \(side)x\(side) stretched, ImageNet-normalised",
-            "pose": "Apple Vision VNDetectHumanBodyPoseRequest revision \(VNDetectHumanBodyPoseRequestRevision1) on each person's crop (box padded \(Self.posePad)x), "
-                + "the pose holding most of its joints in the box (share >= 0.6) kept",
-            "nms": "none (DETR); sigmoid person score > \(minScore), at most \(maxPersons) persons posed",
-            "jointScore": "Vision recognized-point confidence, 0-1",
-            "personScore": "sigmoid of the person logit (sparse COCO slot \(Self.personSlot))",
+            "detector": "RF-DETR \(size == .keypoint ? "Keypoint (preview)" : size.rawValue.capitalized) COCO (Roboflow rfdetr, own Core ML export), "
+                + "\(side)x\(side) stretched, ImageNet-normalised",
+            "pose": size == .keypoint
+                ? "the model's own COCO-17 joints (one pass with the boxes), written into the 19 Vision slots; neck and root are not produced (null)"
+                : "Apple Vision VNDetectHumanBodyPoseRequest revision \(VNDetectHumanBodyPoseRequestRevision1) on each person's crop (box padded \(Self.posePad)x), "
+                    + "the pose holding most of its joints in the box (share >= 0.6) kept",
+            "nms": size == .keypoint ? "none (DETR); fused person score > \(minScore)" : "none (DETR); sigmoid person score > \(minScore), at most \(maxPersons) persons posed",
+            "jointScore": size == .keypoint ? "sigmoid of the joint's findable logit, 0-1" : "Vision recognized-point confidence, 0-1",
+            "personScore": size == .keypoint
+                ? "rfdetr's: sigmoid(log sigmoid(person logit) - \(Self.traceAlpha) x log mean keypoint covariance trace)"
+                : "sigmoid of the person logit (sparse COCO slot \(Self.personSlot))",
             "computeUnits": "all",
         ]) { a, _ in a }
     }
@@ -466,18 +478,11 @@ final class RFDETRPlayerDetector: PlayerDetector, @unchecked Sendable {
             return out
         }
         let boxes = PlayerCoreML.output(result, "boxes"), logits = PlayerCoreML.output(result, "logits")
-        let slots = logits.count / max(1, boxes.count / 4)
-        var people: [PlayerDetections.Person] = []
-        for q in 0..<(boxes.count / 4) where slots > Self.personSlot {
-            let score = 1 / (1 + exp(-Double(logits[q * slots + Self.personSlot])))
-            guard score > minScore else { continue }
-            let cx = Double(boxes[4 * q]), cy = Double(boxes[4 * q + 1]), bw = Double(max(0, boxes[4 * q + 2])), bh = Double(max(0, boxes[4 * q + 3]))
-            let x1 = max(0, cx - bw / 2), x2 = min(1, cx + bw / 2), y1 = max(0, cy - bh / 2), y2 = min(1, cy + bh / 2)  // top-left origin
-            guard x2 > x1, y2 > y1 else { continue }
-            people.append(.init(box: PlayerFeatures.Box(x: x1, y: 1 - y2, w: x2 - x1, h: y2 - y1), conf: score, pose: nil))
-        }
-        people.sort { $0.conf > $1.conf }
+        let keypoints = size == .keypoint ? PlayerCoreML.output(result, "keypoints") : []
+        var people = Self.decode(boxes: boxes, logits: logits, keypoints: keypoints, minScore: minScore)
+        if size == .keypoint, keypoints.isEmpty { out.poseFailed = true }
         out.ms["rect"] = Double(DispatchTime.now().uptimeNanoseconds - d0) / 1e6
+        guard size != .keypoint else { out.persons = people; return out }
 
         let p0 = DispatchTime.now().uptimeNanoseconds
         for i in people.indices.prefix(maxPersons) {
@@ -486,6 +491,48 @@ final class RFDETRPlayerDetector: PlayerDetector, @unchecked Sendable {
         out.ms["pose"] = Double(DispatchTime.now().uptimeNanoseconds - p0) / 1e6
         out.persons = people
         return out
+    }
+
+    /// The people in raw outputs (row-major floats), best first, boxes and joints Vision-normalised. `boxes` is [Q, 4]
+    /// (cx, cy, w, h; top-left origin, normalised), `logits` [Q, slots]; `keypoints`, when given, [Q, classes × 17, D]
+    /// with the person's joints in class slot `personSlot` — then the score is rfdetr's keypoint-fused one
+    /// (models/postprocess.py `_apply_keypoint_trace_fusion`) and each person carries the model's pose.
+    static func decode(boxes: [Float], logits: [Float], keypoints: [Float], minScore: Double) -> [PlayerDetections.Person] {
+        let q = boxes.count / 4
+        guard q > 0, logits.count % q == 0 else { return [] }
+        let slots = logits.count / q
+        guard slots > personSlot else { return [] }
+        let perQuery = keypoints.count / q, depth = 8
+        let withPoses = !keypoints.isEmpty && keypoints.count % q == 0 && perQuery % (keypointCount * depth) == 0
+            && perQuery / (keypointCount * depth) > personSlot
+        func sigmoid(_ v: Double) -> Double { 1 / (1 + exp(-v)) }
+        func logSumExp(_ v: [Double]) -> Double { let m = v.max() ?? 0; return m + log(v.reduce(0) { $0 + exp($1 - m) }) }
+        var people: [PlayerDetections.Person] = []
+        for i in 0..<q {
+            var score = sigmoid(Double(logits[i * slots + personSlot]))
+            var pose: PlayerFeatures.Pose?
+            if withPoses {
+                let base = i * perQuery + personSlot * keypointCount * depth
+                func k(_ j: Int, _ d: Int) -> Double { Double(keypoints[base + j * depth + d]) }
+                let find = (0..<keypointCount).map { sigmoid(k($0, 2)) }
+                let logTrace = (0..<keypointCount).map { j -> Double in
+                    let t1 = -2 * k(j, 4), t2 = -2 * k(j, 6)
+                    return logSumExp([t1, t2, 2 * log(max(abs(k(j, 5)), 1e-12)) + t1 + t2])
+                }
+                let logW = find.map { log(max($0, 1e-12)) }
+                let meanTrace = logSumExp(zip(logTrace, logW).map { $0 + $1 }) - logSumExp(logW)
+                score = min(sigmoid(log(score) - traceAlpha * meanTrace), 1.0.nextDown)
+                var joints = [PlayerFeatures.Joint?](repeating: nil, count: PlayerFeatures.jointNames.count)
+                for j in 0..<keypointCount { joints[RTMPlayerDetector.cocoToSlot[j]] = PlayerFeatures.Joint(x: k(j, 0), y: 1 - k(j, 1), c: find[j]) }
+                pose = PlayerFeatures.Pose(conf: find.reduce(0, +) / Double(keypointCount), joints: joints)
+            }
+            guard score > minScore else { continue }
+            let cx = Double(boxes[4 * i]), cy = Double(boxes[4 * i + 1]), bw = Double(max(0, boxes[4 * i + 2])), bh = Double(max(0, boxes[4 * i + 3]))
+            let x1 = max(0, cx - bw / 2), x2 = min(1, cx + bw / 2), y1 = max(0, cy - bh / 2), y2 = min(1, cy + bh / 2)  // top-left origin
+            guard x2 > x1, y2 > y1 else { continue }
+            people.append(.init(box: PlayerFeatures.Box(x: x1, y: 1 - y2, w: x2 - x1, h: y2 - y1), conf: score, pose: pose))
+        }
+        return people.sorted { $0.conf > $1.conf }
     }
 
     /// Vision body pose on the person's padded crop; the pose that best fills the box, in frame coordinates.

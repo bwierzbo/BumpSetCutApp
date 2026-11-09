@@ -226,7 +226,7 @@ final class PlayerFeaturesTests: XCTestCase {
         XCTAssertFalse(PlayerFeaturesRun.validate(fast).isEmpty)
         var total = ok; total.recordings = (0..<11).map { .init(recordingId: "r\($0)", intervals: [interval("a", 0, 60)]) }
         XCTAssertFalse(PlayerFeaturesRun.validate(total).isEmpty, "660 s > the 600 s budget")
-        for name in ["vision", "rtm", "rfdetr-small", "rfdetr-medium"] {
+        for name in ["vision", "rtm", "rfdetr-small", "rfdetr-medium", "rfdetr-keypoint"] {
             var d = ok; d.detector = name
             XCTAssertEqual(PlayerFeaturesRun.validate(d), [], name)
         }

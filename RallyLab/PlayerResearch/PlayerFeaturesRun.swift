@@ -30,7 +30,7 @@
 //      kind `detector_evaluation`) for every planned recording, before the first frame is
 //      decoded — the source project's ledger is not written (owner, 2026-11-08);
 //   6. per recording, the plan's detector (Apple Vision; the research RTMDet + RTMPose models read from
-//      <experiment>/models/rtm; or RF-DETR Small/Medium from <experiment>/models/rfdetr with Vision pose) through its tiling on the sampled frames off the main actor, the assembler, the
+//      <experiment>/models/rtm; or RF-DETR Small/Medium with Vision pose or the RF-DETR keypoint preview, from <experiment>/models/rfdetr) through its tiling on the sampled frames off the main actor, the assembler, the
 //      frame lines; overlays and the audit sample in diagnostics/; the manifest last, then
 //      the staging folder moved to `<experiment>/runs/<name>`.
 //
@@ -62,8 +62,8 @@ enum PlayerFeaturesRun {
         var auditPerInterval: Int = 2
         var recordings: [Item]
         /// `vision` (default: Apple Vision, the P0 baseline), `rtm` (RTMDet + RTMPose from `<experiment>/models/rtm`,
-        /// research only) or `rfdetr-small` / `rfdetr-medium` (RF-DETR from `<experiment>/models/rfdetr`, Apache-2.0
-        /// checkpoints, with Vision pose on each person's crop). Optional so a plan written before it existed still reads.
+        /// research only), `rfdetr-small` / `rfdetr-medium` (RF-DETR from `<experiment>/models/rfdetr`, Apache-2.0
+        /// checkpoints, with Vision pose on each person's crop) or `rfdetr-keypoint` (RF-DETR keypoint preview: people and joints in one pass). Optional so a plan written before it existed still reads.
         var detector: String?
         /// Columns and rows of overlapping tiles (default 1×1: the whole frame).
         var tiles: [Int]?
@@ -263,7 +263,7 @@ enum PlayerFeaturesRun {
                       let size = RFDETRPlayerDetector.Size(rawValue: String(plan.detectorName.dropFirst("rfdetr-".count))) {
                 detector = try await RFDETRPlayerDetector(models: models.appendingPathComponent("rfdetr", isDirectory: true), size: size,
                                                           minScore: plan.personMinScore)
-                detectorRef = "rfdetr-\(size.rawValue)+vision-pose-r1"
+                detectorRef = size == .keypoint ? "rfdetr-keypoint-preview" : "rfdetr-\(size.rawValue)+vision-pose-r1"
             } else {
                 detector = VisionPlayerDetector()
                 detectorRef = "vision-rect-r2+pose-r1"

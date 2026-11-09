@@ -16,6 +16,12 @@ one a production build would use:
   output "boxes"  [1, 300, 4]  (cx, cy, w, h), normalised to the input
          "logits" [1, 300, 91] per-class logits, sparse COCO ids (slot 1 = person); score = sigmoid, no NMS (DETR)
 
+The keypoint preview (``RFDETRKeypointPreview``, Apache-2.0, 40.7 M parameters, 576 px; "xlarge" in its file name only)
+detects people and their COCO-17 joints in one pass: 100 queries, logits [1, 100, 2] (slot 1 = person) and
+  "keypoints" [1, 100, 34, 8]: class slots [background: 0, person: 17] of (x, y normalised; findable logit; -; precision
+             Cholesky log_l11, l21, log_l22; -). The person score is rfdetr's: sigmoid of the logit, fused with the
+             findability-weighted mean keypoint covariance trace (trace_alpha 0.2), then thresholded.
+
 Then, on real frames, it checks
   1. that slot 1 is the person class, against the package's own ``predict()`` (persons above 0.3), and
   2. the Core ML packages (fp16 and fp32) against eager PyTorch on the identical input tensor (conversion error),
@@ -37,7 +43,10 @@ import numpy as np
 
 warnings.filterwarnings("ignore")
 
-SIZES = {"small": ("RFDETRSmall", "rf-detr-small.pth"), "medium": ("RFDETRMedium", "rf-detr-medium.pth")}
+SIZES = {"small": ("RFDETRSmall", "rf-detr-small.pth"), "medium": ("RFDETRMedium", "rf-detr-medium.pth"),
+         "keypoint": ("RFDETRKeypointPreview", "rf-detr-keypoint-preview-xlarge.pth")}
+KEYPOINTS = 17
+TRACE_ALPHA = 0.2  # rfdetr's postprocess_trace_alpha default: the person score is fused with keypoint uncertainty
 PERSON_SLOT = 1
 THRESHOLD = 0.3
 MEAN = [0.485, 0.456, 0.406]
@@ -86,6 +95,27 @@ def persons(boxes, logits, w, h, thr=THRESHOLD):
     return sorted(out, reverse=True)
 
 
+def keypoint_persons(boxes, logits, kps, w, h, thr=THRESHOLD):
+    """rfdetr's keypoint post-processing (models/postprocess.py) for the person class: [(score, x1, y1, x2, y2, joints)]
+    with joints [(x px, y px, findable)], best first."""
+    q = logits.shape[1]
+    s = 1.0 / (1.0 + np.exp(-np.clip(logits[0, :, PERSON_SLOT], -88, 88)))
+    k = kps[0].reshape(q, kps.shape[2] // KEYPOINTS, KEYPOINTS, kps.shape[3])[:, PERSON_SLOT]
+    find = 1.0 / (1.0 + np.exp(-k[..., 2]))
+    log_t1, log_t2 = -2.0 * k[..., 4], -2.0 * k[..., 6]
+    log_t3 = 2.0 * np.log(np.clip(np.abs(k[..., 5]), 1e-12, None)) + log_t1 + log_t2
+    log_trace = np.logaddexp(np.logaddexp(log_t1, log_t2), log_t3)
+    log_w = np.log(np.clip(find, 1e-12, None))
+    lmt = np.logaddexp.reduce(log_trace + log_w, axis=-1) - np.logaddexp.reduce(log_w, axis=-1)
+    fused = np.minimum(1.0 / (1.0 + np.exp(-(np.log(s) - TRACE_ALPHA * lmt))), np.nextafter(1.0, 0.0))
+    out = []
+    for i in np.nonzero(fused > thr)[0]:
+        cx, cy, bw, bh = boxes[0, i]
+        joints = [(float(k[i, j, 0] * w), float(k[i, j, 1] * h), float(find[i, j])) for j in range(KEYPOINTS)]
+        out.append(tuple(float(v) for v in (fused[i], (cx - bw / 2) * w, (cy - bh / 2) * h, (cx + bw / 2) * w, (cy + bh / 2) * h)) + (joints,))
+    return sorted(out, key=lambda p: -p[0])
+
+
 def iou(a, b):
     ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
     iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
@@ -100,8 +130,8 @@ def match(ref, got):
     for r in ref:
         best, bi = 0.0, None
         for i, g in enumerate(got):
-            if i not in used and iou(r[1:], g[1:]) > best:
-                best, bi = iou(r[1:], g[1:]), i
+            if i not in used and iou(r[1:5], g[1:5]) > best:
+                best, bi = iou(r[1:5], g[1:5]), i
         if bi is not None and best > 0.5:
             used.add(bi)
             ious.append(best)
@@ -134,11 +164,18 @@ def main(argv):
         n = model.model_config.resolution
         ckpt_path = os.path.join(os.environ["RF_HOME"], ckpt)
         asset = assets[ckpt]
+        if size == "keypoint":
+            training = TRAINING_DATA.replace("COCO 2017 detection fine-tune", "COCO 2017 keypoints fine-tune (preview)")
+        else:
+            training = TRAINING_DATA
         provenance = {"checkpoint": ckpt, "checkpointUrl": asset.url, "checkpointMd5": asset.md5_hash,
                       "checkpointSha256": sha256(ckpt_path), "license": "Apache-2.0 (code and this checkpoint, per rfdetr's checkpoint table)",
-                      "trainingData": TRAINING_DATA, "resolution": str(n), "personSlot": str(PERSON_SLOT),
+                      "trainingData": training, "resolution": str(n), "personSlot": str(PERSON_SLOT),
                       "preprocess": "stretch to NxN, bilinear no antialias, /255, ImageNet mean/std",
-                      "outputs": "boxes [1,300,4] cxcywh normalised; logits [1,300,91] sparse COCO ids, sigmoid, no NMS"}
+                      "outputs": ("boxes [1,100,4] cxcywh normalised; logits [1,100,2] slot 1 person; keypoints [1,100,34,8] "
+                                  "person slot 1 of (x, y, findable logit, -, log_l11, l21, log_l22, -); score fused with keypoint "
+                                  f"uncertainty, trace_alpha {TRACE_ALPHA}" if size == "keypoint" else
+                                  "boxes [1,300,4] cxcywh normalised; logits [1,300,91] sparse COCO ids, sigmoid, no NMS")}
         entry = {"class": cls_name, "resolution": n, **provenance, "frames": []}
         packages = {}
         with tempfile.TemporaryDirectory() as tmp:
@@ -146,22 +183,40 @@ def main(argv):
                 p = model.export(format="coreml", output_dir=os.path.join(tmp, precision), coreml_precision=precision, verbose=False)
                 packages[precision] = ct.models.MLModel(str(p))
             torch_model = model.model.model.eval()
+            keypointed = size == "keypoint"
+
+            def decode(outputs):
+                return keypoint_persons(*outputs[:3], w, h) if keypointed else persons(*outputs[:2], w, h)
+
             for name, img in frames:
                 w, h = img.size
                 x = model_input(img, n)
                 official = model.predict(img, threshold=THRESHOLD)
-                official_persons = int(np.sum(np.asarray(official.class_id) == PERSON_SLOT)) if len(official) else 0
-                official_classes = sorted(set(int(c) for c in np.asarray(official.class_id)))
+                if keypointed:
+                    official_scores = np.asarray(official.detection_confidence, dtype=float)
+                    official_ids = np.asarray(official.class_id)
+                    official_xy = np.asarray(official.xy)
+                else:
+                    official_scores, official_ids = np.asarray(official.confidence, dtype=float), np.asarray(official.class_id)
+                official_persons = int(np.sum(official_ids == PERSON_SLOT)) if len(official_ids) else 0
                 with torch.no_grad():
                     out = torch_model(x.to(next(torch_model.parameters()).device))
-                ref = persons(out["pred_boxes"].cpu().numpy(), out["pred_logits"].cpu().numpy(), w, h)
-                row = {"frame": name, "persons_predict": official_persons, "predict_class_ids": official_classes,
+                torch_outputs = [out["pred_boxes"].cpu().numpy(), out["pred_logits"].cpu().numpy()]
+                if keypointed:
+                    torch_outputs.append(out["pred_keypoints"].cpu().numpy())
+                ref = decode(torch_outputs)
+                row = {"frame": name, "persons_predict": official_persons, "predict_class_ids": sorted(set(int(c) for c in official_ids)),
                        "persons_torch": len(ref)}
+                if keypointed and len(ref) == official_persons and ref:
+                    # The ported decoding against rfdetr's own: scores and joints of the same detections, best first.
+                    order = np.argsort(-official_scores)
+                    row["decode_vs_predict_score_maxabs"] = float(max(abs(r[0] - official_scores[o]) for r, o in zip(ref, order)))
+                    row["decode_vs_predict_joint_maxabs_px"] = float(max(
+                        max(abs(j[0] - official_xy[o, k, 0]), abs(j[1] - official_xy[o, k, 1])) for r, o in zip(ref, order) for k, j in enumerate(r[5])))
                 for precision, ml in packages.items():
                     spec = ml.get_spec().description
                     res = ml.predict({spec.input[0].name: x.numpy()})
-                    boxes, logits = (np.asarray(res[o.name], dtype=np.float32) for o in spec.output[:2])
-                    got = persons(boxes, logits, w, h)
+                    got = decode([np.asarray(res[o.name], dtype=np.float32) for o in spec.output])
                     matched, min_iou, max_ds = match(ref, got)
                     row[precision] = {"persons": len(got), "matched": matched, "minIoU": min_iou, "maxScoreDiff": max_ds}
                 entry["frames"].append(row)
@@ -173,8 +228,8 @@ def main(argv):
                                else "fp32: fp16 differs from eager PyTorch on at least one frame")
             # coremltools infers the feature names (tensors / concat_2 / linear_112): name them for the app, by position.
             spec = packages[chosen].get_spec()
-            for old, new in zip([spec.description.input[0].name] + [o.name for o in spec.description.output[:2]],
-                                ["input", "boxes", "logits"]):
+            for old, new in zip([spec.description.input[0].name] + [o.name for o in spec.description.output],
+                                ["input", "boxes", "logits", "keypoints"]):
                 ct.utils.rename_feature(spec, old, new)
             ml = ct.models.MLModel(spec, weights_dir=packages[chosen].weights_dir)
             ml.user_defined_metadata.update({**provenance, "precision": chosen})
@@ -183,12 +238,19 @@ def main(argv):
                 shutil.rmtree(dest)
             ml.save(dest)
             renamed = ml.predict({"input": model_input(frames[0][1], n).numpy()})
-            entry["renamedCheck"] = len(persons(np.asarray(renamed["boxes"]), np.asarray(renamed["logits"]), *frames[0][1].size))
+            w, h = frames[0][1].size
+            entry["renamedCheck"] = len(decode([np.asarray(renamed[k]) for k in ("boxes", "logits", "keypoints") if k in renamed]))
             entry["package"] = os.path.basename(dest)
             entry["packageTreeSha256"] = tree_sha256(dest)
         report["models"][size] = entry
         print(json.dumps({size: {k: entry[k] for k in ("chosenPrecision", "package")}}), flush=True)
-    with open(os.path.join(a.models, "conversion-report.json"), "w") as fh:
+    # One report for every size converted so far: a run with --sizes replaces only those sizes' entries.
+    path = os.path.join(a.models, "conversion-report.json")
+    if os.path.exists(path):
+        with open(path) as fh:
+            previous = json.load(fh).get("models", {})
+        report["models"] = {**previous, **report["models"]}
+    with open(path, "w") as fh:
         json.dump(report, fh, indent=1)
     print(json.dumps(report, indent=1))
 

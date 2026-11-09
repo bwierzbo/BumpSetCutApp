@@ -125,4 +125,39 @@ final class PlayerDetectorsTests: XCTestCase {
             XCTAssertTrue(error.localizedDescription.contains("convert_rfdetr_coreml.py"), error.localizedDescription)
         }
     }
+
+    /// The fixture's expected numbers come from rfdetr 1.12's own PostProcess._apply_keypoint_trace_fusion (torch) and
+    /// the converter's NumPy port, which agree: fused score 0.6921796202659607.
+    func testRFDETRKeypointDecodeMatchesRFDETRsFusedScoreAndJoints() {
+        let boxes: [Float] = [0.5, 0.5, 0.2, 0.4, 0.2, 0.2, 0.1, 0.1]
+        let logits: [Float] = [-5, 2.0, -5, -3.0]
+        var keypoints = [Float](repeating: 0, count: 2 * 34 * 8)
+        for j in 0..<17 {
+            let base = 0 * 34 * 8 + (17 + j) * 8
+            let row: [Float] = [0.4 + 0.01 * Float(j), 0.3 + 0.02 * Float(j), j % 2 == 0 ? 1 : -1, 0, 3.0, 0.5, 2.5, 0]
+            for d in 0..<8 { keypoints[base + d] = row[d] }
+        }
+        let people = RFDETRPlayerDetector.decode(boxes: boxes, logits: logits, keypoints: keypoints, minScore: 0.3)
+        XCTAssertEqual(people.count, 1, "the second query's fused score is far below 0.3")
+        let p = people[0]
+        XCTAssertEqual(p.conf, 0.6921796202659607, accuracy: 1e-5)
+        XCTAssertEqual(p.box.x, 0.4, accuracy: 1e-6)
+        XCTAssertEqual(p.box.y, 1 - 0.7, accuracy: 1e-6, "Vision-normalised: origin bottom-left")
+        XCTAssertEqual(p.box.h, 0.4, accuracy: 1e-6)
+        let nose = p.pose?.joints[PlayerFeatures.joint("nose")], leftEye = p.pose?.joints[PlayerFeatures.joint("left_eye")]
+        XCTAssertEqual(nose??.x ?? -1, 0.4, accuracy: 1e-6)
+        XCTAssertEqual(nose??.y ?? -1, 1 - 0.3, accuracy: 1e-6)
+        XCTAssertEqual(nose??.c ?? -1, 0.7310585975646973, accuracy: 1e-6)
+        XCTAssertEqual(leftEye??.c ?? -1, 0.2689414322376251, accuracy: 1e-6)
+        XCTAssertNil(p.pose?.joints[PlayerFeatures.joint("neck")] ?? nil, "COCO-17 has no neck")
+    }
+
+    func testRFDETRDetectionDecodeUsesThePersonSlotWithoutFusion() {
+        // Two queries, 3 slots; slot 1 is the person.
+        let boxes: [Float] = [0.5, 0.5, 0.2, 0.4, 0.2, 0.2, 0.1, 0.1]
+        let logits: [Float] = [9, 0.0, -9, -9, 2.0, 9]
+        let people = RFDETRPlayerDetector.decode(boxes: boxes, logits: logits, keypoints: [], minScore: 0.3)
+        XCTAssertEqual(people.map(\.conf), [1 / (1 + exp(-2.0)), 0.5])
+        XCTAssertNil(people[0].pose)
+    }
 }
