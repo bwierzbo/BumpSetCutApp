@@ -237,27 +237,51 @@ final class RTMPlayerDetector: PlayerDetector, @unchecked Sendable {
         return pb
     }
 
-    /// A multi-array's values as Float, whatever its element type (fp16 read through Accelerate).
+    /// A multi-array's values as Float in logical row-major order, whatever its element type (fp16 converted through
+    /// Accelerate) and whatever its strides: Core ML pads rows (the detector's boxes [1, 8400, 4] arrive with strides
+    /// [268800, 32, 1]), so the buffer is never read as if it were packed.
     static func floats(_ a: MLMultiArray) -> [Float] {
-        let n = a.count
-        switch a.dataType {
-        case .float32:
-            return a.withUnsafeBufferPointer(ofType: Float.self) { Array($0.prefix(n)) }
-        case .double:
-            return a.withUnsafeBufferPointer(ofType: Double.self) { $0.prefix(n).map(Float.init) }
-        case .float16:
-            var out = [Float](repeating: 0, count: n)
-            a.withUnsafeBytes { raw in
-                var src = vImage_Buffer(data: UnsafeMutableRawPointer(mutating: raw.baseAddress!), height: 1, width: vImagePixelCount(n), rowBytes: n * 2)
-                out.withUnsafeMutableBytes { dst in
-                    var d = vImage_Buffer(data: dst.baseAddress!, height: 1, width: vImagePixelCount(n), rowBytes: n * 4)
+        let shape = a.shape.map(\.intValue), strides = a.strides.map(\.intValue)
+        let n = shape.reduce(1, *)
+        guard n > 0, shape.count == strides.count else { return [] }
+        let span = zip(shape, strides).reduce(1) { $0 + ($1.0 - 1) * $1.1 }
+        var physical = [Float](repeating: 0, count: span)
+        a.withUnsafeBytes { raw in
+            switch a.dataType {
+            case .float32:
+                let src = raw.bindMemory(to: Float.self)
+                for i in 0..<span { physical[i] = src[i] }
+            case .double:
+                let src = raw.bindMemory(to: Double.self)
+                for i in 0..<span { physical[i] = Float(src[i]) }
+            case .float16:
+                var src = vImage_Buffer(data: UnsafeMutableRawPointer(mutating: raw.baseAddress!), height: 1, width: vImagePixelCount(span), rowBytes: span * 2)
+                physical.withUnsafeMutableBytes { dst in
+                    var d = vImage_Buffer(data: dst.baseAddress!, height: 1, width: vImagePixelCount(span), rowBytes: span * 4)
                     _ = vImageConvert_Planar16FtoPlanarF(&src, &d, 0)
                 }
+            default:
+                break
             }
-            return out
-        default:
+        }
+        if a.dataType != .float32, a.dataType != .double, a.dataType != .float16 {
             return (0..<n).map { a[$0].floatValue }
         }
+        var out = [Float](repeating: 0, count: n)
+        var index = [Int](repeating: 0, count: shape.count)
+        for i in 0..<n {
+            var offset = 0
+            for k in 0..<shape.count { offset += index[k] * strides[k] }
+            out[i] = physical[offset]
+            var k = shape.count - 1
+            while k >= 0 {
+                index[k] += 1
+                if index[k] < shape[k] { break }
+                index[k] = 0
+                k -= 1
+            }
+        }
+        return out
     }
 
     private static func output(_ p: MLFeatureProvider, _ name: String) -> [Float] {

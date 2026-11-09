@@ -89,6 +89,22 @@ final class PlayerDetectorsTests: XCTestCase {
         XCTAssertEqual(RTMPlayerDetector.floats(b), [1.5, 3])
     }
 
+    /// Core ML pads rows: the detector's boxes arrive [1, 8400, 4] with strides [268800, 32, 1] (seen 2026-11-08). Reading the
+    /// buffer as packed scrambled every box; the reader must follow the strides.
+    func testPaddedOutputsAreReadByTheirStrides() throws {
+        let f32: [Float] = [1, 2, -9, -9, 3, 4, -9, -9]
+        let p32 = UnsafeMutablePointer<Float>.allocate(capacity: f32.count)
+        p32.initialize(from: f32, count: f32.count)
+        let a = try MLMultiArray(dataPointer: p32, shape: [2, 2], dataType: .float32, strides: [4, 1], deallocator: { $0.deallocate() })
+        XCTAssertEqual(RTMPlayerDetector.floats(a), [1, 2, 3, 4])
+        // Half floats by bit pattern: 0.5 = 0x3800, 1 = 0x3C00, 2 = 0x4000, -1 = 0xBC00; padding 0x7BFF (65504).
+        let f16: [UInt16] = [0x3800, 0x3C00, 0x7BFF, 0x4000, 0xBC00, 0x7BFF]
+        let p16 = UnsafeMutablePointer<UInt16>.allocate(capacity: f16.count)
+        p16.initialize(from: f16, count: f16.count)
+        let b = try MLMultiArray(dataPointer: p16, shape: [1, 2, 2], dataType: .float16, strides: [6, 3, 1], deallocator: { $0.deallocate() })
+        XCTAssertEqual(RTMPlayerDetector.floats(b), [0.5, 1, 2, -1])
+    }
+
     func testCocoKeypointsFillVisionSlotsLeavingNeckAndRootNull() {
         let slots = RTMPlayerDetector.cocoToSlot
         XCTAssertEqual(slots.count, 17)
