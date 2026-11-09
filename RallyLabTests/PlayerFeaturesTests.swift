@@ -226,6 +226,14 @@ final class PlayerFeaturesTests: XCTestCase {
         XCTAssertFalse(PlayerFeaturesRun.validate(fast).isEmpty)
         var total = ok; total.recordings = (0..<11).map { .init(recordingId: "r\($0)", intervals: [interval("a", 0, 60)]) }
         XCTAssertFalse(PlayerFeaturesRun.validate(total).isEmpty, "660 s > the 600 s budget")
+        for name in ["vision", "rtm", "rfdetr-small", "rfdetr-medium"] {
+            var d = ok; d.detector = name
+            XCTAssertEqual(PlayerFeaturesRun.validate(d), [], name)
+        }
+        for name in ["rfdetr-large", "rfdetr-", "yolo"] {
+            var d = ok; d.detector = name
+            XCTAssertFalse(PlayerFeaturesRun.validate(d).isEmpty, "\(name) is not a detector this tool loads")
+        }
     }
 
     private func source(_ name: String, admission: SourceRegistry.Admission = .admitted, level: TrainingEligibility.Level = .standard) -> SourceRegistry.Source {

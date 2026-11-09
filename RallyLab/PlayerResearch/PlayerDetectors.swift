@@ -14,6 +14,10 @@
 //     only: the official weights carry research-use training data (COCO + Objects365, AI
 //     Challenger + COCO, ImageNet-1k backbone init); the models are read from the experiment
 //     folder and are never bundled.
+//   • RFDETRPlayerDetector — Roboflow RF-DETR Small / Medium (COCO, Apache-2.0 checkpoints) exported by the package's
+//     own Core ML exporter (scripts/player_features/convert_rfdetr_coreml.py), with Apple Vision body pose on each
+//     person's crop: the stack that could ship without training (the Objects365-pretraining question aside — see the
+//     converter). Also read from the experiment folder, never bundled.
 //
 //  Every coordinate leaves here Vision-normalised (origin bottom-left) in the upright image
 //  the detector was given. Nothing is a label; a joint a model did not report is null.
@@ -117,7 +121,7 @@ final class VisionPlayerDetector: PlayerDetector {
                 "license": "Apple SDK / macOS licence; models are not shipped with or extracted by this tool"]
     }
 
-    private static func pose(_ o: VNHumanBodyPoseObservation) -> PlayerFeatures.Pose {
+    static func pose(_ o: VNHumanBodyPoseObservation) -> PlayerFeatures.Pose {
         let points = (try? o.recognizedPoints(.all)) ?? [:]
         let joints: [PlayerFeatures.Joint?] = joints.map { name in
             guard let p = points[name], p.confidence > 0 else { return nil }
@@ -152,75 +156,35 @@ final class VisionPlayerDetector: PlayerDetector {
     }
 }
 
-// MARK: - RTMDet + RTMPose (Core ML, research only)
+// MARK: - Core ML helpers (both Core ML detectors)
 
-final class RTMPlayerDetector: PlayerDetector, @unchecked Sendable {
-    static let detectorPackage = "rtmdet_m_person.mlpackage"
-    static let posePackage = "rtmpose_m_coco17.mlpackage"
-    static let detSize = 640
-    static let poseW = 192, poseH = 256
-    static let letterboxGray: CGFloat = 114.0 / 255.0
-    /// COCO-17 keypoint → slot in `PlayerFeatures.jointNames` (neck and root are not produced: null).
-    static let cocoToSlot: [Int] = ["nose", "left_eye", "right_eye", "left_ear", "right_ear", "left_shoulder", "right_shoulder",
-                                    "left_elbow", "right_elbow", "left_wrist", "right_wrist", "left_hip", "right_hip", "left_knee",
-                                    "right_knee", "left_ankle", "right_ankle"].map(PlayerFeatures.joint)
-
+enum PlayerCoreML {
     enum LoadError: LocalizedError {
-        case missing(URL)
+        case missing(URL, script: String = "convert_rtm_coreml.py")
+        case unexpected(URL, String)
         var errorDescription: String? {
-            if case .missing(let url) = self { return "\(url.path) is missing: convert the models with scripts/player_features/convert_rtm_coreml.py first." }
-            return nil
+            switch self {
+            case .missing(let url, let script): return "\(url.path) is missing: convert the models with scripts/player_features/\(script) first."
+            case .unexpected(let url, let why): return "\(url.path): \(why)"
+            }
         }
     }
 
-    let minScore: Double
-    let maxPersons: Int
-    private let detector: MLModel
-    private let pose: MLModel
-    private let compiled: [URL]
-    private let identity: [String: String]
-
-    /// Loads (compiles) both packages from `models`.
-    init(models: URL, minScore: Double, maxPersons: Int = 40) async throws {
-        let fm = FileManager.default
-        let detURL = models.appendingPathComponent(Self.detectorPackage), poseURL = models.appendingPathComponent(Self.posePackage)
-        for url in [detURL, poseURL] where !fm.fileExists(atPath: url.path) { throw LoadError.missing(url) }
+    /// Compiles a package (all compute units) and loads it; the caller deletes the compiled copy when done.
+    static func load(_ package: URL) async throws -> (MLModel, URL) {
         let config = MLModelConfiguration()
         config.computeUnits = .all
-        let cDet = try await MLModel.compileModel(at: detURL)
-        let cPose = try await MLModel.compileModel(at: poseURL)
-        compiled = [cDet, cPose]
-        detector = try MLModel(contentsOf: cDet, configuration: config)
-        pose = try MLModel(contentsOf: cPose, configuration: config)
-        self.minScore = minScore
-        self.maxPersons = maxPersons
-        func meta(_ m: MLModel, _ k: String) -> String {
-            (m.modelDescription.metadata[.creatorDefinedKey] as? [String: String])?[k] ?? "?"
-        }
-        identity = ["detectorPackageDigest": DatasetSplitManifest.canonicalDigest(ofDirectory: detURL) ?? "?",
-                    "posePackageDigest": DatasetSplitManifest.canonicalDigest(ofDirectory: poseURL) ?? "?",
-                    "detectorCheckpointSha256": meta(detector, "checkpointSha256"), "poseCheckpointSha256": meta(pose, "checkpointSha256"),
-                    "detectorTrainingData": meta(detector, "trainingData"), "poseTrainingData": meta(pose, "trainingData")]
+        let compiled = try await MLModel.compileModel(at: package)
+        return (try MLModel(contentsOf: compiled, configuration: config), compiled)
     }
 
-    deinit { for url in compiled { try? FileManager.default.removeItem(at: url) } }
-
-    var described: [String: String] {
-        identity.merging([
-            "name": "rtm",
-            "detector": "RTMDet-m person (OpenMMLab, rtmdet_m_8xb32-100e_coco-obj365-person) as Core ML fp16, 640x640 letterbox (top-left, pad 114)",
-            "pose": "RTMPose-m COCO-17 (OpenMMLab, rtmpose-m_simcc-aic-coco) as Core ML fp32 (fp16 collapses its scores), top-down crops 192x256, box padded 1.25 and widened to 3:4",
-            "nms": "IoU 0.6 (mmdet test_cfg), score > \(minScore), at most \(maxPersons) persons posed",
-            "jointSlots": "COCO-17 written into the 19 Vision slots; neck and root are not produced (null)",
-            "jointScore": "raw SimCC score (min of the x/y maxima): not a probability, can exceed 1; <= 0 written null",
-            "personScore": "sigmoid person score",
-            "computeUnits": "all",
-            "license": "code Apache-2.0 (OpenMMLab); weights carry research-use training data: RallyLab research only, never in the iOS app",
-        ]) { a, _ in a }
+    /// A string the converter wrote into the package's user-defined metadata, or "?".
+    static func meta(_ m: MLModel, _ key: String) -> String {
+        (m.modelDescription.metadata[.creatorDefinedKey] as? [String: String])?[key] ?? "?"
     }
 
     /// A 32BGRA pixel buffer of `w`×`h`, filled with `gray`, with `draw` applied in a CG context (origin bottom-left).
-    private static func buffer(_ w: Int, _ h: Int, gray: CGFloat, draw: (CGContext) -> Void) -> CVPixelBuffer? {
+    static func buffer(_ w: Int, _ h: Int, gray: CGFloat, draw: (CGContext) -> Void) -> CVPixelBuffer? {
         var pb: CVPixelBuffer?
         let attrs: [String: Any] = [kCVPixelBufferIOSurfacePropertiesKey as String: [:], kCVPixelBufferCGImageCompatibilityKey as String: true,
                                     kCVPixelBufferCGBitmapContextCompatibilityKey as String: true]
@@ -284,9 +248,66 @@ final class RTMPlayerDetector: PlayerDetector, @unchecked Sendable {
         return out
     }
 
-    private static func output(_ p: MLFeatureProvider, _ name: String) -> [Float] {
+    static func output(_ p: MLFeatureProvider, _ name: String) -> [Float] {
         p.featureValue(for: name)?.multiArrayValue.map(floats) ?? []
     }
+}
+
+// MARK: - RTMDet + RTMPose (Core ML, research only)
+
+final class RTMPlayerDetector: PlayerDetector, @unchecked Sendable {
+    static let detectorPackage = "rtmdet_m_person.mlpackage"
+    static let posePackage = "rtmpose_m_coco17.mlpackage"
+    static let detSize = 640
+    static let poseW = 192, poseH = 256
+    static let letterboxGray: CGFloat = 114.0 / 255.0
+    /// COCO-17 keypoint → slot in `PlayerFeatures.jointNames` (neck and root are not produced: null).
+    static let cocoToSlot: [Int] = ["nose", "left_eye", "right_eye", "left_ear", "right_ear", "left_shoulder", "right_shoulder",
+                                    "left_elbow", "right_elbow", "left_wrist", "right_wrist", "left_hip", "right_hip", "left_knee",
+                                    "right_knee", "left_ankle", "right_ankle"].map(PlayerFeatures.joint)
+
+
+    let minScore: Double
+    let maxPersons: Int
+    private let detector: MLModel
+    private let pose: MLModel
+    private let compiled: [URL]
+    private let identity: [String: String]
+
+    /// Loads (compiles) both packages from `models`.
+    init(models: URL, minScore: Double, maxPersons: Int = 40) async throws {
+        let fm = FileManager.default
+        let detURL = models.appendingPathComponent(Self.detectorPackage), poseURL = models.appendingPathComponent(Self.posePackage)
+        for url in [detURL, poseURL] where !fm.fileExists(atPath: url.path) { throw PlayerCoreML.LoadError.missing(url) }
+        let (det, cDet) = try await PlayerCoreML.load(detURL)
+        let (pos, cPose) = try await PlayerCoreML.load(poseURL)
+        compiled = [cDet, cPose]
+        detector = det
+        pose = pos
+        self.minScore = minScore
+        self.maxPersons = maxPersons
+        identity = ["detectorPackageDigest": DatasetSplitManifest.canonicalDigest(ofDirectory: detURL) ?? "?",
+                    "posePackageDigest": DatasetSplitManifest.canonicalDigest(ofDirectory: poseURL) ?? "?",
+                    "detectorCheckpointSha256": PlayerCoreML.meta(detector, "checkpointSha256"), "poseCheckpointSha256": PlayerCoreML.meta(pose, "checkpointSha256"),
+                    "detectorTrainingData": PlayerCoreML.meta(detector, "trainingData"), "poseTrainingData": PlayerCoreML.meta(pose, "trainingData")]
+    }
+
+    deinit { for url in compiled { try? FileManager.default.removeItem(at: url) } }
+
+    var described: [String: String] {
+        identity.merging([
+            "name": "rtm",
+            "detector": "RTMDet-m person (OpenMMLab, rtmdet_m_8xb32-100e_coco-obj365-person) as Core ML fp16, 640x640 letterbox (top-left, pad 114)",
+            "pose": "RTMPose-m COCO-17 (OpenMMLab, rtmpose-m_simcc-aic-coco) as Core ML fp32 (fp16 collapses its scores), top-down crops 192x256, box padded 1.25 and widened to 3:4",
+            "nms": "IoU 0.6 (mmdet test_cfg), score > \(minScore), at most \(maxPersons) persons posed",
+            "jointSlots": "COCO-17 written into the 19 Vision slots; neck and root are not produced (null)",
+            "jointScore": "raw SimCC score (min of the x/y maxima): not a probability, can exceed 1; <= 0 written null",
+            "personScore": "sigmoid person score",
+            "computeUnits": "all",
+            "license": "code Apache-2.0 (OpenMMLab); weights carry research-use training data: RallyLab research only, never in the iOS app",
+        ]) { a, _ in a }
+    }
+
 
     func detect(_ image: CGImage) -> PlayerDetections {
         var out = PlayerDetections()
@@ -294,7 +315,7 @@ final class RTMPlayerDetector: PlayerDetector, @unchecked Sendable {
         let n = Double(Self.detSize)
         let s = n / max(W, H)
         let d0 = DispatchTime.now().uptimeNanoseconds
-        let input = Self.buffer(Self.detSize, Self.detSize, gray: Self.letterboxGray) { ctx in
+        let input = PlayerCoreML.buffer(Self.detSize, Self.detSize, gray: Self.letterboxGray) { ctx in
             // Top-left aligned: the image's top edge at the canvas top (CG's origin is bottom-left).
             ctx.draw(image, in: CGRect(x: 0, y: n - H * s, width: W * s, height: H * s))
         }
@@ -302,7 +323,7 @@ final class RTMPlayerDetector: PlayerDetector, @unchecked Sendable {
             out.rectFailed = true
             return out
         }
-        let scores = Self.output(result, "scores"), boxes = Self.output(result, "boxes")
+        let scores = PlayerCoreML.output(result, "scores"), boxes = PlayerCoreML.output(result, "boxes")
         var candidates: [PlayerDetections.Person] = []
         var pixelBoxes: [(Double, Double, Double, Double)] = []  // x1, y1, x2, y2 in the image's pixels, top-left origin
         for i in scores.indices where Double(scores[i]) > minScore && boxes.count >= 4 * (i + 1) {
@@ -334,13 +355,13 @@ final class RTMPlayerDetector: PlayerDetector, @unchecked Sendable {
         if w > h * aspect { h = w / aspect } else { w = h * aspect }
         let ox = cx - w / 2, oy = cy - h / 2, k = Double(Self.poseW) / w
         let ph = Double(Self.poseH)
-        guard let crop = Self.buffer(Self.poseW, Self.poseH, gray: 0, draw: { ctx in
+        guard let crop = PlayerCoreML.buffer(Self.poseW, Self.poseH, gray: 0, draw: { ctx in
             ctx.draw(image, in: CGRect(x: -ox * k, y: ph - (H - oy) * k, width: W * k, height: H * k))
         }), let r = try? pose.prediction(from: MLDictionaryFeatureProvider(dictionary: ["image": MLFeatureValue(pixelBuffer: crop)])) else {
             failed = true
             return nil
         }
-        let kp = Self.output(r, "keypoints"), sc = Self.output(r, "scores")
+        let kp = PlayerCoreML.output(r, "keypoints"), sc = PlayerCoreML.output(r, "scores")
         guard kp.count >= 34, sc.count >= 17 else { failed = true; return nil }
         var joints = [PlayerFeatures.Joint?](repeating: nil, count: PlayerFeatures.jointNames.count)
         for j in 0..<17 where sc[j] > 0 {
@@ -349,6 +370,142 @@ final class RTMPlayerDetector: PlayerDetector, @unchecked Sendable {
         }
         let reported = joints.compactMap { $0 }
         return PlayerFeatures.Pose(conf: reported.isEmpty ? 0 : reported.map(\.c).reduce(0, +) / Double(reported.count), joints: joints)
+    }
+}
+
+// MARK: - RF-DETR (Core ML, Apache-2.0 checkpoints) + Apple Vision pose
+
+/// Roboflow RF-DETR Small or Medium (COCO, Apache-2.0) exported by the package's own Core ML exporter
+/// (scripts/player_features/convert_rfdetr_coreml.py), with Apple Vision body pose run on each person's crop — the
+/// candidate stack that could ship without training: no research-only weights anywhere. The frame is stretched to the
+/// model's N×N (no letterbox), ImageNet-normalised; a person is a query whose sigmoid person score (sparse COCO slot 1)
+/// exceeds `minScore`. DETR needs no NMS and none is applied (tiling still merges across tiles). Vision poses few people
+/// under ~150 px tall, and enlarging their crops does not help (measured on the pilot, P1 report).
+final class RFDETRPlayerDetector: PlayerDetector, @unchecked Sendable {
+    enum Size: String, CaseIterable, Sendable { case small, medium }
+    static func package(_ size: Size) -> String { "rfdetr_\(size.rawValue)_person.mlpackage" }
+    static let personSlot = 1
+    static let mean: [Float] = [0.485, 0.456, 0.406], std: [Float] = [0.229, 0.224, 0.225]
+    /// Each person box is padded by this factor before Vision poses its crop (cut-off limbs are still in the crop).
+    static let posePad = 1.25
+
+    let size: Size
+    let minScore: Double
+    let maxPersons: Int
+    private let model: MLModel
+    private let side: Int
+    private let compiled: URL
+    private let identity: [String: String]
+
+    init(models: URL, size: Size, minScore: Double, maxPersons: Int = 40) async throws {
+        let url = models.appendingPathComponent(Self.package(size))
+        guard FileManager.default.fileExists(atPath: url.path) else { throw PlayerCoreML.LoadError.missing(url, script: "convert_rfdetr_coreml.py") }
+        (model, compiled) = try await PlayerCoreML.load(url)
+        guard let shape = model.modelDescription.inputDescriptionsByName["input"]?.multiArrayConstraint?.shape, shape.count == 4 else {
+            throw PlayerCoreML.LoadError.unexpected(url, "no [1, 3, N, N] input named \"input\"")
+        }
+        side = shape[3].intValue
+        self.size = size
+        self.minScore = minScore
+        self.maxPersons = maxPersons
+        identity = ["packageDigest": DatasetSplitManifest.canonicalDigest(ofDirectory: url) ?? "?",
+                    "checkpoint": PlayerCoreML.meta(model, "checkpoint"), "checkpointSha256": PlayerCoreML.meta(model, "checkpointSha256"),
+                    "checkpointUrl": PlayerCoreML.meta(model, "checkpointUrl"), "precision": PlayerCoreML.meta(model, "precision"),
+                    "trainingData": PlayerCoreML.meta(model, "trainingData"), "license": PlayerCoreML.meta(model, "license")]
+    }
+
+    deinit { try? FileManager.default.removeItem(at: compiled) }
+
+    var described: [String: String] {
+        identity.merging([
+            "name": "rfdetr-\(size.rawValue)",
+            "detector": "RF-DETR \(size.rawValue.capitalized) COCO (Roboflow rfdetr, own Core ML export), \(side)x\(side) stretched, ImageNet-normalised",
+            "pose": "Apple Vision VNDetectHumanBodyPoseRequest revision \(VNDetectHumanBodyPoseRequestRevision1) on each person's crop (box padded \(Self.posePad)x), "
+                + "the pose holding most of its joints in the box (share >= 0.6) kept",
+            "nms": "none (DETR); sigmoid person score > \(minScore), at most \(maxPersons) persons posed",
+            "jointScore": "Vision recognized-point confidence, 0-1",
+            "personScore": "sigmoid of the person logit (sparse COCO slot \(Self.personSlot))",
+            "computeUnits": "all",
+        ]) { a, _ in a }
+    }
+
+    /// The model input: the image stretched to N×N (CG medium interpolation), RGB planes scaled to 0–1 and normalised.
+    private func input(_ image: CGImage) -> MLMultiArray? {
+        let n = side
+        var rgba = [UInt8](repeating: 0, count: n * n * 4)
+        let drawn = rgba.withUnsafeMutableBytes { buf -> Bool in
+            guard let ctx = CGContext(data: buf.baseAddress, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n * 4,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else { return false }
+            ctx.interpolationQuality = .medium
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: n, height: n))
+            return true
+        }
+        guard drawn, let array = try? MLMultiArray(shape: [1, 3, NSNumber(value: n), NSNumber(value: n)], dataType: .float32) else { return nil }
+        let strides = array.strides.map(\.intValue)
+        array.withUnsafeMutableBufferPointer(ofType: Float.self) { dst, _ in
+            for c in 0..<3 {
+                let scale = 1 / (255 * Self.std[c]), shift = Self.mean[c] / Self.std[c]
+                for row in 0..<n {
+                    for col in 0..<n {
+                        dst[c * strides[1] + row * strides[2] + col * strides[3]] = Float(rgba[(row * n + col) * 4 + c]) * scale - shift
+                    }
+                }
+            }
+        }
+        return array
+    }
+
+    func detect(_ image: CGImage) -> PlayerDetections {
+        var out = PlayerDetections()
+        let W = Double(image.width), H = Double(image.height)
+        let d0 = DispatchTime.now().uptimeNanoseconds
+        guard let x = input(image),
+              let result = try? model.prediction(from: MLDictionaryFeatureProvider(dictionary: ["input": MLFeatureValue(multiArray: x)])) else {
+            out.rectFailed = true
+            return out
+        }
+        let boxes = PlayerCoreML.output(result, "boxes"), logits = PlayerCoreML.output(result, "logits")
+        let slots = logits.count / max(1, boxes.count / 4)
+        var people: [PlayerDetections.Person] = []
+        for q in 0..<(boxes.count / 4) where slots > Self.personSlot {
+            let score = 1 / (1 + exp(-Double(logits[q * slots + Self.personSlot])))
+            guard score > minScore else { continue }
+            let cx = Double(boxes[4 * q]), cy = Double(boxes[4 * q + 1]), bw = Double(max(0, boxes[4 * q + 2])), bh = Double(max(0, boxes[4 * q + 3]))
+            let x1 = max(0, cx - bw / 2), x2 = min(1, cx + bw / 2), y1 = max(0, cy - bh / 2), y2 = min(1, cy + bh / 2)  // top-left origin
+            guard x2 > x1, y2 > y1 else { continue }
+            people.append(.init(box: PlayerFeatures.Box(x: x1, y: 1 - y2, w: x2 - x1, h: y2 - y1), conf: score, pose: nil))
+        }
+        people.sort { $0.conf > $1.conf }
+        out.ms["rect"] = Double(DispatchTime.now().uptimeNanoseconds - d0) / 1e6
+
+        let p0 = DispatchTime.now().uptimeNanoseconds
+        for i in people.indices.prefix(maxPersons) {
+            people[i].pose = posed(image, box: people[i].box, W: W, H: H, failed: &out.poseFailed)
+        }
+        out.ms["pose"] = Double(DispatchTime.now().uptimeNanoseconds - p0) / 1e6
+        out.persons = people
+        return out
+    }
+
+    /// Vision body pose on the person's padded crop; the pose that best fills the box, in frame coordinates.
+    private func posed(_ image: CGImage, box: PlayerFeatures.Box, W: Double, H: Double, failed: inout Bool) -> PlayerFeatures.Pose? {
+        let pw = box.w * Self.posePad, ph = box.h * Self.posePad
+        let cx = box.x + box.w / 2, cy = box.y + box.h / 2
+        // The crop in the image's pixels (CGImage cropping is top-left origin), clipped to the frame.
+        let crop = CGRect(x: (cx - pw / 2) * W, y: (1 - cy - ph / 2) * H, width: pw * W, height: ph * H)
+            .integral.intersection(CGRect(x: 0, y: 0, width: W, height: H))
+        guard crop.width >= 2, crop.height >= 2, let cropped = image.cropping(to: crop) else { return nil }
+        let request = VNDetectHumanBodyPoseRequest()
+        request.revision = VNDetectHumanBodyPoseRequestRevision1
+        do { try VNImageRequestHandler(cgImage: cropped, orientation: .up, options: [:]).perform([request]) } catch { failed = true; return nil }
+        // Crop-normalised (bottom-left) ↔ frame-normalised (bottom-left).
+        let ox = crop.minX / W, oy = 1 - crop.maxY / H, sx = crop.width / W, sy = crop.height / H
+        let poses = (request.results ?? []).map { o -> PlayerFeatures.Pose in
+            let p = VisionPlayerDetector.pose(o)
+            return PlayerFeatures.Pose(conf: p.conf, joints: p.joints.map { j in j.map { PlayerFeatures.Joint(x: ox + $0.x * sx, y: oy + $0.y * sy, c: $0.c) } })
+        }
+        return PlayerDetections.associate(boxes: [box], poses: poses).byBox[0].map { poses[$0] }
     }
 }
 

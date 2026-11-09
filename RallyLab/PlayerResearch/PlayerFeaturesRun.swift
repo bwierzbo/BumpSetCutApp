@@ -29,8 +29,8 @@
 //   5. the experiment's own exposure ledger (`<experiment>/manifests/exposure-log.json`,
 //      kind `detector_evaluation`) for every planned recording, before the first frame is
 //      decoded — the source project's ledger is not written (owner, 2026-11-08);
-//   6. per recording, the plan's detector (Apple Vision, or the research RTMDet + RTMPose models read from
-//      <experiment>/models/rtm) through its tiling on the sampled frames off the main actor, the assembler, the
+//   6. per recording, the plan's detector (Apple Vision; the research RTMDet + RTMPose models read from
+//      <experiment>/models/rtm; or RF-DETR Small/Medium from <experiment>/models/rfdetr with Vision pose) through its tiling on the sampled frames off the main actor, the assembler, the
 //      frame lines; overlays and the audit sample in diagnostics/; the manifest last, then
 //      the staging folder moved to `<experiment>/runs/<name>`.
 //
@@ -61,16 +61,18 @@ enum PlayerFeaturesRun {
         /// Overlay frames per interval put in the audit sample.
         var auditPerInterval: Int = 2
         var recordings: [Item]
-        /// `vision` (default: Apple Vision, the P0 baseline) or `rtm` (RTMDet + RTMPose from `<experiment>/models/rtm`,
-        /// research only). Optional so a plan written before it existed still reads.
+        /// `vision` (default: Apple Vision, the P0 baseline), `rtm` (RTMDet + RTMPose from `<experiment>/models/rtm`,
+        /// research only) or `rfdetr-small` / `rfdetr-medium` (RF-DETR from `<experiment>/models/rfdetr`, Apache-2.0
+        /// checkpoints, with Vision pose on each person's crop). Optional so a plan written before it existed still reads.
         var detector: String?
         /// Columns and rows of overlapping tiles (default 1×1: the whole frame).
         var tiles: [Int]?
         var tileOverlap: Double?
-        /// The RTMDet person score a detection needs (default 0.3).
+        /// The person score (RTMDet or RF-DETR sigmoid) a detection needs (default 0.3); Vision ignores it.
         var minScore: Double?
 
         var detectorName: String { detector ?? "vision" }
+        static let detectors = ["vision", "rtm"] + RFDETRPlayerDetector.Size.allCases.map { "rfdetr-\($0.rawValue)" }
         var tiling: PlayerTiling { PlayerTiling(cols: tiles?.first ?? 1, rows: tiles?.dropFirst().first ?? 1, overlap: tileOverlap ?? 0.15) }
         var personMinScore: Double { minScore ?? 0.3 }
     }
@@ -115,7 +117,7 @@ enum PlayerFeaturesRun {
         if !(plan.hz > 0 && plan.hz <= maxHz) { e.append("hz \(plan.hz) outside (0, \(maxHz)]") }
         if plan.source != "scrub_proxy" { e.append("source \(plan.source): only scrub_proxy is supported (originals are on the footage share)") }
         if plan.overlayEvery < 1 { e.append("overlayEvery must be ≥ 1") }
-        if !["vision", "rtm"].contains(plan.detectorName) { e.append("detector \(plan.detectorName) is neither vision nor rtm") }
+        if !Plan.detectors.contains(plan.detectorName) { e.append("detector \(plan.detectorName) is not one of \(Plan.detectors.joined(separator: ", "))") }
         if let t = plan.tiles, t.count != 2 || !t.allSatisfy({ (1...4).contains($0) }) { e.append("tiles must be [columns, rows], each 1–4") }
         if !(0..<0.5).contains(plan.tiling.overlap) { e.append("tileOverlap must be in [0, 0.5)") }
         if !(0...1).contains(plan.personMinScore) { e.append("minScore must be in [0, 1]") }
@@ -251,13 +253,23 @@ enum PlayerFeaturesRun {
 
         // 5. The ledger, before the first frame.
         let detector: PlayerDetector
+        let detectorRef: String
         do {
-            detector = plan.detectorName == "rtm"
-                ? try await RTMPlayerDetector(models: experiment.appendingPathComponent("models/rtm", isDirectory: true), minScore: plan.personMinScore)
-                : VisionPlayerDetector()
+            let models = experiment.appendingPathComponent("models", isDirectory: true)
+            if plan.detectorName == "rtm" {
+                detector = try await RTMPlayerDetector(models: models.appendingPathComponent("rtm", isDirectory: true), minScore: plan.personMinScore)
+                detectorRef = "rtmdet-m+rtmpose-m"
+            } else if plan.detectorName.hasPrefix("rfdetr-"),
+                      let size = RFDETRPlayerDetector.Size(rawValue: String(plan.detectorName.dropFirst("rfdetr-".count))) {
+                detector = try await RFDETRPlayerDetector(models: models.appendingPathComponent("rfdetr", isDirectory: true), size: size,
+                                                          minScore: plan.personMinScore)
+                detectorRef = "rfdetr-\(size.rawValue)+vision-pose-r1"
+            } else {
+                detector = VisionPlayerDetector()
+                detectorRef = "vision-rect-r2+pose-r1"
+            }
         } catch { throw Failure.refused(["the \(plan.detectorName) detector can't be loaded: \(error.localizedDescription)"]) }
         let tiling = plan.tiling
-        let detectorRef = plan.detectorName == "rtm" ? "rtmdet-m+rtmpose-m" : "vision-rect-r2+pose-r1"
         let ref = "\(PlayerFeatures.ledgerRef) \(name) \(detectorRef) tiles=\(tiling.cols)x\(tiling.rows) \(plan.hz)Hz \(plan.source)"
         try ExposureLog.record(videos: Set(planned), kind: .detectorEvaluation, ref: ref,
                                note: "player-feasibility research P0 (D-034, proposed): Apple Vision people and pose on sampled frames of \(manifest.project); not training, not rally scoring; the source project's ledger is not written (owner, 2026-11-08)",

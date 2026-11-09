@@ -83,10 +83,10 @@ final class PlayerDetectorsTests: XCTestCase {
     func testFloat16OutputsAreRead() throws {
         let a = try MLMultiArray(shape: [3], dataType: .float16)
         a[0] = 0.5; a[1] = -1.25; a[2] = 2
-        XCTAssertEqual(RTMPlayerDetector.floats(a), [0.5, -1.25, 2])
+        XCTAssertEqual(PlayerCoreML.floats(a), [0.5, -1.25, 2])
         let b = try MLMultiArray(shape: [2], dataType: .float32)
         b[0] = 1.5; b[1] = 3
-        XCTAssertEqual(RTMPlayerDetector.floats(b), [1.5, 3])
+        XCTAssertEqual(PlayerCoreML.floats(b), [1.5, 3])
     }
 
     /// Core ML pads rows: the detector's boxes arrive [1, 8400, 4] with strides [268800, 32, 1] (seen 2026-11-08). Reading the
@@ -96,13 +96,13 @@ final class PlayerDetectorsTests: XCTestCase {
         let p32 = UnsafeMutablePointer<Float>.allocate(capacity: f32.count)
         p32.initialize(from: f32, count: f32.count)
         let a = try MLMultiArray(dataPointer: p32, shape: [2, 2], dataType: .float32, strides: [4, 1], deallocator: { $0.deallocate() })
-        XCTAssertEqual(RTMPlayerDetector.floats(a), [1, 2, 3, 4])
+        XCTAssertEqual(PlayerCoreML.floats(a), [1, 2, 3, 4])
         // Half floats by bit pattern: 0.5 = 0x3800, 1 = 0x3C00, 2 = 0x4000, -1 = 0xBC00; padding 0x7BFF (65504).
         let f16: [UInt16] = [0x3800, 0x3C00, 0x7BFF, 0x4000, 0xBC00, 0x7BFF]
         let p16 = UnsafeMutablePointer<UInt16>.allocate(capacity: f16.count)
         p16.initialize(from: f16, count: f16.count)
         let b = try MLMultiArray(dataPointer: p16, shape: [1, 2, 2], dataType: .float16, strides: [6, 3, 1], deallocator: { $0.deallocate() })
-        XCTAssertEqual(RTMPlayerDetector.floats(b), [0.5, 1, 2, -1])
+        XCTAssertEqual(PlayerCoreML.floats(b), [0.5, 1, 2, -1])
     }
 
     func testCocoKeypointsFillVisionSlotsLeavingNeckAndRootNull() {
@@ -113,5 +113,16 @@ final class PlayerDetectorsTests: XCTestCase {
         XCTAssertFalse(slots.contains(PlayerFeatures.joint("root")))
         XCTAssertEqual(slots[5], PlayerFeatures.joint("left_shoulder"))
         XCTAssertEqual(slots[16], PlayerFeatures.joint("right_ankle"))
+    }
+
+    func testRFDETRRefusesAMissingPackageAndNamesItsConverter() async {
+        let empty = FileManager.default.temporaryDirectory.appendingPathComponent("rfdetr-missing-\(UUID().uuidString)", isDirectory: true)
+        do {
+            _ = try await RFDETRPlayerDetector(models: empty, size: .small, minScore: 0.3)
+            XCTFail("no package, no detector")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("rfdetr_small_person.mlpackage"), error.localizedDescription)
+            XCTAssertTrue(error.localizedDescription.contains("convert_rfdetr_coreml.py"), error.localizedDescription)
+        }
     }
 }
