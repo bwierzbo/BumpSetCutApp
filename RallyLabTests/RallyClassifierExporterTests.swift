@@ -50,6 +50,8 @@ final class RallyClassifierExporterTests: XCTestCase {
         var sessionId: String? = nil
         var spans: [FootageProperties.Span] = []
         var cuts: [CutRange]? = nil
+        /// The card's registered fingerprint, when not the link's own.
+        var fingerprint: String? = nil
         var marks: [RallyMarkRecord] = [
             RallyMarkRecord(startTime: 5, endTime: 12, kind: .rally, contacts: nil),
             RallyMarkRecord(startTime: 20, endTime: 31, kind: nil, contacts: nil),
@@ -75,7 +77,7 @@ final class RallyClassifierExporterTests: XCTestCase {
             try Data("footage of \(s.name)".utf8).write(to: footage(s.name))
             let src = ClipSource(kind: .link, origin: "https://youtu.be/\(s.name)", start: 0, length: 60, license: "permission",
                                  title: s.name, uploader: "up\(n)", clipFile: footage(s.name).path, fetchedAt: F.day,
-                                 videoId: s.name, frames: nil, fingerprint: "youtube:\(s.name)", sourceId: nil, sessionId: s.sessionId, venueId: nil)
+                                 videoId: s.name, frames: nil, fingerprint: s.fingerprint ?? "youtube:\(s.name)", sourceId: nil, sessionId: s.sessionId, venueId: nil)
             clips.append(PlannedClip(id: s.name, number: n + 1, environment: s.name.hasPrefix("grs") ? "Grass" : s.name.hasPrefix("ind") ? "Indoor" : "Beach",
                                      camera: "End line, raised", lighting: "Sun", orientation: "Landscape", ball: "Beach", notes: "",
                                      split: s.split, videos: [src], pulledFrom: nil))
@@ -85,7 +87,7 @@ final class RallyClassifierExporterTests: XCTestCase {
             try store.save(session)
             try JSONEncoder().encode(s.marks).write(to: RallyMarkModel.labelsURL(for: footage(s.name)))
             if let type = s.type {
-                try FootageProperties.Store(root: root).save(FootageProperties.File(video: s.name, sourceFingerprint: "youtube:\(s.name)", recordingType: type,
+                try FootageProperties.Store(root: root).save(FootageProperties.File(video: s.name, sourceFingerprint: s.fingerprint ?? "youtube:\(s.name)", recordingType: type,
                                                                                     recordingTypeBy: "BW", recordingTypeAt: at, spans: s.spans, updatedAt: at))
             }
         }
@@ -302,18 +304,46 @@ final class RallyClassifierExporterTests: XCTestCase {
         }
     }
 
-    func testACopyOfWithheldFootageUnderAnotherCardIsRefusedByContent() async throws {
+    func testACopyOfWithheldFootageUnderAnotherCardIsLeftOutByContent() async throws {
         // grs_b's card and name are its own, but its original is the withheld bch_w's video, byte for byte.
         try project([Spec(name: "bch_a"), Spec(name: "grs_b", split: "val")])
         try FileManager.default.removeItem(at: footage("grs_b"))
         try FileManager.default.copyItem(at: footage("bch_w"), to: footage("grs_b"))
         let calls = Calls()
-        do {
-            _ = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(calls))
-            XCTFail("exported a copy of withheld footage")
-        } catch let f as X.Failure { XCTAssertEqual(f, .withheldContent(["grs_b"])) }
-        XCTAssertEqual(calls.names, [], "refused before the detector ran on anything")
-        XCTAssertEqual(try ledger(), [])
+        let result = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(calls))
+        XCTAssertEqual(result.recordings, ["bch_a"])
+        XCTAssertEqual(calls.names, ["bch_a"], "the copy is left out in the plan, before the detector runs on it")
+        let left = try XCTUnwrap(result.leftOut.first { $0.video == "grs_b" })
+        XCTAssertTrue(left.reason.contains("withheld") && left.reason.contains("content"), left.reason)
+        XCTAssertEqual(Set(try ledger().map(\.video)), ["bch_a"])
+    }
+
+    func testARecordingRegisteredAsWithheldFootageIsLeftOutThoughItsFileWasReencoded() async throws {
+        // grs_b's card was registered with the withheld bch_w's file fingerprint; its own file has since been replaced
+        // by other bytes (a re-encode of the same footage), so its content matches nothing. The card's identity
+        // still does: the plan leaves it out, where once only the preflight caught it, after every recording ran.
+        let probe = base.appendingPathComponent("probe.mp4")
+        try Data("footage of bch_w".utf8).write(to: probe)
+        let withheldContent = try XCTUnwrap(ProjectsModel.fileFingerprint(atPath: probe.path))
+        try project([Spec(name: "bch_a"), Spec(name: "grs_b", split: "val", fingerprint: withheldContent)])
+        XCTAssertEqual(ProjectsModel.fileFingerprint(atPath: footage("bch_w").path), withheldContent)
+        XCTAssertNotEqual(ProjectsModel.fileFingerprint(atPath: footage("grs_b").path), withheldContent)
+        let calls = Calls()
+        let result = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(calls))
+        XCTAssertEqual(result.recordings, ["bch_a"])
+        XCTAssertEqual(calls.names, ["bch_a"], "left out in the plan, never processed")
+        let left = try XCTUnwrap(result.leftOut.first { $0.video == "grs_b" })
+        XCTAssertTrue(left.reason.contains("withheld") && left.reason.contains("fingerprint"), left.reason)
+        XCTAssertEqual(Set(try ledger().map(\.video)), ["bch_a"])
+    }
+
+    func testThePlanAndThePreflightShareOneWithheldIdentityRule() {
+        let w = X.Withheld(names: ["bch_w"], sourceIds: ["src:w"], fingerprints: ["file:w", "youtube:w"])
+        XCTAssertEqual(X.withheldIdentity(name: "bch_w", sourceId: nil, fingerprint: nil, content: nil, in: w), "name")
+        XCTAssertEqual(X.withheldIdentity(name: "a", sourceId: "src:w", fingerprint: nil, content: nil, in: w), "sourceId")
+        XCTAssertEqual(X.withheldIdentity(name: "a", sourceId: "src:a", fingerprint: "file:w", content: "file:a", in: w), "fingerprint")
+        XCTAssertEqual(X.withheldIdentity(name: "a", sourceId: nil, fingerprint: "youtube:a", content: "file:w", in: w), "content")
+        XCTAssertNil(X.withheldIdentity(name: "a", sourceId: "src:a", fingerprint: "youtube:a", content: "file:a", in: w))
     }
 
     func testAWithheldRecordingWhoseVideoIsNotHereStopsTheRun() async throws {

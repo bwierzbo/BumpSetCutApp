@@ -175,7 +175,6 @@ enum RallyClassifierExporter {
         case noCodeSha
         case planExists(URL)
         case footageMissing([String])
-        case withheldContent([String])
         case noRecordings
         case unreadable(String)
         case preflightFailed([String])
@@ -197,7 +196,6 @@ enum RallyClassifierExporter {
             case .noCodeSha: return "The commit or the executable the exporter was built as is unknown; no dataset is written without them."
             case .planExists(let u): return "\(u.path) already exists; run again."
             case .footageMissing(let v): return "The original of \(v.count) recording(s) to export is not on this Mac (\(v.joined(separator: ", "))): bring the footage back and run again (the plan is written)."
-            case .withheldContent(let v): return "The original of \(v.joined(separator: ", ")) is a withheld recording's video (by content): nothing is exported."
             case .noRecordings: return "No recording is eligible for the dataset (see the plan)."
             case .unreadable(let why): return why
             case .preflightFailed(let c): return "Preflight failed: \(c.joined(separator: ", ")). The staging folder was removed."
@@ -275,6 +273,16 @@ enum RallyClassifierExporter {
         let rows = Dictionary(manifest.videos.map { ($0.video, $0) }, uniquingKeysWith: { a, _ in a })
         let bySource = registry.byVideo
 
+        // By content, as the L2 package checks it: every identity a withheld recording's video can have on disk
+        // (LineagePackage.protectedSourceFingerprints — a withheld recording with no file here can't be recognised and
+        // stops the run). The closure the dataset carries holds these too, so the preflight and the validator check
+        // them again; the plan below leaves out any recording that matches one, before a video is processed.
+        let protectedContent: Set<String>
+        do { protectedContent = try LineagePackage.protectedSourceFingerprints(sessions: Array(sessions.values), withheld: closure, sources: sources) }
+        catch { throw Failure.unreadable(error.localizedDescription) }
+        let withheldFull = Withheld(names: withheld.names, sourceIds: withheld.sourceIds,
+                                    fingerprints: Set(withheld.fingerprints).union(protectedContent).sorted())
+
         var planned: [Planned] = []
         var leftOut: [LeftOut] = []
         var missing: [String] = []
@@ -309,6 +317,14 @@ enum RallyClassifierExporter {
             }
             // The original's content identity as it is now, so a resume never keeps evidence of a file since replaced.
             guard fm.fileExists(atPath: session.sourcePath), let content = ProjectsModel.fileFingerprint(atPath: session.sourcePath) else { missing.append(e.video); continue }
+            // Withheld footage under this recording's card, by any identity the preflight checks: the fingerprint the
+            // card was registered with (a re-encoded original has new bytes but the same footage), the confirmed
+            // source, or the original's content. Left out here, so it is never processed and refused only at the end.
+            if let match = withheldIdentity(name: e.video, sourceId: confirmedSourceId(row), fingerprint: row.fingerprint, content: content, in: withheldFull) {
+                let why = "the same footage as a withheld recording (its \(match) is one of the withheld identities): fix the split before it can be exported"
+                log("⚠️ \(e.video): \(why)")
+                out(why); continue
+            }
             planned.append(Planned(video: e.video, session: session, row: row, source: source, records: records, truth: truth,
                                    marksSha256: DatasetSplitManifest.sha256(of: marksURL) ?? "", properties: properties[e.video], fileFingerprint: content))
         }
@@ -327,17 +343,6 @@ enum RallyClassifierExporter {
         guard missing.isEmpty else { throw Failure.footageMissing(missing.sorted()) }
         guard !planned.isEmpty else { throw Failure.noRecordings }
 
-        // By content, as the L2 package checks it: every identity a withheld recording's video can have on disk
-        // (LineagePackage.protectedSourceFingerprints — a withheld recording with no file here can't be recognised and
-        // stops the run), and no recording to export whose original is one of them. The closure the dataset carries
-        // holds these too, so the preflight and the validator check them again.
-        let protectedContent: Set<String>
-        do { protectedContent = try LineagePackage.protectedSourceFingerprints(sessions: Array(sessions.values), withheld: closure, sources: sources) }
-        catch { throw Failure.unreadable(error.localizedDescription) }
-        let copies = planned.filter { protectedContent.contains($0.fileFingerprint) }.map(\.video)
-        guard copies.isEmpty else { throw Failure.withheldContent(copies) }
-        let withheldFull = Withheld(names: withheld.names, sourceIds: withheld.sourceIds,
-                                    fingerprints: Set(withheld.fingerprints).union(protectedContent).sorted())
         let closureURL = records.appendingPathComponent("\(stamp)-closure.json")
         try encode(withheldFull).write(to: closureURL, options: .withoutOverwriting)
 
@@ -464,6 +469,20 @@ enum RallyClassifierExporter {
     }
 
     // MARK: - Planning helpers
+
+    /// Which of a recording's identities is a withheld one — its name, confirmed sourceId, card fingerprint or its
+    /// original's content fingerprint — or nil. The plan leaves such a recording out; the preflight refuses one that
+    /// got through anyway. One rule for both, so the plan can't pass what the preflight then refuses.
+    static func withheldIdentity(name: String, sourceId: String?, fingerprint: String?, content: String?, in w: Withheld) -> String? {
+        if w.names.contains(name) { return "name" }
+        if let sourceId, w.sourceIds.contains(sourceId) { return "sourceId" }
+        if let fingerprint, w.fingerprints.contains(fingerprint) { return "fingerprint" }
+        if let content, w.fingerprints.contains(content) { return "content" }
+        return nil
+    }
+
+    /// A manifest row's sourceId when a person confirmed it; an inferred one identifies nothing.
+    static func confirmedSourceId(_ row: ManifestVideo) -> String? { row.sourceId.origin == .confirmed ? row.sourceId.value : nil }
 
     struct Planned {
         var video: String
@@ -694,7 +713,7 @@ enum RallyClassifierExporter {
         let reasons = verdict.reasons + negativesVerdict.reasons.filter { !verdict.reasons.contains($0) }
         let row = p.row
         let record = Recording(
-            recordingId: p.video, sourceId: row.sourceId.origin == .confirmed ? row.sourceId.value : nil, fingerprint: row.fingerprint,
+            recordingId: p.video, sourceId: confirmedSourceId(row), fingerprint: row.fingerprint,
             groupId: groupId, split: row.split.rawValue, fold: nil, surface: row.surface, camera: row.camera, orientation: row.orientation,
             originKind: row.originKind, uploader: row.uploader, durationSec: ev.duration, frameRateNominal: ev.frameRate, vfr: nil,
             aspect: ev.aspect, upright: frames.first?.upright ?? config.applyVideoRotation,
@@ -744,12 +763,10 @@ enum RallyClassifierExporter {
         let w = manifest.withheld
         check("closure", w.names.isEmpty ? ["empty"] : (w.closureSha256 == closureSha256(w) ? [] : ["closureSha256 does not match"]),
               "\(w.names.count) names, \(w.sourceIds.count) sourceIds, \(w.fingerprints.count) fingerprints")
-        let names = Set(w.names), ids = Set(w.sourceIds), fps = Set(w.fingerprints)
+        let fps = Set(w.fingerprints)
         check("no-withheld-recording", recs.compactMap { r in
-            if closure.contains(r.recordingId) || names.contains(r.recordingId) { return "\(r.recordingId) (name)" }
-            if let s = r.sourceId, ids.contains(s) { return "\(r.recordingId) (sourceId)" }
-            if let f = r.fingerprint, fps.contains(f) { return "\(r.recordingId) (fingerprint)" }
-            return nil
+            if closure.contains(r.recordingId) { return "\(r.recordingId) (name)" }
+            return withheldIdentity(name: r.recordingId, sourceId: r.sourceId, fingerprint: r.fingerprint, content: nil, in: w).map { "\(r.recordingId) (\($0))" }
         }, "no recording, source or file of the closure")
         check("sources-not-protected", recs.compactMap { r in
             guard let f = content[r.recordingId] else { return "\(r.recordingId): its original has no content fingerprint" }
