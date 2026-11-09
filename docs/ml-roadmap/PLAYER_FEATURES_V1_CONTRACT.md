@@ -2,7 +2,7 @@
 name: player-features-contract
 status: proposed v1 (owner review); written by `RallyLab --player-lab-run <experiment> --source-project <project> --plan <plan.json> --run <name>` (`RallyLab/PlayerResearch/PlayerFeaturesRun.swift`); validated by `scripts/player_features/validate_player_features.py`
 created: 2026-11-08T22:34:07Z
-updated: 2026-11-08T22:34:07Z
+updated: 2026-11-09T01:02:44Z
 decision: D-034 (proposed); honours D-002, D-010, D-017, D-021, D-030, D-031
 ---
 
@@ -44,8 +44,8 @@ It is never inside a project or a `rally_classifier_dataset_v1` folder. `RallyLa
 | `withheld` | `{names, sourceIds, fingerprints, closureSha256}`: the full closure (`ReservedVideos.lineageWithheldNames ∪ reservedNames`) plus every content fingerprint it was compared with (stored file identities and the withheld recordings' local proxies). `closureSha256` = SHA-256 of `names ⧺ ["--"] ⧺ sourceIds ⧺ ["--"] ⧺ fingerprints` joined by `\n`. An empty closure is refused |
 | `timescale` | `600`, the scoring contract's ticks per second |
 | `coordinateSpace` | `"vision_normalized_upright"`: origin bottom-left, y up, 0–1, in the frame **after** the track's rotation flag is applied. This is the space `FrameEvidence` uses when `upright` (`ProcessorConfig.applyVideoRotation`, default on), so ball and player coordinates compare directly |
-| `jointNames` | the 19 joints of `VNDetectHumanBodyPoseRequest` revision 1, in the order of every `joints` array |
-| `detector` | framework, macOS version and build, each request and its revision (`VNDetectHumanRectanglesRequest` r2 with `upperBodyOnly = false`; `VNDetectHumanBodyPoseRequest` r1), compute units (Vision default, not pinned), licence note |
+| `jointNames` | the 19 joints of `VNDetectHumanBodyPoseRequest` revision 1, in the order of every `joints` array. A detector with another skeleton writes into these slots: RTMPose's COCO-17 fills 17 of them, and `neck` and `root` stay null |
+| `detector` | `name` (`vision` or `rtm`) and its full description, merged with the tiling (`tiles`, `overlap`, `merge`). **vision:** framework, macOS version and build, each request and its revision (`VNDetectHumanRectanglesRequest` r2 with `upperBodyOnly = false`; `VNDetectHumanBodyPoseRequest` r1), pairing rule, compute units, licence note. **rtm** (P1, research only): RTMDet-m person and RTMPose-m COCO-17 as Core ML, the converted packages' canonical digests, the source checkpoints' SHA-256 and training data, NMS and score threshold, precision (detector fp16, pose fp32), licence note |
 | `sampling` | `hz`, plus the rule: the first decoded frame at or after `start + k/hz` on the presentation timeline, never the same frame twice; `tick = round(t × 600)` |
 | `tracker`, `court`, `derived` | the versions (`ptrk_v1`, `court_net_lane_v1`, `pfd_v1`) and every setting |
 | `recordings` | §2.1 |
@@ -83,7 +83,7 @@ One JSON object per sampled frame, in time order. Keys are sorted, and an option
 | `persons[].track` | unique within the recording and never reused. A track id belongs to exactly one segment |
 | `persons[].ambiguous` | another track's predicted box overlapped this detection almost as well (≥ 0.7 of the winning IoU), so the identity may have switched here |
 | `persons[].court` | `court_net_lane_v1`, §4. `unknown` for every person when the recording has no lane |
-| `persons[].pose` | `{conf, joints[19]}` with each joint `{x, y, c}` or null, or null when no pose was associated (§4) |
+| `persons[].pose` | `{conf, joints[19]}` with each joint `{x, y, c}` or null, or null when the detector has none (§4). `c` is the detector's raw joint score: Vision's confidence (0–1), or RTMPose's SimCC score, which can exceed 1. A score ≤ 0 is written null. `conf` is Vision's observation confidence, or the mean joint score for RTMPose |
 | `persons[].derived` | `pfd_v1`, §5 |
 | `unmatchedPoses[]` | poses no person box took: people the rectangle request may have missed |
 | `scene` | `{persons, confirmed, inCourt, meanSpeedInCourt, movingShareInCourt, coherenceInCourt, posesInCourt}` over confirmed tracks |
@@ -91,7 +91,8 @@ One JSON object per sampled frame, in time order. Keys are sorted, and an option
 
 ## 4. Association, tracking and court membership
 
-- **Pose → person.** A pose belongs to the box that holds the largest share (at least 0.6) of its reported joints, with the box widened by 10 % each side. Matching is greedy, ties broken by box index then pose index. A pose left over goes to `unmatchedPoses`.
+- **Pose → person.** Each detector pairs its own poses with its boxes. *Vision:* a pose belongs to the box that holds the largest share (at least 0.6) of its reported joints, with the box widened by 10 % each side; matching is greedy, ties broken by box index then pose index, and a pose left over goes to `unmatchedPoses`. *RTM:* top-down, so each kept box carries the pose of its own crop (box padded 1.25×, widened to 3:4, 192×256) and `unmatchedPoses` stays empty.
+- **Tiling** (optional, `tiles` in the plan). The detector runs on `cols × rows` overlapping tiles of the upright frame. Results are mapped back to frame coordinates and merged: NMS at IoU 0.6, and across tiles a person whose box covers more than 80 % of the smaller one is kept once. Unpaired poses are de-duplicated by bounds IoU 0.5. Side-by-side halves of one person along a tile seam are **not** merged (seen in P1).
 - **Tracker `ptrk_v1`.** Constant-velocity prediction of each track's centre, greedy IoU association (at least 0.15) against predicted boxes, ties broken by lower track id then lower detection index. A track is confirmed after 3 observations and ends after 1.0 s unmatched. Every segment boundary resets it, and identities are never assumed to survive one.
 - **Court `court_net_lane_v1`.** No court lines are labeled in any project, so the only geometry is the person's net quad. The lane is the posts' span at the net's foot line plus 15 % of the net's width each side, widening linearly toward the camera (×2 at the frame bottom) and narrowing on the far side (−30 % at the frame top). A person whose foot point (box bottom centre) lies in the lane is `in`. It is applied only when the card's camera begins "End line" and the net label's fingerprint equals the recording's stored fingerprint; otherwise every person is `unknown`. `in` is evidence, not proof: spectators and neighbouring-court players inside the lane count in.
 
