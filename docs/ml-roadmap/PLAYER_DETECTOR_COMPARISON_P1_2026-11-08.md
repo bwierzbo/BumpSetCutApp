@@ -2,12 +2,12 @@
 name: player-detector-comparison-p1
 status: proposed (owner review); P1 detector comparison run 2026-11-08; research only, no training, no production change
 created: 2026-11-09T01:02:44Z
-updated: 2026-11-09T01:02:44Z
-decision: D-034 (proposed); owner instruction 2026-11-08 "go route B for now and look for a version we can use without training from scratch"
+updated: 2026-11-09T05:22:28Z
+decision: D-034 (proposed); owner instructions 2026-11-08 "go route B for now and look for a version we can use without training from scratch" and "yes, run the RF-DETR comparison"
 experiment: EXP-20261108-player-detector-p1
 ---
 
-# Player detector comparison (P1): Apple Vision against RTMDet + RTMPose, whole frame and tiled
+# Player detector comparison (P1): Apple Vision, RTMDet + RTMPose and RF-DETR
 
 **Question.** P0 ([report](PLAYER_POSE_FEASIBILITY_P0_2026-11-08.md)) found that Apple Vision's rectangles box only ≈ 28 % of on-court players. This step asks two things. Can a stronger detector, or tiling, fix that on the same frames? And is there a version we could ship without training from scratch?
 
@@ -17,10 +17,11 @@ experiment: EXP-20261108-player-detector-p1
   - About 2.9 false on-court detections per frame: spectators, next-court players, and reflections in a glossy gym floor, all of which the net-based court lane lets in.
   - About 60 ms per frame to detect, plus about 5 ms per person to pose, on a Mac under load.
   - **Its official weights cannot ship.** They are trained on research-terms data.
-- **Shippable alternatives.**
-  - **RF-DETR Nano/Small/Medium** (Roboflow) is the one person detector whose weights are explicitly licensed for closed-source commercial use (Apache-2.0), with an official, experimental Core ML export.
-  - **RF-DETR Keypoint** (preview, Apache-2.0) and **Apple Vision's body pose** are the matching pose options.
-  - None of them is measured here yet; that is the recommended next run (§7).
+- **Shippable alternatives, measured (§8).** Roboflow's RF-DETR checkpoints are Apache-2.0, and its own Core ML export worked.
+  - **RF-DETR Small and Medium detect as well as RTMDet:** recall **0.96** and 0.96 (237 and 236 of 247), at 0.92–1.00 on every recording, with no floor reflections boxed. On their own they run in 18 ms and 29 ms on the Mac against RTMDet-m's 38 ms.
+  - **But the shippable pose doesn't keep up.** Apple Vision's body pose, run on each RF-DETR person crop, posed only **26 %** of the people found: 80 % of those at least 150 px tall, and almost none under 50 px. Enlarging the crops made it worse.
+  - **RF-DETR Keypoint (preview, Apache-2.0)** poses everyone it finds, but finds fewer: recall **0.71**, and 0.29 on the distant grass camera. It also boxes far fewer spectators (0.6 false "in" per frame against 3.8–3.9 for Small and Medium).
+  - So a shippable *detector* exists today; a shippable *pose* for small, distant players does not, without training.
 
 Nothing here says players improve rally cutting (P0 report §8).
 
@@ -113,7 +114,7 @@ The full table, with sources, came from a research pass this session (summarised
 | Candidate | Weights licence | Training-data caveat | Core ML | Verdict for the app |
 |---|---|---|---|---|
 | **RF-DETR Nano / Small / Medium** (Roboflow) | Apache-2.0, explicitly "commercially usable … closed-source" (README) | DINOv2 backbone; the paper's recipe pretrains on Objects365, and whether the public N/S/M checkpoints descend from it is **unverified** | official `format="coreml"`, experimental | **Best detector candidate** |
-| RF-DETR Keypoint (preview) | Apache-2.0, explicit | COCO keypoints; same backbone caveat | export contract listed | Pose candidate (preview) |
+| RF-DETR Keypoint (preview) | Apache-2.0, explicit (README table); 40.7 M parameters at 576 px — "xlarge" appears only in the checkpoint's file name, not the PML-licensed XL detector | COCO keypoints; same backbone caveat | own exporter works (fp32; §8) | Measured: lower recall (§8) |
 | Apple Vision | system framework, nothing shipped | n/a | built in | Shippable now; weakest detector (§2) |
 | YOLOX | repo Apache-2.0, no explicit weight statement | COCO only, trained from scratch (no ImageNet) | not official, simple to convert | Cleanest data lineage, lower accuracy |
 | D-FINE COCO-only | repo Apache-2.0; publisher excludes its Objects365 checkpoints | ImageNet backbone | no official path | Possible |
@@ -123,9 +124,7 @@ The full table, with sources, came from a research pass this session (summarised
 
 ## 7. Recommendation and owner gate
 
-1. **Run RF-DETR (Small, then Medium) through the same comparison** before deciding anything. Use the same plan, the same 36 frames and the same audit, with Vision body pose (shippable) and RF-DETR Keypoint as pose options.
-   - Needs: a separate Python environment with `rfdetr` and its experimental Core ML export, and a check of the Objects365 lineage question with Roboflow's documentation or the maintainers.
-   - Research only until the owner decides; nothing is bundled.
+1. **RF-DETR comparison: done (§8).** RF-DETR Small is the detector to carry forward if anything ships. The Objects365 lineage question still needs an answer from Roboflow's documentation or maintainers before that.
 2. **Fix court membership before any classifier use.** It is now the bottleneck. Candidate fixes:
    - person-labelled court corners alongside the net corners;
    - a seated/standing filter;
@@ -136,9 +135,123 @@ The full table, with sources, came from a research pass this session (summarised
 4. **Phone feasibility** (only if a shippable detector wins): fp16 pose with the head kept fp32, on-device timing verified by the owner on the physical iPhone.
 
 **Decisions requested from the owner:**
-- approve the RF-DETR comparison (item 1);
+- choose a pose route for the shippable stack (§8.6): accept Vision's ~150 px floor, fine-tune a licence-clean pose model on our own frames (training: preregistration first), or keep pose research-only (RTMPose);
+- whether to ask Roboflow about the Objects365 lineage of the public RF-DETR checkpoints;
 - choose a court-membership approach to try (item 2);
 - confirm that the RTM weights stay research-only (they do unless you decide otherwise);
 - whether a person should recount the 36 frames for both P0 and P1.
 
 No training, production integration, bundling, migration or bulk processing is requested.
+
+## 8. RF-DETR: the licence-clean candidates (owner: "yes, run the RF-DETR comparison")
+
+### 8.1 What ran
+
+| Variant | Model | Pose | Run | Code | Features manifest SHA-256 |
+|---|---|---|---|---|---|
+| rfdetr-small | RF-DETR Small, COCO, 512 px, Core ML **fp32** | Apple Vision body pose on each person's crop | `p1-rfdetr-small-1x1` | `bee388d` | `b9025e01fd762512…` |
+| rfdetr-medium | RF-DETR Medium, COCO, 576 px, Core ML **fp16** | same | `p1-rfdetr-medium-1x1` | `bee388d` | `73fd2d364af9b06a…` |
+| rfdetr-keypoint | RF-DETR Keypoint (preview), COCO-17, 576 px, Core ML fp32 | the model's own joints, one pass | `p1-rfdetr-keypoint-1x1` | `bee388d` | `cfd5a89a195ac7f8…` |
+
+- **Same frames and audit as §2:** P0's plan with only `detector` changed (`EXP-20261108-player-detector-p1-rfdetr-*-1x1.plan.json`), whole frame, person score > 0.3 (RTM's operating point). Every run passes `validate_player_features.py`.
+- **Weights:** rfdetr 1.12.0's own checkpoint table, MD5-checked on download. SHA-256: Small `d81979a9213a2109…`, Medium `749ff6071828aaff…`, keypoint preview `2b70ddf51d2b9e02…`. Package digests as recorded by the runs: `daf21397…`, `72671231…`, `c7669b44…`. They live in the experiment folder (`models/rfdetr/`), never in git or the app.
+- **Conversion:** `scripts/player_features/convert_rfdetr_coreml.py` uses rfdetr's own exporter (`format="coreml"`, marked experimental upstream), so the graph is the one a production build would use. Input: the frame stretched to N×N and ImageNet-normalised. The features are renamed `input` / `boxes` / `logits` / `keypoints` for the app.
+- **Parity, on the three parity frames:**
+  - the person slot (sparse COCO id 1) gives exactly the person counts rfdetr's own `predict()` gives;
+  - the keypoint preview's score is rfdetr's uncertainty-fused one (`trace_alpha` 0.2). Its port matches `predict()` to 2e-6 in score and 1e-4 px in joint position, and a unit test pins the Swift port to rfdetr's torch code;
+  - Core ML against eager PyTorch:
+    - fp32 boxes IoU ≥ 0.9999 on all three models;
+    - Medium fp16 boxes IoU ≥ 0.976, kept;
+    - Small fp16 added one borderline person on the gym frame, and the keypoint fp16 dropped and added people there. By the rule fixed before the results, both stay fp32.
+  - **Swift against Python on the same sampled frames** (extracted with ffmpeg, run through the Python port):
+
+    | | Swift | Python |
+    |---|---|---|
+    | Small | 10, 13, 8 | 9, 12, 7 |
+    | Medium | 10, 14, 8 | 10, 14, 7 |
+    | Keypoint | 8, 17, 3 | 7, 14, 3 |
+
+    Python's near-misses score 0.31–0.39. The app decodes with Core Image and resizes with Core Graphics, while Python uses ffmpeg and torch bilinear without antialias, and that moves borderline scores. So **the app's counts run 0–3 people above the reference on crowded frames.** This is not resolved here. It errs toward finding more, so it does not explain the keypoint preview's low recall, and the decode itself is pinned by tests.
+- **Isolation:**
+  - Scratch was only read by these runs. Between my last check and the end, its manifests were rewritten at 22:08 MST by the rally-classifier exporter, which started a new export from its own build (`BumpSetCut-celnvfm…`), not by this tool.
+  - These runs read only the experiment's local proxy copies, never the SMB share.
+  - Uses are recorded in the experiment's own ledger.
+
+**Discarded runs** (outputs deleted; their ledger rows stay):
+- an RF-DETR Small run built from a dirty tree;
+- an RF-DETR Small run with enlarged pose crops (§8.3);
+- a Small run that overlapped a conversion job, and a Medium run stopped part-way;
+- three complete runs whose binary carried `7added3-dirty`, because it was built just before the commit. Their outputs were identical to the kept runs.
+
+### 8.2 Detection quality (same 36 frames, same counting rule as §2)
+
+Sheet: `runs-comparison/p1/audit-p1-rfdetr.csv`. The "visible" column comes from `audit-p1.csv`. The counts are mine (approximate in crowded frames, not owner-verified).
+
+| Recording | Visible | rtm-1x1 (§2) | rfdetr-small | rfdetr-medium | rfdetr-keypoint |
+|---|---|---|---|---|---|
+| beach, elevated, crowded | 71 | 0.96 | 0.94 | 0.96 | 0.73 |
+| beach, ground, doubles | 16 | 0.94 | 1.00 | 1.00 | 0.69 |
+| grass, elevated, 4s | 34 | 1.00 | 1.00 | 1.00 | 0.79 |
+| grass, ground, distant | 21 | 1.00 | 1.00 | 1.00 | **0.29** |
+| indoor, crowded gym | 62 | 0.94 | 0.92 | 0.94 | 0.84 |
+| indoor, portrait, close | 43 | 0.95 | 0.98 | 0.91 | 0.63 |
+| **all** | **247** | **0.96** | **0.96** (237) | **0.96** (236) | **0.71** (175) |
+
+False on-court ("in") detections per frame:
+
+| | rtm-1x1 (§2) | rfdetr-small | rfdetr-medium | rfdetr-keypoint |
+|---|---|---|---|---|
+| all | 2.9 | 3.9 | 3.8 | **0.6** |
+| worst recording | 7.0 (beach ground) | 10.8 (beach ground) | 10.2 (beach ground) | 1.3 (beach ground) |
+
+**Reading it.**
+- **Small and Medium equal RTMDet on recall.** They find the distant grass players and the crowded gym as well as RTMDet does, and Medium adds nothing over Small.
+- **They box more spectators than RTMDet,** mainly seated people along the sidelines of the ground-level beach and the elevated grass. They box **no floor reflections in the gym,** where RTMDet boxed several.
+- **The keypoint preview is conservative:** few false people, but it misses small and distant players. On the distant grass camera it finds none in two of the six frames.
+
+### 8.3 Pose coverage
+
+| Person box height (px, in the 960 px proxy) | rfdetr-small + Vision | rfdetr-medium + Vision | rfdetr-keypoint | rtm-1x1 |
+|---|---|---|---|---|
+| under 50 | 0.04 | 0.04 | 1.00 (5 people) | 1.00 |
+| 50–99 | 0.15 | 0.14 | 1.00 | 1.00 |
+| 100–149 | 0.38 | 0.38 | 1.00 | 1.00 |
+| 150 and up | 0.80 | 0.80 | 1.00 | 1.00 |
+| all detected people | **0.26** (of 15,014) | **0.26** (of 15,214) | 1.00 (of 9,817) | 1.00 (of 14,940) |
+
+- **Vision's floor.** Vision's body pose request finds little in a crop of a person under about 150 px. Enlarging each crop to at least 256 px before Vision saw it made coverage **worse** (0.26 → 0.22): the detail isn't in the pixels. That variant was discarded and its code reverted.
+- **On full-resolution originals** (1080p or 4K rather than the 960 px proxies), players are 2–4× taller, so Vision's coverage there is likely higher. It was not measured here, because the pilot is held to the local proxies.
+- **Coverage is not quality.** RTMPose and the keypoint preview always return 17 joints, so their 1.00 says nothing about how good a small person's joints are. Joint scores carry that: the keypoint preview's are rfdetr's "findable" probabilities.
+
+### 8.4 Runtime (Apple M3 Pro, macOS 26.4, Debug build; the keypoint run overlapped the exporter's start at 22:08)
+
+| Variant | Wall time per frame | Detector median (in app) | Model alone (Core ML, all units) | Pose median per frame | Peak memory |
+|---|---|---|---|---|---|
+| rtm-1x1 (§5) | 204 ms | 59 ms | 38 ms | 63–227 ms | 650 MB |
+| rfdetr-small | 193 ms | 126 ms | **18 ms** | 24–82 ms | 652 MB |
+| rfdetr-medium | 233 ms | 164 ms | 29 ms | 25–83 ms | 651 MB |
+| rfdetr-keypoint | 203 ms | 196 ms | 49 ms | — (in the detector) | 650 MB |
+
+The in-app detector times are dominated by a per-pixel Swift loop that builds the normalised input, about 100 ms in the unoptimised Debug build. RTM's input path has no such loop. The "model alone" column is the honest model comparison:
+- RF-DETR Small is about 2× faster than RTMDet-m;
+- RTMDet-m runs in fp16, while Small runs in fp32.
+
+A production port would build the input with Accelerate (vImage), or move normalisation into the graph.
+
+### 8.5 Licence position after the run
+
+- **Code and Small/Medium/Keypoint-preview checkpoints:** Apache-2.0, per rfdetr's checkpoint table. The Atto/Femto/Pico/XL/2XL checkpoints are PML 1.0 and were not used.
+- **Unresolved, recorded in every package's metadata:** the RF-DETR paper pretrains on Objects365 before COCO, and Objects365's terms are reported as non-commercial. Whether that affects the published weights is a legal/owner question. It is not answered here.
+- **Vision:** a system framework, nothing shipped.
+
+### 8.6 What this means
+
+1. **Detector.** RF-DETR Small matches the research-only RTMDet on recall, runs faster as a model, and boxes no reflections. It is the detector to carry forward, pending the Objects365 question.
+2. **Pose is the gap.** The licence-clean options cover either the big players (Vision, at about 150 px and up) or the found players (the keypoint preview, which misses small ones). Options, each the owner's call:
+   - accept pose only for near players;
+   - measure Vision on full-resolution frames;
+   - fine-tune a licence-clean pose model on our own labelled frames: training, so preregistration first;
+   - keep pose research-only with RTMPose.
+3. **Court membership** is still the bottleneck for every detector that finds everyone (§7 item 2). RF-DETR's sideline spectators make it slightly worse than RTM's.
+
+Nothing here says players improve rally cutting.

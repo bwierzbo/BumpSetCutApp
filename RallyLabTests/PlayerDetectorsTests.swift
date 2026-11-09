@@ -144,12 +144,14 @@ final class PlayerDetectorsTests: XCTestCase {
         XCTAssertEqual(p.box.x, 0.4, accuracy: 1e-6)
         XCTAssertEqual(p.box.y, 1 - 0.7, accuracy: 1e-6, "Vision-normalised: origin bottom-left")
         XCTAssertEqual(p.box.h, 0.4, accuracy: 1e-6)
-        let nose = p.pose?.joints[PlayerFeatures.joint("nose")], leftEye = p.pose?.joints[PlayerFeatures.joint("left_eye")]
-        XCTAssertEqual(nose??.x ?? -1, 0.4, accuracy: 1e-6)
-        XCTAssertEqual(nose??.y ?? -1, 1 - 0.3, accuracy: 1e-6)
-        XCTAssertEqual(nose??.c ?? -1, 0.7310585975646973, accuracy: 1e-6)
-        XCTAssertEqual(leftEye??.c ?? -1, 0.2689414322376251, accuracy: 1e-6)
-        XCTAssertNil(p.pose?.joints[PlayerFeatures.joint("neck")] ?? nil, "COCO-17 has no neck")
+        let joints = p.pose?.joints ?? []
+        XCTAssertEqual(joints.count, PlayerFeatures.jointNames.count)
+        let nose = joints[PlayerFeatures.joint("nose")], leftEye = joints[PlayerFeatures.joint("left_eye")]
+        XCTAssertEqual(nose?.x ?? -1, 0.4, accuracy: 1e-6)
+        XCTAssertEqual(nose?.y ?? -1, 1 - 0.3, accuracy: 1e-6)
+        XCTAssertEqual(nose?.c ?? -1, 0.7310585975646973, accuracy: 1e-6)
+        XCTAssertEqual(leftEye?.c ?? -1, 0.2689414322376251, accuracy: 1e-6)
+        XCTAssertNil(joints[PlayerFeatures.joint("neck")], "COCO-17 has no neck")
     }
 
     func testRFDETRDetectionDecodeUsesThePersonSlotWithoutFusion() {
