@@ -1,9 +1,9 @@
 ---
 name: player-court-calibration-p2
-status: proposed (owner review); assisted court calibration built and piloted 2026-11-10; research only, no training, no production change; no court confirmed by a person yet
+status: research scope accepted (D-034, owner 2026-11-10); assisted court calibration built and piloted 2026-11-10; no training, no production change; courts and the review sheet await the owner
 created: 2026-11-10T20:04:02Z
-updated: 2026-11-10T20:04:02Z
-decision: D-034 (proposed), P2 paragraph; owner authorisation "P2 Assisted Court Calibration" (PR #166 continuation), 2026-11-10
+updated: 2026-11-10T21:10:33Z
+decision: D-034 (accepted, research scope), P2 paragraph and owner decisions of 2026-11-10; owner authorisation "P2 Assisted Court Calibration" (PR #166 continuation), 2026-11-10
 experiment: EXP-20261110-player-court-calibration-p2
 ---
 
@@ -194,3 +194,41 @@ These are candidate human-verified labels. Proposals are never labels.
    - Then re-run `--player-lab-court <experiment> --run p1-rfdetr-keypoint-3x2 --report p2-court-confirmed --audit <audit csv>`, without `--propose`. It measures each proposal against your courts and gives membership against a real reference.
 2. **Then decide whether the classical line search earns its place**, or whether the net-guided starting point plus dragging is enough. A learned court detector would need the confirmed calibrations as labels, and training is not authorised.
 3. **Keep the split-box fix (P1 §9) separate:** court zones don't remove duplicates.
+
+## 9. Owner decisions and validation (2026-11-10)
+
+**Decisions** (also recorded in D-034):
+- The research scope is accepted.
+- All three proposal methods stay.
+- Court-line detection is an optional proposal, never an authoritative way to exclude players. Losing 3.1 players per frame is unacceptable.
+- Only a person-confirmed court is authoritative. Proposals may be shown and evaluated, never represented as confirmed or used as trusted evidence for classifier experiments.
+
+**Codex findings on `d0f0229`, fixed in `38a9b2d`:**
+- **A stale calibration no longer affects the GUI.** A calibration bound to other footage gives no zones, is never the court in force (`shown`), and can't be edited or confirmed back into use. It is drawn apart, grey and dotted, labelled "STALE — not used". Test: `testAStaleCalibrationClassifiesNobodyInTheGUIAndIsShownApart`.
+- **The raised-arm share counts only measured arms.** `armRaisedShare` is computed over non-nil arm elevations, and is nil when none could be measured. That is the case for every RTM and RF-DETR Keypoint person, whose skeletons have no neck or root. `armMeasured` gives the denominator. Test: `testRaisedArmShareCountsOnlyMeasuredArms`.
+
+**Getting ready for the owner's confirmation:**
+- **Opening the recordings.** `RallyLab --player-lab <experiment> --run p1-rfdetr-keypoint-3x2 --court` opens Player Lab straight into court calibration on the six pilot recordings.
+  - An unreviewed segment opens on its best proposal (combined, else court lines, else net-guided) as an unsaved draft. The other proposals are one click away under *Reset to*.
+  - The person's net label is drawn in white for reference and is never written.
+  - A scripted check on a throwaway copy opened all six recordings this way, and the calibration files were byte-identical afterwards.
+- **A fresh review sample.** `--player-lab-court … --make-review p2-owner-review --per-recording 4 --audit <earlier audit>` picked 24 frames. None of them is within 2 s of a frame in Claude's earlier audit.
+  - Each frame shows only boxes and track numbers: no court, zone or lane, so nothing suggests an answer.
+  - Two blank sheets (`court-reviews/p2-owner-review/`) cover 294 detected people:
+    - `persons.csv`: what each box is: near or far court, near or far serving area, player off court, spectator, adjacent court, referee or other, duplicate or not a person, unsure.
+    - `frames.csv`: players with no box, near and far.
+  - `review.html`, made by `scripts/player_features/make_review_page.py`, is a local page for labelling with the keyboard and exporting both sheets. Nothing is pre-filled.
+- **Scoring the review.** `--player-lab-court … --review <folder>` scores each source against the person's labels: the net lane, each unconfirmed proposal, and the confirmed court. It reports:
+  - the near/far half;
+  - the exact zone;
+  - false "in" for spectators, adjacent courts and referees;
+  - real players counted out, and counted unknown;
+  - servers counted outside;
+  - duplicates counted in;
+  - doubtful (uncertain) zones;
+  - near/far detection recall from the missed counts.
+
+  Owner-labelled rows carry the reviewer's name. Claude's earlier counts (§5.2) stay labelled as approximate.
+
+**Pending the owner:** confirm the six courts, and fill the review sheet. Then the evaluation is re-run without `--propose`, and §5.2–5.3 are replaced by owner-verified figures.
+

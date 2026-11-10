@@ -2,8 +2,8 @@
 name: player-pose-feasibility-p0
 status: proposed (owner review); P0 implemented and piloted; no training, no production change; next step needs the owner (§9)
 created: 2026-11-08T23:12:03Z
-updated: 2026-11-08T23:12:03Z
-decision: D-034 (proposed); D-001 (player tracking/pose out of production scope — unchanged); honours D-002, D-010, D-017, D-030, D-031
+updated: 2026-11-10T21:10:33Z
+decision: D-034 (accepted, research scope); D-001 (player tracking/pose out of production scope — unchanged); honours D-002, D-010, D-017, D-030, D-031
 experiment: EXP-20261108-player-pose-feasibility-p0
 ---
 

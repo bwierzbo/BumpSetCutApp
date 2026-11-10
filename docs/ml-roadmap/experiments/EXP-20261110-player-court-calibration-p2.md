@@ -1,10 +1,10 @@
 ---
 id: EXP-20261110-player-court-calibration-p2
-status: built and piloted 2026-11-10 (research only; no training); courts await the owner's confirmation in Player Lab
+status: built and piloted 2026-11-10 (research scope accepted, D-034); courts and the review sheet await the owner
 created: 2026-11-10T20:04:02Z
-updated: 2026-11-10T20:04:02Z
+updated: 2026-11-10T21:10:33Z
 approved_by: owner 2026-11-10 ("P2 Assisted Court Calibration", PR #166 continuation; "If there are methods that work better depending on what type of volleyball you're at I don't mind asking the user")
-decision: D-034 (proposed), P2 paragraph
+decision: D-034 (accepted, research scope), P2 paragraph and owner decisions of 2026-11-10
 pr: research/player-pose-feasibility-p0 (#166)
 ---
 
@@ -28,6 +28,8 @@ pr: research/player-pose-feasibility-p0 (#166)
 | `--player-lab-court … --report p2-court-pilot-r2 --propose` | `55984ec` (binary marked dirty: docs uncommitted, no code change) | `court-evals/p2-court-pilot-r2/summary.json` `f29d63fd4fa7d0e1…`; 6 calibration files (proposals only); 6 experiment-ledger rows |
 | `p2-court-pilot` (first; identical numbers) | `2737e69` | Kept; its reads came before proposals logged them (report §5) |
 | Scripted GUI check (throwaway copy of the experiment) | `2737e69` | Calibration with a `player_lab_script` confirmation (never used); editor renders `court-*-editor.png` |
+| Scripted open of all six recordings in court mode (throwaway copy) | `38a9b2d` | Each opens on its best proposal as an unsaved draft; calibration files byte-identical afterwards; renders `open-*-editor.png` |
+| `--make-review p2-owner-review --per-recording 4` | `38a9b2d` | 24 fresh frames, 294 people; blank `persons.csv` / `frames.csv`; `review.html` |
 
 ## Results
 
@@ -36,12 +38,20 @@ pr: research/player-pose-feasibility-p0 (#166)
 - Smoothing cuts zone changes per track per 10 observations from 0.11–0.53 to 0.02–0.12.
 - Time: net-guided under 1 ms; court lines 4.0–6.0 s per camera view (Debug).
 - Courts confirmed by a person: **0**. Human adjustment, boundary accuracy after confirmation, and servers classified outside are pending.
+- Owner decisions (2026-11-10):
+  - All three methods stay; court lines is an optional proposal only.
+  - Losing 3.1 players per frame is unacceptable.
+  - Only confirmed courts are authoritative.
 
 ## Tests
 
-- CourtCalibrationTests 17: maps, refusals, zones, feet, smoothing, the file's round trip and staleness, confirmation rules, segments, the store's refusals, the net-guided geometry, the line search on a drawn court, the ledger before the first frame, error against a confirmed court, and the assembler.
+- CourtCalibrationTests 20. Since the first version, these were added:
+  - a stale calibration classifies nobody in the GUI;
+  - a recording opens on its best proposal and nothing is saved;
+  - review scoring.
+- PlayerFeaturesTests 21, including the raised-arm share over measured arms only and the two Codex fixes of `d0f0229`.
 - LaunchGuardTests: `--player-lab-court`.
-- Python: validator zone checks, 24/24.
+- Python: 25/25, including the review page.
 - Full RallyLabTests: see the PR.
 
 ## Next (owner)

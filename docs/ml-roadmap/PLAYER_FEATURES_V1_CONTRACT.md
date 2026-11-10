@@ -2,8 +2,8 @@
 name: player-features-contract
 status: proposed v1 (owner review); written by `RallyLab --player-lab-run <experiment> --source-project <project> --plan <plan.json> --run <name>` (`RallyLab/PlayerResearch/PlayerFeaturesRun.swift`); validated by `scripts/player_features/validate_player_features.py`
 created: 2026-11-08T22:34:07Z
-updated: 2026-11-10T20:04:02Z
-decision: D-034 (proposed); honours D-002, D-010, D-017, D-021, D-030, D-031
+updated: 2026-11-10T21:10:33Z
+decision: D-034 (accepted, research scope); honours D-002, D-010, D-017, D-021, D-030, D-031
 ---
 
 # Player features, version `player_features_v1`

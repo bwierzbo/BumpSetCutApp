@@ -2,9 +2,9 @@
 id: EXP-20261108-player-pose-feasibility-p0
 status: done — feasibility pilot run 2026-11-08 (research only; no training; next step needs the owner)
 created: 2026-11-08T23:12:03Z
-updated: 2026-11-08T23:12:03Z
+updated: 2026-11-10T21:10:33Z
 approved_by: owner assignment "Player Detection, Tracking and Pose Feasibility (Phase P0)" and "Additional authorization — RallyLab player-model pilot testing", 2026-11-08 (bounded pilot; no training)
-decision: D-034 (proposed); D-001 production scope unchanged; D-002, D-010, D-017, D-030, D-031 honoured
+decision: D-034 (accepted, research scope); D-001 production scope unchanged; D-002, D-010, D-017, D-030, D-031 honoured
 pr: research/player-pose-feasibility-p0
 ---
 

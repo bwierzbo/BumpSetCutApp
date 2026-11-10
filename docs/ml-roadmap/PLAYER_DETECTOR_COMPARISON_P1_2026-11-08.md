@@ -2,8 +2,8 @@
 name: player-detector-comparison-p1
 status: proposed (owner review); P1 detector comparison run 2026-11-08; research only, no training, no production change
 created: 2026-11-09T01:02:44Z
-updated: 2026-11-10T20:04:02Z
-decision: D-034 (proposed); owner instructions 2026-11-08 "go route B for now and look for a version we can use without training from scratch" and "yes, run the RF-DETR comparison"
+updated: 2026-11-10T21:10:33Z
+decision: D-034 (accepted, research scope); owner instructions 2026-11-08 "go route B for now and look for a version we can use without training from scratch" and "yes, run the RF-DETR comparison"
 experiment: EXP-20261108-player-detector-p1
 ---
 
@@ -275,4 +275,19 @@ Same 36 audited frames and counting rule as §2 and §8.2. Plans `EXP-20261108-p
 - False "in" per frame (net lane): 0.6 whole frame, 2.1 at 2×2, 2.7 at 3×2 — more pixels per person also finds spectators and next-court players.
 - Time per frame, Debug build: median detector 196 / 773 / 1,151 ms; model alone ≈ 49 / 200 / 300 ms.
 - The source project was only read; its exposure log and new rally-classifier files changed at 22:30 on 2026-11-09, written by the concurrent rally-classifier exporter (its refs), not by these runs (0 player-feature rows there; 12 in the experiment's own ledger).
+
+**Unresolved: duplicates at tile seams. Proposed next experiment, not run; it needs the owner.**
+- **Problem.** The tiled runs return a near player who crosses a seam between tile rows as two boxes, each with part of a skeleton. The tracker then makes two identities, and court zones count both pieces "in".
+- **Proposal: a whole-frame pass plus small-player supplementation** (`rfdetr-keypoint` on the same plan):
+  - run the whole frame once, and keep every person from it;
+  - run the 3×2 tiles, and keep a tile detection only if two conditions hold:
+    - its box is shorter than a threshold, for example 12 % of the frame height, the size below which the whole-frame pass missed players in §8.2;
+    - it doesn't overlap a whole-frame box by IoU ≥ 0.3, or lie mostly inside one (intersection ≥ 0.6 of the smaller box).
+- **Measures, on the same audit:**
+  - recall against the 1×1 run (0.71) and the 3×2 run (0.94);
+  - extra boxes from split players (target 0);
+  - false "in";
+  - model time, about 49 ms plus the tile cost.
+- **Alternative if near players still split:** merge pieces whose boxes share a seam, overlap horizontally by ≥ 50 % and fit one person's height.
+- No training is involved.
 

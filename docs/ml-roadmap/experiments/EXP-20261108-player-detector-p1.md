@@ -2,9 +2,9 @@
 id: EXP-20261108-player-detector-p1
 status: done — detector comparison run 2026-11-08 (research only; no training; next step needs the owner)
 created: 2026-11-09T01:02:44Z
-updated: 2026-11-10T20:04:02Z
+updated: 2026-11-10T21:10:33Z
 approved_by: owner 2026-11-08 ("go route B for now and look for a version we can use without training from scratch"; "yes, run the RF-DETR comparison"); GUI and experiment-folder rules of the P0 authorisation
-decision: D-034 (proposed)
+decision: D-034 (accepted, research scope)
 pr: research/player-pose-feasibility-p0
 ---
 

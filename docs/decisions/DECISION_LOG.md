@@ -46,7 +46,7 @@ The authoritative record of product, architecture, data and process decisions fo
 | [D-032](#d-032) | 2026-11-03 | accepted | A recording's type — continuous, edited, unknown — is confirmed by a person at the end of the marking pass, kept apart from the pass being complete, from the cut ranges and from eligibility, never inferred; the phone shows the facts and cannot sync the type without a backend change |
 | [D-033](#d-033) | 2026-11-03 | accepted | Recording-type claims: the phone submits a claim (continuous, edited, unknown) through the labeling server, RallyLab validates it against the project and writes the authoritative footage-properties record, then settles the claim accepted or rejected; one open claim per recording, statuses only move forward, no second authority on the phone or the server |
 | [D-035](#d-035) | 2026-11-09 | accepted | The `bch_onl_ovc_land_onl_02` group (one uploader, four recordings) moves whole into `dev_val`: three names leave validation.json's `tune` list; amends D-015 §3 for this group only |
-| [D-034](#d-034) | 2026-11-08 | proposed | Player detection, tracking and pose: a research-only feasibility workstream (Phase P0) in RallyLab; production scope unchanged; every further step owner-gated |
+| [D-034](#d-034) | 2026-11-08 | accepted (research scope, owner 2026-11-10; production separately gated) | Player detection, tracking and pose: a research-only feasibility workstream (Phase P0) in RallyLab; production scope unchanged; every further step owner-gated |
 
 ---
 
@@ -475,7 +475,7 @@ The authoritative record of product, architecture, data and process decisions fo
 
 ### D-034
 
-**Player detection, tracking and pose: a research-only feasibility workstream (Phase P0) in RallyLab; production scope unchanged; every further step owner-gated** — 2026-11-08 — proposed — owner (assignment "Player Detection, Tracking and Pose Feasibility (Phase P0)", 2026-11-08: implementation and a bounded pilot authorised; training, production integration and bulk processing not; and "Additional authorization — RallyLab player-model pilot testing", 2026-11-08: RallyLab may be launched for bounded GUI pilot testing in a separate experimental project, the live Scratch project — annotations, splits, footage properties, exposure ledger — is not modified).
+**Player detection, tracking and pose: a research-only feasibility workstream (Phase P0) in RallyLab; production scope unchanged; every further step owner-gated** — 2026-11-08 — accepted (research scope; owner, 2026-11-10) — owner (assignment "Player Detection, Tracking and Pose Feasibility (Phase P0)", 2026-11-08: implementation and a bounded pilot authorised; training, production integration and bulk processing not; and "Additional authorization — RallyLab player-model pilot testing", 2026-11-08: RallyLab may be launched for bounded GUI pilot testing in a separate experimental project, the live Scratch project — annotations, splits, footage properties, exposure ledger — is not modified).
 
 **Context.** D-001's consequences keep "player tracking/pose" out of scope, and `CLAUDE.md` repeats it for the product pipeline. The owner wants to learn whether player positions and poses could improve the learned temporal rally classifier beyond ball features (ablation arms A ball only, B + player positions and movement, C + poses, D + ball–player interaction), without touching the ball-only classifier work.
 
@@ -502,4 +502,10 @@ The authoritative record of product, architecture, data and process decisions fo
 6. Court proposals record their frame reads in the experiment's ledger first.
 7. Not authorised: training a court model, bulk calibration, and any production or iOS use.
 
-**Source.** Owner assignment and additional authorisation of 2026-11-08; the PR carrying this entry.
+**Owner decisions, 2026-11-10 ("P2 Validation and PR #166 Completion").**
+1. The research-only scope is accepted. Production integration remains separately gated.
+2. All three court-proposal methods are kept: `net_guided_v1`, `court_lines_v1` and `combined_v1`.
+3. Court-line detection is an optional proposal method, never an authoritative way to exclude players. The pilot's 3.1 players per frame lost to the line court is unacceptable.
+4. A person-confirmed calibration is the authoritative source of court membership. Before confirmation, proposed geometry may be shown and evaluated. It is never represented as confirmed, and never used as trusted evidence for classifier experiments.
+
+**Source.** Owner assignment and additional authorisation of 2026-11-08; owner direction of 2026-11-10; the PR carrying this entry.
