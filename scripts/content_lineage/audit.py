@@ -80,7 +80,7 @@ GRID = 8                # 8x8 cells
 CELLS = GRID * GRID
 MOTION_DELTA = 3        # grey levels (0-255) a cell must change by to count as moved
 MIN_ACTIVE = 4          # a sample with fewer moved cells says nothing
-ANCHORS = 32            # samples of A used to vote on the offset
+ANCHORS = 32            # anchors voting on the offset: at least this many when the recording has them
 VOTE_SIMILARITY = 0.5   # motion agreement for an anchor's vote
 MATCH_SIMILARITY = 0.5  # motion agreement for an aligned sample to count as matching
 MIN_COMPARED = 40       # informative aligned samples needed to say anything (10 s)
@@ -190,18 +190,26 @@ def score_offset(a: Signature, b: Signature, offset: int) -> Alignment:
 
 
 def align(a: Signature, b: Signature) -> Alignment | None:
-    """The time offset at which B's motion agrees with A's, or None when no offset does."""
+    """The time offset at which B's motion agrees with A's, or None when no offset does.
+    The same answer whichever of the two is called A (the offset negated)."""
     if a.step != b.step:
         raise ValueError("signatures sampled at different steps cannot be aligned")
-    informative = [i for i in range(len(a)) if (a.brighter[i] | a.darker[i]).bit_count() >= MIN_ACTIVE]
-    if not informative:
+
+    def informative(sig: Signature) -> list[int]:
+        return [i for i in range(len(sig)) if (sig.brighter[i] | sig.darker[i]).bit_count() >= MIN_ACTIVE]
+    moved_a, moved_b = informative(a), informative(b)
+    if not moved_a or not moved_b:
         return None
-    # Anchors spread over the whole recording, so an excerpt anywhere is found.
-    stride = max(1, len(informative) // ANCHORS)
-    anchors = informative[::stride][:ANCHORS]
+    # Anchors come from the recording with less to say and are searched for in the other, so a short
+    # excerpt of a long recording is seeded from the excerpt. They are spread over all of it, and close
+    # enough that any shared stretch long enough to judge (MIN_COMPARED) holds several of them.
+    seed_is_a = len(moved_a) <= len(moved_b)
+    seed = moved_a if seed_is_a else moved_b
+    anchors = seed[::max(1, min(len(seed) // ANCHORS, MIN_COMPARED // 4))]
     votes: dict[int, int] = {}
-    for i in anchors:
-        for j in range(len(b)):
+    for k in anchors:
+        for other in (range(len(b)) if seed_is_a else range(len(a))):
+            i, j = (k, other) if seed_is_a else (other, k)
             s = motion_similarity(a, i, b, j)
             if s is not None and s >= VOTE_SIMILARITY:
                 votes[j - i] = votes.get(j - i, 0) + 1

@@ -106,6 +106,21 @@ class Relations(unittest.TestCase):
             self.assertEqual(found["evidence"]["offsetSec"], -start * a.STEP_SEC)
             self.assertEqual((found["evidence"]["excerpt"], found["evidence"]["of"]), ("piece", "original"))
 
+    def test_a_short_excerpt_of_a_long_recording_is_found_whichever_is_named_first(self):
+        # 15 s out of 10 minutes, starting where anchors spread thinly over the long one would not fall.
+        frames = Scene(seed=11).frames(2400)
+        long = media("long", frames)
+        piece = media("piece", frames[80:140], noise_seed=5)
+        forward, backward = a.align(long.full, piece.full), a.align(piece.full, long.full)
+        self.assertIsNotNone(forward)
+        self.assertIsNotNone(backward)
+        self.assertEqual((forward.offset, backward.offset), (-80, 80))
+        self.assertEqual((forward.compared, forward.matched), (backward.compared, backward.matched))
+        for first, second in ((long, piece), (piece, long)):
+            found = a.classify(first, second)
+            self.assertEqual(found["relation"], "excerpt")
+            self.assertEqual((found["evidence"]["excerpt"], found["evidence"]["of"]), ("piece", "long"))
+
     def test_two_stretches_that_share_a_part_overlap(self):
         longer = Scene(seed=7).frames(900)
         first, second = media("first", longer[:600], noise_seed=3), media("second", longer[400:900], noise_seed=4)
