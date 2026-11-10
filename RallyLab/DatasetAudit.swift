@@ -323,18 +323,24 @@ struct DatasetAudit: Codable {
     }
 
     /// For each lineage-holdout video that is in a training package — itself, or as another video that
-    /// is the same recording (a shared file identity or confirmed sourceId; a shared venue or session is
-    /// another recording) — the packages, and the other names it is in them under.
+    /// is the same recording — the packages, and the other names it is in them under. "The same
+    /// recording" is a shared file identity or confirmed sourceId, followed to a fixed point (A and B
+    /// share a sourceId, B and C a file: A, B and C are one recording); a shared venue or session is
+    /// another recording and joins nothing here.
     private static func packagedRecordings(_ lineage: [ManifestVideo], among videos: [ManifestVideo]) -> [String: (packages: [String], via: [String])] {
-        func recording(_ v: ManifestVideo) -> Set<String> {
+        var holders: [String: [String]] = [:]
+        for v in videos {
             var ids = Set([v.fingerprint, v.contentFingerprint].compactMap { $0 }.map { "fp:" + $0 })
             if v.sourceId.origin == .confirmed, let x = v.sourceId.value { ids.insert("src:" + x) }
-            return ids
+            for id in ids { holders[id, default: []].append(v.video) }
         }
+        var parent = Dictionary(uniqueKeysWithValues: videos.map { ($0.video, $0.video) })
+        func find(_ x: String) -> String { var r = x; while parent[r] != r { r = parent[r]! }; return r }
+        for names in holders.values { for n in names.dropFirst() { parent[find(n)] = find(names[0]) } }
+        let recordings = Dictionary(grouping: videos, by: { find($0.video) })
         var out: [String: (packages: [String], via: [String])] = [:]
         for v in lineage {
-            let mine = recording(v)
-            let same = videos.filter { $0.video == v.video || !recording($0).isDisjoint(with: mine) }
+            let same = recordings[find(v.video)] ?? [v]
             let packages = Set(same.flatMap { $0.exposure.filter { $0.kind == .trainingPackage }.map(\.ref) }).sorted()
             guard !packages.isEmpty else { continue }
             let via = same.filter { $0.video != v.video && $0.exposure.contains { $0.kind == .trainingPackage } }.map(\.video).sorted()

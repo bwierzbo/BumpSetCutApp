@@ -332,6 +332,25 @@ extension DatasetAuditTests {
         XCTAssertEqual(trained.map(\.videos), [["bch_n"]], "the neighbour is in a package; the listed recording is not")
     }
 
+    func testAHoldoutIsInAPackageThroughAChainOfRecordingIdentities() throws {
+        // grs_h (listed) and grs_m share a confirmed sourceId; grs_m's video is the file grs_p's card was
+        // registered with; only grs_p is in a package, and nothing joins grs_p to grs_h directly.
+        let clips = [F.clip("grs_h", environment: "Grass", videos: [F.source("grs_h", uploader: "", fingerprint: "file:H", sourceId: "IMG_9")]),
+                     F.clip("grs_m", environment: "Grass", split: "train", videos: [F.source("grs_m", uploader: "", fingerprint: "file:M", sourceId: "IMG_9")]),
+                     F.clip("grs_p", environment: "Grass", split: "train", videos: [F.source("grs_p", uploader: "", fingerprint: "file:CUT")])]
+        var inputs = F.inputs(validation: PipelineTuner.ValidationSet(tune: ["bch_a"], holdout: ["bch_a_v2"], lineageHoldout: ["grs_h"]),
+                              discovered: ["grs_p": [ExposureRecord(kind: .trainingPackage, ref: "pkg-L2", date: "2026-10-25", note: nil)]],
+                              extraClips: clips, extraSessions: [F.session("grs_h", split: "val"), F.session("grs_m", split: "train"), F.session("grs_p", split: "train")])
+        inputs.content = { ["grs_m": .read("file:CUT")][$0.name] ?? .absent }
+        let a = try audit(inputs)
+        let trained = a.findings.filter { $0.code == "LINEAGE-HOLDOUT-TRAINED" }
+        XCTAssertEqual(Set(trained.map(\.videos)), [["grs_h", "grs_p"], ["grs_m", "grs_p"]],
+                       "the listed holdout is in pkg-L2 two steps away: a sourceId to grs_m, then grs_m's file to grs_p")
+        let note = try XCTUnwrap(a.findings.first { $0.code == "LINEAGE-HOLDOUT" && $0.videos == ["grs_h"] })
+        XCTAssertFalse(note.message.contains("after the D-017 cut-over"), note.message)
+        XCTAssertEqual(a.findings.first { $0.code == "CONTENT-SHARED" }?.videos, ["grs_m", "grs_p"], "and grs_p, still train, is a hard leak")
+    }
+
     func testOneFileUnderTwoCardsOfOneSplitIsSoftAndTwoCardsWithOneStoredFingerprintStayFPShared() throws {
         let clips = [F.clip("ind_x", environment: "Indoor", split: "train", videos: [F.source("ind_x", uploader: "", fingerprint: "file:X")]),
                      F.clip("ind_y", environment: "Indoor", split: "train", videos: [F.source("ind_y", uploader: "", fingerprint: "file:Y")]),
