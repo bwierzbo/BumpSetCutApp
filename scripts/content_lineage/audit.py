@@ -389,6 +389,27 @@ def media_from_file(name: str, path: str, cache_dir: str | None = None, **meta) 
 # ---------------------------------------------------------------- the project
 
 LISTED_KEYS = ("holdout", "finalTest", "lineageHoldout", "finalTestCandidates")
+
+
+def safe_name(name: str) -> str:
+    """A project video's name as the app writes it (`DatasetStore.safeName`)."""
+    cleaned = "".join(c if c.isalnum() or c in "-_" else "_" for c in name)
+    return cleaned or "video"
+
+
+def project_cards(project: dict) -> list[tuple[str, dict]]:
+    """Every video of the project with its name, as the app reads project.json: a card's `videos`,
+    or the single `source` of a project saved when a card held one video (`PlannedClip.init(from:)`);
+    the name is the video's `videoId`, else the card's id (`ReservedVideos.sources`). The one
+    enumeration for what is withheld, what is compared and the cut history."""
+    out = []
+    for clip in project.get("clips", []):
+        videos = clip.get("videos")
+        if videos is None:
+            videos = [clip["source"]] if clip.get("source") else []
+        for video in videos:
+            out.append((safe_name(video.get("videoId") or clip["id"]), video))
+    return out
 FINGERPRINT_CHUNK = 4 << 20
 
 
@@ -467,20 +488,18 @@ def withheld_closure(manifest: dict, project: dict, listed: set[str]) -> dict[st
                 mine.add(key[:3] + ":" + value["value"])
         if row["split"] in RESERVED_SPLITS:
             why[row["video"]] = f"reserved ({row['split']})"
-    for clip in project.get("clips", []):
-        for video in clip.get("videos", []):
-            name = video.get("videoId") or clip["id"]
-            listed_row = name in ids
-            mine = ids.setdefault(name, set())
-            fingerprint = effective_fingerprint(video)
-            if fingerprint:
-                mine.add("fp:" + fingerprint)
-            elif not listed_row and (video.get("origin") or "").strip():
-                raise ReadError(f"{name}: the card has no stored fingerprint and no manifest row, and its origin "
-                                f"({video['origin']}) is not here: its identity is unknown, so what it withholds is unknown")
-            for key in ("sourceId", "sessionId", "venueId"):
-                if video.get(key):
-                    mine.add(key[:3] + ":" + video[key])
+    for name, video in project_cards(project):
+        listed_row = name in ids
+        mine = ids.setdefault(name, set())
+        fingerprint = effective_fingerprint(video)
+        if fingerprint:
+            mine.add("fp:" + fingerprint)
+        elif not listed_row and (video.get("origin") or "").strip():
+            raise ReadError(f"{name}: the card has no stored fingerprint and no manifest row, and its origin "
+                            f"({video['origin']}) is not here: its identity is unknown, so what it withholds is unknown")
+        for key in ("sourceId", "sessionId", "venueId"):
+            if video.get(key):
+                mine.add(key[:3] + ":" + video[key])
     for name in sorted(listed):
         why.setdefault(name, "listed in validation.json")
         ids.setdefault(name, set())
@@ -517,24 +536,22 @@ def project_recordings(project_dir: str) -> tuple[list[dict], list[dict]]:
     confirmed = {v["video"]: v["sourceId"]["value"] for v in manifest["videos"] if v.get("sourceId", {}).get("origin") == "confirmed"}
     withheld = withheld_closure(manifest, project, listed)
     allowed, refused = [], []
-    for clip in project.get("clips", []):
-        for video in clip.get("videos", []):
-            name = video.get("videoId") or clip["id"]
-            row = {"name": name, "path": video.get("clipFile"), "start": video.get("start"), "length": video.get("length"),
-                   "source_id": confirmed.get(name) or (video.get("fingerprint") if video.get("kind") == "link" else video.get("origin"))}
-            if name not in split:
-                refused.append({**row, "why": "not in the split manifest"})
-            elif name in withheld:
-                refused.append({**row, "why": withheld[name]})
-            else:
-                allowed.append({**row, "split": split[name]})
+    for name, video in project_cards(project):
+        row = {"name": name, "path": video.get("clipFile"), "start": video.get("start"), "length": video.get("length"),
+               "source_id": confirmed.get(name) or (video.get("fingerprint") if video.get("kind") == "link" else video.get("origin"))}
+        if name not in split:
+            refused.append({**row, "why": "not in the split manifest"})
+        elif name in withheld:
+            refused.append({**row, "why": withheld[name]})
+        else:
+            allowed.append({**row, "split": split[name]})
     return allowed, refused
 
 
 def _cards(project_dir: str) -> list[tuple[str, dict]]:
     with open(os.path.join(project_dir, "project.json")) as f:
         project = json.load(f)
-    return [(video.get("videoId") or clip["id"], video) for clip in project.get("clips", []) for video in clip.get("videos", [])]
+    return project_cards(project)
 
 
 def _link_id(video: dict) -> str:

@@ -286,6 +286,29 @@ class Project(unittest.TestCase):
         with self.assertRaises(a.ReadError):
             a.project_recordings(self.tmp)
 
+    def test_a_card_saved_when_a_card_held_one_video_is_read_as_the_app_reads_it(self):
+        # `held` is listed, has no dataset session, and sits under the older `source` key.
+        rows = [{"video": "copy", "split": "train", "sourceId": {"origin": "unknown"}}, {"video": "free", "split": "train", "sourceId": {"origin": "unknown"}},
+                {"video": "old_train", "split": "train", "sourceId": {"origin": "unknown"}}]
+        with open(os.path.join(self.tmp, "manifests", "manifest.json"), "w") as f:
+            json.dump({"videos": rows}, f)
+        def card(fingerprint, origin="https://youtu.be/x", **more):
+            return {"kind": "link", "origin": origin, "fingerprint": fingerprint, "clipFile": "/c.mp4", "start": 5, "length": 10, **more}
+        with open(os.path.join(self.tmp, "project.json"), "w") as f:
+            json.dump({"clips": [{"id": "held", "source": card("youtube:abc")}, {"id": "copy", "videos": [card("youtube:abc")]},
+                                 {"id": "free", "videos": [card("youtube:free")]}, {"id": "old_train", "source": card("youtube:old")},
+                                 {"id": "odd name!", "videos": [card("youtube:odd")]}, {"id": "empty", "videos": []}]}, f)
+        os.makedirs(os.path.join(self.tmp, "pipeline_tuning"))
+        with open(os.path.join(self.tmp, "pipeline_tuning", "validation.json"), "w") as f:
+            json.dump({"tune": [], "holdout": ["held"], "finalTest": []}, f)
+        allowed, refused = a.project_recordings(self.tmp)
+        self.assertEqual(sorted(r["name"] for r in allowed), ["free", "old_train"], "an older card is compared like any other")
+        why = {r["name"]: r["why"] for r in refused}
+        self.assertEqual(why["copy"], "withheld: shares an identity with held (listed in validation.json)")
+        self.assertEqual(why["held"], "not in the split manifest")
+        self.assertEqual(why["odd_name_"], "not in the split manifest", "named as the app names its session")
+        self.assertEqual(sorted(a.cut_history(self.tmp, [])), ["copy", "free", "held", "odd_name_", "old_train"], "and its cut history is followed")
+
     def test_link_and_file_identities_are_the_apps(self):
         self.assertEqual(a.link_fingerprint("https://youtu.be/abc?si=x"), "youtube:abc")
         self.assertEqual(a.link_fingerprint("https://m.youtube.com/shorts/abc"), "youtube:abc")
