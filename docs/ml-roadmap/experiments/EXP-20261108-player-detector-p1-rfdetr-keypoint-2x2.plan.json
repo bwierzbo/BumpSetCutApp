@@ -1,0 +1,171 @@
+{
+  "hz": 5,
+  "source": "scrub_proxy",
+  "overlayEvery": 5,
+  "auditPerInterval": 2,
+  "recordings": [
+    {
+      "recordingId": "bch_ele_ovc_land_self_02",
+      "intervals": [
+        {
+          "name": "between_1",
+          "kind": "between_rallies",
+          "startSec": 16.1,
+          "endSec": 31.1,
+          "selection": "auto: 15 s centred in the longest gap between marks 14.6-32.6 s"
+        },
+        {
+          "name": "difficult_1",
+          "kind": "difficult",
+          "startSec": 88.5,
+          "endSec": 103.5,
+          "selection": "manual (contact sheet of rally midpoints): rally 94-97 s: a player close to the camera, partly out of frame, and play on two neighbouring courts"
+        },
+        {
+          "name": "active_1",
+          "kind": "active_play",
+          "startSec": 142.3,
+          "endSec": 157.3,
+          "selection": "auto: 15 s centred on the longest marked rally 139.8-159.8 s (people's marks)"
+        }
+      ]
+    },
+    {
+      "recordingId": "bch_gnd_ovc_land_self_01",
+      "intervals": [
+        {
+          "name": "difficult_1",
+          "kind": "difficult",
+          "startSec": 129.0,
+          "endSec": 144.0,
+          "selection": "manual (contact sheet of rally midpoints): rally 131-142 s: ground-level view, far-side players small and behind the net posts, spectators at the court edge"
+        },
+        {
+          "name": "active_1",
+          "kind": "active_play",
+          "startSec": 216.15,
+          "endSec": 231.15,
+          "selection": "auto: 15 s centred on the longest marked rally 215.1-232.2 s (people's marks)"
+        },
+        {
+          "name": "between_1",
+          "kind": "between_rallies",
+          "startSec": 251.2,
+          "endSec": 266.2,
+          "selection": "auto: 15 s centred in the longest gap between marks 232.2-285.2 s"
+        }
+      ]
+    },
+    {
+      "recordingId": "grs_ele_sun_land_self_01_v2",
+      "intervals": [
+        {
+          "name": "between_1",
+          "kind": "between_rallies",
+          "startSec": 177.0,
+          "endSec": 192.0,
+          "selection": "auto: 15 s centred in the longest gap between marks 170.5-198.5 s"
+        },
+        {
+          "name": "active_1",
+          "kind": "active_play",
+          "startSec": 196.6,
+          "endSec": 211.6,
+          "selection": "auto: 15 s centred on the longest marked rally 198.5-209.7 s (people's marks)"
+        },
+        {
+          "name": "difficult_1",
+          "kind": "difficult",
+          "startSec": 237.0,
+          "endSec": 252.0,
+          "selection": "manual (contact sheet of rally midpoints): rally 241-247 s: players bunched at the net, overlapping"
+        }
+      ]
+    },
+    {
+      "recordingId": "grs_gnd_sun_land_self_01",
+      "intervals": [
+        {
+          "name": "active_1",
+          "kind": "active_play",
+          "startSec": 145.95,
+          "endSec": 160.95,
+          "selection": "auto: 15 s centred on the longest marked rally 148.8-158.1 s (people's marks)"
+        },
+        {
+          "name": "between_1",
+          "kind": "between_rallies",
+          "startSec": 191.35,
+          "endSec": 206.35,
+          "selection": "auto: 15 s centred in the longest gap between marks 177.9-219.8 s"
+        },
+        {
+          "name": "difficult_1",
+          "kind": "difficult",
+          "startSec": 252.0,
+          "endSec": 267.0,
+          "selection": "manual (contact sheet of rally midpoints): rally 257-262 s: distant ground-level camera, players a few dozen pixels tall"
+        }
+      ]
+    },
+    {
+      "recordingId": "ind_gnd_bright_land_self_01",
+      "intervals": [
+        {
+          "name": "active_1",
+          "kind": "active_play",
+          "startSec": 66.95,
+          "endSec": 81.95,
+          "selection": "auto: 15 s centred on the longest marked rally 65.6-83.3 s (people's marks)"
+        },
+        {
+          "name": "difficult_1",
+          "kind": "difficult",
+          "startSec": 132.0,
+          "endSec": 147.0,
+          "selection": "manual (contact sheet of rally midpoints): rally 131-148 s: crowded multi-court gym, players of the next court in line with this one"
+        },
+        {
+          "name": "between_1",
+          "kind": "between_rallies",
+          "startSec": 213.35,
+          "endSec": 228.35,
+          "selection": "auto: 15 s centred in the longest gap between marks 210.7-231.0 s"
+        }
+      ]
+    },
+    {
+      "recordingId": "ind_gnd_bright_port_self_03",
+      "intervals": [
+        {
+          "name": "between_1",
+          "kind": "between_rallies",
+          "startSec": 98.1,
+          "endSec": 113.1,
+          "selection": "auto: 15 s centred in the longest gap between marks 93.8-117.4 s"
+        },
+        {
+          "name": "active_1",
+          "kind": "active_play",
+          "startSec": 139.85,
+          "endSec": 154.85,
+          "selection": "auto: 15 s centred on the longest marked rally 140.5-154.2 s (people's marks)"
+        },
+        {
+          "name": "difficult_1",
+          "kind": "difficult",
+          "startSec": 184.0,
+          "endSec": 199.0,
+          "selection": "manual (contact sheet of rally midpoints): rally 188-194 s: portrait recording, a player diving to the floor, the next court behind"
+        }
+      ]
+    }
+  ],
+  "detector": "rfdetr-keypoint",
+  "tiles": [
+    2,
+    2
+  ],
+  "tileOverlap": 0.15,
+  "minScore": 0.3
+}
