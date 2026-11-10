@@ -7,6 +7,7 @@ skipped where ffmpeg is not installed.
     python3 -m unittest scripts.tests.test_content_lineage_audit -v
 """
 
+import hashlib
 import json
 import os
 import random
@@ -205,7 +206,7 @@ class Project(unittest.TestCase):
         with open(os.path.join(self.tmp, "manifests", "manifest.json"), "w") as f:
             json.dump({"videos": [{"video": v, "split": s, "sourceId": {"origin": "unknown"}} for v, s in videos]}, f)
         clips = [{"id": v, "videos": [{"kind": "file", "origin": f"/orig/{v}.mov", "clipFile": os.path.join(self.tmp, v + ".mp4"), "start": 0, "length": 10}]}
-                 for v, _ in videos] + [{"id": "unlisted", "videos": [{"kind": "file", "origin": "/orig/u.mov", "clipFile": os.path.join(self.tmp, "u.mp4"), "start": 0, "length": 10}]}]
+                 for v, _ in videos] + [{"id": "unlisted", "videos": [{"kind": "file", "origin": "/orig/u.mov", "fingerprint": "file:U", "clipFile": os.path.join(self.tmp, "u.mp4"), "start": 0, "length": 10}]}]
         with open(os.path.join(self.tmp, "project.json"), "w") as f:
             json.dump({"clips": clips}, f)
 
@@ -255,6 +256,45 @@ class Project(unittest.TestCase):
         self.assertEqual(why["stale"], "listed in validation.json")
         self.assertEqual(why["mate"], "withheld: shares an identity with stale (listed in validation.json)")
         self.assertEqual(why["bridge"], "not in the split manifest")
+
+    def test_an_older_card_with_no_stored_fingerprint_withholds_by_the_identity_the_app_derives(self):
+        def row(name, split, **more):
+            return {"video": name, "split": split, "sourceId": {"origin": "unknown"}, **more}
+        original = os.path.join(self.tmp, "original.mov")
+        with open(original, "wb") as f:
+            f.write(bytes(range(256)) * 40)
+        rows = [row("copy_link", "train", fingerprint="youtube:abc"), row("copy_file", "train", contentFingerprint=a.file_fingerprint(original)),
+                row("free", "train", fingerprint="youtube:other")]
+        with open(os.path.join(self.tmp, "manifests", "manifest.json"), "w") as f:
+            json.dump({"videos": rows}, f)
+        cards = [{"id": r["video"], "videos": [{"kind": "link", "origin": "https://youtu.be/x", "fingerprint": "stored:" + r["video"], "clipFile": "/c.mp4"}]} for r in rows]
+        # Two listed holdouts with no dataset session, on cards from before fingerprints were stored.
+        cards += [{"id": "held_link", "videos": [{"kind": "link", "origin": "https://www.youtube.com/watch?v=abc&t=10", "clipFile": "/h.mp4"}]},
+                  {"id": "held_file", "videos": [{"kind": "file", "origin": original, "clipFile": "/g.mp4"}]}]
+        with open(os.path.join(self.tmp, "project.json"), "w") as f:
+            json.dump({"clips": cards}, f)
+        os.makedirs(os.path.join(self.tmp, "pipeline_tuning"))
+        with open(os.path.join(self.tmp, "pipeline_tuning", "validation.json"), "w") as f:
+            json.dump({"tune": [], "holdout": ["held_link", "held_file"], "finalTest": []}, f)
+        allowed, refused = a.project_recordings(self.tmp)
+        self.assertEqual([r["name"] for r in allowed], ["free"])
+        why = {r["name"]: r["why"] for r in refused}
+        self.assertEqual(why["copy_link"], "withheld: shares an identity with held_link (listed in validation.json)")
+        self.assertEqual(why["copy_file"], "withheld: shares an identity with held_file (listed in validation.json)")
+        # The same card with its origin gone: its identity cannot be derived, and nothing is cleared.
+        os.remove(original)
+        with self.assertRaises(a.ReadError):
+            a.project_recordings(self.tmp)
+
+    def test_link_and_file_identities_are_the_apps(self):
+        self.assertEqual(a.link_fingerprint("https://youtu.be/abc?si=x"), "youtube:abc")
+        self.assertEqual(a.link_fingerprint("https://m.youtube.com/shorts/abc"), "youtube:abc")
+        self.assertEqual(a.link_fingerprint("https://www.example.com/v/1?utm_source=a&id=7&t=3#top"), "link:example.com/v/1?id=7")
+        self.assertIsNone(a.link_fingerprint("/Users/someone/Movies/a.mov"))
+        small = os.path.join(self.tmp, "small.bin")
+        with open(small, "wb") as f:
+            f.write(b"abc")
+        self.assertEqual(a.file_fingerprint(small), "file:" + hashlib.sha256((3).to_bytes(8, "little") + b"abc").hexdigest())
 
     def test_an_unreadable_validation_file_stops_the_run(self):
         self._rewrite([{"video": "trn_a", "split": "train", "sourceId": {"origin": "unknown"}}], [("trn_a", {})], validation='{"holdout": [')

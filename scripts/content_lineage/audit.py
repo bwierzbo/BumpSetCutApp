@@ -72,6 +72,7 @@ import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass, field, replace
+from urllib.parse import parse_qs, urlsplit
 
 SCHEMA_VERSION = "content_lineage_proposals_v1"
 SIGNATURE_VERSION = "motion8x8_v2"
@@ -388,6 +389,57 @@ def media_from_file(name: str, path: str, cache_dir: str | None = None, **meta) 
 # ---------------------------------------------------------------- the project
 
 LISTED_KEYS = ("holdout", "finalTest", "lineageHoldout", "finalTestCandidates")
+FINGERPRINT_CHUNK = 4 << 20
+
+
+def file_fingerprint(path: str) -> str:
+    """The app's file identity (`ProjectsModel.fileFingerprint`): SHA-256 of the size and the
+    first and last 4 MB."""
+    size = os.path.getsize(path)
+    h = hashlib.sha256(size.to_bytes(8, "little"))
+    with open(path, "rb") as f:
+        head = f.read(FINGERPRINT_CHUNK)
+        if len(head) != min(FINGERPRINT_CHUNK, size):
+            raise ReadError(f"{path}: read stopped short")
+        h.update(head)
+        if size > FINGERPRINT_CHUNK:
+            f.seek(size - min(FINGERPRINT_CHUNK, size - FINGERPRINT_CHUNK))
+            h.update(f.read())
+    return "file:" + h.hexdigest()
+
+
+def link_fingerprint(link: str) -> str | None:
+    """The app's link identity (`ProjectsModel.linkFingerprint`): the YouTube video id, else the
+    address without tracking, timestamps or fragment. None for something that is not a link."""
+    parts = urlsplit(link)
+    host = (parts.hostname or "").lower()
+    if not host:
+        return None
+    path = [piece for piece in parts.path.split("/") if piece]
+    if host == "youtu.be" and path:
+        return "youtube:" + path[0]
+    if host.endswith("youtube.com"):
+        video = parse_qs(parts.query).get("v")
+        if video:
+            return "youtube:" + video[0]
+        if len(path) >= 2 and path[0] in ("shorts", "live", "embed", "v"):
+            return "youtube:" + path[1]
+    kept = [item for item in parts.query.split("&") if item
+            and item.split("=")[0] not in ("t", "si", "feature", "start") and not item.startswith("utm_")]
+    return "link:" + host.replace("www.", "") + parts.path + ("?" + "&".join(kept) if kept else "")
+
+
+def effective_fingerprint(video: dict) -> str | None:
+    """A card's file identity as the app derives it (`ReservedVideos.effectiveFingerprint`): the
+    stored fingerprint, else from its origin — the file's when it is here, the link's otherwise.
+    Older cards stored none."""
+    if video.get("fingerprint"):
+        return video["fingerprint"]
+    origin = (video.get("origin") or "").strip()
+    if not origin:
+        return None
+    path = os.path.expanduser(origin)
+    return file_fingerprint(path) if os.path.exists(path) else link_fingerprint(origin)
 
 
 def withheld_closure(manifest: dict, project: dict, listed: set[str]) -> dict[str, str]:
@@ -395,7 +447,9 @@ def withheld_closure(manifest: dict, project: dict, listed: set[str]) -> dict[st
     validation.json lists, and everything that shares an identity with one of those, to a fixed
     point — the manifest's alias group, a stored or content fingerprint, a confirmed sourceId,
     sessionId or venueId, on a manifest row or on a card. Cards with no manifest row are followed
-    too, so two recordings joined only through such a card are joined here. The same closure the
+    too, so two recordings joined only through such a card are joined here; a card that stored no
+    fingerprint gets the one the app derives from its origin, and when such a card has no manifest
+    row and its origin cannot be resolved here, its identity is unknown and the run stops. The same closure the
     app withholds by (`ReservedVideos.lineageWithheldNames`): the manifest puts a legacy holdout
     in its split by name, so a train row can be one's alias."""
     ids: dict[str, set[str]] = {}
@@ -415,9 +469,15 @@ def withheld_closure(manifest: dict, project: dict, listed: set[str]) -> dict[st
             why[row["video"]] = f"reserved ({row['split']})"
     for clip in project.get("clips", []):
         for video in clip.get("videos", []):
-            mine = ids.setdefault(video.get("videoId") or clip["id"], set())
-            if video.get("fingerprint"):
-                mine.add("fp:" + video["fingerprint"])
+            name = video.get("videoId") or clip["id"]
+            listed_row = name in ids
+            mine = ids.setdefault(name, set())
+            fingerprint = effective_fingerprint(video)
+            if fingerprint:
+                mine.add("fp:" + fingerprint)
+            elif not listed_row and (video.get("origin") or "").strip():
+                raise ReadError(f"{name}: the card has no stored fingerprint and no manifest row, and its origin "
+                                f"({video['origin']}) is not here: its identity is unknown, so what it withholds is unknown")
             for key in ("sourceId", "sessionId", "venueId"):
                 if video.get(key):
                     mine.add(key[:3] + ":" + video[key])

@@ -26,7 +26,7 @@ The project's leak checks compare bytes (a file fingerprint) and identities a pe
 - A second signature of the centre 80 % of the frame recognises a centre crop (it must beat the full-frame score by 0.1).
 - An appearance hash is kept only to say "the framing looks alike, the motion matches nowhere" (`similar_scene`), which is not a copy.
 - Separately, from `project.json` alone: a card's cut history is followed back to the original file and the stretch of it, through an older project when the card was cut from that project's clip (`--origin-project`). Two cards on one original with overlapping stretches are reported (`same_source_overlap`) with nothing decoded, so this part covers reserved recordings too.
-- Before any file is opened the tool computes the withheld closure and refuses to decode all of it: every recording the split manifest puts in `final_test`, `final_test_candidate`, `lineage_holdout` or `legacy_holdout`, every name `validation.json` lists, and everything that shares an identity with one of those to a fixed point (the manifest's alias group, a stored or content fingerprint, a confirmed sourceId, sessionId or venueId, on a manifest row or a card). It also refuses any name passed with `--exclude` and any project video the manifest does not list. An unreadable manifest or `validation.json` stops the run.
+- Before any file is opened the tool computes the withheld closure and refuses to decode all of it: every recording the split manifest puts in `final_test`, `final_test_candidate`, `lineage_holdout` or `legacy_holdout`, every name `validation.json` lists, and everything that shares an identity with one of those to a fixed point (the manifest's alias group, a stored or content fingerprint, a confirmed sourceId, sessionId or venueId, on a manifest row or a card; a card that stored no fingerprint gets the one the app derives from its origin, and a card with no manifest row whose identity cannot be derived stops the run). It also refuses any name passed with `--exclude` and any project video the manifest does not list. An unreadable manifest or `validation.json` stops the run.
 
 Every output row has `status: proposed`. A proposal is not an identity: a person confirms it with `RallyLab --set-provenance <video> --source-id <id>`, and only that joins two recordings in the withheld closure.
 
@@ -99,7 +99,7 @@ What this shows:
 
 ## Evidence
 
-Outside the repository, on the Mac that ran it: the proposals file (`content-lineage-proposals.json`, schema `content_lineage_proposals_v1`, signature `motion8x8_v2`) of the second run, the first run's (`proposals-first-aligner.json`), the run log and the per-recording signature cache, in `~/Movies/RallyLab/Reports/d017-correction-20261110/content-lineage/` with SHA-256 sums. Tests: `scripts/tests/test_content_lineage_audit.py` (26).
+Outside the repository, on the Mac that ran it: the proposals file (`content-lineage-proposals.json`, schema `content_lineage_proposals_v1`, signature `motion8x8_v2`) of the second run, the first run's (`proposals-first-aligner.json`), the run log and the per-recording signature cache, in `~/Movies/RallyLab/Reports/d017-correction-20261110/content-lineage/` with SHA-256 sums. Tests: `scripts/tests/test_content_lineage_audit.py` (28).
 
 ## Next
 
