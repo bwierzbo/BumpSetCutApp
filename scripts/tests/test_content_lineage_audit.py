@@ -7,7 +7,6 @@ skipped where ffmpeg is not installed.
     python3 -m unittest scripts.tests.test_content_lineage_audit -v
 """
 
-import hashlib
 import json
 import os
 import random
@@ -257,34 +256,34 @@ class Project(unittest.TestCase):
         self.assertEqual(why["mate"], "withheld: shares an identity with stale (listed in validation.json)")
         self.assertEqual(why["bridge"], "not in the split manifest")
 
-    def test_an_older_card_with_no_stored_fingerprint_withholds_by_the_identity_the_app_derives(self):
+    def test_an_older_card_with_no_stored_fingerprint_is_known_by_its_manifest_row_or_stops_the_run(self):
         def row(name, split, **more):
             return {"video": name, "split": split, "sourceId": {"origin": "unknown"}, **more}
-        original = os.path.join(self.tmp, "original.mov")
-        with open(original, "wb") as f:
-            f.write(bytes(range(256)) * 40)
-        rows = [row("copy_link", "train", fingerprint="youtube:abc"), row("copy_file", "train", contentFingerprint=a.file_fingerprint(original)),
-                row("free", "train", fingerprint="youtube:other")]
-        with open(os.path.join(self.tmp, "manifests", "manifest.json"), "w") as f:
-            json.dump({"videos": rows}, f)
-        cards = [{"id": r["video"], "videos": [{"kind": "link", "origin": "https://youtu.be/x", "fingerprint": "stored:" + r["video"], "clipFile": "/c.mp4"}]} for r in rows]
-        # Two listed holdouts with no dataset session, on cards from before fingerprints were stored.
-        cards += [{"id": "held_link", "videos": [{"kind": "link", "origin": "https://www.youtube.com/watch?v=abc&t=10", "clipFile": "/h.mp4"}]},
-                  {"id": "held_file", "videos": [{"kind": "file", "origin": original, "clipFile": "/g.mp4"}]}]
-        with open(os.path.join(self.tmp, "project.json"), "w") as f:
-            json.dump({"clips": cards}, f)
-        os.makedirs(os.path.join(self.tmp, "pipeline_tuning"))
-        with open(os.path.join(self.tmp, "pipeline_tuning", "validation.json"), "w") as f:
-            json.dump({"tune": [], "holdout": ["held_link", "held_file"], "finalTest": []}, f)
+
+        def write(rows, cards, holdout):
+            with open(os.path.join(self.tmp, "manifests", "manifest.json"), "w") as f:
+                json.dump({"videos": rows}, f)
+            with open(os.path.join(self.tmp, "project.json"), "w") as f:
+                json.dump({"clips": [{"id": name, "videos": [{"kind": "link", "clipFile": "/c.mp4", **video}]} for name, video in cards]}, f)
+            os.makedirs(os.path.join(self.tmp, "pipeline_tuning"), exist_ok=True)
+            with open(os.path.join(self.tmp, "pipeline_tuning", "validation.json"), "w") as f:
+                json.dump({"tune": [], "holdout": holdout, "finalTest": []}, f)
+        old = {"origin": "https://example.org/match%20one.mp4"}          # no stored fingerprint
+        copy = {"origin": "https://youtu.be/x", "fingerprint": "link:example.org/match one.mp4"}
+        # With a manifest row, the row carries the identity the app derived for the older card.
+        write([row("held", "legacy_holdout", fingerprint="link:example.org/match one.mp4"), row("copy", "train", fingerprint="link:example.org/match one.mp4"),
+               row("free", "train", fingerprint="youtube:free")],
+              [("held", old), ("copy", copy), ("free", {"origin": "https://youtu.be/f", "fingerprint": "youtube:free"})], ["held"])
         allowed, refused = a.project_recordings(self.tmp)
         self.assertEqual([r["name"] for r in allowed], ["free"])
-        why = {r["name"]: r["why"] for r in refused}
-        self.assertEqual(why["copy_link"], "withheld: shares an identity with held_link (listed in validation.json)")
-        self.assertEqual(why["copy_file"], "withheld: shares an identity with held_file (listed in validation.json)")
-        # The same card with its origin gone: its identity cannot be derived, and nothing is cleared.
-        os.remove(original)
+        self.assertEqual({r["name"]: r["why"] for r in refused}["copy"], "withheld: shares an identity with held (reserved (legacy_holdout))")
+        # With no manifest row its identity is not known here: nothing is cleared, nothing decoded.
+        write([row("copy", "train", fingerprint="link:example.org/match one.mp4"), row("free", "train", fingerprint="youtube:free")],
+              [("held", old), ("copy", copy), ("free", {"origin": "https://youtu.be/f", "fingerprint": "youtube:free"})], ["held"])
         with self.assertRaises(a.ReadError):
             a.project_recordings(self.tmp)
+        with self.assertRaises(a.ReadError):
+            a.run_project(self.tmp, os.path.join(self.tmp, "out"), exclude=set(), only=None, log=lambda _: None)
 
     def test_a_card_saved_when_a_card_held_one_video_is_read_as_the_app_reads_it(self):
         # `held` is listed, has no dataset session, and sits under the older `source` key.
@@ -308,16 +307,6 @@ class Project(unittest.TestCase):
         self.assertEqual(why["held"], "not in the split manifest")
         self.assertEqual(why["odd_name_"], "not in the split manifest", "named as the app names its session")
         self.assertEqual(sorted(a.cut_history(self.tmp, [])), ["copy", "free", "held", "odd_name_", "old_train"], "and its cut history is followed")
-
-    def test_link_and_file_identities_are_the_apps(self):
-        self.assertEqual(a.link_fingerprint("https://youtu.be/abc?si=x"), "youtube:abc")
-        self.assertEqual(a.link_fingerprint("https://m.youtube.com/shorts/abc"), "youtube:abc")
-        self.assertEqual(a.link_fingerprint("https://www.example.com/v/1?utm_source=a&id=7&t=3#top"), "link:example.com/v/1?id=7")
-        self.assertIsNone(a.link_fingerprint("/Users/someone/Movies/a.mov"))
-        small = os.path.join(self.tmp, "small.bin")
-        with open(small, "wb") as f:
-            f.write(b"abc")
-        self.assertEqual(a.file_fingerprint(small), "file:" + hashlib.sha256((3).to_bytes(8, "little") + b"abc").hexdigest())
 
     def test_an_unreadable_validation_file_stops_the_run(self):
         self._rewrite([{"video": "trn_a", "split": "train", "sourceId": {"origin": "unknown"}}], [("trn_a", {})], validation='{"holdout": [')
