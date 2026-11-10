@@ -326,7 +326,8 @@ struct DatasetAudit: Codable {
     /// is the same recording — the packages, and the other names it is in them under. "The same
     /// recording" is a shared file identity or confirmed sourceId, followed to a fixed point (A and B
     /// share a sourceId, B and C a file: A, B and C are one recording); a shared venue or session is
-    /// another recording and joins nothing here.
+    /// another recording and joins nothing here — nor does a package row a video only inherited from
+    /// a sessionless venue or session mate (`inherited == "group"`).
     private static func packagedRecordings(_ lineage: [ManifestVideo], among videos: [ManifestVideo]) -> [String: (packages: [String], via: [String])] {
         var holders: [String: [String]] = [:]
         for v in videos {
@@ -341,9 +342,12 @@ struct DatasetAudit: Codable {
         var out: [String: (packages: [String], via: [String])] = [:]
         for v in lineage {
             let same = recordings[find(v.video)] ?? [v]
-            let packages = Set(same.flatMap { $0.exposure.filter { $0.kind == .trainingPackage }.map(\.ref) }).sorted()
+            func ownPackages(_ video: ManifestVideo) -> [String] {
+                video.exposure.filter { $0.kind == .trainingPackage && $0.inherited != "group" }.map(\.ref)
+            }
+            let packages = Set(same.flatMap(ownPackages)).sorted()
             guard !packages.isEmpty else { continue }
-            let via = same.filter { $0.video != v.video && $0.exposure.contains { $0.kind == .trainingPackage } }.map(\.video).sorted()
+            let via = same.filter { $0.video != v.video && !ownPackages($0).isEmpty }.map(\.video).sorted()
             out[v.video] = (packages, via)
         }
         return out

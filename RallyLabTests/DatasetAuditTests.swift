@@ -351,6 +351,45 @@ extension DatasetAuditTests {
         XCTAssertEqual(a.findings.first { $0.code == "CONTENT-SHARED" }?.videos, ["grs_m", "grs_p"], "and grs_p, still train, is a hard leak")
     }
 
+    func testAPackageRowInheritedFromASessionlessVenueMateIsNotTheHoldoutsOwn() throws {
+        // grs_h (listed) shares only a confirmed venue with grs_t, whose session was removed from the
+        // dataset and whose package row is still on the ledger. The row reaches grs_h's history, marked
+        // as its group's; grs_h itself is in no package.
+        func run(mate: ClipSource) throws -> (row: ManifestVideo, audit: DatasetAudit) {
+            let clips = [F.clip("grs_h", environment: "Grass", videos: [F.source("grs_h", uploader: "", fingerprint: "file:H", sourceId: "IMG_9", venueId: "v-shared")]),
+                         F.clip("grs_t", environment: "Grass", split: "train", videos: [mate])]
+            let inputs = F.inputs(validation: PipelineTuner.ValidationSet(tune: ["bch_a"], holdout: ["bch_a_v2"], lineageHoldout: ["grs_h"]),
+                                  discovered: ["grs_t": [ExposureRecord(kind: .trainingPackage, ref: "pkg-L2", date: "2026-10-25", note: nil)]],
+                                  extraClips: clips, extraSessions: [F.session("grs_h", split: "val")])   // grs_t has no session
+            let m = try DatasetSplitManifest.build(inputs)
+            return (try XCTUnwrap(m.videos.first { $0.video == "grs_h" }), DatasetAudit.run(manifest: m, now: F.day))
+        }
+        let venueOnly = try run(mate: F.source("grs_t", uploader: "", fingerprint: "file:T", venueId: "v-shared"))
+        XCTAssertEqual(venueOnly.row.exposure.map(\.inherited), ["group"])
+        XCTAssertFalse(venueOnly.audit.findings.contains { $0.code == "LINEAGE-HOLDOUT-TRAINED" }, "a venue mate's package is not this recording's")
+        let note = try XCTUnwrap(venueOnly.audit.findings.first { $0.code == "LINEAGE-HOLDOUT" && $0.videos == ["grs_h"] })
+        XCTAssertTrue(note.message.contains("historical exposure: training_package"), "the group's history is still shown: \(note.message)")
+
+        // The same mate under the holdout's confirmed sourceId is the holdout's recording: its package counts.
+        let sameRecording = try run(mate: F.source("grs_t", uploader: "", fingerprint: "file:T", sourceId: "IMG_9"))
+        XCTAssertEqual(sameRecording.row.exposure.map(\.inherited), ["recording"])
+        XCTAssertEqual(sameRecording.audit.findings.filter { $0.code == "LINEAGE-HOLDOUT-TRAINED" }.map(\.videos), [["grs_h"]])
+    }
+
+    func testAnUnmarkedInheritedRowFromAnOlderManifestIsReplacedNotDoubled() throws {
+        let clips = [F.clip("grs_h", environment: "Grass", videos: [F.source("grs_h", uploader: "", fingerprint: "file:H", venueId: "v-shared")]),
+                     F.clip("grs_t", environment: "Grass", split: "train", videos: [F.source("grs_t", uploader: "", fingerprint: "file:T", venueId: "v-shared")])]
+        var inputs = F.inputs(validation: PipelineTuner.ValidationSet(tune: ["bch_a"], holdout: ["bch_a_v2"], lineageHoldout: ["grs_h"]),
+                              discovered: ["grs_t": [ExposureRecord(kind: .trainingPackage, ref: "pkg-L2", date: "2026-10-25", note: nil)]],
+                              extraClips: clips, extraSessions: [F.session("grs_h", split: "val")])
+        var older = try DatasetSplitManifest.build(inputs)
+        let at = try XCTUnwrap(older.videos.firstIndex { $0.video == "grs_h" })
+        older.videos[at].exposure = older.videos[at].exposure.map { var r = $0; r.inherited = nil; return r }
+        inputs.previous = older
+        let row = try XCTUnwrap(try DatasetSplitManifest.build(inputs).videos.first { $0.video == "grs_h" })
+        XCTAssertEqual(row.exposure.map(\.inherited), ["group"], "one row, now saying how it was inherited")
+    }
+
     func testOneFileUnderTwoCardsOfOneSplitIsSoftAndTwoCardsWithOneStoredFingerprintStayFPShared() throws {
         let clips = [F.clip("ind_x", environment: "Indoor", split: "train", videos: [F.source("ind_x", uploader: "", fingerprint: "file:X")]),
                      F.clip("ind_y", environment: "Indoor", split: "train", videos: [F.source("ind_y", uploader: "", fingerprint: "file:Y")]),

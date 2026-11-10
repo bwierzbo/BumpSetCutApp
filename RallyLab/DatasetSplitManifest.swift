@@ -97,6 +97,10 @@ struct ExposureRecord: Codable, Equatable, Hashable {
     /// ISO-8601 date when known.
     var date: String?
     var note: String?
+    /// Set on a row this video did not earn itself but took from a project video with no dataset
+    /// session in its alias group: `recording` when that video is the same recording (a shared file
+    /// or confirmed sourceId), `group` when it only shares a session or venue. Absent on a direct row.
+    var inherited: String? = nil
 }
 
 struct ManifestVideo: Codable, Equatable {
@@ -241,11 +245,16 @@ struct DatasetSplitManifest: Codable {
         let sessionNames = Set(inputs.sessions.map(\.name))
         var sessionless: [String: [String]] = [:]   // group id → sessionless member names
         for (name, group) in groupOf where !sessionNames.contains(name) { sessionless[group, default: []].append(name) }
-        func inheritedExposure(forGroup group: String?) -> Set<ExposureRecord> {
+        // The same use is the video's own when the sessionless member is the same recording, and only
+        // its group's when they were filmed together: the row says which, so a reader that asks "was
+        // this recording used" (the audit's LINEAGE-HOLDOUT-TRAINED) does not count a venue mate's use.
+        let recordingOf = ReservedVideos.groups(over: sources, recordingOnly: true)
+        func inheritedExposure(for name: String) -> Set<ExposureRecord> {
             var out = Set<ExposureRecord>()
-            for m in (group.flatMap { sessionless[$0] } ?? []).sorted() {
+            for m in (groupOf[name].flatMap { sessionless[$0] } ?? []).sorted() {
+                let relation = recordingOf[m] != nil && recordingOf[m] == recordingOf[name] ? "recording" : "group"
                 for r in (previous[m] ?? []) + (inputs.discovered[m] ?? []) {
-                    out.insert(ExposureRecord(kind: r.kind, ref: r.ref, date: r.date, note: (r.note.map { $0 + "; " } ?? "") + "via sessionless alias \(m)"))
+                    out.insert(ExposureRecord(kind: r.kind, ref: r.ref, date: r.date, note: (r.note.map { $0 + "; " } ?? "") + "via sessionless alias \(m)", inherited: relation))
                 }
             }
             return out
@@ -276,7 +285,13 @@ struct DatasetSplitManifest: Codable {
             var exposure = Set(previous[session.name] ?? [])
             exposure.formUnion(inputs.discovered[session.name] ?? [])
             if let source = card?.source, let print = inputs.fingerprint(source) { exposure.formUnion(previousByPrint[print] ?? []) }
-            exposure.formUnion(inheritedExposure(forGroup: groupOf[session.name]))
+            for row in inheritedExposure(for: session.name) {
+                // A manifest written before rows said how they were inherited holds the same row unmarked.
+                var unmarked = row
+                unmarked.inherited = nil
+                exposure.remove(unmarked)
+                exposure.insert(row)
+            }
             if tune.contains(session.name) {
                 exposure.insert(ExposureRecord(kind: .pipelineTune, ref: "pipeline_tuning/validation.json", date: nil, note: nil))
             }
