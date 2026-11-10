@@ -184,7 +184,12 @@ enum CourtPilot {
 
         for rec in manifest.recordings {
             let binding = CourtCalibrationFile.Binding(rec)
-            let footage = PlayerFeaturesRun.experimentFootage(experiment, rec.recordingId)
+            guard let footage = PlayerFeaturesRun.decodedFootage(experiment, rec.recordingId, fingerprint: rec.decoded.fingerprint) else {
+                log("⚠️ \(rec.recordingId): the run's footage copy isn't in the experiment — skipped")
+                reports.append(RecordingReport(recordingId: rec.recordingId, surface: rec.surface, camera: rec.camera, calibration: "footage missing",
+                                               proposals: [], proposalNotes: [], sources: [], panel: nil, lines: nil, auditImages: []))
+                continue
+            }
             var file: CourtCalibrationFile
             var notes: [String] = []
             var calibration = "new"

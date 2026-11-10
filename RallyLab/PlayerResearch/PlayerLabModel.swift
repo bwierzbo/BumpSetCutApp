@@ -89,7 +89,11 @@ final class PlayerLabModel {
             let decoder = JSONDecoder()
             allFrames = try data.split(separator: 0x0A).map { try decoder.decode(PlayerFeatures.Frame.self, from: Data($0)) }
         } catch { status = "Can't read \(rec.framesFile): \(error.localizedDescription)"; return }
-        let footage = PlayerFeaturesRun.experimentFootage(experiment, rec.recordingId)
+        // The copy this run decoded, by content: a later run's copy is never shown under this run's boxes.
+        guard let footage = PlayerFeaturesRun.decodedFootage(experiment, rec.recordingId, fingerprint: rec.decoded.fingerprint) else {
+            status = "This run's footage for \(rec.recordingId) (\(rec.decoded.fingerprint.prefix(16))…) is not in the experiment: nothing is shown."
+            return
+        }
         let g = AVAssetImageGenerator(asset: AVURLAsset(url: footage))
         g.appliesPreferredTrackTransform = true
         g.requestedTimeToleranceBefore = .zero

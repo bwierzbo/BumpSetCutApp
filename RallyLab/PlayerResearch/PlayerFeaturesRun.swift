@@ -101,7 +101,7 @@ enum PlayerFeaturesRun {
             case .copyMismatch(let n): return "The copy of \(n)'s scrub proxy differs from its source: nothing is decoded."
             case .emptyClosure: return "The withheld closure is empty: nothing proves a withheld recording is kept out, so nothing is read."
             case .refused(let r): return "Refused before any video was opened: " + r.joined(separator: "; ")
-            case .protectedContentUnknown(let n): return "Withheld recording \(n) can't be recognised by content on this Mac (no stored file fingerprint and no local copy to compare with): nothing is read."
+            case .protectedContentUnknown(let n): return "Withheld recording \(n) can't be recognised by content on this Mac (its session's scrub proxy is missing or unreadable, or it has no session and no stored file fingerprint): nothing is read."
             case .withheldContent(let r): return "The file to decode is a withheld recording's: " + r.joined(separator: ", ")
             case .exists(let p): return "\(p) exists already: choose another run name."
             case .write(let why): return "Writing failed: \(why)"
@@ -182,8 +182,45 @@ enum PlayerFeaturesRun {
 
     private static func sha256Hex(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 
-    static func experimentFootage(_ experiment: URL, _ recording: String) -> URL {
-        experiment.appendingPathComponent("footage", isDirectory: true).appendingPathComponent("\(recording).mp4")
+    /// Where a run keeps its copy of `recording`'s proxy with content `fingerprint`: `footage/<recording>.mp4` when that
+    /// file is absent or holds this content, otherwise `footage/<recording>@<12 hex of the fingerprint's SHA-256>.mp4`.
+    /// A copy an earlier run decoded is never replaced, so every run's frames stay on the video they were read from.
+    static func experimentFootage(_ experiment: URL, _ recording: String, fingerprint: String) -> URL {
+        let dir = experiment.appendingPathComponent("footage", isDirectory: true)
+        let base = dir.appendingPathComponent("\(recording).mp4")
+        guard FileManager.default.fileExists(atPath: base.path), ProjectsModel.readFileFingerprint(atPath: base.path) != fingerprint else { return base }
+        return versionedFootage(dir, recording, fingerprint)
+    }
+
+    private static func versionedFootage(_ dir: URL, _ recording: String, _ fingerprint: String) -> URL {
+        dir.appendingPathComponent("\(recording)@\(sha256Hex(Data(fingerprint.utf8)).prefix(12)).mp4")
+    }
+
+    /// The experiment's copy a run decoded (its manifest's `decoded.fingerprint`), nil when no copy holds that content.
+    static func decodedFootage(_ experiment: URL, _ recording: String, fingerprint: String) -> URL? {
+        let dir = experiment.appendingPathComponent("footage", isDirectory: true)
+        return [dir.appendingPathComponent("\(recording).mp4"), versionedFootage(dir, recording, fingerprint)]
+            .first { ProjectsModel.readFileFingerprint(atPath: $0.path) == fingerprint }
+    }
+
+    /// Every identity a withheld recording's footage can have in this run: its stored identity and, when it has a session,
+    /// its scrub proxy's content — the representation a copy decoded here would be. A withheld session whose proxy is
+    /// missing or unreadable, or a withheld recording with no session and no `file:` identity, can't be recognised by
+    /// content: the run is refused (Codex on #166).
+    static func protectedContent(closure: Set<String>, proxies: [String: URL], storedIdentity: [String: String]) throws -> Set<String> {
+        var out = Set<String>()
+        for w in closure.sorted() {
+            var mine = Set<String>()
+            if let f = storedIdentity[w] { mine.insert(f) }
+            if let p = proxies[w] {
+                guard FileManager.default.fileExists(atPath: p.path), let f = ProjectsModel.fileFingerprint(atPath: p.path) else { throw Failure.protectedContentUnknown(w) }
+                mine.insert(f)
+            } else if !mine.contains(where: { $0.hasPrefix("file:") }) {
+                throw Failure.protectedContentUnknown(w)
+            }
+            out.formUnion(mine)
+        }
+        return out
     }
 
     @discardableResult
@@ -222,28 +259,29 @@ enum PlayerFeaturesRun {
         // 4. Footage: the local proxy, copied; the content check on the copies.
         let sources = ReservedVideos.sources(in: projectDir)
         func proxy(_ session: VideoSession) -> URL { ScrubProxy.url(for: URL(fileURLWithPath: session.sourcePath), in: projectDir) }
-        var protected = Set<String>()
-        for w in closure.sorted() {
-            var mine = Set<String>()
-            if let f = sources[w]?.fingerprint, f.hasPrefix("file:") { mine.insert(f) }
-            if let s = sessions[w], fm.fileExists(atPath: proxy(s).path), let f = ProjectsModel.fileFingerprint(atPath: proxy(s).path) { mine.insert(f) }
-            // A withheld recording with no session has no proxy; its stored file identity is what a copy would match.
-            guard !mine.isEmpty || sessions[w] == nil else { throw Failure.protectedContentUnknown(w) }
-            protected.formUnion(mine)
-        }
+        let protected = try protectedContent(closure: closure, proxies: Dictionary(uniqueKeysWithValues: closure.compactMap { w in sessions[w].map { (w, proxy($0)) } }),
+                                             storedIdentity: sources.compactMapValues(\.fingerprint))
         var missing: [String] = []
         for name in planned where !fm.fileExists(atPath: proxy(sessions[name]!).path) { missing.append("\(name): no local scrub proxy") }
         guard missing.isEmpty else { throw Failure.refused(missing) }
-        let sourcePrints = Dictionary(uniqueKeysWithValues: planned.map { ($0, ProjectsModel.readFileFingerprint(atPath: proxy(sessions[$0]!).path) ?? "") })
-        let copies = planned.filter { protected.contains(sourcePrints[$0]!) }
+        var sourcePrints: [String: String] = [:]
+        for name in planned {
+            // An unreadable proxy has no identity to check: never "" (which matches nothing and would pass).
+            guard let f = ProjectsModel.readFileFingerprint(atPath: proxy(sessions[name]!).path) else { throw Failure.refused(["\(name): its scrub proxy can't be read"]) }
+            sourcePrints[name] = f
+        }
+        // By content (the proxy) and by the original's stored identity: neither may be a withheld recording's.
+        let copies = planned.filter { protected.contains(sourcePrints[$0]!) || sources[$0]?.fingerprint.map(protected.contains) == true }
         guard copies.isEmpty else { throw Failure.withheldContent(copies) }
         var decodeFiles: [String: (url: URL, fingerprint: String)] = [:]
         do { try fm.createDirectory(at: experiment.appendingPathComponent("footage", isDirectory: true), withIntermediateDirectories: true) }
         catch { throw Failure.write(error.localizedDescription) }
         for name in planned {
-            let copy = experimentFootage(experiment, name)
+            // Never over another run's copy: a changed proxy gets its own file (experimentFootage).
+            let copy = experimentFootage(experiment, name, fingerprint: sourcePrints[name]!)
             if ProjectsModel.readFileFingerprint(atPath: copy.path) != sourcePrints[name] {
-                try? fm.removeItem(at: copy)
+                // Only a copy at this content's own path is removed: it is a broken copy of the same content.
+                if copy.lastPathComponent != "\(name).mp4" { try? fm.removeItem(at: copy) }
                 do { try fm.copyItem(at: proxy(sessions[name]!), to: copy) } catch { throw Failure.write(error.localizedDescription) }
             }
             // The whole file, not the head-and-tail fingerprint: the copy must be the proxy.

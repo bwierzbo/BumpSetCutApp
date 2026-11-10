@@ -322,4 +322,50 @@ final class PlayerFeaturesTests: XCTestCase {
         XCTAssertEqual(spans[0].frames, [0, 1, 2])
         XCTAssertEqual(spans[0].confirmedFrom, 2)
     }
+
+    // MARK: Withheld content and footage copies (Codex on #166)
+
+    private func tempDir() throws -> URL {
+        let d = FileManager.default.temporaryDirectory.appendingPathComponent("pf-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        return d
+    }
+
+    func testAWithheldRecordingMustBeRecognisableByItsProxyOrRefused() throws {
+        let d = try tempDir()
+        defer { try? FileManager.default.removeItem(at: d) }
+        let proxy = d.appendingPathComponent("w.mp4")
+        try Data("withheld proxy bytes".utf8).write(to: proxy)
+        let ok = try PlayerFeaturesRun.protectedContent(closure: ["w"], proxies: ["w": proxy], storedIdentity: ["w": "file:orig"])
+        XCTAssertTrue(ok.contains(try XCTUnwrap(ProjectsModel.readFileFingerprint(atPath: proxy.path))), "a renamed copy of the proxy is recognised")
+        XCTAssertTrue(ok.contains("file:orig"))
+        XCTAssertThrowsError(try PlayerFeaturesRun.protectedContent(closure: ["w"], proxies: ["w": d.appendingPathComponent("gone.mp4")],
+                                                                    storedIdentity: ["w": "file:orig"]),
+                             "its original's identity can't recognise a re-encoded proxy: refused") { e in
+            XCTAssertEqual(e as? PlayerFeaturesRun.Failure, .protectedContentUnknown("w"))
+        }
+        XCTAssertThrowsError(try PlayerFeaturesRun.protectedContent(closure: ["n"], proxies: [:], storedIdentity: ["n": "youtube:abc"]),
+                             "no session and no file identity: nothing could recognise a copy")
+        XCTAssertNoThrow(try PlayerFeaturesRun.protectedContent(closure: ["n"], proxies: [:], storedIdentity: ["n": "file:x"]))
+    }
+
+    func testARunNeverReplacesAnotherRunsFootageCopy() throws {
+        let d = try tempDir()
+        defer { try? FileManager.default.removeItem(at: d) }
+        try FileManager.default.createDirectory(at: d.appendingPathComponent("footage"), withIntermediateDirectories: true)
+        let base = d.appendingPathComponent("footage/rec.mp4")
+        try Data("first proxy".utf8).write(to: base)
+        let first = try XCTUnwrap(ProjectsModel.readFileFingerprint(atPath: base.path))
+        XCTAssertEqual(PlayerFeaturesRun.experimentFootage(d, "rec", fingerprint: first), base)
+        let newer = d.appendingPathComponent("newer-proxy.mp4")
+        try Data("changed proxy".utf8).write(to: newer)
+        let second = try XCTUnwrap(ProjectsModel.readFileFingerprint(atPath: newer.path))
+        let changed = PlayerFeaturesRun.experimentFootage(d, "rec", fingerprint: second)
+        XCTAssertNotEqual(changed, base, "a changed proxy gets its own copy")
+        try FileManager.default.copyItem(at: newer, to: changed)
+        XCTAssertEqual(PlayerFeaturesRun.decodedFootage(d, "rec", fingerprint: first), base, "the first run still opens its own video")
+        XCTAssertEqual(PlayerFeaturesRun.decodedFootage(d, "rec", fingerprint: second), changed)
+        XCTAssertEqual(PlayerFeaturesRun.experimentFootage(d, "rec", fingerprint: second), changed, "the same content finds its copy again")
+        XCTAssertNil(PlayerFeaturesRun.decodedFootage(d, "rec", fingerprint: "file:none"))
+    }
 }
