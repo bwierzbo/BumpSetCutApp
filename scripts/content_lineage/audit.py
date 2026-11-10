@@ -46,7 +46,8 @@ follow such a card back through the other project's cards to the original file a
 stretch of it. Two cards on one original with overlapping stretches are the same footage.
 
 Withheld footage: this tool decodes video. It refuses to decode every recording the split
-manifest puts in a reserved split, and every name passed with --exclude; comparing a
+manifest puts in a reserved split or validation.json lists, everything that shares an identity
+with one of those (the app's withheld closure), and every name passed with --exclude; comparing a
 protected recording's pictures needs the owner's separate approval and is not implemented
 here. The cut-history relations read project.json only and cover every card.
 
@@ -70,7 +71,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 SCHEMA_VERSION = "content_lineage_proposals_v1"
 SIGNATURE_VERSION = "motion8x8_v2"
@@ -273,6 +274,8 @@ def classify(a: Media, b: Media) -> dict | None:
         if whole.centre is None:
             continue
         crop = align(whole.centre, cropped.full)
+        if crop is not None and whole is b:
+            crop = replace(crop, offset=-crop.offset)     # reported as the pair is: B's sample = A's sample + offset
         if crop is not None and (al is None or crop.score > al.score + CROP_MARGIN):
             out = describe(crop, "cropped_duplicate", f"centre of {whole.name} against all of {cropped.name}")
             out["evidence"]["cropped"] = cropped.name
@@ -384,16 +387,75 @@ def media_from_file(name: str, path: str, cache_dir: str | None = None, **meta) 
 
 # ---------------------------------------------------------------- the project
 
+LISTED_KEYS = ("holdout", "finalTest", "lineageHoldout", "finalTestCandidates")
+
+
+def withheld_closure(manifest: dict, project: dict, listed: set[str]) -> dict[str, str]:
+    """Every project video that is withheld, with why: a manifest row in a reserved split, a name
+    validation.json lists, and everything that shares an identity with one of those, to a fixed
+    point — the manifest's alias group, a stored or content fingerprint, a confirmed sourceId,
+    sessionId or venueId, on a manifest row or on a card. Cards with no manifest row are followed
+    too, so two recordings joined only through such a card are joined here. The same closure the
+    app withholds by (`ReservedVideos.lineageWithheldNames`): the manifest puts a legacy holdout
+    in its split by name, so a train row can be one's alias."""
+    ids: dict[str, set[str]] = {}
+    why: dict[str, str] = {}
+    for row in manifest["videos"]:
+        mine = ids.setdefault(row["video"], set())
+        if row.get("aliasGroup"):
+            mine.add("grp:" + row["aliasGroup"])
+        for key in ("fingerprint", "contentFingerprint"):
+            if row.get(key):
+                mine.add("fp:" + row[key])
+        for key in ("sourceId", "sessionId", "venueId"):
+            value = row.get(key) or {}
+            if value.get("origin") == "confirmed" and value.get("value"):
+                mine.add(key[:3] + ":" + value["value"])
+        if row["split"] in RESERVED_SPLITS:
+            why[row["video"]] = f"reserved ({row['split']})"
+    for clip in project.get("clips", []):
+        for video in clip.get("videos", []):
+            mine = ids.setdefault(video.get("videoId") or clip["id"], set())
+            if video.get("fingerprint"):
+                mine.add("fp:" + video["fingerprint"])
+            for key in ("sourceId", "sessionId", "venueId"):
+                if video.get(key):
+                    mine.add(key[:3] + ":" + video[key])
+    for name in sorted(listed):
+        why.setdefault(name, "listed in validation.json")
+        ids.setdefault(name, set())
+    grew = True
+    while grew:
+        grew = False
+        for name in sorted(ids):
+            if name in why:
+                continue
+            via = next((other for other in sorted(why) if ids[name] & ids.get(other, set())), None)
+            if via is not None:
+                why[name] = f"withheld: shares an identity with {via} ({why[via].removeprefix('withheld: ')})"
+                grew = True
+    return why
+
+
 def project_recordings(project_dir: str) -> tuple[list[dict], list[dict]]:
-    """(recordings this tool may decode, recordings it refuses) from the split manifest and
-    project.json. The manifest is the split authority; a recording it does not list, or lists
-    in a reserved split, is refused. Unreadable inputs raise."""
+    """(recordings this tool may decode, recordings it refuses) from the split manifest,
+    validation.json and project.json. A recording the manifest does not list is refused, and so
+    is every recording in the withheld closure (`withheld_closure`) — decided for all of them
+    before any file is opened. Unreadable inputs raise; no validation.json means nothing is listed
+    beyond the manifest's splits."""
     with open(os.path.join(project_dir, "manifests", "manifest.json")) as f:
         manifest = json.load(f)
     with open(os.path.join(project_dir, "project.json")) as f:
         project = json.load(f)
+    listed: set[str] = set()
+    validation = os.path.join(project_dir, "pipeline_tuning", "validation.json")
+    if os.path.exists(validation):
+        with open(validation) as f:
+            data = json.load(f)
+        listed = {name for key in LISTED_KEYS for name in data.get(key) or []}
     split = {v["video"]: v["split"] for v in manifest["videos"]}
     confirmed = {v["video"]: v["sourceId"]["value"] for v in manifest["videos"] if v.get("sourceId", {}).get("origin") == "confirmed"}
+    withheld = withheld_closure(manifest, project, listed)
     allowed, refused = [], []
     for clip in project.get("clips", []):
         for video in clip.get("videos", []):
@@ -402,8 +464,8 @@ def project_recordings(project_dir: str) -> tuple[list[dict], list[dict]]:
                    "source_id": confirmed.get(name) or (video.get("fingerprint") if video.get("kind") == "link" else video.get("origin"))}
             if name not in split:
                 refused.append({**row, "why": "not in the split manifest"})
-            elif split[name] in RESERVED_SPLITS:
-                refused.append({**row, "why": f"reserved ({split[name]})"})
+            elif name in withheld:
+                refused.append({**row, "why": withheld[name]})
             else:
                 allowed.append({**row, "split": split[name]})
     return allowed, refused

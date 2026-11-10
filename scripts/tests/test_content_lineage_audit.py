@@ -136,6 +136,13 @@ class Relations(unittest.TestCase):
         found = a.classify(cropped, self.original)     # whichever way round they are given
         self.assertEqual((found["relation"], found["evidence"]["cropped"]), ("cropped_duplicate", "cropped"))
 
+    def test_a_cropped_excerpt_reports_its_offset_as_the_pair_is_ordered(self):
+        piece = media("piece", self.frames[160:400], crop=True, noise_seed=6)     # starts 40 s into the original
+        forward, backward = a.classify(self.original, piece), a.classify(piece, self.original)
+        self.assertEqual((forward["relation"], backward["relation"]), ("cropped_duplicate", "cropped_duplicate"))
+        self.assertEqual((forward["evidence"]["offsetSec"], backward["evidence"]["offsetSec"]), (-40.0, 40.0))
+        self.assertEqual((forward["evidence"]["cropped"], backward["evidence"]["cropped"]), ("piece", "piece"))
+
     def test_another_time_in_front_of_the_same_camera_is_not_a_copy(self):
         later = media("later", Scene(seed=8, background_seed=7).frames(600))
         self.assertEqual(self.relation(later), "similar_scene")
@@ -211,6 +218,48 @@ class Project(unittest.TestCase):
         self.assertEqual({r["name"]: r["why"] for r in refused},
                          {"hold_a": "reserved (lineage_holdout)", "legacy_a": "reserved (legacy_holdout)", "final_a": "reserved (final_test)",
                           "cand_a": "reserved (final_test_candidate)", "unlisted": "not in the split manifest"})
+
+    def _rewrite(self, rows, cards, validation=None):
+        with open(os.path.join(self.tmp, "manifests", "manifest.json"), "w") as f:
+            json.dump({"videos": rows}, f)
+        with open(os.path.join(self.tmp, "project.json"), "w") as f:
+            json.dump({"clips": [{"id": name, "videos": [{"kind": "file", "origin": f"/orig/{name}.mov", "start": 0, "length": 10,
+                                                          "clipFile": os.path.join(self.tmp, name + ".mp4"), **more}]}
+                                 for name, more in cards]}, f)
+        if validation is not None:
+            os.makedirs(os.path.join(self.tmp, "pipeline_tuning"), exist_ok=True)
+            with open(os.path.join(self.tmp, "pipeline_tuning", "validation.json"), "w") as f:
+                f.write(validation)
+
+    def test_everything_that_shares_an_identity_with_a_withheld_recording_is_refused(self):
+        def row(name, split, **more):
+            return {"video": name, "split": split, "sourceId": {"origin": "unknown"}, **more}
+        rows = [row("held", "legacy_holdout", sourceId={"origin": "confirmed", "value": "IMG_1"}, aliasGroup="copy"),
+                row("copy", "train", sourceId={"origin": "confirmed", "value": "IMG_1"}, aliasGroup="copy"),     # the manifest's own alias group
+                row("same_file", "train", contentFingerprint="file:HELD"), row("held_2", "lineage_holdout", fingerprint="file:HELD"),
+                row("far", "train", fingerprint="file:FAR"),          # joined to held_3 only through a card with no manifest row
+                row("held_3", "final_test", venueId={"origin": "confirmed", "value": "gym"}),
+                row("stale", "train"),                                # listed in validation.json after the manifest was written
+                row("mate", "dev_val", sessionId={"origin": "confirmed", "value": "s-1"}),
+                row("inferred", "train", sourceId={"origin": "inferred", "value": "IMG_1"}),   # a guess joins nothing
+                row("free", "train", fingerprint="file:FREE")]
+        cards = [(r["video"], {}) for r in rows] + [("bridge", {"fingerprint": "file:FAR", "venueId": "gym"})]
+        cards = [(name, {"sessionId": "s-1"} if name == "stale" else more) for name, more in cards]
+        self._rewrite(rows, cards, validation='{"tune": [], "holdout": ["stale"], "finalTest": []}')
+        allowed, refused = a.project_recordings(self.tmp)
+        self.assertEqual(sorted(r["name"] for r in allowed), ["free", "inferred"])
+        why = {r["name"]: r["why"] for r in refused}
+        self.assertEqual(why["copy"], "withheld: shares an identity with held (reserved (legacy_holdout))")
+        self.assertEqual(why["same_file"], "withheld: shares an identity with held_2 (reserved (lineage_holdout))")
+        self.assertEqual(why["far"], "withheld: shares an identity with bridge (shares an identity with held_3 (reserved (final_test)))")
+        self.assertEqual(why["stale"], "listed in validation.json")
+        self.assertEqual(why["mate"], "withheld: shares an identity with stale (listed in validation.json)")
+        self.assertEqual(why["bridge"], "not in the split manifest")
+
+    def test_an_unreadable_validation_file_stops_the_run(self):
+        self._rewrite([{"video": "trn_a", "split": "train", "sourceId": {"origin": "unknown"}}], [("trn_a", {})], validation='{"holdout": [')
+        with self.assertRaises(ValueError):
+            a.project_recordings(self.tmp)
 
     def test_an_excluded_or_refused_recording_is_never_opened(self):
         opened = []
