@@ -339,7 +339,7 @@ def validate_baseline(path: str, rec: dict, variant_names: set, rep: Report):
             if not isinstance(raws, list) or not raws:
                 rep.error(f"{rw}: rawSpans must be a non-empty list of the pre-merge raw spans")
             else:
-                raw_prev_end = None
+                raw_prev_start = None
                 for k, q in enumerate(raws):
                     qw = f"{rw}.rawSpans[{k}]"
                     if not isinstance(q, dict) or set(q) != {"startTick", "endTick"} or \
@@ -351,9 +351,12 @@ def validate_baseline(path: str, rec: dict, variant_names: set, rep: Report):
                     if not (r["startTick"] <= q["startTick"] and q["endTick"] <= r["endTick"]):
                         rep.error(f"{qw}: raw span [{q['startTick']}, {q['endTick']}) must lie inside the padded span "
                                   f"[{r['startTick']}, {r['endTick']})")
-                    if raw_prev_end is not None and q["startTick"] < raw_prev_end:
-                        rep.error(f"{qw}: raw spans must be in time order and disjoint")
-                    raw_prev_end = q["endTick"]
+                    # In time order by start; two may overlap: the decider can date a rally's start back to its
+                    # serve, inside the previous raw rally's tail (RallyDecider.noteServe), and the builder pads each
+                    # raw before the merge joins them (pad_and_merge handles the overlap the same way).
+                    if raw_prev_start is not None and q["startTick"] < raw_prev_start:
+                        rep.error(f"{qw}: raw spans must be in time order (by start)")
+                    raw_prev_start = q["startTick"]
             sc = r["serveContactTick"]
             if sc is not None and (isinstance(sc, bool) or not isinstance(sc, int) or not (r["startTick"] <= sc <= r["endTick"])):
                 rep.error(f"{rw}: serveContactTick must be null or an integer tick inside the padded span")

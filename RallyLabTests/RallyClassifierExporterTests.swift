@@ -50,6 +50,10 @@ final class RallyClassifierExporterTests: XCTestCase {
         var sessionId: String? = nil
         var spans: [FootageProperties.Span] = []
         var cuts: [CutRange]? = nil
+        /// The card's registered fingerprint, when not the link's own.
+        var fingerprint: String? = nil
+        /// The uploader, when not one of its own.
+        var uploader: String? = nil
         var marks: [RallyMarkRecord] = [
             RallyMarkRecord(startTime: 5, endTime: 12, kind: .rally, contacts: nil),
             RallyMarkRecord(startTime: 20, endTime: 31, kind: nil, contacts: nil),
@@ -64,18 +68,19 @@ final class RallyClassifierExporterTests: XCTestCase {
 
     /// A project on disk: a card and a session per recording, the footage file, its marks, its footage type; the
     /// withheld `bch_w` (lineage holdout) and whatever `validation` names; then the split manifest, as `--manifest` writes it.
-    private func project(_ specs: [Spec], withheld: [String] = ["bch_w"], withheldSessionId: String? = nil, manifest: Bool = true) throws {
+    private func project(_ specs: [Spec], withheld: [String] = ["bch_w"], withheldSessionId: String? = nil, withheldFingerprint: String? = nil,
+                         manifest: Bool = true) throws {
         let fm = FileManager.default
         try fm.createDirectory(at: root.appendingPathComponent("footage"), withIntermediateDirectories: true)
         let store = DatasetStore(root: root)
         try store.prepare()
         var clips: [PlannedClip] = []
-        let all = specs + withheld.map { Spec(name: $0, split: "val", sessionId: withheldSessionId) }
+        let all = specs + withheld.map { Spec(name: $0, split: "val", sessionId: withheldSessionId, fingerprint: withheldFingerprint) }
         for (n, s) in all.enumerated() {
             try Data("footage of \(s.name)".utf8).write(to: footage(s.name))
             let src = ClipSource(kind: .link, origin: "https://youtu.be/\(s.name)", start: 0, length: 60, license: "permission",
-                                 title: s.name, uploader: "up\(n)", clipFile: footage(s.name).path, fetchedAt: F.day,
-                                 videoId: s.name, frames: nil, fingerprint: "youtube:\(s.name)", sourceId: nil, sessionId: s.sessionId, venueId: nil)
+                                 title: s.name, uploader: s.uploader ?? "up\(n)", clipFile: footage(s.name).path, fetchedAt: F.day,
+                                 videoId: s.name, frames: nil, fingerprint: s.fingerprint ?? "youtube:\(s.name)", sourceId: nil, sessionId: s.sessionId, venueId: nil)
             clips.append(PlannedClip(id: s.name, number: n + 1, environment: s.name.hasPrefix("grs") ? "Grass" : s.name.hasPrefix("ind") ? "Indoor" : "Beach",
                                      camera: "End line, raised", lighting: "Sun", orientation: "Landscape", ball: "Beach", notes: "",
                                      split: s.split, videos: [src], pulledFrom: nil))
@@ -85,7 +90,7 @@ final class RallyClassifierExporterTests: XCTestCase {
             try store.save(session)
             try JSONEncoder().encode(s.marks).write(to: RallyMarkModel.labelsURL(for: footage(s.name)))
             if let type = s.type {
-                try FootageProperties.Store(root: root).save(FootageProperties.File(video: s.name, sourceFingerprint: "youtube:\(s.name)", recordingType: type,
+                try FootageProperties.Store(root: root).save(FootageProperties.File(video: s.name, sourceFingerprint: s.fingerprint ?? "youtube:\(s.name)", recordingType: type,
                                                                                     recordingTypeBy: "BW", recordingTypeAt: at, spans: s.spans, updatedAt: at))
             }
         }
@@ -302,18 +307,87 @@ final class RallyClassifierExporterTests: XCTestCase {
         }
     }
 
-    func testACopyOfWithheldFootageUnderAnotherCardIsRefusedByContent() async throws {
+    func testACopyOfWithheldFootageUnderAnotherCardIsLeftOutByContent() async throws {
         // grs_b's card and name are its own, but its original is the withheld bch_w's video, byte for byte.
         try project([Spec(name: "bch_a"), Spec(name: "grs_b", split: "val")])
         try FileManager.default.removeItem(at: footage("grs_b"))
         try FileManager.default.copyItem(at: footage("bch_w"), to: footage("grs_b"))
         let calls = Calls()
+        let result = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(calls))
+        XCTAssertEqual(result.recordings, ["bch_a"])
+        XCTAssertEqual(calls.names, ["bch_a"], "the copy is left out in the plan, before the detector runs on it")
+        let left = try XCTUnwrap(result.leftOut.first { $0.video == "grs_b" })
+        XCTAssertTrue(left.reason.contains("withheld") && left.reason.contains("content"), left.reason)
+        XCTAssertEqual(Set(try ledger().map(\.video)), ["bch_a"])
+    }
+
+    func testARecordingRegisteredAsWithheldFootageIsLeftOutThoughItsFileWasReencoded() async throws {
+        // grs_b's card was registered with the withheld bch_w's file fingerprint; its own file has since been replaced
+        // by other bytes (a re-encode of the same footage), so its content matches nothing. The card's identity
+        // still does: the plan leaves it out, where once only the preflight caught it, after every recording ran.
+        let probe = base.appendingPathComponent("probe.mp4")
+        try Data("footage of bch_w".utf8).write(to: probe)
+        let withheldContent = try XCTUnwrap(ProjectsModel.fileFingerprint(atPath: probe.path))
+        try project([Spec(name: "bch_a"), Spec(name: "grs_b", split: "val", fingerprint: withheldContent)])
+        XCTAssertEqual(ProjectsModel.fileFingerprint(atPath: footage("bch_w").path), withheldContent)
+        XCTAssertNotEqual(ProjectsModel.fileFingerprint(atPath: footage("grs_b").path), withheldContent)
+        let calls = Calls()
+        let result = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(calls))
+        XCTAssertEqual(result.recordings, ["bch_a"])
+        XCTAssertEqual(calls.names, ["bch_a"], "left out in the plan, never processed")
+        let left = try XCTUnwrap(result.leftOut.first { $0.video == "grs_b" })
+        XCTAssertTrue(left.reason.contains("withheld") && left.reason.contains("fingerprint"), left.reason)
+        XCTAssertEqual(Set(try ledger().map(\.video)), ["bch_a"])
+    }
+
+    func testAWithheldRecordingWhoseVideoCantBeReachedStopsThePlan() async throws {
+        // 2026-11-09: the footage share stalled, so the withheld recording's video link could not be followed. It was
+        // skipped, the card's registered fingerprint (no longer its bytes) still passed as a `file:` identity, and a
+        // byte copy of the withheld footage under another card went into the plan. Unreachable is not "not here".
+        try project([Spec(name: "bch_a"), Spec(name: "grs_b", split: "val")], withheldFingerprint: "file:registered-before-a-re-encode")
+        let fm = FileManager.default
+        try fm.removeItem(at: footage("grs_b"))
+        try fm.copyItem(at: footage("bch_w"), to: footage("grs_b"))
+        try fm.removeItem(at: footage("bch_w"))
+        let share = base.appendingPathComponent("unreachable-share/bch_w.mp4").path
+        try fm.createSymbolicLink(atPath: footage("bch_w").path, withDestinationPath: share)
+        let calls = Calls()
         do {
             _ = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(calls))
-            XCTFail("exported a copy of withheld footage")
-        } catch let f as X.Failure { XCTAssertEqual(f, .withheldContent(["grs_b"])) }
-        XCTAssertEqual(calls.names, [], "refused before the detector ran on anything")
+            XCTFail("planned without the withheld recording's content identity")
+        } catch let f as X.Failure {
+            guard case .unreadable(let why) = f else { return XCTFail("\(f)") }
+            XCTAssertTrue(why.contains("bch_w") && why.contains(footage("bch_w").path), why)
+        }
+        XCTAssertEqual(calls.names, [], "stopped before any recording ran")
+        XCTAssertFalse(fm.fileExists(atPath: out.appendingPathComponent(".staging-Fixture-rc-1").path))
         XCTAssertEqual(try ledger(), [])
+    }
+
+    func testThePlanAndThePreflightShareOneWithheldIdentityRule() {
+        let w = X.Withheld(names: ["bch_w"], sourceIds: ["src:w"], fingerprints: ["file:w", "youtube:w"])
+        XCTAssertEqual(X.withheldIdentity(name: "bch_w", sourceId: nil, fingerprint: nil, content: nil, in: w), "name")
+        XCTAssertEqual(X.withheldIdentity(name: "a", sourceId: "src:w", fingerprint: nil, content: nil, in: w), "sourceId")
+        XCTAssertEqual(X.withheldIdentity(name: "a", sourceId: "src:a", fingerprint: "file:w", content: "file:a", in: w), "fingerprint")
+        XCTAssertEqual(X.withheldIdentity(name: "a", sourceId: nil, fingerprint: "youtube:a", content: "file:w", in: w), "content")
+        XCTAssertNil(X.withheldIdentity(name: "a", sourceId: "src:a", fingerprint: "youtube:a", content: "file:a", in: w))
+    }
+
+    func testAGroupAcrossSplitsIsRefusedBeforeAnyVideoIsProcessed() async throws {
+        // Same uploader: one group (contract §6), which the audit calls soft but the validator refuses across splits.
+        try project([Spec(name: "bch_a", uploader: "Same Person"), Spec(name: "grs_b", split: "val", uploader: "Same Person"), Spec(name: "bch_c")])
+        let calls = Calls()
+        do {
+            _ = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(calls))
+            XCTFail("exported a group split across two splits")
+        } catch let f as X.Failure {
+            guard case .groupAcrossSplits(let g) = f else { return XCTFail("\(f)") }
+            XCTAssertEqual(g.count, 1)
+            XCTAssertTrue(g[0].contains("bch_a") && g[0].contains("grs_b") && !g[0].contains("bch_c"), g[0])
+        }
+        XCTAssertEqual(calls.names, [], "refused at the plan, before the detector ran")
+        XCTAssertEqual(try ledger(), [])
+        XCTAssertEqual(X.groupsAcrossSplits([(video: "a", group: "a", split: "train"), (video: "b", group: "a", split: "train")]), [])
     }
 
     func testAWithheldRecordingWhoseVideoIsNotHereStopsTheRun() async throws {
@@ -417,6 +491,25 @@ final class RallyClassifierExporterTests: XCTestCase {
         let result = try await X.export(projectDir: root, manifestURL: manifestURL, options: o, evidence: source(second))
         XCTAssertEqual(second.names, ["grs_b"])
         XCTAssertEqual(result.reused, ["bch_a"])
+        XCTAssertEqual(result.recordings, ["bch_a", "grs_b"])
+    }
+
+    func testARunCutShortInItsFirstRecordingCanBeResumed() async throws {
+        // 2026-11-09: the share failed a read in the first recording, before any journal was written, and every
+        // --resume was refused ("no readable journal") although the run said to resume.
+        try project([Spec(name: "bch_a"), Spec(name: "grs_b", split: "val")])
+        do {
+            _ = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(Calls(), failing: "bch_a"))
+            XCTFail("the detector failed and the export went on")
+        } catch {}
+        let staging = out.appendingPathComponent(".staging-Fixture-rc-1", isDirectory: true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staging.path + ".journal.json"), "the journal exists with the staging folder")
+        let second = Calls()
+        var o = options(resume: staging)
+        o.now = now.addingTimeInterval(60)
+        let result = try await X.export(projectDir: root, manifestURL: manifestURL, options: o, evidence: source(second))
+        XCTAssertEqual(second.names, ["bch_a", "grs_b"])
+        XCTAssertEqual(result.reused, [])
         XCTAssertEqual(result.recordings, ["bch_a", "grs_b"])
     }
 
@@ -576,5 +669,39 @@ final class RallyClassifierExporterTests: XCTestCase {
         XCTAssertEqual(built[0].padded.start.seconds, 39.5, accuracy: 1e-9, "padded from the short raw, not from the 5 s union (which would pre-roll 2 s)")
         XCTAssertEqual(built[0].raw.start.seconds, 40.0, accuracy: 1e-9)
         XCTAssertEqual(CMTimeRangeGetEnd(built[0].raw).seconds, 45.0, accuracy: 1e-9)
+    }
+
+    func testAServeDatedIntoThePreviousRallysTailGivesOverlappingRawsTheValidatorAccepts() async throws {
+        // The decider dates the second rally back to its serve at 14 s, before the first raw rally closed at 15 s.
+        let builder = SegmentBuilder(config: ProcessorConfig())
+        func t(_ s: Double) -> CMTime { CMTimeMakeWithSeconds(s, preferredTimescale: 600) }
+        builder.observe(isActive: true, at: t(10))
+        builder.observe(isActive: false, at: t(15))
+        builder.observe(isActive: true, at: t(16), rallyStart: t(14))
+        builder.observe(isActive: false, at: t(20))
+        let built = builder.finalizeWithRaw(until: t(60))
+        XCTAssertEqual(built.count, 1)
+        XCTAssertEqual(built[0].parts.map { [$0.start.seconds, CMTimeRangeGetEnd($0).seconds] }, [[10, 15], [14, 20]], "in order by start, overlapping")
+
+        // The validator takes such a clip (in order by start) and still refuses raws out of order.
+        let script = """
+        import sys, json, os, tempfile
+        sys.path.insert(0, sys.argv[1]); import validate_dataset as v
+        def run(raws):
+            d = os.path.join(tempfile.mkdtemp(), "ds"); v.write_synthetic(d)
+            m = json.load(open(os.path.join(d, "dataset-manifest.json"))); rec = m["recordings"][0]
+            bp = os.path.join(d, rec["baselineFile"]); b = json.load(open(bp))
+            clip = b["variants"]["r0"][0]; s, e = clip["startTick"], clip["endTick"]
+            clip["rawSpans"] = [{"startTick": s + a, "endTick": s + z} for a, z in raws]
+            json.dump(b, open(bp, "w")); rec["baselineSha256"] = v.sha256_file(bp)
+            json.dump(m, open(os.path.join(d, "dataset-manifest.json"), "w"))
+            return [x for x in v.validate(d).errors if "rawSpans" in x]
+        print(json.dumps([run([(10, 40), (30, 60)]), run([(30, 60), (10, 40)])]))
+        """
+        let run = await ToolEnvironment.run("python3", ["-c", script, validator.deletingLastPathComponent().path])
+        let out = try XCTUnwrap(run.lines.last.flatMap { try JSONSerialization.jsonObject(with: Data($0.utf8)) as? [[String]] }, run.lines.joined(separator: "\n"))
+        XCTAssertEqual(out[0], [], "overlapping raws in order by start are valid")
+        XCTAssertEqual(out[1].count, 1, "raws out of order are not")
+        XCTAssertTrue(out[1].first?.contains("time order") ?? false, "\(out[1])")
     }
 }

@@ -1205,19 +1205,28 @@ final class ProjectsModel {
     }
 
     /// The fingerprint read from the file's bytes, uncached.
+    /// nil when any seek or read fails or comes back short (a stalled share): a hash of
+    /// part of the bytes would be a wrong identity, never a missing one.
     nonisolated static func readFileFingerprint(atPath path: String) -> String? {
-        guard let handle = FileHandle(forReadingAtPath: path),
-              let size = try? handle.seekToEnd() else { return nil }
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
         defer { try? handle.close() }
         let chunk: UInt64 = 4 << 20
         var hasher = SHA256()
-        withUnsafeBytes(of: size.littleEndian) { hasher.update(bufferPointer: $0) }
-        try? handle.seek(toOffset: 0)
-        if let head = try? handle.read(upToCount: Int(chunk)) { hasher.update(data: head) }
-        if size > chunk {
-            try? handle.seek(toOffset: size - min(chunk, size - chunk))
-            if let tail = try? handle.readToEnd() { hasher.update(data: tail) }
-        }
+        do {
+            let size = try handle.seekToEnd()
+            withUnsafeBytes(of: size.littleEndian) { hasher.update(bufferPointer: $0) }
+            try handle.seek(toOffset: 0)
+            let head = try handle.read(upToCount: Int(chunk)) ?? Data()
+            guard UInt64(head.count) == min(chunk, size) else { return nil }
+            hasher.update(data: head)
+            if size > chunk {
+                let tailStart = size - min(chunk, size - chunk)
+                try handle.seek(toOffset: tailStart)
+                let tail = try handle.readToEnd() ?? Data()
+                guard UInt64(tail.count) == size - tailStart else { return nil }
+                hasher.update(data: tail)
+            }
+        } catch { return nil }
         return "file:" + hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 

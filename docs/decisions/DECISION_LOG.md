@@ -46,6 +46,7 @@ The authoritative record of product, architecture, data and process decisions fo
 | [D-032](#d-032) | 2026-11-03 | accepted | A recording's type — continuous, edited, unknown — is confirmed by a person at the end of the marking pass, kept apart from the pass being complete, from the cut ranges and from eligibility, never inferred; the phone shows the facts and cannot sync the type without a backend change |
 | [D-033](#d-033) | 2026-11-03 | accepted | Recording-type claims: the phone submits a claim (continuous, edited, unknown) through the labeling server, RallyLab validates it against the project and writes the authoritative footage-properties record, then settles the claim accepted or rejected; one open claim per recording, statuses only move forward, no second authority on the phone or the server |
 | [D-034](#d-034) | 2026-11-08 | proposed | Player detection, tracking and pose: a research-only feasibility workstream (Phase P0) in RallyLab; production scope unchanged; every further step owner-gated |
+| [D-035](#d-035) | 2026-11-09 | accepted | The `bch_onl_ovc_land_onl_02` group (one uploader, four recordings) moves whole into `dev_val`: three names leave validation.json's `tune` list; amends D-015 §3 for this group only |
 
 ---
 
@@ -472,3 +473,18 @@ The authoritative record of product, architecture, data and process decisions fo
 **Consequences.** D-001's out-of-scope clause stands for production; this entry carves out the research tool only. The six pilot recordings' use is on record in `<experiment>/manifests/exposure-log.json`, not in Scratch's ledger. Whether to copy those rows into Scratch's ledger is the owner's call. Results and the next gate: [PLAYER_POSE_FEASIBILITY_P0_2026-11-08.md](../ml-roadmap/PLAYER_POSE_FEASIBILITY_P0_2026-11-08.md), [EXP-20261108](../ml-roadmap/experiments/EXP-20261108-player-pose-feasibility-p0.md). Proposed until the owner merges the PR that carries it.
 
 **Source.** Owner assignment and additional authorisation of 2026-11-08; the PR carrying this entry.
+
+### D-035
+
+**The `bch_onl_ovc_land_onl_02` group moves whole into `dev_val`; `bch_onl_ovc_land_onl_02`, `_v2` and `_v4` leave validation.json's `tune` list** — 2026-11-09 — accepted — owner (chat, 2026-11-09: "Sure move all four", and, told that the three leave the pipeline tuner's pool, "Go on all of it").
+
+**Context.** The rally-classifier export rc-v1-20261108 (plan `20261109-141417`) was refused by `validate_dataset.py` because one group spans two splits: the four recordings `bch_onl_ovc_land_onl_02`, `_v2`, `_v3`, `_v4` share an uploader (contract §6 groups), `_v3` was `dev_val` and the other three `tune` (validation.json's `tune` list). D-015 §3 had left tune/dev_val overlaps unreorganised until the D-007 tuning methodology. Of the 49 recordings that export would include, 2 were `dev_val` and 9 `tune`; moving `_v3` into `tune` would have left one `dev_val` recording, moving the group to `train` likewise.
+
+**Decision.**
+1. The three names are removed from `Scratch/pipeline_tuning/validation.json` `tune`; nothing else in the file changes. All four sessions are in the dataset's `val` split, so the split manifest puts the whole group in `dev_val`.
+2. Their recorded exposure (`pipeline_tuning` rows, and any other) is kept: `dev_val` is "used for model selection; not unseen", so tuning history is allowed there.
+3. This amends D-015 §3 for this group only; other tune/dev_val overlaps stay as D-015 left them.
+
+**Consequences.** The pipeline tuner's pool (D-027) drops from 9 to 6 recordings; the next `--tune-pipeline` / `--serve-report` run is on the smaller pool, and earlier reports' numbers are not comparable. For rc-v1 (49 recordings): `tune` 9 → 6, `dev_val` 2 → 5, `train` 38. validation.json SHA-256 `6d160a1a…4a23d1602` → `cc22cd32…87f8f70`; the file before the change is kept at `~/Movies/RallyLab/Reports/split-move-20261109/validation.json.before`. The split manifest is regenerated (`RallyLab --project Scratch --manifest`) before the export is run again; the export's plan refuses a group across splits since PR #168.
+
+**Source.** Owner chat 2026-11-09; validation report `Scratch/manifests/rally-classifier/20261109-141417-validation.json`; PR #168.
