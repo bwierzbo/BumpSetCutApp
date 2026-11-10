@@ -2,7 +2,7 @@
 id: EXP-20261110-lineage-holdout-copies-audit
 status: running — investigation written up; the correction is prepared and not applied to the live project (owner gate)
 created: 2026-11-10T19:53:11Z
-updated: 2026-11-10T19:53:11Z
+updated: 2026-11-10T22:15:15Z
 decision: D-036 (amends D-017, D-018)
 roadmap_phase: dataset integrity (D-002, D-009, D-017, D-018)
 pr: fix/d017-lineage-correction
@@ -114,7 +114,7 @@ After the correction every live guard refuses the three copies by name (they are
 |---|---|
 | L2 plan and preflight compared one side by content, the other by stored identity | fixed here: both of a clip's file identities on both sides (`LineagePackage.identities`, `sources-not-protected`) |
 | The audit had no content comparison and no finding for a holdout in a training package | fixed here: `CONTENT-SHARED` (hard), `CONTENT-DUPLICATE`, `CONTENT-UNREADABLE` (soft), `CONTENT-ABSENT` (info), `LINEAGE-HOLDOUT-TRAINED` (soft) |
-| `--export-training-data` ignores reservations; `HeatmapLab.evaluate`, the Pipeline tab's debug export, Label-tab tracking and sampler ingest have no guard; `ReservedVideos.sources(in:)` reads an unreadable `project.json` as empty | separate PR (`fix/withheld-guards-unguarded-consumers`) |
+| `--export-training-data` ignores reservations; `HeatmapLab.evaluate`, the Pipeline tab's debug export, Label-tab tracking and sampler ingest have no guard; `ReservedVideos.sources(in:)` reads an unreadable `project.json` as empty | separate PR #175 (`fix/withheld-guards-unguarded-consumers`) |
 | Artefacts already written keep verifying against the closure they froze (the built L2 package; `rc-v1-20261108`; `.trainingdata.json` sidecars) | open — §6 for the classifier dataset; the L2 package must not be trained from again as a holdout-clean lineage |
 | The copies' frames and labels stay under `images/train` / `labels/train`; `data.yaml` still points there | open — unsupported for lineage training since D-018, and still a folder a trainer can be pointed at |
 | Guards on `reservedNames` alone (pre-tracking, `ModelLibrary.evaluate`, HeatmapLab scoring and rendering, ball paths, the legacy packagers, the Pipeline and Compare tabs) do not cover the legacy `holdout` list or its aliases | open — an owner policy question (the legacy holdout is L1's scored test set), not this pair |
@@ -132,7 +132,7 @@ After the correction every live guard refuses the three copies by name (they are
 
 ## 7. Limits
 
-- A re-encode or a different export of a recording, with no card naming the same original, is invisible to every check above. The content-lineage prototype (`scripts/content_lineage/audit.py`, its own PR) compares motion over time and proposes; it has not been run against any reserved recording.
+- A re-encode or a different export of a recording, with no card naming the same original, is invisible to every check above. The content-lineage prototype (`scripts/content_lineage/audit.py`, PR #174) compares motion over time and proposes. Run over the 142 unreserved recordings it could read (one was not read), it proposed the seven train-with-train pairs of §1 and no other; it has not been run against any reserved recording, so no reserved recording is cleared by it.
 - The third pair rests on cards and bytes, not on pictures.
 - The cut-history check needed Test1's `project.json`; a card whose origin file and whose origin's project are both gone cannot be traced.
 - The desktop was not inspected.
