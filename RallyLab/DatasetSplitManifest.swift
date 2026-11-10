@@ -254,7 +254,10 @@ struct DatasetSplitManifest: Codable {
             for m in (groupOf[name].flatMap { sessionless[$0] } ?? []).sorted() {
                 let relation = recordingOf[m] != nil && recordingOf[m] == recordingOf[name] ? "recording" : "group"
                 for r in (previous[m] ?? []) + (inputs.discovered[m] ?? []) {
-                    out.insert(ExposureRecord(kind: r.kind, ref: r.ref, date: r.date, note: (r.note.map { $0 + "; " } ?? "") + "via sessionless alias \(m)", inherited: relation))
+                    // A row the member itself only took from its group stays the group's, however close
+                    // the member is to this video: it was never the member's recording's use.
+                    out.insert(ExposureRecord(kind: r.kind, ref: r.ref, date: r.date, note: (r.note.map { $0 + "; " } ?? "") + "via sessionless alias \(m)",
+                                              inherited: r.inherited == "group" ? "group" : relation))
                 }
             }
             return out

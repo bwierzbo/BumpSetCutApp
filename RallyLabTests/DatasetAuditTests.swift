@@ -376,6 +376,31 @@ extension DatasetAuditTests {
         XCTAssertEqual(sameRecording.audit.findings.filter { $0.code == "LINEAGE-HOLDOUT-TRAINED" }.map(\.videos), [["grs_h"]])
     }
 
+    func testAGroupRowStaysTheGroupsWhenTheVideoThatCarriedItLosesItsSession() throws {
+        // grs_h (listed) and grs_b are one recording (a confirmed sourceId). grs_x, with no session, shares
+        // only their venue and is in a package. First build: both take grs_x's row as their group's. Then
+        // grs_b's session is removed: its rows reach grs_h through the previous manifest, as the same
+        // recording's — and the package row among them is still only the group's.
+        let clips = [F.clip("grs_h", environment: "Grass", videos: [F.source("grs_h", uploader: "", fingerprint: "file:H", sourceId: "IMG_9", venueId: "v-shared")]),
+                     F.clip("grs_b", environment: "Grass", split: "train", videos: [F.source("grs_b", uploader: "", fingerprint: "file:B", sourceId: "IMG_9", venueId: "v-shared")]),
+                     F.clip("grs_x", environment: "Grass", split: "train", videos: [F.source("grs_x", uploader: "", fingerprint: "file:X", venueId: "v-shared")])]
+        var inputs = F.inputs(validation: PipelineTuner.ValidationSet(tune: ["bch_a"], holdout: ["bch_a_v2"], lineageHoldout: ["grs_h"]),
+                              discovered: ["grs_x": [ExposureRecord(kind: .trainingPackage, ref: "pkg-L2", date: "2026-10-25", note: nil)]],
+                              extraClips: clips, extraSessions: [F.session("grs_h", split: "val"), F.session("grs_b", split: "train")])
+        let first = try DatasetSplitManifest.build(inputs)
+        XCTAssertEqual(first.videos.first { $0.video == "grs_b" }?.exposure.map(\.inherited), ["group"])
+        XCTAssertFalse(DatasetAudit.run(manifest: first, now: F.day).findings.contains { $0.code == "LINEAGE-HOLDOUT-TRAINED" })
+
+        inputs.previous = first
+        inputs.sessions.removeAll { $0.name == "grs_b" }
+        let second = try DatasetSplitManifest.build(inputs)
+        let row = try XCTUnwrap(second.videos.first { $0.video == "grs_h" })
+        XCTAssertFalse(row.exposure.isEmpty)
+        XCTAssertEqual(Set(row.exposure.map(\.inherited)), ["group"], "the row came through grs_b, and is still grs_x's group's")
+        XCTAssertFalse(DatasetAudit.run(manifest: second, now: F.day).findings.contains { $0.code == "LINEAGE-HOLDOUT-TRAINED" },
+                       "neither grs_h nor grs_b was ever packaged")
+    }
+
     func testAnUnmarkedInheritedRowFromAnOlderManifestIsReplacedNotDoubled() throws {
         let clips = [F.clip("grs_h", environment: "Grass", videos: [F.source("grs_h", uploader: "", fingerprint: "file:H", venueId: "v-shared")]),
                      F.clip("grs_t", environment: "Grass", split: "train", videos: [F.source("grs_t", uploader: "", fingerprint: "file:T", venueId: "v-shared")])]
