@@ -672,12 +672,13 @@ final class RallyLabModel {
             truth: truth,
             baselineRaw: rawPredictions)
         let outURL = TrainingDataExporter.exportURL(for: videoURL)
-        // The open project is the one whose session the marks and cuts above came from: its reservations and its ledger.
-        let roots = UserDefaults.standard.string(forKey: "RallyLab.datasetRoot").map { [URL(fileURLWithPath: $0, isDirectory: true)] } ?? []
+        // The open project is the one whose session the marks and cuts above came from; every other project
+        // RallyLab knows is asked too, as the headless export asks (withheld in one is withheld).
+        let open = UserDefaults.standard.string(forKey: "RallyLab.datasetRoot").map { URL(fileURLWithPath: $0, isDirectory: true) }
         do {
             // Empty when every frame lies inside a cut: written all the same, so an earlier export with
             // the frames in it is replaced (the trainer skips an empty one).
-            try TrainingDataExporter.write(export, forVideo: videoURL, projectRoots: roots)
+            try TrainingDataExporter.write(export, forVideo: videoURL, projectRoots: try TrainingDataExporter.projectRoots(withOpen: open))
             status = export.frames.isEmpty
                 ? "Every frame lies inside a cut range (not footage) — an empty export replaced \(outURL.lastPathComponent)."
                 : "Exported \(export.frames.count) frames + \(export.labels.count) rallies + \(export.excluded.count) excluded spans" + (export.labels.isEmpty ? " (no rally: negative-only)" : "") + " → \(outURL.lastPathComponent)"

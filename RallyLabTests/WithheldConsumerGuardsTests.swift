@@ -153,6 +153,65 @@ final class WithheldConsumerGuardsTests: XCTestCase {
         XCTAssertEqual(try ledger().count, 1)
     }
 
+    /// A second project, `Q`, whose only card is `name`: registered with `video`'s content, cut file elsewhere,
+    /// and no session over it. `validation` is its validation.json.
+    private func makeSecondProject(card name: String, of video: URL, validation: String) throws -> URL {
+        let other = base.appendingPathComponent("Q", isDirectory: true)
+        try FileManager.default.createDirectory(at: other.appendingPathComponent("pipeline_tuning"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: other.appendingPathComponent("sessions"), withIntermediateDirectories: true)
+        var source = F.source(name, fingerprint: try XCTUnwrap(ProjectsModel.fileFingerprint(atPath: video.path)))
+        source.clipFile = "/gone/\(name).mp4"
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(Project(name: "Q", createdAt: F.day, framesPerRally: 40, clips: [F.clip(name, split: "train", videos: [source])]))
+            .write(to: other.appendingPathComponent("project.json"))
+        try validation.write(to: PipelineTuner.ValidationSet.file(in: other), atomically: true, encoding: .utf8)
+        return other
+    }
+
+    func testARecordingWithheldInAnotherProjectByACardWithNoSessionIsNotExported() async throws {
+        // `t` is an ordinary train recording of P with its pass complete. Q knows the same file by a card
+        // only (its session is missing) and withholds it.
+        let video = try XCTUnwrap(try makeProject()["t"])
+        let runs = Runs()
+        for (what, validation) in [("lineage holdout", #"{"tune":[],"holdout":[],"finalTest":[],"lineageHoldout":["q"]}"#),
+                                   ("final test", #"{"tune":[],"holdout":[],"finalTest":["q"]}"#),
+                                   ("legacy holdout", #"{"tune":[],"holdout":["q"],"finalTest":[]}"#)] {
+            let other = try makeSecondProject(card: "q", of: video, validation: validation)
+            XCTAssertNotNil(try TrainingDataExporter.exportRefusal(forVideo: video, projectRoots: [root, other]), what)
+            XCTAssertThrowsError(try TrainingDataExporter.admit(video: video, projectRoots: [root, other]), what) { XCTAssertTrue($0 is TrainingDataExporter.Withheld, "\($0)") }
+            XCTAssertThrowsError(try TrainingDataExporter.write(emptyExport, forVideo: video, projectRoots: [root, other]), what)
+            let exported = await HeadlessTrainingExport.export(video, projectRoots: [root, other]) { _ in runs.count += 1; return ([], 10) }
+            XCTAssertFalse(exported, what)
+            try FileManager.default.removeItem(at: other)
+        }
+        XCTAssertEqual(runs.count, 0)
+        XCTAssertFalse(ledgerExists, "refused before anything was recorded in the project that does not withhold it")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: TrainingDataExporter.exportURL(for: video).path))
+
+        // The same card not withheld: exported, and the use is on both projects' ledgers, under each one's name.
+        let other = try makeSecondProject(card: "q", of: video, validation: #"{"tune":[],"holdout":[],"finalTest":[]}"#)
+        try TrainingDataExporter.admit(video: video, projectRoots: [root, other])
+        XCTAssertEqual(try ledger().map(\.video), ["t"])
+        XCTAssertEqual(try ExposureLog.readStrict(in: other).map(\.video), ["q"])
+    }
+
+    func testTheAppsExportAsksTheOpenProjectAndEveryProjectRallyLabKnows() throws {
+        _ = try makeProject()
+        let video = try footage("elsewhere", seed: 9)
+        let other = try makeSecondProject(card: "q", of: video, validation: #"{"tune":[],"holdout":[],"finalTest":[]}"#)
+        let suite = "rl-guards-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set([other.path], forKey: "RallyLab.projects")
+        let roots = try TrainingDataExporter.projectRoots(withOpen: root, defaults: defaults).map(\.path)
+        XCTAssertEqual(roots.first, root.standardizedFileURL.path, "the open project first")
+        XCTAssertTrue(roots.contains(other.standardizedFileURL.path), "and the remembered one")
+        XCTAssertEqual(Set(roots).count, roots.count)
+        // A remembered project that is not there: its reservations are unknown, nothing is exported.
+        try FileManager.default.removeItem(at: other)
+        XCTAssertThrowsError(try TrainingDataExporter.projectRoots(withOpen: root, defaults: defaults))
+    }
+
     func testUnreadableReservationsOrLedgerRefuseTheTrainingExport() async throws {
         let videos = try makeProject()
         let video = try XCTUnwrap(videos["t"])

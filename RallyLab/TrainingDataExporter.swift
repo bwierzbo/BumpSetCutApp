@@ -182,25 +182,45 @@ enum TrainingDataExporter {
         var errorDescription: String? { "\(reason) — not exported as training data." }
     }
 
-    /// Every project's session over this video (a recording can be a card of more than one project), and why
-    /// it may not be exported when one of them withholds it: reserved there — final test, a candidate or the
-    /// lineage holdout, recognised as `ReservedVideos.match` recognises it, so a copy under another name is
-    /// refused by content — or in that project's lineage-withheld closure (the legacy holdout too, and every
-    /// alias; D-017). Every project is asked, not only the first that knows the video: withheld in one is
+    /// Every project that knows this video (a recording can be a card of more than one project) with the name
+    /// it has there, and why it may not be exported when one of them withholds it: reserved there — final test,
+    /// a candidate or the lineage holdout, recognised as `ReservedVideos.match` recognises it, so a copy under
+    /// another name is refused by content — or in that project's lineage-withheld closure (the legacy holdout
+    /// too, and every alias; D-017). A project knows the video by a session over it, or by a card alone when
+    /// the card's session is missing or renamed: the reservations name cards, so a withheld card refuses with
+    /// no session. Every project is asked, not only the first that knows the video: withheld in one is
     /// withheld. Throws when a project's reservations, cards or sessions can't be read (fails closed).
-    private static func projectUses(ofVideo url: URL, projectRoots: [URL]?) throws -> (sessions: [(project: URL, name: String)], refusal: String?) {
-        var sessions: [(project: URL, name: String)] = []
+    private static func projectUses(ofVideo url: URL, projectRoots: [URL]?) throws -> (known: [(project: URL, name: String)], refusal: String?) {
+        var known: [(project: URL, name: String)] = []
         for project in try projectRoots ?? ProjectsModel.savedProjectRoots() {
-            guard let match = try ReservedVideos.match(url, root: project) else { continue }
-            if match.reserved {
-                return ([], "\(match.session) is reserved as final_test (D-002)")
+            let name: String
+            if let match = try ReservedVideos.match(url, root: project) {
+                if match.reserved { return ([], "\(match.session) is reserved as final_test (D-002)") }
+                name = match.session
+            } else if let card = try cardNaming(url, in: project) {
+                if try ReservedVideos.reservedNames(in: project).contains(card) {
+                    return ([], "\(card) is reserved as final_test (D-002) in \(project.lastPathComponent)")
+                }
+                name = card
+            } else {
+                continue
             }
-            if try ReservedVideos.lineageWithheldNames(in: project).contains(match.session) {
-                return ([], "\(match.session) is withheld — a lineage or legacy holdout, or an alias of one (D-017)")
+            if try ReservedVideos.lineageWithheldNames(in: project).contains(name) {
+                return ([], "\(name) is withheld in \(project.lastPathComponent) — a lineage or legacy holdout, or an alias of one (D-017)")
             }
-            sessions.append((project, match.session))
+            known.append((project, name))
         }
-        return (sessions, nil)
+        return (known, nil)
+    }
+
+    /// The projects an export from the app asks: the open one, whose session the marks came from, and every
+    /// other project RallyLab knows — as the headless export asks them, so a recording withheld in another
+    /// project is refused here too and its use is on that project's ledger. Throws when a remembered project
+    /// is not there (its reservations are unknown; fails closed).
+    static func projectRoots(withOpen open: URL?, defaults: UserDefaults = .standard) throws -> [URL] {
+        var seen = Set<String>()
+        return ((open.map { [$0] } ?? []) + (try ProjectsModel.savedProjectRoots(defaults: defaults)))
+            .map(\.standardizedFileURL).filter { seen.insert($0.path).inserted }
     }
 
     /// Admits the video to a training-data export, or throws: `Withheld` for a withheld recording, and what the
@@ -212,7 +232,7 @@ enum TrainingDataExporter {
     static func admit(video url: URL, projectRoots: [URL]? = nil, now: Date = Date()) throws {
         let uses = try projectUses(ofVideo: url, projectRoots: projectRoots)
         if let refusal = uses.refusal { throw Withheld(reason: refusal) }
-        for use in uses.sessions {
+        for use in uses.known {
             try ExposureLog.record(videos: [use.name], kind: .trainingPackage, ref: "training-data export " + exportURL(for: url).lastPathComponent,
                                    note: "per-frame pipeline evidence and marks for the rally classifier trainer", in: use.project, now: now)
         }
