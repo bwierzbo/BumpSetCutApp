@@ -538,6 +538,41 @@ final class LineagePackageTests: XCTestCase {
         }
     }
 
+    func testAVideoBehindAnUnreachableLinkIsUnreadableNotAbsent() throws {
+        // A footage link whose share is down: skipping it would drop the content identity while a stored `file:`
+        // fingerprint still satisfied the guard, so a copy of the withheld footage could not be recognised.
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("footage"), withIntermediateDirectories: true)
+        let link = root.appendingPathComponent("footage/w.mp4").path
+        try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: "/Volumes/unreachable-share/w.mp4")
+        let stored = ClipSource(kind: .file, origin: "/gone/IMG_0001.MOV", start: 0, length: 300, license: "own", title: "w", uploader: "",
+                                clipFile: link, fetchedAt: F.day, videoId: "w", frames: nil,
+                                fingerprint: "file:registered-before-a-re-encode", sourceId: nil, sessionId: nil, venueId: nil)
+        let w = VideoSession(name: "w", sourcePath: link, split: "val", addedAt: F.day, frames: [])
+        XCTAssertThrowsError(try LineagePackage.protectedSourceFingerprints(sessions: [w], withheld: ["w"], sources: ["w": stored])) {
+            XCTAssertEqual($0 as? LineagePackage.SourceError, .sourceUnreadable(clip: "w", path: link))
+        }
+        let t = VideoSession(name: "t", sourcePath: link, split: "train", addedAt: F.day, frames: [])
+        XCTAssertThrowsError(try LineagePackage.sourceFingerprints(of: [t])) {
+            XCTAssertEqual($0 as? LineagePackage.SourceError, .sourceUnreadable(clip: "t", path: link))
+        }
+        // Nothing at the path at all is still "not here": the stored identity stands, as before.
+        let absent = VideoSession(name: "w", sourcePath: "/gone/w.mp4", split: "val", addedAt: F.day, frames: [])
+        var elsewhere = stored
+        elsewhere.clipFile = "/gone/w_cut.mp4"
+        XCTAssertEqual(try LineagePackage.protectedSourceFingerprints(sessions: [absent], withheld: ["w"], sources: ["w": elsewhere]),
+                       ["file:registered-before-a-re-encode"])
+    }
+
+    func testAFileThatCantBeReadHasNoFingerprint() throws {
+        try write(String(repeating: "footage ", count: 2000), to: "footage/locked.mp4")
+        let path = root.appendingPathComponent("footage/locked.mp4").path
+        XCTAssertNotNil(ProjectsModel.readFileFingerprint(atPath: path))
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: path) }
+        XCTAssertNil(ProjectsModel.readFileFingerprint(atPath: path))
+        XCTAssertNil(ProjectsModel.readFileFingerprint(atPath: root.appendingPathComponent("footage").path), "a folder is not a file")
+    }
+
     func testProtectedFramesCoverRecordsOrphansAndParkedFilesButNotSiblings() throws {
         let store = DatasetStore(root: root)
         try write("kept", to: "images/val/w_0001_000.jpg")

@@ -240,7 +240,7 @@ enum LineagePackage {
         var errorDescription: String? {
             switch self {
             case .protectedSourceUnknown(let name): return "Withheld recording \(name) has no content fingerprint: neither its cut file nor its session video is on this Mac (a link identity such as youtube:… cannot match an exported file). Bring its video back before packaging; nothing is packaged."
-            case .sourceUnreadable(let clip, let path): return "\(clip)'s video can't be fingerprinted: \(path). Nothing is packaged."
+            case .sourceUnreadable(let clip, let path): return "\(clip)'s video can't be fingerprinted: \(path) (is the footage share mounted and reachable?). Nothing is written."
             case .sourcesMissing(let names): return "\(names.count) eligible recording(s) with labels have no video here, and a lineage package never skips one: \(names.prefix(12).joined(separator: ", "))\(names.count > 12 ? " …" : ""). Bring every video back (or mount the footage) before packaging; nothing is packaged."
             }
         }
@@ -252,29 +252,41 @@ enum LineagePackage {
     /// fingerprints, so every withheld recording must yield at least one `file:` fingerprint
     /// — a link identity alone (`youtube:…`) can match nothing. Otherwise it throws: the
     /// recording's copies could not be recognised and the check would prove nothing.
+    /// A video that is present but can't be fingerprinted — a link into the footage share
+    /// while the share is down, an unreadable file — throws: skipping it would drop that
+    /// recording's content identity and let a copy of it through.
     static func protectedSourceFingerprints(sessions: [VideoSession], withheld: Set<String>, sources: [String: ClipSource]) throws -> Set<String> {
-        let fm = FileManager.default
         let byName = Dictionary(sessions.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
         var out = Set<String>()
         for name in withheld.sorted() {
             var mine = Set<String>()
+            func content(_ path: String) throws {
+                guard isPresent(path) else { return }
+                guard let f = ProjectsModel.fileFingerprint(atPath: path) else { throw SourceError.sourceUnreadable(clip: name, path: path) }
+                mine.insert(f)
+            }
             if let s = sources[name] {
                 if let f = ReservedVideos.effectiveFingerprint(s) { mine.insert(f) }
-                if fm.fileExists(atPath: s.clipFile), let f = ProjectsModel.fileFingerprint(atPath: s.clipFile) { mine.insert(f) }
+                try content(s.clipFile)
             }
-            if let session = byName[name], fm.fileExists(atPath: session.sourcePath),
-               let f = ProjectsModel.fileFingerprint(atPath: session.sourcePath) { mine.insert(f) }
+            if let session = byName[name] { try content(session.sourcePath) }
             guard mine.contains(where: { $0.hasPrefix("file:") }) else { throw SourceError.protectedSourceUnknown(name) }
             out.formUnion(mine)
         }
         return out
     }
 
+    /// Something is at `path`: a file or folder, or a symbolic link even when its target
+    /// can't be reached. A footage link whose share is down is unreadable, not "not here".
+    static func isPresent(_ path: String) -> Bool {
+        FileManager.default.fileExists(atPath: path) || (try? FileManager.default.destinationOfSymbolicLink(atPath: path)) != nil
+    }
+
     /// The fingerprint of the video each session is exported from, for the sessions whose
     /// video is here (the exporter skips the others). Throws when a present file can't be read.
     static func sourceFingerprints(of sessions: [VideoSession]) throws -> [String: String] {
         var out: [String: String] = [:]
-        for s in sessions where FileManager.default.fileExists(atPath: s.sourcePath) {
+        for s in sessions where isPresent(s.sourcePath) {
             guard let f = ProjectsModel.fileFingerprint(atPath: s.sourcePath) else { throw SourceError.sourceUnreadable(clip: s.name, path: s.sourcePath) }
             out[s.name] = f
         }
