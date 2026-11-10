@@ -124,12 +124,9 @@ enum TrainingDataExporter {
         // A remembered project that is not there is unknown: the lookup throws, the export stops.
         for project in try projectRoots ?? ProjectsModel.savedProjectRoots() {
             let sessions = try DatasetStore(root: project).loadSessionsStrict()
-            guard let match = try ReservedVideos.match(url, root: project) else {
-                // No session is over this video — but a card of the project names it (its sessions folder or
-                // this session is missing or renamed): its cuts are unknown, not none (Codex on #139).
-                if let card = try cardNaming(url, in: project) { throw SessionUnavailable(video: card, project: project.lastPathComponent) }
-                continue
-            }
+            guard let match = try ReservedVideos.match(url, root: project) else { continue }
+            // A card of the project names it but no session is over it (its sessions folder or this session
+            // is missing or renamed): its cuts are unknown, not none (Codex on #139).
             guard let session = sessions.first(where: { $0.name == match.session }) else { throw SessionUnavailable(video: match.session, project: project.lastPathComponent) }
             return session
         }
@@ -160,20 +157,6 @@ enum TrainingDataExporter {
         var errorDescription: String? { "\(project) knows \(video) but has no session over it (missing or renamed): its cut ranges can't be known" }
     }
 
-    /// The project video `url` is by its card (project.json, read strictly): the cut file's path or name, or the
-    /// file's content against the card's fingerprint. nil when no card names it.
-    static func cardNaming(_ url: URL, in project: URL) throws -> String? {
-        let sources = try ReservedVideos.sources(in: project)
-        let path = url.standardizedFileURL.path, base = url.lastPathComponent
-        lazy var print: String? = ProjectsModel.fileFingerprint(atPath: path)
-        for (name, source) in sources.sorted(by: { $0.key < $1.key }) {
-            let cut = URL(fileURLWithPath: source.clipFile)
-            if cut.standardizedFileURL.path == path || cut.lastPathComponent == base || base.hasPrefix(name + ".") { return name }
-            if let mine = print, ReservedVideos.effectiveFingerprint(source) == mine { return name }
-        }
-        return nil
-    }
-
     // MARK: - Withheld recordings and the exposure ledger (D-002, D-017)
 
     /// The recording is withheld from training: nothing of it is exported.
@@ -185,26 +168,15 @@ enum TrainingDataExporter {
     /// Every project that knows this video (a recording can be a card of more than one project) with the name
     /// it has there, and why it may not be exported when one of them withholds it: reserved there — final test,
     /// a candidate or the lineage holdout, recognised as `ReservedVideos.match` recognises it, so a copy under
-    /// another name is refused by content — or in that project's lineage-withheld closure (the legacy holdout
-    /// too, and every alias; D-017). A project knows the video by a session over it, or by a card alone when
-    /// the card's session is missing or renamed: the reservations name cards, so a withheld card refuses with
-    /// no session. Every project is asked, not only the first that knows the video: withheld in one is
+    /// another name is refused by content, and a card with no session over it is recognised too — or in that
+    /// project's lineage-withheld closure (the legacy holdout too, and every alias; D-017). Every project is asked, not only the first that knows the video: withheld in one is
     /// withheld. Throws when a project's reservations, cards or sessions can't be read (fails closed).
     private static func projectUses(ofVideo url: URL, projectRoots: [URL]?) throws -> (known: [(project: URL, name: String)], refusal: String?) {
         var known: [(project: URL, name: String)] = []
         for project in try projectRoots ?? ProjectsModel.savedProjectRoots() {
-            let name: String
-            if let match = try ReservedVideos.match(url, root: project) {
-                if match.reserved { return ([], "\(match.session) is reserved as final_test (D-002)") }
-                name = match.session
-            } else if let card = try cardNaming(url, in: project) {
-                if try ReservedVideos.reservedNames(in: project).contains(card) {
-                    return ([], "\(card) is reserved as final_test (D-002) in \(project.lastPathComponent)")
-                }
-                name = card
-            } else {
-                continue
-            }
+            guard let match = try ReservedVideos.match(url, root: project) else { continue }
+            let name = match.session
+            if match.reserved { return ([], "\(name) is reserved as final_test (D-002) in \(project.lastPathComponent)") }
             if try ReservedVideos.lineageWithheldNames(in: project).contains(name) {
                 return ([], "\(name) is withheld in \(project.lastPathComponent) — a lineage or legacy holdout, or an alias of one (D-017)")
             }

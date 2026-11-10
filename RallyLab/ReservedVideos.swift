@@ -12,6 +12,7 @@ import Foundation
 
 enum ReservedVideos {
     struct Match: Equatable {
+        /// The project video's name: its session's, or its card's when no session is over the card.
         let session: String
         let reserved: Bool
     }
@@ -137,7 +138,9 @@ enum ReservedVideos {
     }
 
     /// The project video `url` is, or nil for a file that is not one of the
-    /// project's videos. Throws when the reservations or project.json can't be read — or a
+    /// project's videos. A card with no session over it (missing or renamed)
+    /// is still the project's recording — the reservations name cards — and
+    /// is matched by its cut file's path or name, or by content. Throws when the reservations or project.json can't be read — or a
     /// session can't: a session that won't decode is unknown, not absent, and
     /// a video it may be over is neither cleared as unreserved nor read as
     /// having no cut ranges (D-002, D-030; fails closed).
@@ -160,9 +163,21 @@ enum ReservedVideos {
             if FileManager.default.fileExists(atPath: session.sourcePath), ProjectsModel.fileFingerprint(atPath: session.sourcePath) == mine { return true }
             return false
         }
-        // Reserved sessions are checked first so a copy of one is refused even if another session also matches.
+        let withSession = Set(sessions.map(\.name))
+        let cards = sources.filter { !withSession.contains($0.key) }.sorted { $0.key < $1.key }
+        func isThis(card name: String, _ source: ClipSource) -> Bool {
+            let cut = URL(fileURLWithPath: source.clipFile)
+            if cut.standardizedFileURL.path == path || cut.lastPathComponent == base || base.hasPrefix(name + ".") { return true }
+            guard let mine = print else { return false }
+            if effectiveFingerprint(source) == mine { return true }
+            return FileManager.default.fileExists(atPath: cut.path) && ProjectsModel.fileFingerprint(atPath: cut.path) == mine
+        }
+        // Reserved videos are checked first — sessions, then cards with none — so a copy of one is refused
+        // even if an unreserved video also matches.
         if let hit = sessions.first(where: { reserved.contains($0.name) && isThis($0) }) { return Match(session: hit.name, reserved: true) }
+        if let hit = cards.first(where: { reserved.contains($0.key) && isThis(card: $0.key, $0.value) }) { return Match(session: hit.key, reserved: true) }
         if let hit = sessions.first(where: isThis) { return Match(session: hit.name, reserved: false) }
+        if let hit = cards.first(where: { isThis(card: $0.key, $0.value) }) { return Match(session: hit.key, reserved: false) }
         return nil
     }
 }

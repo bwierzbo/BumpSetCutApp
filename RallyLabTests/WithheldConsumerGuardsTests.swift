@@ -341,6 +341,25 @@ final class WithheldConsumerGuardsTests: XCTestCase {
         XCTAssertThrowsError(try SamplerModel.ingestRefusal(of: copy, root: root))
     }
 
+    func testAReservedCardWithNoSessionIsStillTheProjectsRecording() throws {
+        // The lineage holdout's session is gone (removed or renamed); its card is still in project.json.
+        let videos = try makeProject()
+        try FileManager.default.removeItem(at: root.appendingPathComponent("sessions/l.json"))
+        let video = try XCTUnwrap(videos["l"])
+        let copy = base.appendingPathComponent("footage/renamed copy.mp4")
+        try FileManager.default.copyItem(at: video, to: copy)
+        XCTAssertEqual(try ReservedVideos.match(video, root: root), .init(session: "l", reserved: true), "the card's own cut file")
+        XCTAssertEqual(try ReservedVideos.match(copy, root: root), .init(session: "l", reserved: true), "a copy, by content")
+        XCTAssertNotNil(try SamplerModel.ingestRefusal(of: video, root: root), "not sampled into a new session")
+        XCTAssertNotNil(try SamplerModel.ingestRefusal(of: copy, root: root))
+        XCTAssertNotNil(RallyLabModel.finalTestRefusal(for: copy, root: root), "nor run through the pipeline")
+        XCTAssertThrowsError(try TrainingDataExporter.admit(video: copy, projectRoots: [root])) { XCTAssertTrue($0 is TrainingDataExporter.Withheld, "\($0)") }
+        // An unreserved card with no session is the project's too: matched, not reserved.
+        try FileManager.default.removeItem(at: root.appendingPathComponent("sessions/t.json"))
+        XCTAssertEqual(try ReservedVideos.match(videos["t"]!, root: root), .init(session: "t", reserved: false))
+        XCTAssertNil(try SamplerModel.ingestRefusal(of: videos["t"]!, root: root))
+    }
+
     @MainActor
     func testSamplerQueueFailsTheJobBeforeThePipelineRuns() async throws {
         let videos = try makeProject()
