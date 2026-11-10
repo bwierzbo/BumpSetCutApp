@@ -135,6 +135,16 @@ class SyntheticPlayerFeatures(unittest.TestCase):
         self.save_frames(f, "rec_b")
         self.refused("has no lane")
 
+    def test_court_follows_a_confirmed_court_zone(self):
+        f = self.frames()
+        f[0]["persons"][0]["zone"] = {"zone": "near_serving_area", "raw": "near_serving_area", "foot": "box", "u": 0.5, "v": -0.1,
+                                      "margin": 0.05, "uncertain": False, "why": [], "segment": 0}
+        self.save_frames(f)
+        self.assertTrue(v.validate(self.folder)["ok"], "a server in the serving area is in")
+        f[0]["persons"][0]["zone"]["zone"] = "outside_court"
+        self.save_frames(f)
+        self.refused("disagrees with zone")
+
     def test_pose_needs_nineteen_slots(self):
         f = self.frames()
         f[0]["persons"][0]["pose"]["joints"] = f[0]["persons"][0]["pose"]["joints"][:18]

@@ -20,6 +20,9 @@ JOINTS = ["nose", "left_eye", "right_eye", "left_ear", "right_ear", "neck", "lef
 DEV_SPLITS = {"train", "dev_val", "tune"}
 ELIGIBLE = {"standard", "restricted"}
 COURT = {"in", "out", "unknown"}
+# court_polygon_v1 (P2): a person's optional `zone` against a person-confirmed court.
+ZONES = {"near_court", "far_court", "near_serving_area", "far_serving_area", "outside_court", "unknown"}
+PLAYING = {"near_court", "far_court", "near_serving_area", "far_serving_area"}
 STATES = {"tentative", "confirmed"}
 SKIPS = {"cut": "cut", "time_break": "time_break"}
 MANIFEST = "player-features-manifest.json"
@@ -177,6 +180,12 @@ def validate(folder):
                 need(person.get("court") in COURT, f"{q} bad court")
                 if court_unknown:
                     need(person.get("court") == "unknown", f"{q} court {person.get('court')} though the recording has no lane")
+                zone = person.get("zone")
+                if zone is not None:
+                    need(zone.get("zone") in ZONES and zone.get("raw") in ZONES, f"{q} bad zone")
+                    need(zone.get("foot") in ("ankles", "box"), f"{q} bad zone foot")
+                    want = "unknown" if zone.get("zone") == "unknown" else ("in" if zone.get("zone") in PLAYING else "out")
+                    need(person.get("court") == want, f"{q} court {person.get('court')} disagrees with zone {zone.get('zone')}")
                 need(person.get("state") in STATES, f"{q} bad track state")
                 tid = person.get("track")
                 need(isinstance(tid, int) and tid not in ids, f"{q} track id {tid} missing or repeated in a frame")

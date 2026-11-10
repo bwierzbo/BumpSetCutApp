@@ -287,6 +287,24 @@ final class CourtCalibrationTests: XCTestCase {
         XCTAssertEqual(a.adjustedRoles, ["nearLeft"])
     }
 
+    func testTheLineSearchRecordsItsReadsBeforeDecodingAndNoMarkingsReadsNothing() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("court-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let missing = dir.appendingPathComponent("footage/none.mp4")
+        let none = try await CourtProposer.propose(footage: missing, net: syntheticNet(), binding: binding(), from: 0, to: 60, excluded: [], spec: .indoor,
+                                                   markings: CourtSetup.Markings.none, experiment: dir, ref: "test", codeSha: nil)
+        XCTAssertEqual(none.proposals.map(\.method), [.netGuided])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ExposureLog.url(in: dir).path), "nothing read, nothing recorded")
+        do {
+            _ = try await CourtProposer.propose(footage: missing, net: syntheticNet(), binding: binding(), from: 0, to: 60, excluded: [], spec: .indoor,
+                                                experiment: dir, ref: "test", codeSha: nil)
+            XCTFail("a missing file can't be decoded")
+        } catch {}
+        let rows = try String(contentsOf: ExposureLog.url(in: dir), encoding: .utf8)
+        XCTAssertTrue(rows.contains("rec_01") && rows.contains("detector_evaluation"), "the use is on record before the first frame")
+    }
+
     // MARK: The assembler
 
     func testAssemblerUsesAConfirmedCourtAndOldLinesStillDecode() throws {

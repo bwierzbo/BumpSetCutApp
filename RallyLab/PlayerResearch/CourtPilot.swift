@@ -209,9 +209,10 @@ enum CourtPilot {
             if propose {
                 for i in file.segments.indices where file.segments[i].status == .unreviewed {
                     let s = file.segments[i]
-                    let spec = CourtSpec.standard(surface: rec.surface)
+                    let spec = file.setup?.spec ?? CourtSpec.standard(surface: rec.surface)
                     let o = try await CourtProposer.propose(footage: footage, net: rec.net, binding: binding, from: s.validFromSec, to: s.validToSec,
-                                                            excluded: rec.cutRanges + rec.timeBreakingSpans, spec: spec, codeSha: codeSha)
+                                                            excluded: rec.cutRanges + rec.timeBreakingSpans, spec: spec, markings: file.setup?.markings,
+                                                            experiment: experiment, ref: "--player-lab-court \(report) court proposals", codeSha: codeSha)
                     file.segments[i].proposals += o.proposals
                     notes += o.notes
                     if i == 0, let median = o.median, let img = linesPicture(median, evidence: o.evidence, proposals: o.proposals, frames: o.frameTimes.count),

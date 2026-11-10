@@ -141,7 +141,8 @@ final class CourtCalibrationModel {
         defer { proposing = false }
         do {
             let outcome = try await CourtProposer.propose(footage: footage, net: net, binding: binding, from: seg.validFromSec, to: seg.validToSec,
-                                                          excluded: excluded, spec: spec, markings: file?.setup?.markings,
+                                                          excluded: excluded, spec: spec, markings: file?.setup?.markings, experiment: experiment,
+                                                          ref: "--player-lab court proposal \(binding.recordingId) segment \(seg.id)",
                                                           codeSha: RallyClassifierExporter.buildRevision())
             guard var f = file, let i = f.segments.firstIndex(where: { $0.id == seg.id }) else { return }
             f.segments[i].proposals += outcome.proposals

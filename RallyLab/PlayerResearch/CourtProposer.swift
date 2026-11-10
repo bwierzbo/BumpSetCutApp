@@ -490,9 +490,12 @@ enum CourtProposer {
 
     /// Both methods and the combination for one segment of one recording.
     /// `markings`: what the person said marks the court; `none` skips the line search (there is nothing to find).
+    /// `experiment`: whose ledger records the frames read (detector_evaluation, `ref`) before the first is decoded — the
+    /// one place both the GUI and `--player-lab-court` read footage for a court, so neither can skip it. A ledger that
+    /// can't be written stops the proposal.
     static func propose(footage: URL, net: PlayerFeatures.NetGeometry?, binding b: CourtCalibrationFile.Binding, from: Double, to: Double,
                         excluded: [PlayerFeatures.TickSpan], spec: CourtSpec, markings: CourtSetup.Markings? = nil, frameCount: Int = 9,
-                        codeSha: String?, now: Date = Date()) async throws -> Outcome {
+                        experiment: URL, ref: String, codeSha: String?, now: Date = Date()) async throws -> Outcome {
         guard let net else { return Outcome(proposals: [], frameTimes: [], notes: ["no person net label for this recording: place the court by hand"], median: nil, evidence: nil) }
         var proposals: [CourtProposal] = []
         var notes: [String] = []
@@ -505,6 +508,9 @@ enum CourtProposer {
         }
         let start = Date()
         let times = sampleTimes(from: from, to: to, count: frameCount, excluded: excluded)
+        try ExposureLog.record(videos: [b.recordingId], kind: .detectorEvaluation, ref: ref,
+                               note: "court calibration research P2 (D-034, proposed): \(times.count) frames of the experiment's copy read for a classical court-line search; no model, not training",
+                               in: experiment, now: now)
         let pictures = try await frames(of: footage, at: times)
         guard pictures.count >= 3, let median = CourtRGBImage.median(pictures) else {
             return Outcome(proposals: proposals, frameTimes: times, notes: notes + ["court lines: fewer than 3 frames decoded"], median: nil, evidence: nil)
