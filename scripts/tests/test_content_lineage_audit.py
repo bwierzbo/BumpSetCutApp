@@ -376,9 +376,9 @@ class CutHistory(unittest.TestCase):
 
     def test_a_cut_of_a_cut_is_followed_back_to_the_original(self):
         history = a.cut_history(self.scratch, [self.older])
-        self.assertEqual(history["grs_t"], {"original": "IMG_1.MOV", "startSec": 211.0, "endSec": 511.0, "hops": 1})
+        self.assertEqual(history["grs_t"], {"original": "IMG_1.MOV", "startSec": 211.0, "endSec": 511.0, "hops": 1, "ambiguous": False})
         self.assertEqual(history["grs_h"]["original"], "IMG_1.MOV")
-        self.assertEqual(history["lost"], {"original": "unknown.mp4", "startSec": 0.0, "endSec": 300.0, "hops": 0}, "not followed, not guessed")
+        self.assertEqual(history["lost"], {"original": "unknown.mp4", "startSec": 0.0, "endSec": 300.0, "hops": 0, "ambiguous": False}, "not followed, not guessed")
 
     def test_a_train_card_and_a_holdout_on_one_stretch_are_reported_with_nothing_decoded(self):
         found = {(r["a"], r["b"]): r for r in a.cut_history_relations(self.scratch, [self.older])}
@@ -390,6 +390,46 @@ class CutHistory(unittest.TestCase):
         self.assertNotIn(("grs_far", "grs_h"), found, "another stretch of the original is another recording")
         self.assertTrue(found[("yt_a", "yt_b")]["sameAliasGroup"], "a link's video ID is its original; 50 s shared, already one group")
         self.assertEqual(len(found), 4)
+
+    def _second_older_project(self, clip_file):
+        """Another older project with an unrelated clip of the same file name, cut from another original."""
+        other = os.path.join(self.tmp, "OlderB")
+        os.makedirs(os.path.join(other, "manifests"), exist_ok=True)
+        with open(os.path.join(other, "project.json"), "w") as f:
+            json.dump({"clips": [{"id": "grs_t", "videos": [{"kind": "file", "origin": "/movies/IMG_2.MOV", "start": 0, "length": 300, "clipFile": clip_file}]}]}, f)
+        return other
+
+    def test_the_clip_a_card_was_cut_from_is_found_by_its_path_whatever_order_the_projects_come_in(self):
+        # The scratch card's origin names the first older project's clip by its full path.
+        for folder, clip in ((self.older, "/older/footage/grs_t.mp4"),):
+            with open(os.path.join(folder, "project.json")) as f:
+                project = json.load(f)
+            project["clips"][0]["videos"][0]["clipFile"] = clip
+            with open(os.path.join(folder, "project.json"), "w") as f:
+                json.dump(project, f)
+        other = self._second_older_project("/olderB/footage/grs_t.mp4")
+        for order in ([self.older, other], [other, self.older]):
+            self.assertEqual(a.cut_history(self.scratch, order)["grs_t"],
+                             {"original": "IMG_1.MOV", "startSec": 211.0, "endSec": 511.0, "hops": 1, "ambiguous": False})
+            self.assertIn(("grs_h", "grs_t"), {(r["a"], r["b"]) for r in a.cut_history_relations(self.scratch, order)})
+
+    def test_a_clip_name_that_two_cards_could_be_is_reported_not_chosen(self):
+        # Neither older project's clip is at the path the scratch card names (both moved): two candidates by name.
+        other = self._second_older_project("/elsewhere/grs_t.mp4")
+        for order in ([self.older, other], [other, self.older]):
+            history = a.cut_history(self.scratch, order)
+            self.assertEqual(history["grs_t"], {"original": "grs_t.mp4", "startSec": 0.0, "endSec": 300.0, "hops": 0, "ambiguous": True})
+            found = {(r["a"], r["b"]) for r in a.cut_history_relations(self.scratch, order)}
+            self.assertFalse(any("grs_t" in pair for pair in found), "an original that is not known is paired with nothing")
+        # The whole run says so too (its cards need stored fingerprints: a run decides what is withheld first).
+        with open(os.path.join(self.scratch, "project.json")) as f:
+            project = json.load(f)
+        for clip in project["clips"]:
+            clip["videos"][0]["fingerprint"] = clip["videos"][0]["fingerprint"] or "file:" + clip["id"]
+        with open(os.path.join(self.scratch, "project.json"), "w") as f:
+            json.dump(project, f)
+        report = a.run_project(self.scratch, os.path.join(self.scratch, "out"), exclude=set(), only=None, log=lambda _: None, origin_projects=[self.older, other])
+        self.assertEqual(report["cutHistoryAmbiguous"], ["grs_t"])
 
     def test_without_the_older_project_the_chain_cannot_be_followed(self):
         found = {(r["a"], r["b"]) for r in a.cut_history_relations(self.scratch, [])}

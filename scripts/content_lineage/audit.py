@@ -510,25 +510,48 @@ def _link_id(video: dict) -> str:
 def cut_history(project_dir: str, origin_projects: list[str]) -> dict[str, dict]:
     """Each card's original and the stretch of it the card holds, following a card registered
     from a clip (of this project or of one in `origin_projects`) back to where that clip was cut.
+    The clip a card was registered from is found by its full path; by its file name only when the
+    path names no card (a project that has moved) and exactly one card has a clip of that name.
+    When more than one does, the chain is not followed and the card is marked `ambiguous`: its
+    original is not known, and the answer never depends on the order the projects were given in.
     An original file is named by its file name: the same recording is found under more than one
     folder (an inbox, an album export). A card whose chain cannot be followed is its own original."""
-    by_clip: dict[str, dict] = {}
+    def normal(path: str) -> str:
+        return os.path.normpath(os.path.expanduser(path))
+
+    def stretch(video: dict) -> tuple:
+        return (video.get("kind"), video.get("origin"), video.get("start"), video.get("length"))
+    by_path: dict[str, list[dict]] = {}
+    by_name: dict[str, list[dict]] = {}
     for folder in [project_dir] + list(origin_projects):
         for _, video in _cards(folder):
             if video.get("clipFile"):
-                by_clip[os.path.basename(video["clipFile"])] = video
+                by_path.setdefault(normal(video["clipFile"]), []).append(video)
+                by_name.setdefault(os.path.basename(video["clipFile"]), []).append(video)
+
+    def parent_of(current: dict) -> tuple[dict | None, bool]:
+        """(the card whose clip `current` was registered from, whether more than one could be)."""
+        origin = current.get("origin", "")
+        for found in (by_path.get(normal(origin), []), by_name.get(os.path.basename(origin), [])):
+            # The card itself, and the same cut listed in two projects, are not a choice.
+            others = {stretch(v): v for v in found if v is not current and stretch(v) != stretch(current)}
+            if len(others) == 1:
+                return next(iter(others.values())), False
+            if len(others) > 1:
+                return None, True
+        return None, False
     out = {}
     for name, video in _cards(project_dir):
-        start, length, current, hops = float(video.get("start") or 0), float(video.get("length") or 0), video, 0
+        start, length, current, hops, ambiguous = float(video.get("start") or 0), float(video.get("length") or 0), video, 0, False
         while current.get("kind") == "file" and hops < 8:
-            parent = by_clip.get(os.path.basename(current.get("origin", "")))
-            if parent is None or parent is current:
+            parent, ambiguous = parent_of(current)
+            if parent is None:
                 break
             start += float(parent.get("start") or 0)
             length = min(length, float(parent.get("length") or length))
             current, hops = parent, hops + 1
         original = os.path.basename(current.get("origin", "")) if current.get("kind") == "file" else _link_id(current)
-        out[name] = {"original": original, "startSec": start, "endSec": start + length, "hops": hops}
+        out[name] = {"original": original, "startSec": start, "endSec": start + length, "hops": hops, "ambiguous": ambiguous}
     return out
 
 
@@ -540,7 +563,7 @@ def cut_history_relations(project_dir: str, origin_projects: list[str], min_shar
         rows = {v["video"]: v for v in json.load(f)["videos"]}
     by_original: dict[str, list[str]] = {}
     for name, h in history.items():
-        if h["original"]:
+        if h["original"] and not h["ambiguous"]:      # an ambiguous chain names no original: listed apart, never paired
             by_original.setdefault(h["original"], []).append(name)
     out = []
     for original, names in sorted(by_original.items()):
@@ -594,8 +617,10 @@ def run_project(project_dir: str, out_dir: str, exclude: set[str], only: set[str
               "refused": sorted(({"name": r["name"], "why": r["why"]} for r in refused), key=lambda r: r["name"]),
               "proposals": found,
               "cutHistory": cut_history_relations(project_dir, origin_projects or []),
+              "cutHistoryAmbiguous": sorted(name for name, h in cut_history(project_dir, origin_projects or []).items() if h["ambiguous"]),
               "note": "A proposal is not an identity. A person confirms it with RallyLab --set-provenance; "
-                      "recordings in `refused` and `notRead` were not compared and are not cleared."}
+                      "recordings in `refused` and `notRead` were not compared and are not cleared, and a card in "
+                      "`cutHistoryAmbiguous` was registered from a clip that more than one card could be: its original is not known."}
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, "content-lineage-proposals.json"), "w") as f:
         json.dump(report, f, indent=2)
@@ -627,7 +652,9 @@ def main(argv: list[str] | None = None) -> int:
         relations = cut_history_relations(args.project, args.origin_project)
         os.makedirs(args.out, exist_ok=True)
         with open(os.path.join(args.out, "cut-history-relations.json"), "w") as f:
-            json.dump({"schemaVersion": SCHEMA_VERSION, "project": os.path.abspath(args.project), "cutHistory": relations}, f, indent=2)
+            json.dump({"schemaVersion": SCHEMA_VERSION, "project": os.path.abspath(args.project), "cutHistory": relations,
+                       "cutHistoryAmbiguous": sorted(n for n, h in cut_history(args.project, args.origin_project or []).items() if h["ambiguous"])},
+                      f, indent=2)
             f.write("\n")
         for r in relations:
             print(f"  {r['a']} ({r['splits'][0]}) ~ {r['b']} ({r['splits'][1]}): {r['evidence']['original']}, {r['evidence']['sharedSec']:.0f} s shared"

@@ -93,13 +93,13 @@ What this shows:
 - The third D-036 pair (`bch_extra_self_18`, `bch_tri_sun_land_self_01_v4`) still rests on card and byte evidence only.
 - One unreserved recording was not read (its file does not decode) and is not cleared.
 - Not recognised: a mirrored, sped-up or slowed copy; a crop that is not about the centre; an overlay over most of the frame; a stretch with no motion. Offsets resolve to a quarter second.
-- A cut history is only as good as the cards: a card whose origin is a path that no project lists cannot be followed.
+- A cut history is only as good as the cards: a card whose origin is a path that no project lists cannot be followed. The clip a card was registered from is found by its full path, and by file name only when exactly one card has a clip of that name; when more than one does, the card is listed as ambiguous and paired with nothing. On this run no card was ambiguous.
 - The threshold has no measured false-positive rate (above).
 - Footage a tester or another camera filmed of the same rally is a different recording and is not what this tool looks for; session and venue identities cover that.
 
 ## Evidence
 
-Outside the repository, on the Mac that ran it: the proposals file (`content-lineage-proposals.json`, schema `content_lineage_proposals_v1`, signature `motion8x8_v2`) of the second run, the first run's (`proposals-first-aligner.json`), the run log and the per-recording signature cache, in `~/Movies/RallyLab/Reports/d017-correction-20261110/content-lineage/` with SHA-256 sums. Tests: `scripts/tests/test_content_lineage_audit.py` (28).
+Outside the repository, on the Mac that ran it: the proposals file (`content-lineage-proposals.json`, schema `content_lineage_proposals_v1`, signature `motion8x8_v2`) of the second run, the first run's (`proposals-first-aligner.json`), the run log and the per-recording signature cache, in `~/Movies/RallyLab/Reports/d017-correction-20261110/content-lineage/` with SHA-256 sums. Tests: `scripts/tests/test_content_lineage_audit.py` (30).
 
 ## Next
 
