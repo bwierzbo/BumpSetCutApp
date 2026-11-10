@@ -472,6 +472,21 @@ The authoritative record of product, architecture, data and process decisions fo
 
 **Consequences.** D-001's out-of-scope clause stands for production; this entry carves out the research tool only. The six pilot recordings' use is on record in `<experiment>/manifests/exposure-log.json`, not in Scratch's ledger. Whether to copy those rows into Scratch's ledger is the owner's call. Results and the next gate: [PLAYER_POSE_FEASIBILITY_P0_2026-11-08.md](../ml-roadmap/PLAYER_POSE_FEASIBILITY_P0_2026-11-08.md), [EXP-20261108](../ml-roadmap/experiments/EXP-20261108-player-pose-feasibility-p0.md). Proposed until the owner merges the PR that carries it.
 
+**P2 — assisted court calibration (proposed with this entry, 2026-11-10).**
+1. Court geometry for player research is `court_geometry_v1`, kept only in the experiment folder.
+   - It is bound to the recording's identity and the decoded file; a file that no longer matches is stale and never used.
+   - It is split into segments, one per stable camera view.
+2. Automatic proposals (`net_guided_v1`, `court_lines_v1`, `combined_v1`) are never labels and never evidence.
+   - Only a person's Confirm in Player Lab (`player_lab_gui`) makes a court evidence. A scripted test's confirmation is recorded and never used.
+   - Each confirmation keeps the proposal it started from and the points the person moved.
+3. The person's net label is the net input and is never written by this work.
+4. Players are placed in zones (`court_polygon_v1`) only against confirmed geometry.
+   - Doubt is kept and smoothed per track; nobody is dropped for being one too many.
+   - The net lane stays the fallback outside confirmed segments.
+5. The person is asked the court's surface, format and markings. The answers choose the court size the proposals assume and whether the line search runs. They are metadata, never proof of where the court is.
+6. Court proposals record their frame reads in the experiment's ledger first.
+7. Not authorised: training a court model, bulk calibration, and any production or iOS use.
+
 **Source.** Owner assignment and additional authorisation of 2026-11-08; the PR carrying this entry.
 
 ### D-035

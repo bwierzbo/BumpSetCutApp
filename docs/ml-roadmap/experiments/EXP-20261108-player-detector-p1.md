@@ -2,7 +2,7 @@
 id: EXP-20261108-player-detector-p1
 status: done — detector comparison run 2026-11-08 (research only; no training; next step needs the owner)
 created: 2026-11-09T01:02:44Z
-updated: 2026-11-09T05:22:28Z
+updated: 2026-11-10T20:04:02Z
 approved_by: owner 2026-11-08 ("go route B for now and look for a version we can use without training from scratch"; "yes, run the RF-DETR comparison"); GUI and experiment-folder rules of the P0 authorisation
 decision: D-034 (proposed)
 pr: research/player-pose-feasibility-p0
@@ -35,6 +35,8 @@ pr: research/player-pose-feasibility-p0
 | `p1-rfdetr-small-1x1` | `bee388d` | `b9025e01fd76251213b693cfba8f642ae8e9e098363c10f3c00d5b6b853a178e` |
 | `p1-rfdetr-medium-1x1` | `bee388d` | `73fd2d364af9b06ae5e980b4f9874cdcf7712b37476fdaceb99b4835de90d538` |
 | `p1-rfdetr-keypoint-1x1` | `bee388d` | `cfd5a89a195ac7f89fe0ffa31c3660579e1fceeddbf6f64be7d8b9e367094e88` |
+| `p1-rfdetr-keypoint-2x2` (plan `6927ec47…`) | `bee388d` | `4bd9ccf79f90c548571d7ab4a1ad76a5c892d63825b38e6b9b22cbe793fdf28f` |
+| `p1-rfdetr-keypoint-3x2` (plan `264d3e89…`) | `bee388d` | `8374cd9e52862fa5…` |
 
 The first `p1-rtm-1x1` / `p1-rtm-3x2` runs (`62ff13a`) read strided Core ML outputs as packed. They were discarded and their outputs deleted; their rows remain in the experiment ledger. Seven RF-DETR runs were also discarded: a dirty-tree build, an enlarged-crop pose variant (worse), runs overlapping other work or stopped, and three whose binary carried `7added3-dirty` (outputs identical to the kept runs). Report §8.1 lists them; their ledger rows remain too.
 
@@ -47,6 +49,8 @@ The first `p1-rtm-1x1` / `p1-rtm-3x2` runs (`62ff13a`) read strided Core ML outp
 | Share of detected people posed | 0.69 | — | 1.00 | — | 0.26 (Vision on crops) | 0.26 | 1.00 |
 | Wall time per frame (M3 Pro, Debug build) | 15 ms | 63 ms | 204 ms | 596 ms | 193 ms | 233 ms | 203 ms |
 | Detector model alone (Core ML) | — | — | 38 ms | — | 18 ms | 29 ms | 49 ms |
+
+RF-DETR Keypoint on tiles (report §9): recall 0.91 (2×2) and **0.94 (3×2)** with every found person posed; 1.3–1.4 extra boxes per frame from players split by a tile seam; false "in" 2.1 / 2.7 per frame; model alone ≈ 200 / 300 ms.
 
 ## Conclusion
 

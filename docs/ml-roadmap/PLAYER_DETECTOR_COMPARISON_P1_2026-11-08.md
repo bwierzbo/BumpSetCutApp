@@ -2,7 +2,7 @@
 name: player-detector-comparison-p1
 status: proposed (owner review); P1 detector comparison run 2026-11-08; research only, no training, no production change
 created: 2026-11-09T01:02:44Z
-updated: 2026-11-09T05:22:28Z
+updated: 2026-11-10T20:04:02Z
 decision: D-034 (proposed); owner instructions 2026-11-08 "go route B for now and look for a version we can use without training from scratch" and "yes, run the RF-DETR comparison"
 experiment: EXP-20261108-player-detector-p1
 ---
@@ -255,3 +255,24 @@ A production port would build the input with Accelerate (vImage), or move normal
 3. **Court membership** is still the bottleneck for every detector that finds everyone (§7 item 2). RF-DETR's sideline spectators make it slightly worse than RTM's.
 
 Nothing here says players improve rally cutting.
+
+## 9. RF-DETR Keypoint on tiles (owner: "oh lets do the RF-DETR keypoint then")
+
+Same 36 audited frames and counting rule as §2 and §8.2. Plans `EXP-20261108-player-detector-p1-rfdetr-keypoint-2x2.plan.json` (`6927ec47…`) and `-3x2` (`264d3e89…`): the 1×1 plan with `tiles` changed, overlap 0.15, each tile enlarged to the model's 576 px input. Code `bee388d` (the build of the 1×1 run). Runs `p1-rfdetr-keypoint-2x2` (manifest `4bd9ccf79f90c548…`) and `p1-rfdetr-keypoint-3x2` (`8374cd9e52862fa5…`), both 1,350 frames, exit 0. Audit: `runs-comparison/p1/audit-p1-rfdetr-keypoint-tiles.csv` in the experiment (reviewer counts, not owner-verified; crowded-gym rows rough).
+
+| Recording | Visible | RTM 1×1 | KP 1×1 | KP 2×2 | KP 3×2 | Extra boxes from a split player 2×2 / 3×2 |
+|---|---|---|---|---|---|---|
+| bch_ele | 71 | 0.96 | 0.73 | 0.92 | 0.94 | 13 / 12 |
+| bch_gnd | 16 | 0.94 | 0.69 | 0.81 | 0.94 | 1 / 2 |
+| grs_ele | 34 | 1.00 | 0.79 | 0.91 | 0.94 | 4 / 7 |
+| grs_gnd (distant) | 21 | 1.00 | 0.29 | 0.62 | 0.71 | 4 / 4 |
+| ind_land (rough) | 62 | 0.94 | 0.84 | 1.00 | 1.00 | 25 / 25 |
+| ind_port | 43 | 0.95 | 0.63 | 0.93 | 0.93 | 0 / 0 |
+| **All** | 247 | 0.96 | 0.71 | **0.91** | **0.94** | 47 / 50 |
+
+- Every person the keypoint model finds has a pose (share posed 1.00 in all three variants).
+- **New failure: a near player crossing a seam between tile rows comes back as two boxes** (head and shoulders; legs), each with part of a skeleton: 1.3–1.4 extra boxes per frame, most in the crowded gym. A tracker treats each piece as a person, so this must be fixed before the output is usable. Untested fixes: keep the whole-frame pass for large players and take only small ones from the tiles; or merge pieces across a seam.
+- False "in" per frame (net lane): 0.6 whole frame, 2.1 at 2×2, 2.7 at 3×2 — more pixels per person also finds spectators and next-court players.
+- Time per frame, Debug build: median detector 196 / 773 / 1,151 ms; model alone ≈ 49 / 200 / 300 ms.
+- The source project was only read; its exposure log and new rally-classifier files changed at 22:30 on 2026-11-09, written by the concurrent rally-classifier exporter (its refs), not by these runs (0 player-feature rows there; 12 in the experiment's own ledger).
+

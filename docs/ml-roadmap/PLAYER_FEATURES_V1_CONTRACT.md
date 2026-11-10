@@ -2,7 +2,7 @@
 name: player-features-contract
 status: proposed v1 (owner review); written by `RallyLab --player-lab-run <experiment> --source-project <project> --plan <plan.json> --run <name>` (`RallyLab/PlayerResearch/PlayerFeaturesRun.swift`); validated by `scripts/player_features/validate_player_features.py`
 created: 2026-11-08T22:34:07Z
-updated: 2026-11-09T05:22:28Z
+updated: 2026-11-10T20:04:02Z
 decision: D-034 (proposed); honours D-002, D-010, D-017, D-021, D-030, D-031
 ---
 
@@ -95,6 +95,14 @@ One JSON object per sampled frame, in time order. Keys are sorted, and an option
 - **Tiling** (optional, `tiles` in the plan). The detector runs on `cols × rows` overlapping tiles of the upright frame. Results are mapped back to frame coordinates and merged: NMS at IoU 0.6, and across tiles a person whose box covers more than 80 % of the smaller one is kept once. Unpaired poses are de-duplicated by bounds IoU 0.5. Side-by-side halves of one person along a tile seam are **not** merged (seen in P1).
 - **Tracker `ptrk_v1`.** Constant-velocity prediction of each track's centre, greedy IoU association (at least 0.15) against predicted boxes, ties broken by lower track id then lower detection index. A track is confirmed after 3 observations and ends after 1.0 s unmatched. Every segment boundary resets it, and identities are never assumed to survive one.
 - **Court `court_net_lane_v1`.** No court lines are labeled in any project, so the only geometry is the person's net quad. The lane is the posts' span at the net's foot line plus 15 % of the net's width each side, widening linearly toward the camera (×2 at the frame bottom) and narrowing on the far side (−30 % at the frame top). A person whose foot point (box bottom centre) lies in the lane is `in`. It is applied only when the card's camera begins "End line" and the net label's fingerprint equals the recording's stored fingerprint; otherwise every person is `unknown`. `in` is evidence, not proof: spectators and neighbouring-court players inside the lane count in.
+- **Court `court_polygon_v1`** (P2, [report](PLAYER_COURT_CALIBRATION_P2_2026-11-10.md)). Where a person-confirmed court (`court_geometry_v1`, `<experiment>/court-calibrations/<recording>.json`, bound to the recording's identity and the decoded copy, confirmed in Player Lab) covers a frame, each person gets an optional `zone` object and `court` follows it:
+  - **The object:** `zone`, the smoothed zone; `raw`, this frame's own zone; `foot` ∈ `ankles` · `box`; `u` and `v`, the court coordinates; `margin`; `uncertain`; `why` ⊆ {`boundary`, `truncated`, `airborne`, `held`}; and `segment`.
+  - **The zones:** `near_court`, `far_court`, `near_serving_area`, `far_serving_area`, `outside_court` and `unknown`.
+  - **How `court` follows the zone:** `in` for the two courts and the two serving areas, `out` for outside, and `unknown` for unknown.
+  - **Elsewhere:** the lane applies outside confirmed segments, with no `zone`.
+  - **In the manifest:** each recording's `courtMethod` says which method applied, the calibration file's SHA-256 and the confirmed segments, or why a calibration was not used. The manifest's `courtPolygon` holds the settings.
+  - **Reading older files:** both keys are absent from runs before P2, and their lines decode unchanged.
+  - **What a zone is:** evidence, not proof. A proposal never sets a zone.
 
 ## 5. Derived features `pfd_v1`
 
@@ -124,4 +132,4 @@ These are causal: each is computed from the track's own history inside the segme
 
 ## 7. Versioning
 
-`schemaVersion`, `ptrk`, `court_net_lane`, `pfd` and `bpi` change independently. A change in column meaning, units, rounding or a rule is a new version with a new validator branch, never an edit of v1.
+`schemaVersion`, `ptrk`, `court_net_lane`, `court_polygon`, `pfd` and `bpi` change independently. A change in column meaning, units, rounding or a rule is a new version with a new validator branch, never an edit of v1.
