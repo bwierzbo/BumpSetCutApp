@@ -619,7 +619,18 @@ class SyntheticDataset(unittest.TestCase):
                             {"startTick": clip["startTick"] + 5, "endTick": clip["startTick"] + 20}]
         self.save_baseline(rec, b)
         self.save(m)
-        self.assertRefused("raw spans must be in time order and disjoint")
+        self.assertRefused("raw spans must be in time order (by start)")
+        # Raw spans in start order may overlap: a serve dated into the previous rally's tail
+        # (RallyDecider.noteServe) opens the next raw before the previous one closed.
+        m = self.manifest()
+        rec = m["recordings"][2]
+        b = self.baseline(rec)
+        clip = b["variants"]["r0"][0]
+        clip["rawSpans"] = [{"startTick": clip["startTick"] + 5, "endTick": clip["startTick"] + 20},
+                            {"startTick": clip["startTick"] + 10, "endTick": clip["endTick"] - 10}]
+        self.save_baseline(rec, b)
+        self.save(m)
+        self.assertFalse([e for e in self.errors() if e.startswith(rec["recordingId"] + " ")], self.errors())
         m = self.manifest()
         rec = m["recordings"][0]
         b = self.baseline(rec)
