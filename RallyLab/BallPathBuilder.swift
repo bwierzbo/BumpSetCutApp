@@ -111,12 +111,10 @@ final class BallPathBuilder {
     /// the run is recorded before it starts; a ledger that cannot be read or written refuses too.
     nonisolated static func admission(of name: String, in datasetRoot: URL) -> String? {
         do {
-            if try PipelineTuner.ValidationSet.finalTestNames(in: datasetRoot).contains(name) {
-                return "\(name) is reserved as final_test (D-002) — the pipeline is not run over it, so presses don't snap."
-            }
-            try ExposureLog.record(videos: [name], kind: .ballPath, ref: "BallPathBuilder",
-                                   note: "ball path for marking (Label / Live-tag)", in: datasetRoot)
+            try ScoringExposure.admit([name], kind: .ballPath, ref: "BallPathBuilder", note: "ball path for marking (Label / Live-tag)", root: datasetRoot)
             return nil
+        } catch is ScoringExposure.Reserved {
+            return "\(name) is reserved as final_test (D-002) — the pipeline is not run over it, so presses don't snap."
         } catch {
             return "\(name): \(error.localizedDescription)"
         }

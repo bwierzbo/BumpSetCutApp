@@ -191,8 +191,9 @@ enum PreTracker {
             return []
         }
         log("Multi-frame model: \(heat.deletingPathExtension().lastPathComponent)")
-        guard let reserved = try? PipelineTuner.ValidationSet.finalTestNames(in: sampler.datasetRoot) else {
-            log("❌ pipeline_tuning/validation.json can't be read — final-test reservations unknown; nothing checked (D-002).")
+        let reserved: Set<String>
+        do { reserved = try PipelineTuner.ValidationSet.finalTestNames(in: sampler.datasetRoot) } catch {
+            log("❌ \(error.localizedDescription) Final-test reservations unknown; nothing checked (D-002).")
             return []
         }
         let yolo = sampler.prelabelModel

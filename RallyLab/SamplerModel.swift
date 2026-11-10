@@ -474,8 +474,21 @@ final class SamplerModel {
 
     private static let rallyShare = 0.5
 
+    /// Why a new file may not be sampled into the dataset at `root`: it is a reserved recording of that
+    /// project (D-002) — by path, by name or by content (`ReservedVideos.match`), so a copy dropped in or
+    /// passed to `--sample` under another name is refused before the pipeline runs over it. nil for any
+    /// other file, and for a dataset that is no project (it has no reservations). Throws when the project's
+    /// reservations, cards or sessions can't be read: the file is then not cleared (fails closed).
+    nonisolated static func ingestRefusal(of video: URL, root: URL) throws -> String? {
+        guard let match = try ReservedVideos.match(video, root: root), match.reserved else { return nil }
+        return "\(video.lastPathComponent) is \(match.session), reserved as final_test (D-002) — not sampled."
+    }
+
     private func ingestVideo(_ job: IngestJob, name: String, split: String, root: URL) async throws -> [FrameRecord] {
         let video = job.url
+        // A new file only: a project clip (queued under its card's name by the Projects tab) is the project's
+        // own recording being given its session, not a copy coming in under another name.
+        if job.sessionName == nil, let why = try Self.ingestRefusal(of: video, root: root) { throw IngestError.reserved(why) }
         let labelsURL = video.deletingPathExtension().appendingPathExtension("rallylabels.json")
         let labeled: [LabeledRally] = preferHandLabels
             ? ((try? Data(contentsOf: labelsURL)).flatMap { try? JSONDecoder().decode([LabeledRally].self, from: $0) } ?? [])
@@ -561,8 +574,10 @@ final class SamplerModel {
 
     enum IngestError: LocalizedError {
         case unreadable, nothingToSample, noImages
+        case reserved(String)
         var errorDescription: String? {
             switch self {
+            case .reserved(let why): return why
             case .unreadable: return "Couldn't read the video."
             case .nothingToSample: return "No rallies found and no random frames requested."
             case .noImages: return "No JPEG or PNG files in the folder."

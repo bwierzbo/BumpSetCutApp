@@ -16,15 +16,31 @@ enum ReservedVideos {
         let reserved: Bool
     }
 
-    /// The project's videos by session name, from project.json (empty when there is none).
-    static func sources(in root: URL) -> [String: ClipSource] {
-        let project = (try? Data(contentsOf: root.appendingPathComponent("project.json"))).flatMap { data -> Project? in
+    /// project.json is there but can't be read or decoded: the recordings' identities are unknown.
+    struct ProjectUnreadable: LocalizedError {
+        let file: URL
+        let why: String
+        var errorDescription: String? {
+            "\(file.path) exists but can't be read, so the recordings' identities are unknown — which recordings are a reserved "
+                + "one under another name can't be told, and nothing is cleared as unreserved. Fix the file first: \(why)"
+        }
+    }
+
+    /// The project's videos by session name, from project.json. Empty when there is none (a dataset from
+    /// before the Projects tab). A project.json that exists but can't be read or decoded throws: an empty
+    /// map there would shrink every alias closure to the listed names, and a reserved recording's copy
+    /// under another session name would pass as unreserved (D-002; fails closed).
+    static func sources(in root: URL) throws -> [String: ClipSource] {
+        let file = root.appendingPathComponent("project.json")
+        guard FileManager.default.fileExists(atPath: file.path) else { return [:] }
+        let project: Project
+        do {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            return try? decoder.decode(Project.self, from: data)
-        }
+            project = try decoder.decode(Project.self, from: Data(contentsOf: file))
+        } catch { throw ProjectUnreadable(file: file, why: error.localizedDescription) }
         var sources: [String: ClipSource] = [:]
-        for clip in project?.clips ?? [] {
+        for clip in project.clips {
             for video in clip.videos { sources[DatasetStore.safeName(clip.videoId(of: video))] = video }
         }
         return sources
@@ -34,11 +50,12 @@ enum ReservedVideos {
     /// validation.json `finalTest` plus every alias — a session whose video
     /// shares a file fingerprint or a confirmed sourceId / sessionId /
     /// venueId with a reserved one. A reservation names a recording, not a
-    /// filename. Throws when validation.json exists but can't be read.
+    /// filename. Throws when validation.json exists but can't be read, or
+    /// project.json does (the aliases are then unknown).
     static func reservedNames(in root: URL) throws -> Set<String> {
         let named = try PipelineTuner.ValidationSet.loadStrict(from: root)?.reservedAsListed ?? []
         guard !named.isEmpty else { return [] }
-        return closure(of: named, over: sources(in: root))
+        return closure(of: named, over: try sources(in: root))
     }
 
     /// Everything a lineage package must leave out (D-018): the reserved names
@@ -50,7 +67,7 @@ enum ReservedVideos {
         guard let set = try PipelineTuner.ValidationSet.loadStrict(from: root) else { return [] }
         let named = set.reservedAsListed.union(set.holdout)
         guard !named.isEmpty else { return [] }
-        return closure(of: named, over: sources(in: root))
+        return closure(of: named, over: try sources(in: root))
     }
 
     /// The listed final test, lineage holdout and provisional candidates, each
@@ -120,14 +137,14 @@ enum ReservedVideos {
     }
 
     /// The project video `url` is, or nil for a file that is not one of the
-    /// project's videos. Throws when the reservations can't be read — or a
+    /// project's videos. Throws when the reservations or project.json can't be read — or a
     /// session can't: a session that won't decode is unknown, not absent, and
     /// a video it may be over is neither cleared as unreserved nor read as
     /// having no cut ranges (D-002, D-030; fails closed).
     static func match(_ url: URL, root: URL) throws -> Match? {
         let reserved = try reservedNames(in: root)
         let sessions = try DatasetStore(root: root).loadSessionsStrict()
-        let sources = sources(in: root)
+        let sources = try sources(in: root)
         let path = url.standardizedFileURL.path
         let base = url.lastPathComponent
         lazy var print: String? = ProjectsModel.fileFingerprint(atPath: path)

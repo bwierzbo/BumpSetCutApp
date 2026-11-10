@@ -154,23 +154,14 @@ final class HeatmapLab {
         if insideCuts > 0 { log("  \(insideCuts) val window(s) inside cut ranges left out (D-030)") }
         // A kept result counts only for these jobs: one scored on windows now inside a cut is scored again.
         let jobsKey = TestSetScore.jobsKey(jobs, export: export)
-        // Reserved final-test clips (D-002) must never be scored, whatever export they sit in; fail closed.
-        let reserved: Set<String>
-        do { reserved = try PipelineTuner.ValidationSet.finalTestNames(in: sampler.datasetRoot) } catch {
-            scoringLine = error.localizedDescription
-            log("❌ " + scoringLine)
-            return false
-        }
-        let reservedInExport = Set(jobs.map(\.clip)).intersection(reserved)
-        guard reservedInExport.isEmpty else {
-            scoringLine = "\(export.lastPathComponent) contains reserved final-test clips (\(reservedInExport.sorted().joined(separator: ", "))) — not scored. Re-export the test set."
+        // Reserved final-test clips (D-002) are never scored, and the run is on the ledger before any model runs; fail closed.
+        do {
+            try ScoringExposure.admit(Set(jobs.map(\.clip)), kind: .testSetScoring, ref: export.lastPathComponent,
+                                      note: "models: " + models.map(\.name).joined(separator: ", "), root: sampler.datasetRoot)
+        } catch let reserved as ScoringExposure.Reserved {
+            scoringLine = "\(export.lastPathComponent) contains reserved final-test clips (\(reserved.names.joined(separator: ", "))) — not scored. Re-export the test set."
             log("⛔ " + scoringLine)
             return false
-        }
-        // Logged before any model runs, so an interrupted run is still on record (D-002).
-        do {
-            try ExposureLog.record(videos: Set(jobs.map(\.clip)), kind: .testSetScoring, ref: export.lastPathComponent,
-                                   note: "models: " + models.map(\.name).joined(separator: ", "), in: sampler.datasetRoot)
         } catch {
             scoringLine = error.localizedDescription
             log("❌ " + scoringLine)
@@ -412,11 +403,11 @@ final class HeatmapLab {
         isBusy = true
         result = nil
         status = "Scoring \(model.name) on \(package.lastPathComponent)…"
-        let yolo = sampler.prelabelModel
+        let yolo = sampler.prelabelModel, root = sampler.datasetRoot
         Task {
             defer { isBusy = false; progress = nil }
             let outcome = await Task.detached(priority: .userInitiated) {
-                HeatEvaluation.run(model: model.url, package: package, yolo: yolo, cuts: cuts) { done, total in
+                HeatEvaluation.run(model: model.url, package: package, yolo: yolo, cuts: cuts, root: root) { done, total in
                     Task { @MainActor [weak self] in self?.progress = "\(done)/\(total) windows" }
                 }
             }.value
@@ -472,13 +463,12 @@ enum HeatEvaluation {
 
     /// `cuts`: each clip's cut ranges, every recording with a session (none as an empty list) — a val window with
     /// a frame inside one is not scored, and a val clip with no entry has no session: unknown cuts, not scored at
-    /// all (D-030; fails closed).
-    static func run(model: URL, package: URL, yolo: URL?, cuts: [String: [CutRange]],
+    /// all (D-030; fails closed). `root`: the project the package was made from — a package with a reserved
+    /// clip among the val windows it would score is refused, and the run is on that project's exposure ledger
+    /// before a model is loaded, so a run that never starts is on record too (D-002; `ScoringExposure.admit`,
+    /// as the test-set scoring).
+    static func run(model: URL, package: URL, yolo: URL?, cuts: [String: [CutRange]], root: URL,
                     progress: @escaping @Sendable (Int, Int) -> Void) -> Swift.Result<Result, Failure> {
-        guard let heat = HeatmapBallDetector(modelURL: model) else {
-            return .failure(Failure(message: "Couldn't load \(model.lastPathComponent)."))
-        }
-        let detector = SamplerModel.detector(model: yolo, confidence: Float(ProcessorConfig().detectionConfidence))
         guard let text = try? String(contentsOf: package.appendingPathComponent("windows.jsonl"), encoding: .utf8) else {
             return .failure(Failure(message: "No windows.jsonl in \(package.lastPathComponent)."))
         }
@@ -490,6 +480,19 @@ enum HeatEvaluation {
         }
         let windows = val.filter { !TestSetScore.insideCut($0.frames, cuts: cuts[$0.clip] ?? []) }
         guard !windows.isEmpty else { return .failure(Failure(message: "No val windows in the package" + (val.isEmpty ? "." : " outside cut ranges."))) }
+        do {
+            try ScoringExposure.admit(Set(windows.map(\.clip)), kind: .detectorEvaluation,
+                                      ref: "score vs YOLO " + model.deletingPathExtension().lastPathComponent + " on " + package.lastPathComponent,
+                                      note: nil, root: root)
+        } catch let reserved as ScoringExposure.Reserved {
+            return .failure(Failure(message: "⛔ \(package.lastPathComponent) contains reserved final-test clips (\(reserved.names.joined(separator: ", "))) — not scored. Export the package again."))
+        } catch {
+            return .failure(Failure(message: "❌ \(error.localizedDescription)"))
+        }
+        guard let heat = HeatmapBallDetector(modelURL: model) else {
+            return .failure(Failure(message: "Couldn't load \(model.lastPathComponent)."))
+        }
+        let detector = SamplerModel.detector(model: yolo, confidence: Float(ProcessorConfig().detectionConfidence))
 
         var result = Result()
         result.windows = windows.count

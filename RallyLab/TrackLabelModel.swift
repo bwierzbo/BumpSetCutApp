@@ -71,6 +71,10 @@ final class TrackLabelModel {
     @ObservationIgnored private var playTask: Task<Void, Never>?
     @ObservationIgnored private let snapDetector = SnapDetector()
     @ObservationIgnored private let lookAgainHeat = LookAgainHeat()
+    /// Whether a model may run over the open video, once asked (`modelAdmission`): nil inside when it may, else
+    /// why not. Asked before the first model run of an opening and kept until another video is opened, so the
+    /// reservations are not read again on every click.
+    @ObservationIgnored private var modelRefusal: String??
 
     /// Frames are read about this often, whatever the video's frame rate —
     /// the same spacing as the multi-frame package.
@@ -152,6 +156,7 @@ final class TrackLabelModel {
         stop()
         trackTask?.cancel()
         sessionName = name
+        modelRefusal = nil
         rallies = session.tracks ?? []
         selectedId = nil
         index = 0
@@ -303,9 +308,35 @@ final class TrackLabelModel {
 
     // MARK: - Auto-track
 
+    /// Why no model may run over `name` in the Track tab, or nil once the use is on the ledger. Any session
+    /// with its video on this Mac can be opened here, and auto-track, click-to-box and look-again each run a
+    /// detector over its frames — exposure (D-002): a reserved recording is refused, an admitted one recorded
+    /// before the first model runs, and reservations or a ledger that can't be read or written refuse too.
+    /// The same admission as a ball path's (`BallPathBuilder.admission`).
+    nonisolated static func modelAdmission(of name: String, in datasetRoot: URL) -> String? {
+        do {
+            try ScoringExposure.admit([name], kind: .preTracking, ref: "RallyLab Track tab",
+                                      note: "auto-track, click-to-box and look-again while a person tracks the ball", root: datasetRoot)
+            return nil
+        } catch is ScoringExposure.Reserved {
+            return "⛔ \(name) is reserved as final_test (D-002) — no model is run over it: place the ball by hand."
+        } catch {
+            return "❌ \(name): \(error.localizedDescription)"
+        }
+    }
+
+    /// False, with the reason shown, when no model may run over the open video.
+    private func modelsAdmitted() -> Bool {
+        guard let sessionName else { return false }
+        let refusal = modelRefusal ?? Self.modelAdmission(of: sessionName, in: sampler.datasetRoot)
+        modelRefusal = .some(refusal)
+        if let refusal { status = refusal }
+        return refusal == nil
+    }
+
     /// Runs the detector over every frame of the selected rally, then solves.
     func autoTrack() {
-        guard let rally, let video, let frames else { return }
+        guard let rally, let video, let frames, modelsAdmitted() else { return }
         trackTask?.cancel()
         stop()
         let id = rally.id
@@ -429,12 +460,13 @@ final class TrackLabelModel {
         guard let image, let shownIndex, let current = rally?.points[shownIndex], snapping == nil else { return }
         snapping = point
         let model = sampler.prelabelModel
-        let holder = snapDetector
+        // Not admitted (a reserved recording): the box is placed without the detector.
+        let holder = modelsAdmitted() ? snapDetector : nil
         let usual = usualWidth()
         let id = selectedId
         Task {
             let result = await Task.detached(priority: .userInitiated) {
-                BallSnapper.snap(at: point, in: image, detector: holder.detector(for: model), usualSize: usual)
+                BallSnapper.snap(at: point, in: image, detector: holder?.detector(for: model), usualSize: usual)
             }.value
             snapping = nil
             guard id == selectedId, let i = rally?.points.firstIndex(where: { $0.time == current.time }) else { return }
@@ -473,7 +505,7 @@ final class TrackLabelModel {
     /// Search near the fix on frame `fix` for the ball the first pass missed
     /// either side (TrackFinder.lookAgain), then re-solve with what's found.
     private func lookAgain(from fix: Int) {
-        guard let snapshot = rally, let frames else { return }
+        guard let snapshot = rally, let frames, modelsAdmitted() else { return }
         let model = sampler.prelabelModel, holder = snapDetector, heatHolder = lookAgainHeat
         // The newest trained multi-frame model, else the app's own.
         let heatModel = newestHeatModel ?? Bundle.main.url(forResource: "ball_heat", withExtension: "mlmodelc")

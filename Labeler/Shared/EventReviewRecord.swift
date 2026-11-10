@@ -163,7 +163,6 @@ enum EventReview {
         case sourceChanged(recorded: String, current: String)
         case ledgerNotWritten(String)
         case sessionsUnreadable(String)
-        case projectUnreadable(String)
         case withheldIdentityUnknown(String)
         case incomplete([String])
 
@@ -179,7 +178,6 @@ enum EventReview {
             case .sourceChanged(let recorded, let current): return "The video's content changed since its events were recorded (\(recorded.prefix(21))… → \(current.prefix(21))…)."
             case .ledgerNotWritten(let why): return "The exposure ledger could not record this review, so it does not open: \(why)"
             case .sessionsUnreadable(let why): return "The project's sessions can't all be read, so the withheld recordings' files are unknown; nothing opens: \(why)"
-            case .projectUnreadable(let why): return "project.json exists but can't be read, so the withheld recordings' identities are unknown; nothing opens: \(why)"
             case .withheldIdentityUnknown(let why): return "A withheld recording's content cannot be fingerprinted, so a copy of it could not be told apart; nothing opens: \(why)"
             case .incomplete(let gaps): return "The recording is not fully reviewed: " + gaps.joined(separator: "; ")
             }
