@@ -264,4 +264,108 @@ extension DatasetAuditTests {
         XCTAssertFalse(a.findings.contains { $0.code == "FINAL-TEST-CANDIDATE" && $0.videos.contains("grs_l") },
                        "even with no recorded exposure, a lineage-holdout recording is never offered as a final-test candidate")
     }
+
+    // MARK: - The same file under two cards (D-036)
+
+    /// The case found on 2026-11-09: a train card registered with a file's fingerprint, and a
+    /// lineage-holdout card (registered with its original's fingerprint) whose video is that file.
+    private func copiedHoldout(confirmed: Bool) -> DatasetSplitManifest.Inputs {
+        let clips = [
+            F.clip("grs_t", environment: "Grass", split: "train",
+                   videos: [F.source("grs_t", uploader: "", fingerprint: "file:CUT", sourceId: confirmed ? "IMG_1" : nil)]),
+            F.clip("grs_h", environment: "Grass", split: nil,
+                   videos: [F.source("grs_h", uploader: "", fingerprint: "file:ORIGINAL", sourceId: confirmed ? "IMG_1" : nil)]),
+        ]
+        var inputs = F.inputs(validation: PipelineTuner.ValidationSet(tune: ["bch_a"], holdout: ["bch_a_v2"], lineageHoldout: ["grs_h"]),
+                              discovered: ["grs_t": [ExposureRecord(kind: .trainingPackage, ref: "pkg-L2", date: "2026-10-25", note: nil),
+                                                     ExposureRecord(kind: .trainingPackage, ref: "pkg-L1", date: "2026-10-17", note: nil)],
+                                           "grs_h": [ExposureRecord(kind: .preTracking, ref: "session tracks (machine)", date: "2026-10-17", note: nil)]],
+                              extraClips: clips, extraSessions: [F.session("grs_t", split: "train"), F.session("grs_h", split: "val")])
+        // The holdout's video is the file the train card was registered with; the train card's own file has since been re-encoded.
+        inputs.content = { ["grs_h": .read("file:CUT"), "grs_t": .read("file:REENCODED")][$0.name] ?? .absent }
+        return inputs
+    }
+
+    func testAHoldoutFileRegisteredUnderATrainCardIsHardByContent() throws {
+        let manifest = try DatasetSplitManifest.build(copiedHoldout(confirmed: false))
+        let t = manifest.videos.first { $0.video == "grs_t" }!, h = manifest.videos.first { $0.video == "grs_h" }!
+        XCTAssertEqual(t.split, .train, "nothing the cards say joins them")
+        XCTAssertEqual([h.contentFingerprint, h.contentState], ["file:CUT", "read"])
+        XCTAssertEqual([t.fingerprint, t.contentFingerprint], ["file:CUT", "file:REENCODED"], "a stored fingerprint is not the file read today")
+        let a = DatasetAudit.run(manifest: manifest, now: F.day)
+        let shared = try XCTUnwrap(a.findings.first { $0.code == "CONTENT-SHARED" })
+        XCTAssertEqual(shared.severity, .hard)
+        XCTAssertEqual(shared.videos, ["grs_h", "grs_t"])
+        XCTAssertTrue(shared.message.contains("lineage_holdout + train"), shared.message)
+        XCTAssertTrue(a.hasHardLeak)
+        XCTAssertFalse(codes(a, .hard).contains("FP-SHARED"), "the two cards were registered with different fingerprints")
+    }
+
+    func testOnceTheSharedRecordingIsConfirmedTheCopyIsWithheldAndItsTrainingHistoryIsSaid() throws {
+        let manifest = try DatasetSplitManifest.build(copiedHoldout(confirmed: true))
+        let t = manifest.videos.first { $0.video == "grs_t" }!
+        XCTAssertEqual(t.split, .lineageHoldout); XCTAssertEqual(t.reservedAs, "alias"); XCTAssertEqual(t.unreservedSplit, .train)
+        XCTAssertEqual(Set(t.exposure.filter { $0.kind == .trainingPackage }.map(\.ref)), ["pkg-L1", "pkg-L2"], "its history is kept")
+        let a = DatasetAudit.run(manifest: manifest, now: F.day)
+        XCTAssertEqual(codes(a, .hard), [], "one split now: no boundary is crossed")
+        let trained = a.findings.filter { $0.code == "LINEAGE-HOLDOUT-TRAINED" }
+        XCTAssertEqual(trained.map(\.severity), [.soft, .soft])
+        let listed = try XCTUnwrap(trained.first { $0.videos.first == "grs_h" })
+        XCTAssertEqual(listed.videos, ["grs_h", "grs_t"], "the listed holdout is in the packages under the copy's name")
+        XCTAssertTrue(listed.message.contains("pkg-L1, pkg-L2") && listed.message.contains("as grs_t"), listed.message)
+        XCTAssertEqual(try XCTUnwrap(trained.first { $0.videos == ["grs_t"] }).message.contains("pkg-L1, pkg-L2"), true)
+        for name in ["grs_h", "grs_t"] {
+            let note = try XCTUnwrap(a.findings.first { $0.code == "LINEAGE-HOLDOUT" && $0.videos == [name] })
+            XCTAssertTrue(note.message.contains("trained from none of those packages"), note.message)
+            XCTAssertFalse(note.message.contains("after the D-017 cut-over"), "the cut-over date does not clear it")
+        }
+    }
+
+    func testAVenueMateInAPackageDoesNotMarkAnotherRecordingAsTrained() throws {
+        // bch_n shares a confirmed session with the listed bch_l: withheld with it, but another recording.
+        let clips = [F.clip("bch_l", videos: [F.source("bch_l", uploader: "", fingerprint: "file:L", sessionId: "day-1")]),
+                     F.clip("bch_n", split: "train", videos: [F.source("bch_n", uploader: "", fingerprint: "file:N", sessionId: "day-1")])]
+        let inputs = F.inputs(validation: PipelineTuner.ValidationSet(tune: ["bch_a"], holdout: ["bch_a_v2"], lineageHoldout: ["bch_l"]),
+                              discovered: ["bch_n": [ExposureRecord(kind: .trainingPackage, ref: "pkg-1", date: "2026-10-16", note: nil)]],
+                              extraClips: clips, extraSessions: [F.session("bch_l", split: "val"), F.session("bch_n", split: "train")])
+        let trained = try audit(inputs).findings.filter { $0.code == "LINEAGE-HOLDOUT-TRAINED" }
+        XCTAssertEqual(trained.map(\.videos), [["bch_n"]], "the neighbour is in a package; the listed recording is not")
+    }
+
+    func testOneFileUnderTwoCardsOfOneSplitIsSoftAndTwoCardsWithOneStoredFingerprintStayFPShared() throws {
+        let clips = [F.clip("ind_x", environment: "Indoor", split: "train", videos: [F.source("ind_x", uploader: "", fingerprint: "file:X")]),
+                     F.clip("ind_y", environment: "Indoor", split: "train", videos: [F.source("ind_y", uploader: "", fingerprint: "file:Y")]),
+                     F.clip("ind_dup", environment: "Indoor", split: "train", videos: [F.source("ind_dup", uploader: "Z", fingerprint: "youtube:A1")])]
+        var inputs = F.inputs(extraClips: clips, extraSessions: [F.session("ind_x", split: "train"), F.session("ind_y", split: "train"), F.session("ind_dup", split: "train")])
+        inputs.content = { ["ind_x": .read("file:X"), "ind_y": .read("file:X")][$0.name] ?? .absent }
+        let a = try audit(inputs)
+        let dup = try XCTUnwrap(a.findings.first { $0.code == "CONTENT-DUPLICATE" })
+        XCTAssertEqual(dup.severity, .soft); XCTAssertEqual(dup.videos, ["ind_x", "ind_y"])
+        XCTAssertFalse(a.findings.contains { $0.code == "CONTENT-SHARED" })
+        XCTAssertEqual(a.findings.filter { $0.code == "FP-SHARED" }.map(\.videos), [["bch_a", "ind_dup"]], "a shared stored fingerprint is reported once, as before")
+    }
+
+    func testAVideoThatCouldNotBeComparedIsCountedNeverCleared() throws {
+        var inputs = F.inputs()
+        inputs.content = { ["bch_b": .unreadable, "grs_c": .read("file:C")][$0.name] ?? .absent }
+        let manifest = try DatasetSplitManifest.build(inputs)
+        XCTAssertEqual(manifest.videos.first { $0.video == "bch_b" }!.contentState, "unreadable")
+        XCTAssertNil(manifest.videos.first { $0.video == "bch_b" }!.contentFingerprint)
+        let a = DatasetAudit.run(manifest: manifest, now: F.day)
+        let unreadable = try XCTUnwrap(a.findings.first { $0.code == "CONTENT-UNREADABLE" })
+        XCTAssertEqual(unreadable.severity, .soft); XCTAssertEqual(unreadable.videos, ["bch_b"])
+        let absent = try XCTUnwrap(a.findings.first { $0.code == "CONTENT-ABSENT" })
+        XCTAssertEqual(absent.severity, .info); XCTAssertEqual(absent.videos, ["bch_a", "bch_a_v2", "bch_a_v3", "grs_c_v2"])
+    }
+
+    func testAManifestFromBeforeContentFingerprintsStillDecodesAndClaimsNothing() throws {
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(try DatasetSplitManifest.build(F.inputs()))) as? [String: Any])
+        object["videos"] = (object["videos"] as? [[String: Any]])?.map { row in row.filter { $0.key != "contentFingerprint" && $0.key != "contentState" } }
+        let old = try decoder.decode(DatasetSplitManifest.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertTrue(old.videos.allSatisfy { $0.contentState == nil && $0.contentFingerprint == nil })
+        let a = DatasetAudit.run(manifest: old, now: F.day)
+        XCTAssertFalse(a.findings.contains { $0.code.hasPrefix("CONTENT-") }, "nothing was compared, so nothing is said either way")
+    }
 }
