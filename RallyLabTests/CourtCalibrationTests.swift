@@ -305,6 +305,95 @@ final class CourtCalibrationTests: XCTestCase {
         XCTAssertTrue(rows.contains("rec_01") && rows.contains("detector_evaluation"), "the use is on record before the first frame")
     }
 
+    /// A run manifest's recording as the GUI gets it.
+    private func recording(decoded: String) -> PlayerFeatures.Recording {
+        PlayerFeatures.Recording(recordingId: "rec_01", groupId: "rec_01", split: "train", surface: "indoor", camera: "End line, ground level",
+                                 cardOrientation: "Landscape", sourceId: nil, fingerprint: "file:orig",
+                                 decoded: PlayerFeatures.DecodedFile(kind: "scrub_proxy", fileName: "rec_01.mp4", fingerprint: decoded, width: 960, height: 540,
+                                                                     orientation: 1, nominalFrameRate: 30, durationSec: 300),
+                                 aspect: 16.0 / 9, recordingType: "continuous", eligibility: [:], eligibilityReasons: [], net: nil, courtUnknownReason: nil,
+                                 cutRanges: [], timeBreakingSpans: [], intervals: [], framesFile: "frames/rec_01.jsonl", framesSha256: "", frameCount: 1)
+    }
+
+    @MainActor
+    func testAStaleCalibrationClassifiesNobodyInTheGUIAndIsShownApart() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("court-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = CourtCalibrationFile.new(for: binding("file:copy"))
+        try f.confirm(segment: 0, geometry: layout(), startedFrom: "manual", baseline: nil, by: "Owner", net: nil, spec: .indoor, format: nil, now: Date())
+        try CourtCalibrationStore(experiment: dir).save(f)
+        let frame = PlayerFeatures.Frame(t: 10, tick: 6000, interval: "a", seg: 0, reset: "interval_start", frameDiff: nil,
+                                         persons: [person(standing(0.5, 0.25))], unmatchedPoses: [],
+                                         scene: PlayerFeatures.SceneDerived(persons: 1, confirmed: 1, inCourt: 0, posesInCourt: 0),
+                                         masks: PlayerFeatures.Masks(ran: true, skipped: nil, rectFailed: false, poseFailed: false), ms: [:])
+        // The same footage: the confirmed court classifies.
+        let current = CourtCalibrationModel(experiment: dir, recording: recording(decoded: "file:copy"), footage: dir)
+        XCTAssertNil(current.stale)
+        XCTAssertEqual(current.zones(for: [frame]).first??.first??.zone, .nearCourt)
+        // Other footage under the same name: stale — nothing classified, nothing in force, the old court kept for review.
+        let other = CourtCalibrationModel(experiment: dir, recording: recording(decoded: "file:newcopy"), footage: dir)
+        XCTAssertNotNil(other.stale)
+        XCTAssertNil(other.shown, "a stale court is never the court in force, confirmed or not")
+        XCTAssertEqual(other.staleGeometry, layout(), "kept apart, for review")
+        XCTAssertNil(other.zones(for: [frame]).first!, "no zones from a stale file")
+        other.editConfirmed()
+        other.use(.netGuided)
+        XCTAssertNil(other.draft, "a stale court can't be edited back into use")
+        XCTAssertFalse(other.canConfirm)
+    }
+
+    @MainActor
+    func testAnUnreviewedRecordingOpensOnItsBestProposalAndNothingIsConfirmed() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("court-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var f = CourtCalibrationFile.new(for: binding("file:copy"))
+        var lines = proposal(layout().moving(.nearLeft, to: 0.12, 0.1)); lines.method = .courtLines
+        f.segments[0].proposals = [proposal(layout()), lines]
+        try CourtCalibrationStore(experiment: dir).save(f)
+        let m = CourtCalibrationModel(experiment: dir, recording: recording(decoded: "file:copy"), footage: dir)
+        XCTAssertEqual(m.startedFrom, "court_lines_v1")
+        XCTAssertEqual(m.shown?.style, .proposal, "shown as a proposal")
+        XCTAssertNil(try CourtCalibrationStore(experiment: dir).load("rec_01")?.segments[0].confirmation)
+        XCTAssertNil(try CourtCalibrationStore(experiment: dir).load("rec_01")?.segments[0].draft, "opening saves nothing")
+        XCTAssertNil(m.file?.confirmed(at: 10), "a proposal on screen is not a confirmed court")
+    }
+
+    func testReviewScoresFalseInLostPlayersServersAndHalves() throws {
+        let persons = [person(standing(0.5, 0.25), track: 1), person(standing(0.5, 0.52), track: 2), person(standing(0.02, 0.3), track: 3),
+                       person(standing(0.5, 0.07), track: 4), person(standing(0.5, 0.26), track: 5)]
+        let frame = PlayerFeatures.Frame(t: 1, tick: 600, interval: "a", seg: 0, reset: "interval_start", frameDiff: nil, persons: persons, unmatchedPoses: [],
+                                         scene: PlayerFeatures.SceneDerived(persons: 5, confirmed: 5, inCourt: 0, posesInCourt: 0),
+                                         masks: PlayerFeatures.Masks(ran: true, skipped: nil, rectFailed: false, poseFailed: false), ms: [:])
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("review-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let rows = [CourtReview.personsHeader,
+                    "rec_01,a,600,1,x.jpg,1,0,0,0,0,near_court,Owner,", "rec_01,a,600,1,x.jpg,2,0,0,0,0,far_court,Owner,",
+                    "rec_01,a,600,1,x.jpg,3,0,0,0,0,spectator,Owner,", "rec_01,a,600,1,x.jpg,4,0,0,0,0,near_serving_area,Owner,",
+                    "rec_01,a,600,1,x.jpg,5,0,0,0,0,duplicate_or_not_a_person,Owner,"]
+        try Data(rows.joined(separator: "\n").utf8).write(to: dir.appendingPathComponent("persons.csv"))
+        try Data([CourtReview.framesHeader, "rec_01,a,600,1,x.jpg,1,0,Owner,"].joined(separator: "\r\n").utf8).write(to: dir.appendingPathComponent("frames.csv"))
+        let review = try CourtReview.read(dir)
+        XCTAssertEqual(review.persons.count, 5)
+        var pass = CourtMembershipPass { _ in (CourtZoneClassifier(geometry: self.layout(), spec: .indoor, settings: .init()), 0) }
+        let z = try XCTUnwrap(pass.zones(persons, at: 1))
+        let court = CourtReview.score(source: "confirmed", confirmed: true, frames: [frame], recording: "rec_01", labels: review.persons,
+                                      zone: { _, j in z[j] }, membership: { _, j in CourtMembershipPass.membership(z[j]) })
+        XCTAssertEqual(court.halfCorrect, 2); XCTAssertEqual(court.halfTotal, 2)
+        XCTAssertEqual(court.falseIn, 0); XCTAssertEqual(court.notPlayingTotal, 1)
+        XCTAssertEqual(court.playersOut + court.playersUnknown, 0); XCTAssertEqual(court.playersTotal, 3)
+        XCTAssertEqual(court.serversOut, 0); XCTAssertEqual(court.serversTotal, 1)
+        XCTAssertEqual(court.duplicatesIn, 1, "a split box on the court still counts in")
+        // A lane that lets everyone in and loses nobody: one false in.
+        let lane = CourtReview.score(source: "lane", confirmed: false, frames: [frame], recording: "rec_01", labels: review.persons,
+                                     zone: { _, _ in nil }, membership: { _, _ in .inside })
+        XCTAssertEqual(lane.falseIn, 1)
+        XCTAssertEqual(lane.halfTotal, 0, "no zones, no half accuracy")
+        let d = CourtReview.detection(frames: [frame], recording: "rec_01", labels: review.persons, missed: review.missed)
+        XCTAssertEqual(d, CourtReview.Detection(frames: 1, nearFound: 2, nearMissed: 1, farFound: 1, farMissed: 0))
+        XCTAssertEqual(CourtReview.sample([frame], count: 3, avoid: [700]).count, 0, "a frame within 2 s of an earlier audit frame is left out")
+    }
+
     // MARK: The assembler
 
     func testAssemblerUsesAConfirmedCourtAndOldLinesStillDecode() throws {

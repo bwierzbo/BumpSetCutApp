@@ -18,7 +18,7 @@ import Observation
 @MainActor
 @Observable
 final class CourtCalibrationModel {
-    enum Style { case proposal, adjusted, confirmed }
+    enum Style { case proposal, adjusted, confirmed, stale }
 
     let experiment: URL
     let binding: CourtCalibrationFile.Binding
@@ -54,11 +54,20 @@ final class CourtCalibrationModel {
 
     var segment: CourtSegment? { file?.segments.first { $0.id == segmentId } }
 
-    /// What the picture shows for the segment, and how.
+    /// The court in force for the segment, and how it was reached; nil for a stale file (bound to other footage), whose
+    /// geometry is only ever `staleGeometry` and never classifies anyone (Codex on #166).
     var shown: (geometry: CourtLayout, style: Style)? {
+        guard stale == nil else { return nil }
         if let draft { return (draft, baseline.map { draft.changedRoles(from: $0).isEmpty } == true && startedFrom != "manual" ? .proposal : .adjusted) }
         if let c = segment?.confirmation, segment?.status == .confirmed { return (c.geometry, .confirmed) }
         return nil
+    }
+
+    /// A stale file's court for the segment (its confirmation, else its draft), for review only: drawn apart, in grey,
+    /// with no handles and no zones.
+    var staleGeometry: CourtLayout? {
+        guard stale != nil, let seg = segment else { return nil }
+        return seg.confirmation?.geometry ?? seg.draft ?? seg.latestProposals.first?.geometry
     }
 
     var problems: [String] { draft?.problems ?? [] }
@@ -86,12 +95,25 @@ final class CourtCalibrationModel {
 
     func selectSegment(_ id: Int) {
         segmentId = id
-        draft = segment?.draft
+        draft = stale == nil ? segment?.draft : nil
         startedFrom = segment?.draftStartedFrom
         baseline = startedFrom.flatMap { s in segment?.latestProposals.first { $0.method.rawValue == s }?.geometry }
         if let c = segment?.confirmation { spec = c.spec } else if let s = file?.setup?.spec { spec = s }
+        // An unreviewed segment opens on its best proposal (a draft, nothing saved until the person moves or confirms it).
+        if draft == nil, stale == nil, segment?.status == .unreviewed, let best = bestProposal {
+            draft = best.geometry
+            baseline = best.geometry
+            startedFrom = best.method.rawValue
+            notes = best.uncertainty
+        }
         selected = nil
         changed()
+    }
+
+    /// The proposal a person starts from: combined, else court lines, else net-guided — a starting point only; the
+    /// others stay one click away (Reset to).
+    var bestProposal: CourtProposal? {
+        [CourtProposal.Method.combined, .courtLines, .netGuided].lazy.compactMap { m in self.segment?.latestProposals.first { $0.method == m } }.first
     }
 
     func segment(at t: Double) -> CourtSegment? { file?.segments.first { $0.contains(t) } }
@@ -149,8 +171,7 @@ final class CourtCalibrationModel {
             file = f
             notes = outcome.notes
             persist()
-            let best = [CourtProposal.Method.combined, .courtLines, .netGuided].compactMap { m in outcome.proposals.first { $0.method == m } }.first
-            if draft == nil, segment?.status != .confirmed, let best { use(best.method) }
+            if draft == nil, segment?.status != .confirmed, let best = bestProposal { use(best.method) }
             message = outcome.proposals.isEmpty ? "No automatic proposal: place the court by hand." :
                 "Proposed: " + outcome.proposals.map { "\($0.method.label) \(String(format: "%.2f", $0.confidence))" }.joined(separator: " · ")
         } catch { message = "Proposal failed: \(error.localizedDescription)" }
@@ -159,7 +180,7 @@ final class CourtCalibrationModel {
 
     /// Starts the draft from the latest proposal of `method` (Reset to proposal).
     func use(_ method: CourtProposal.Method) {
-        guard let p = segment?.latestProposals.first(where: { $0.method == method }) else { return }
+        guard stale == nil, let p = segment?.latestProposals.first(where: { $0.method == method }) else { return }
         draft = p.geometry
         baseline = p.geometry
         startedFrom = method.rawValue
@@ -170,6 +191,7 @@ final class CourtCalibrationModel {
 
     /// A court placed from nothing: a trapezoid under the net (or mid-frame without one) to drag into place.
     func placeManually() {
+        guard stale == nil else { return }
         var g: CourtLayout
         if let n = net, n.corners.count == 4 {
             let l = n.corners[3][0], r = n.corners[2][0], y = min(n.corners[2][1], n.corners[3][1]) - 0.05
@@ -193,7 +215,7 @@ final class CourtCalibrationModel {
 
     /// Edit the segment's confirmed court again (the confirmation stays in force until a new Confirm replaces it).
     func editConfirmed() {
-        guard let c = segment?.confirmation else { return }
+        guard stale == nil, let c = segment?.confirmation else { return }
         draft = c.geometry
         baseline = c.geometry
         startedFrom = "confirmation"
@@ -306,6 +328,8 @@ final class CourtCalibrationModel {
     /// The zones the players get against what is on screen for the current segment and the confirmed courts of the
     /// others, frame by frame (nil where no court covers the frame).
     func zones(for frames: [PlayerFeatures.Frame]) -> [[PersonZone?]?] {
+        // A file bound to other footage classifies nobody.
+        guard stale == nil else { return frames.map { _ in nil } }
         let current = shown?.geometry, segId = segmentId, spec = self.spec, file = self.file
         var pass = CourtMembershipPass { t in
             guard let seg = file?.segments.first(where: { $0.contains(t) }) else { return nil }

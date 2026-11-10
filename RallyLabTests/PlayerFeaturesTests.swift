@@ -368,4 +368,24 @@ final class PlayerFeaturesTests: XCTestCase {
         XCTAssertEqual(PlayerFeaturesRun.experimentFootage(d, "rec", fingerprint: second), changed, "the same content finds its copy again")
         XCTAssertNil(PlayerFeaturesRun.decodedFootage(d, "rec", fingerprint: "file:none"))
     }
+
+    func testRaisedArmShareCountsOnlyMeasuredArms() {
+        func frame(_ elevations: [Double?]) -> PlayerFeatures.Frame {
+            let persons = elevations.enumerated().map { i, e -> PlayerFeatures.Person in
+                var d = PlayerFeatures.PersonDerived()
+                d.armElevation = e
+                return PlayerFeatures.Person(box: Box(x: 0.1 * Double(i), y: 0.1, w: 0.05, h: 0.2), conf: 0.9, track: i, state: .confirmed, hits: 3, gap: 0,
+                                             ambiguous: false, court: .unknown, pose: nil, derived: d)
+            }
+            return PlayerFeatures.Frame(t: 0, tick: 0, interval: "a", seg: 0, reset: "interval_start", frameDiff: nil, persons: persons, unmatchedPoses: [],
+                                        scene: PlayerFeatures.SceneDerived(persons: persons.count, confirmed: persons.count, inCourt: 0, posesInCourt: 0),
+                                        masks: PlayerFeatures.Masks(ran: true, skipped: nil, rectFailed: false, poseFailed: false), ms: [:])
+        }
+        let none = PlayerFeaturesSummary.stats([frame([nil, nil, nil])], laneKnown: false)
+        XCTAssertNil(none.armRaisedShare, "nothing measurable is unknown, never 0 (RTM and RF-DETR Keypoint skeletons have no neck)")
+        XCTAssertEqual(none.armMeasured, 0)
+        let some = PlayerFeaturesSummary.stats([frame([0.4, -0.2, nil, nil])], laneKnown: false)
+        XCTAssertEqual(some.armRaisedShare, 0.5, "one raised of two measured; the unmeasured two don't count as lowered")
+        XCTAssertEqual(some.armMeasured, 2)
+    }
 }

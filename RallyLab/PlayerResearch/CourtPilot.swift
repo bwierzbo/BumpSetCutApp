@@ -131,6 +131,15 @@ enum CourtPilot {
         /// Against the person-confirmed court (nil until one exists): each proposal's point distances in pixels of the
         /// decoded frame, and what the person changed.
         var againstConfirmed: AgainstConfirmed? = nil
+        /// Against a person's labels (`--review`), per source, nil without a review.
+        var review: Review? = nil
+    }
+
+    struct Review: Codable {
+        var reviewers: [String]
+        var labelledPersons: Int
+        var scores: [CourtReview.Score]
+        var detection: CourtReview.Detection
     }
 
     struct AgainstConfirmed: Codable {
@@ -167,8 +176,9 @@ enum CourtPilot {
     }
 
     @discardableResult
-    static func run(experiment: URL, runName: String, report: String, propose: Bool, auditCSV: URL?, codeSha: String?,
+    static func run(experiment: URL, runName: String, report: String, propose: Bool, auditCSV: URL?, reviewDir: URL? = nil, codeSha: String?,
                     log: @escaping (String) -> Void) async throws -> URL {
+        let review = try reviewDir.map(CourtReview.read)
         guard RallyClassifierExporter.isSafeName(report) else { throw Failure.badName(report) }
         let runDir = experiment.appendingPathComponent("runs/\(runName)", isDirectory: true)
         let manifestURL = runDir.appendingPathComponent("features/player-features-manifest.json")
@@ -236,10 +246,11 @@ enum CourtPilot {
             let auditTicks = audit(auditCSV, recording: rec.recordingId)
             let seg0 = file.segments.first { $0.status == .unreviewed || $0.status == .confirmed }
             var sources: [(name: String, confirmed: Bool, geometry: (Double) -> (CourtLayout, Int)?, spec: CourtSpec)] = []
+            let proposalSpec = file.setup?.spec ?? CourtSpec.standard(surface: rec.surface)
             for p in seg0?.latestProposals ?? [] {
                 let g = p.geometry, id = seg0!.id
                 sources.append(("unconfirmed \(p.method.rawValue)", false, { t in file.segments.first { $0.contains(t) }?.id == id ? (g, id) : nil },
-                                CourtSpec.standard(surface: rec.surface)))
+                                proposalSpec))
             }
             let lookup = store.confirmedLookup(for: binding)
             if lookup.unusable == nil, let f = lookup.file {
@@ -302,22 +313,36 @@ enum CourtPilot {
                                 pointSources: p.pointSources, uncertainty: p.uncertainty, geometry: p.geometry)
             }
             let confirmedFirst = lookup.unusable == nil ? lookup.file?.segments.first { $0.confirmation?.method == CourtConfirmation.personMethod } : nil
+            var reviewResult: Review?
+            if let review {
+                let labels = review.persons.filter { $0.key.hasPrefix("\(rec.recordingId)|") }
+                var scores = [CourtReview.score(source: "net lane (\(PlayerFeatures.courtVersion))", confirmed: false, frames: frames, recording: rec.recordingId,
+                                                labels: labels, zone: { _, _ in nil }, membership: { i, j in frames[i].persons[j].court })]
+                for s in sources {
+                    let z = zonesBySource[s.name] ?? []
+                    func zone(_ i: Int, _ j: Int) -> PersonZone? { z.indices.contains(i) ? z[i].flatMap { $0.indices.contains(j) ? $0[j] : nil } : nil }
+                    scores.append(CourtReview.score(source: s.name, confirmed: s.confirmed, frames: frames, recording: rec.recordingId, labels: labels,
+                                                    zone: zone, membership: { i, j in zone(i, j).map(CourtMembershipPass.membership) ?? .unknown }))
+                }
+                reviewResult = Review(reviewers: Array(Set(labels.values.map(\.reviewer))).sorted(), labelledPersons: labels.count, scores: scores,
+                                      detection: CourtReview.detection(frames: frames, recording: rec.recordingId, labels: labels, missed: review.missed))
+            }
             reports.append(RecordingReport(recordingId: rec.recordingId, surface: rec.surface, camera: rec.camera,
                                            calibration: lookup.unusable == nil ? "confirmed" : "\(calibration): \(lookup.unusable!)",
                                            proposals: props, proposalNotes: notes, sources: stats, panel: panelPath, lines: linesImage, auditImages: auditImages,
                                            againstConfirmed: confirmedFirst.flatMap { s in
                                                s.confirmation.map { against($0, proposals: s.latestProposals, w: rec.decoded.width, h: rec.decoded.height) }
-                                           }))
+                                           }, review: reviewResult))
             log("✅ \(rec.recordingId): " + stats.map { "\($0.source) in-play \(String(format: "%.2f", $0.inPlayPerFrame))/frame" }.joined(separator: " · "))
         }
         struct Report: Codable {
-            var schema: String, createdAt: String, run: String, experiment: String, codeSha: String?, propose: Bool, audit: String?
+            var schema: String, createdAt: String, run: String, experiment: String, codeSha: String?, propose: Bool, audit: String?, review: String?
             var settings: [String: String]
             var note: String
             var recordings: [RecordingReport]
         }
         let r = Report(schema: "court_pilot_v1", createdAt: RallyClassifierExporter.iso(Date()), run: runName, experiment: experiment.path, codeSha: codeSha,
-                       propose: propose, audit: auditCSV?.path, settings: CourtZoneClassifier.Settings().described,
+                       propose: propose, audit: auditCSV?.path, review: reviewDir?.path, settings: CourtZoneClassifier.Settings().described,
                        note: "A source named 'unconfirmed …' is an automatic proposal no person has reviewed: its zones are not evidence.",
                        recordings: reports)
         try RallyClassifierExporter.encode(r, pretty: true).write(to: out.appendingPathComponent("summary.json"))

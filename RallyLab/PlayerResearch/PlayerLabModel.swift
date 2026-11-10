@@ -187,6 +187,8 @@ final class PlayerLabModel {
         var drawn: (geometry: CourtLayout, spec: CourtSpec, color: CGColor, dashed: Bool)?
         if let court, let shown = court.shown, court.segment(at: f.t)?.id == court.segmentId {
             drawn = (shown.geometry, court.spec, Self.courtColor(shown.style), shown.style != .confirmed)
+        } else if let court, let old = court.staleGeometry {
+            drawn = (old, court.spec, Self.courtColor(.stale), true)
         }
         // In court mode the editor draws the court itself (beyond the frame's edges too).
         if mode == .court { o.court = false }
@@ -200,6 +202,7 @@ final class PlayerLabModel {
         case .proposal: return CGColor(red: 1, green: 0.55, blue: 0.1, alpha: 0.95)
         case .adjusted: return CGColor(red: 0.2, green: 0.9, blue: 1, alpha: 0.95)
         case .confirmed: return CGColor(red: 0.3, green: 1, blue: 0.4, alpha: 0.95)
+        case .stale: return CGColor(gray: 0.65, alpha: 0.8)
         }
     }
 

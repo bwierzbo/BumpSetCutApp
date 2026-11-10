@@ -45,6 +45,8 @@ enum PlayerOverlay {
         var header = true
         /// The court geometry (court_geometry_v1) when one is passed in.
         var court = true
+        /// Membership or zone after the track number in each label (off for a review picture, which must not suggest one).
+        var courtLabels = true
     }
 
     /// Short zone names for labels.
@@ -197,15 +199,15 @@ enum PlayerOverlay {
             if o.boxes { ctx.stroke(CGRect(x: p.box.x * w, y: p.box.y * h, width: p.box.w * w, height: p.box.h * h)) }
             ctx.setLineDash(phase: 0, lengths: [])
             if o.skeletons, let pose = p.pose { skeleton(pose, color: col, dashed: false, w: w, h: h, ctx: ctx) }
-            if let zone {
+            if let zone, o.courtLabels {
                 // The ground point the zone was read at, in the zone's colour.
                 let g = CourtGround.point(p)
                 ctx.setFillColor(zoneColor(zone.zone))
                 ctx.fillEllipse(in: CGRect(x: g.x * w - 4, y: g.y * h - 4, width: 8, height: 8))
             }
             guard o.labels else { continue }
-            let where_ = zone.map { "\(short($0.zone))\($0.uncertain ? "~" : "")" } ?? p.court.rawValue
-            let tag = "#\(p.track)\(p.state == .tentative ? "?" : "")\(p.ambiguous ? "!" : "") \(where_)"
+            let where_ = o.courtLabels ? " " + (zone.map { "\(short($0.zone))\($0.uncertain ? "~" : "")" } ?? p.court.rawValue) : ""
+            let tag = "#\(p.track)\(p.state == .tentative ? "?" : "")\(p.ambiguous ? "!" : "")\(where_)"
             text(tag, at: CGPoint(x: p.box.x * w, y: min(h - 14, p.box.maxY * h + 3)), size: 10, color: col, in: ctx)
         }
         for pose in frame.unmatchedPoses where o.unmatchedPoses { skeleton(pose, color: CGColor(gray: 1, alpha: 0.9), dashed: true, w: w, h: h, ctx: ctx) }

@@ -17,6 +17,8 @@ enum PlayerFeaturesSummary {
         var personsPerFrame: Double?, inCourtPerFrame: Double?, poseShare: Double?, jointsPerPose: Double?, jointConfMean: Double?
         var unmatchedPerFrame: Double?, ambiguousShare: Double?, confirmedLengthMean: Double?, boxHeightMedian: Double?
         var meanSpeedInCourt: Double?, movingShareInCourt: Double?, coherenceInCourt: Double?, armRaisedShare: Double?
+        /// Persons whose arm elevation could be measured (the raised-arm share's denominator).
+        var armMeasured = 0
         var frameDiffMedian: Double?, frameDiffP95: Double?
         var rectMsMedian: Double?, poseMsMedian: Double?
         var resets: [String: Int] = [:]
@@ -70,7 +72,11 @@ enum PlayerFeaturesSummary {
         s.meanSpeedInCourt = mean(ran.compactMap(\.scene.meanSpeedInCourt))
         s.movingShareInCourt = mean(ran.compactMap(\.scene.movingShareInCourt))
         s.coherenceInCourt = mean(ran.compactMap(\.scene.coherenceInCourt))
-        s.armRaisedShare = persons.isEmpty ? nil : Double(persons.filter { ($0.derived.armElevation ?? -1) > 0 }.count) / Double(persons.count)
+        // Over measured arms only: a skeleton without neck and root (RTMPose, RF-DETR Keypoint) or a missing pose
+        // measures nothing, and nothing measured is unknown, never "nobody raised an arm" (Codex on #166).
+        let arms = persons.compactMap(\.derived.armElevation)
+        s.armMeasured = arms.count
+        s.armRaisedShare = arms.isEmpty ? nil : Double(arms.filter { $0 > 0 }.count) / Double(arms.count)
         s.rectMsMedian = quantile(ran.compactMap { $0.ms["rect"] }, 0.5)
         s.poseMsMedian = quantile(ran.compactMap { $0.ms["pose"] }, 0.5)
         return s

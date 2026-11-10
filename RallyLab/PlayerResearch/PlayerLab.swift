@@ -10,7 +10,7 @@
 //        PlayerFeaturesRun, headless: reads the source project, writes only <experiment>.
 //    RallyLab --player-lab-court <experiment> --run <run> --report <name> [--propose] [--audit <csv>]
 //        CourtPilot, headless: court proposals and zones over an existing run; writes only <experiment>.
-//    RallyLab --player-lab <experiment> [--script <steps.json>]
+//    RallyLab --player-lab <experiment> [--run <run>] [--court] [--script <steps.json>]
 //        The Player Lab window over <experiment>'s runs (PlayerLabView). With --script it
 //        performs the listed steps — choose a run, recording, interval and frame, set the
 //        layers, play, snapshot — then quits: the GUI exercised end to end without a pointer.
@@ -86,14 +86,33 @@ enum PlayerLab {
             dispatchMain()
         }
         if let experiment = value(after: "--player-lab-court", in: args) {
+            if let run = value(after: "--run", in: args), let name = value(after: "--make-review", in: args) {
+                Task { @MainActor in
+                    do {
+                        var avoid: [String: Set<Int>] = [:]
+                        if let a = value(after: "--audit", in: args).map(path), let text = try? String(contentsOf: a, encoding: .utf8) {
+                            // The earlier (Claude) audit's frames are left out: the review is a fresh sample.
+                            let rows = text.split(whereSeparator: \.isNewline).map { $0.split(separator: ",", omittingEmptySubsequences: false).map(String.init) }
+                            if let h = rows.first, let r = h.firstIndex(of: "recording"), let t = h.firstIndex(of: "tick") {
+                                for row in rows.dropFirst() where row.count > max(r, t) { if let k = Int(row[t]) { avoid[row[r], default: []].insert(k) } }
+                            }
+                        }
+                        let out = try await CourtReview.make(experiment: path(experiment), runName: run, name: name,
+                                                             perRecording: Int(value(after: "--per-recording", in: args) ?? "") ?? 4, avoid: avoid, log: { log($0) })
+                        log("✅ review sheets → \(out.path)")
+                        exit(0)
+                    } catch { log("❌ \(error.localizedDescription)"); exit(1) }
+                }
+                dispatchMain()
+            }
             guard let run = value(after: "--run", in: args), let report = value(after: "--report", in: args) else {
-                log("--player-lab-court <experiment> needs --run <run> --report <name> [--propose] [--audit <csv>]")
+                log("--player-lab-court <experiment> needs --run <run> --report <name> [--propose] [--audit <csv>] [--review <dir>], or --run <run> --make-review <name> [--per-recording n] [--audit <csv>]")
                 exit(2)
             }
             Task { @MainActor in
                 do {
                     let out = try await CourtPilot.run(experiment: path(experiment), runName: run, report: report, propose: args.contains("--propose"),
-                                                       auditCSV: value(after: "--audit", in: args).map(path),
+                                                       auditCSV: value(after: "--audit", in: args).map(path), reviewDir: value(after: "--review", in: args).map(path),
                                                        codeSha: RallyClassifierExporter.buildRevision(), log: { log($0) })
                     log("✅ court pilot → \(out.path)")
                     exit(0)
@@ -105,7 +124,8 @@ enum PlayerLab {
             dispatchMain()
         }
         if let experiment = value(after: "--player-lab", in: args) {
-            openWindow(experiment: path(experiment), script: value(after: "--script", in: args).map(path))
+            openWindow(experiment: path(experiment), script: value(after: "--script", in: args).map(path), run: value(after: "--run", in: args),
+                       court: args.contains("--court"))
         }
         return false
     }
@@ -116,7 +136,7 @@ enum PlayerLab {
     private static var closer: Closer?
 
     @MainActor
-    private static func openWindow(experiment: URL, script: URL?) -> Never {
+    private static func openWindow(experiment: URL, script: URL?, run: String?, court: Bool) -> Never {
         let app = NSApplication.shared
         app.setActivationPolicy(.regular)
         let menu = NSMenu(), appItem = NSMenuItem()
@@ -125,6 +145,8 @@ enum PlayerLab {
         appItem.submenu?.addItem(NSMenuItem(title: "Quit Player Lab", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         app.mainMenu = menu
         let model = PlayerLabModel(experiment: experiment)
+        if let run, let entry = model.runs.first(where: { $0.name == run }) { model.run = entry }
+        if court { model.mode = .court }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1400, height: 980), styleMask: [.titled, .closable, .resizable, .miniaturizable],
                               backing: .buffered, defer: false)
         window.title = "Player Lab — \(experiment.lastPathComponent) (research, P0)"

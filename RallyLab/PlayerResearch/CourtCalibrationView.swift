@@ -92,6 +92,7 @@ struct CourtCalibrationEditor: View {
             swatch(Color(cgColor: PlayerLabModel.courtColor(.proposal)), "proposed")
             swatch(Color(cgColor: PlayerLabModel.courtColor(.adjusted)), "moved by you")
             swatch(Color(cgColor: PlayerLabModel.courtColor(.confirmed)), "confirmed")
+            swatch(Color(cgColor: PlayerLabModel.courtColor(.stale)), "stale (not used)")
             Text("● seen  ○ estimated").font(.caption2).foregroundStyle(.secondary)
         }
     }
@@ -101,6 +102,17 @@ struct CourtCalibrationEditor: View {
     }
 
     private func draw(_ ctx: inout GraphicsContext, _ m: Mapping) {
+        if let old = court.staleGeometry {
+            // A stale file's court: grey, dotted, labelled, no handles — it is not used.
+            var p = Path()
+            let pts = old.outline([(0, 0), (1, 0), (1, 1), (0, 1)])
+            if let f = pts.first {
+                p.move(to: m.view(f.0, f.1)); for q in pts.dropFirst() { p.addLine(to: m.view(q.0, q.1)) }; p.closeSubpath()
+            }
+            ctx.stroke(p, with: .color(Color(cgColor: PlayerLabModel.courtColor(.stale))), style: StrokeStyle(lineWidth: 2, dash: [2, 4]))
+            ctx.draw(Text("STALE — made for other footage, not used").font(.caption.bold()).foregroundColor(.orange), at: CGPoint(x: m.imageRect.midX, y: m.imageRect.minY + 14))
+            return
+        }
         guard let shown = court.shown else { return }
         let g = shown.geometry
         let color = Color(cgColor: PlayerLabModel.courtColor(shown.style))
