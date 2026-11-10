@@ -33,7 +33,7 @@ enum LaunchGuard {
     }
 
     /// The flags that start a headless run; any other `--flag` alone is a refusal.
-    static let headlessCommands: Set<String> = ["--project", "--sample", "--export-training-data", "--player-lab", "--player-lab-run"]
+    static let headlessCommands: Set<String> = ["--project", "--sample", "--export-training-data", "--player-lab", "--player-lab-run", "--player-lab-court"]
 
     /// Everything a guarded run may say on its command line.
     static let guardedFlags: Set<String> = ["--project", "--project-root", "--defaults-suite", "--pending-dir",
@@ -94,11 +94,13 @@ enum LaunchGuard {
 
     /// A headless command that will actually start a run: `--project` must carry its value (HeadlessProjects returns
     /// false without one, which would fall through to the window app); `--sample` exits on its own without inputs;
-    /// `--export-training-data` takes an optional path; `--player-lab <experiment>` and `--player-lab-run <experiment>`
-    /// (PlayerLab, the player-feasibility research) need their experiment folder and never open a project.
+    /// `--export-training-data` takes an optional path; `--player-lab <experiment>`, `--player-lab-run <experiment>` and
+    /// `--player-lab-court <experiment>` (PlayerLab, the player-feasibility research) need their experiment folder and never
+    /// open a project.
     static func hasHeadlessCommand(_ arguments: [String]) -> Bool {
         value(after: "--project", in: arguments) != nil || arguments.contains("--sample") || arguments.contains("--export-training-data")
             || value(after: "--player-lab", in: arguments) != nil || value(after: "--player-lab-run", in: arguments) != nil
+            || value(after: "--player-lab-court", in: arguments) != nil
     }
 
     /// Why this launch must not go on, or nil when it may.

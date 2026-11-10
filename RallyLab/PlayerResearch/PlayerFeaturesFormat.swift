@@ -89,7 +89,8 @@ enum PlayerFeatures {
     }
 
     enum CourtMembership: String, Codable, Sendable {
-        /// The foot point lies inside the selected court's lane (evidence, not proof).
+        /// The foot point lies inside the selected court's lane, or (court_polygon_v1) on the court or a serving area
+        /// of a person-confirmed court (evidence, not proof).
         case inside = "in"
         case outside = "out"
         /// No usable court geometry for this recording, or this camera.
@@ -141,6 +142,9 @@ enum PlayerFeatures {
         /// Another track's prediction overlapped this detection almost as well: the identity may have switched.
         var ambiguous: Bool
         var court: CourtMembership
+        /// court_polygon_v1: the zone against a person-confirmed court, nil where none covers the frame (then `court`
+        /// comes from the net lane, or is unknown). Absent from lines written before it existed.
+        var zone: PersonZone? = nil
         /// The detector's pose for this person, nil when it has none (Vision: none associated; RTMPose: not posed).
         var pose: Pose?
         var derived: PersonDerived
@@ -244,8 +248,11 @@ enum PlayerFeatures {
         var eligibility: [String: String]
         var eligibilityReasons: [String]
         var net: NetGeometry?
-        /// Why court membership is `unknown` for every person here, nil when the lane was applied.
+        /// Why court membership is `unknown` for every person here, nil when the lane or a confirmed court was applied.
         var courtUnknownReason: String?
+        /// Which court method set membership (`court_polygon_v1` with the calibration file's SHA-256 and its confirmed
+        /// segments, or `court_net_lane_v1`), and why a calibration wasn't used. Absent from runs before P2.
+        var courtMethod: [String: String]? = nil
         var cutRanges: [TickSpan]
         var timeBreakingSpans: [TickSpan]
         var intervals: [Interval]
@@ -275,6 +282,8 @@ enum PlayerFeatures {
         var sampling: [String: String]
         var tracker: [String: String]
         var court: [String: String]
+        /// court_polygon_v1 settings, when the run read court calibrations. Absent from runs before P2.
+        var courtPolygon: [String: String]? = nil
         var derived: [String: String]
         var recordings: [Recording]
     }

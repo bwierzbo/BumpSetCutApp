@@ -20,14 +20,24 @@ struct PlayerLabView: View {
         HSplitView {
             sidebar.frame(minWidth: 250, idealWidth: 280, maxWidth: 340)
             VStack(alignment: .leading, spacing: 8) {
-                picture
-                transport
-                layers
-                HStack(alignment: .top, spacing: 16) {
-                    frameFacts.frame(width: 300, alignment: .topLeading)
-                    intervalStats
+                Picker("Mode", selection: $model.mode) { ForEach(PlayerLabModel.Mode.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
+                    .pickerStyle(.segmented).labelsHidden().frame(width: 320)
+                if model.mode == .court, let court = model.court {
+                    CourtCalibrationEditor(model: model, court: court)
+                    transport
+                    layers
+                    ScrollView { CourtCalibrationPanel(model: model, court: court).frame(maxWidth: .infinity, alignment: .leading) }
+                        .frame(minHeight: 200)
+                } else {
+                    picture
+                    transport
+                    layers
+                    HStack(alignment: .top, spacing: 16) {
+                        frameFacts.frame(width: 300, alignment: .topLeading)
+                        intervalStats
+                    }
+                    timeline.frame(height: min(240, CGFloat(max(model.tracks.count, 1)) * 9 + 24))
                 }
-                timeline.frame(height: min(240, CGFloat(max(model.tracks.count, 1)) * 9 + 24))
                 Text(model.status).font(.caption).foregroundStyle(.secondary)
             }
             .padding(10)
@@ -110,6 +120,7 @@ struct PlayerLabView: View {
             Toggle("Off-court", isOn: $model.options.outOfCourt)
             Toggle("Net", isOn: $model.options.net)
             Toggle("Lane", isOn: $model.options.lane)
+            Toggle("Court", isOn: $model.options.court)
         }
         .toggleStyle(.checkbox)
         .font(.caption)

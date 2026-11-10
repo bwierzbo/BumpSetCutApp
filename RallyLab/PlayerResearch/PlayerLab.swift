@@ -8,6 +8,8 @@
 //
 //    RallyLab --player-lab-run <experiment> --source-project <project> --plan <plan.json> --run <name>
 //        PlayerFeaturesRun, headless: reads the source project, writes only <experiment>.
+//    RallyLab --player-lab-court <experiment> --run <run> --report <name> [--propose] [--audit <csv>]
+//        CourtPilot, headless: court proposals and zones over an existing run; writes only <experiment>.
 //    RallyLab --player-lab <experiment> [--script <steps.json>]
 //        The Player Lab window over <experiment>'s runs (PlayerLabView). With --script it
 //        performs the listed steps — choose a run, recording, interval and frame, set the
@@ -31,6 +33,19 @@ enum PlayerLab {
         var snapshot: String?
         /// Keep the window as it is for this many seconds (an outside screen capture can be taken).
         var hold: Double?
+        /// Court calibration (P2), applied after the frame and before the snapshot: `players` or `court` mode; the
+        /// answers about the court; run the automatic proposals; start from one (`net_guided_v1`…) or place by hand
+        /// (`manual`); move points (role → [x, y]); confirm as a scripted test (recorded as `player_lab_script`, never
+        /// used as evidence); split at the current frame.
+        var mode: String?
+        var surface: String?
+        var format: String?
+        var markings: String?
+        var propose: Bool?
+        var start: String?
+        var move: [String: [Double]]?
+        var scriptConfirm: Bool?
+        var split: Bool?
     }
 
     private static func value(after flag: String, in args: [String]) -> String? {
@@ -62,6 +77,25 @@ enum PlayerLab {
                                                             codeSha: codeSha, tool: "RallyLab --player-lab-run (plan sha256 \(planSha))",
                                                             log: { log($0) })
                     log("✅ \(PlayerFeatures.schemaVersion): \(r.frames) frames → \(r.folder.path) · manifest \(r.manifestSha256)")
+                    exit(0)
+                } catch {
+                    log("❌ \(error.localizedDescription)")
+                    exit(1)
+                }
+            }
+            dispatchMain()
+        }
+        if let experiment = value(after: "--player-lab-court", in: args) {
+            guard let run = value(after: "--run", in: args), let report = value(after: "--report", in: args) else {
+                log("--player-lab-court <experiment> needs --run <run> --report <name> [--propose] [--audit <csv>]")
+                exit(2)
+            }
+            Task { @MainActor in
+                do {
+                    let out = try await CourtPilot.run(experiment: path(experiment), runName: run, report: report, propose: args.contains("--propose"),
+                                                       auditCSV: value(after: "--audit", in: args).map(path),
+                                                       codeSha: RallyClassifierExporter.buildRevision(), log: { log($0) })
+                    log("✅ court pilot → \(out.path)")
                     exit(0)
                 } catch {
                     log("❌ \(error.localizedDescription)")
@@ -119,6 +153,18 @@ enum PlayerLab {
         exit(0)
     }
 
+    /// The calibration editor as drawn (SwiftUI's own rendering of the view, at 1400 × 800) beside the snapshot: an
+    /// outside window capture needs a screen-recording grant this tool may not have.
+    @MainActor
+    private static func renderEditor(model: PlayerLabModel, court: CourtCalibrationModel, name: String) {
+        guard let run = model.run else { return }
+        let renderer = ImageRenderer(content: CourtCalibrationEditor(model: model, court: court).frame(width: 1400, height: 800).background(Color.black))
+        renderer.scale = 1
+        guard let image = renderer.cgImage, let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return }
+        let safe = name.filter { $0.isLetter || $0.isNumber || "-_.".contains($0) }
+        try? png.write(to: run.folder.appendingPathComponent("gui-snapshots/\(safe)-editor.png"))
+    }
+
     enum ScriptError: LocalizedError {
         case missing(String)
         var errorDescription: String? { if case .missing(let what) = self { return "not found: \(what)" }; return nil }
@@ -157,6 +203,31 @@ enum PlayerLab {
             }
             model.options = o
         }
+        if let m = s.mode {
+            guard let mode = PlayerLabModel.Mode.allCases.first(where: { $0.rawValue.lowercased().hasPrefix(m.lowercased()) }) else { throw ScriptError.missing("mode \(m)") }
+            model.mode = mode
+        }
+        if let court = model.court {
+            if let v = s.surface { court.answer(surface: .some(CourtSetup.Surface(rawValue: v))) }
+            if let v = s.format { court.answer(format: .some(CourtSetup.Format(rawValue: v))) }
+            if let v = s.markings { court.answer(markings: .some(CourtSetup.Markings(rawValue: v))) }
+            if s.propose == true { await court.propose() }
+            if let start = s.start {
+                if start == "manual" { court.placeManually() } else {
+                    guard let m = CourtProposal.Method(rawValue: start) else { throw ScriptError.missing("proposal \(start)") }
+                    court.use(m)
+                }
+            }
+            for (role, p) in s.move ?? [:] {
+                guard let r = CourtLayout.Role(rawValue: role), p.count == 2 else { throw ScriptError.missing("point \(role)") }
+                court.move(r, to: p[0], p[1])
+                court.commit()
+            }
+            if s.split == true, let t = model.time { court.split(at: t) }
+            if s.scriptConfirm == true { court.confirm(by: "scripted GUI test (not a person)", method: CourtConfirmation.scriptMethod) }
+        } else if s.propose != nil || s.start != nil || s.move != nil || s.scriptConfirm != nil || s.split != nil {
+            throw ScriptError.missing("a recording for court calibration")
+        }
         if let seconds = s.play {
             model.togglePlay()
             try await Task.sleep(for: .seconds(seconds))
@@ -164,7 +235,10 @@ enum PlayerLab {
         }
         await model.waitUntilShown()
         try await Task.sleep(for: .milliseconds(300))
-        if let name = s.snapshot { _ = model.snapshot(name: name) }
+        if let name = s.snapshot {
+            _ = model.snapshot(name: name)
+            if model.mode == .court, let court = model.court { renderEditor(model: model, court: court, name: name) }
+        }
         if let seconds = s.hold {
             // The window now shows this step: an outside capture taken during the hold is of this step.
             log("ready \(s.snapshot ?? "hold")")

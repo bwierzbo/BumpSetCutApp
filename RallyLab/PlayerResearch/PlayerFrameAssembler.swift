@@ -31,14 +31,18 @@ struct PlayerFrameAssembler {
     /// Boundaries (seconds) of cut ranges and time-breaking spans, with their kind.
     let boundaries: [(t: Double, kind: String)]
     let lane: PlayerCourtLane?
+    /// court_polygon_v1 over the recording's confirmed court; where it covers a frame it sets membership, the lane
+    /// only where it doesn't.
+    private var court: CourtMembershipPass?
     private var tracker: PlayerTracker
     private var derived: PlayerDerivedFeatures
     private var seg = -1
     private var previous: (t: Double, interval: String, thumb: [Double], skipped: Bool)?
 
     init(settings: Settings = Settings(), tracker: PlayerTracker.Settings = .init(), derived: PlayerDerivedFeatures.Settings = .init(),
-         excluded: [PlayerFeatures.TickSpan], lane: PlayerCourtLane?) {
+         excluded: [PlayerFeatures.TickSpan], lane: PlayerCourtLane?, court: CourtMembershipPass? = nil) {
         self.settings = settings
+        self.court = court
         self.tracker = PlayerTracker(settings: tracker)
         self.derived = PlayerDerivedFeatures(settings: derived)
         self.lane = lane
@@ -70,6 +74,7 @@ struct PlayerFrameAssembler {
             seg += 1
             tracker.reset()
             derived.reset()
+            court?.resetTracks()
         }
         previous = (raw.t, raw.interval, raw.thumb, raw.skipped != nil)
 
@@ -87,6 +92,12 @@ struct PlayerFrameAssembler {
                 box: p.box, conf: p.conf, track: a.track, state: a.state, hits: a.hits, gap: a.gap, ambiguous: a.ambiguous,
                 court: lane?.membership(p.box) ?? .unknown, pose: p.pose,
                 derived: derived.observe(track: a.track, at: raw.t, box: p.box, pose: p.pose)))
+        }
+        if let zones = court?.zones(persons, at: raw.t) {
+            for i in persons.indices {
+                persons[i].zone = zones[i]
+                persons[i].court = CourtMembershipPass.membership(zones[i])
+            }
         }
         return PlayerFeatures.Frame(t: raw.t, tick: tick, interval: raw.interval, seg: seg, reset: reset, frameDiff: diff, persons: persons,
                                     unmatchedPoses: raw.detections.unpairedPoses, scene: derived.scene(persons), masks: masks, ms: raw.ms)

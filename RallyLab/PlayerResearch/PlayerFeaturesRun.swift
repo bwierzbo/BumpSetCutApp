@@ -309,7 +309,25 @@ enum PlayerFeaturesRun {
                                                   origin: l.corners == nil ? "person_label_box_only" : "person_label", labelFingerprint: l.fingerprint)
             }
             let (lane, laneWhy) = PlayerCourtLane.make(net: net, camera: src.camera, recordingFingerprint: sources[item.recordingId]?.fingerprint)
-            var assembler = PlayerFrameAssembler(excluded: cuts + breaks, lane: lane)
+            // court_polygon_v1 where a person confirmed this recording's court, in the experiment folder, for this very file.
+            let binding = CourtCalibrationFile.Binding(recordingId: item.recordingId, sourceFingerprint: sources[item.recordingId]?.fingerprint,
+                                                       decodedFingerprint: file.fingerprint, frameWidth: facts.uprightWidth, frameHeight: facts.uprightHeight,
+                                                       orientation: facts.orientation.rawValue, camera: src.camera, surface: src.surface, durationSec: facts.durationSec)
+            let calibrations = CourtCalibrationStore(experiment: experiment)
+            let lookup = calibrations.confirmedLookup(for: binding)
+            let courtPass = lookup.unusable == nil ? lookup.file.map { CourtMembershipPass.confirmed($0) } : nil
+            var courtMethod = ["lane": lane == nil ? "none (\(laneWhy ?? "?"))" : PlayerFeatures.courtVersion]
+            if let f = lookup.file, courtPass != nil {
+                courtMethod["method"] = CourtGeometryV1.membershipVersion
+                courtMethod["calibrationSha256"] = DatasetSplitManifest.sha256(of: calibrations.url(item.recordingId)) ?? ""
+                courtMethod["confirmedSegments"] = f.segments.filter { $0.status == .confirmed }
+                    .map { String(format: "%d:%.3f-%.3f", $0.id, $0.validFromSec, $0.validToSec) }.joined(separator: ",")
+                courtMethod["outsideConfirmedSegments"] = lane == nil ? "unknown" : PlayerFeatures.courtVersion
+            } else {
+                courtMethod["method"] = lane == nil ? "none" : PlayerFeatures.courtVersion
+                courtMethod["calibrationUnused"] = lookup.unusable ?? "?"
+            }
+            var assembler = PlayerFrameAssembler(excluded: cuts + breaks, lane: lane, court: courtPass)
             var lines = Data()
             var frameCount = 0
             var assembled: [PlayerFeatures.Frame] = []
@@ -364,7 +382,8 @@ enum PlayerFeaturesRun {
                 aspect: facts.uprightHeight > 0 ? Double(facts.uprightWidth) / Double(facts.uprightHeight) : 0,
                 recordingType: src.recordingType.rawValue,
                 eligibility: Dictionary(uniqueKeysWithValues: TrainingEligibility.Model.allCases.map { ($0.rawValue, elig[$0].level.rawValue) }),
-                eligibilityReasons: elig[.rallyClassifier].reasons, net: net, courtUnknownReason: laneWhy,
+                eligibilityReasons: elig[.rallyClassifier].reasons, net: net, courtUnknownReason: courtPass == nil ? laneWhy : nil,
+                courtMethod: courtMethod,
                 cutRanges: cuts, timeBreakingSpans: breaks, intervals: item.intervals.sorted { $0.startSec < $1.startSec },
                 framesFile: framesName, framesSha256: sha256Hex(lines), frameCount: frameCount))
             summary += PlayerFeaturesSummary.recording(recordings[recordings.count - 1], frames: assembled)
@@ -394,7 +413,8 @@ enum PlayerFeaturesRun {
             sampling: ["hz": "\(plan.hz)", "rule": "first decoded frame at or after start + k/hz (presentation timestamps), never the same frame twice",
                        "tick": "round(t * 600)"],
             tracker: PlayerTracker.Settings().described.merging(PlayerFrameAssembler.Settings().described) { a, _ in a },
-            court: PlayerCourtLane.Settings().described, derived: PlayerDerivedFeatures.Settings().described,
+            court: PlayerCourtLane.Settings().described, courtPolygon: CourtZoneClassifier.Settings().described,
+            derived: PlayerDerivedFeatures.Settings().described,
             recordings: recordings)
         do {
             let diagnostics = staging.appendingPathComponent("diagnostics", isDirectory: true)

@@ -20,6 +20,7 @@ import Observation
 @Observable
 final class PlayerLabModel {
     struct RunEntry: Identifiable, Hashable { var id: String { name }; let name: String; let folder: URL }
+    enum Mode: String, CaseIterable { case players = "Players", court = "Court calibration" }
 
     let experiment: URL
     private(set) var runs: [RunEntry] = []
@@ -35,6 +36,11 @@ final class PlayerLabModel {
     private(set) var tracks: [PlayerFeaturesSummary.TrackSpan] = []
     private(set) var status = ""
     private(set) var playing = false
+    var mode = Mode.players { didSet { if mode != oldValue { recompose() } } }
+    /// The recording's court calibration (experiment folder only).
+    private(set) var court: CourtCalibrationModel?
+    /// Per frame of the interval, each person's zone against the court on screen; nil where no court covers it.
+    private(set) var zones: [[PersonZone?]?] = []
 
     private var allFrames: [PlayerFeatures.Frame] = []
     private var raw: [Int: CGImage] = [:]
@@ -90,6 +96,9 @@ final class PlayerLabModel {
         g.requestedTimeToleranceAfter = .zero
         generator = g
         lane = PlayerCourtLane.make(net: rec.net, camera: rec.camera, recordingFingerprint: rec.fingerprint).lane
+        let calibration = CourtCalibrationModel(experiment: experiment, recording: rec, footage: footage)
+        calibration.onChange = { [weak self] in self?.courtChanged() }
+        court = calibration
         intervalName = rec.intervals.first?.name
     }
 
@@ -99,8 +108,25 @@ final class PlayerLabModel {
         raw = [:]
         stats = PlayerFeaturesSummary.stats(frames, laneKnown: recording?.courtUnknownReason == nil)
         tracks = PlayerFeaturesSummary.tracks(frames)
+        zones = court?.zones(for: frames) ?? []
         index = 0
         show()
+    }
+
+    private func courtChanged() {
+        zones = court?.zones(for: frames) ?? []
+        recompose()
+    }
+
+    /// The current frame's time (for splitting a calibration segment).
+    var time: Double? { frame?.t }
+
+    /// Counts of the current frame's zones (confirmed tracks).
+    var zoneCounts: [CourtZone: Int] {
+        guard zones.indices.contains(index), let z = zones[index], let f = frame else { return [:] }
+        var out: [CourtZone: Int] = [:]
+        for (p, zone) in zip(f.persons, z) where p.state == .confirmed { if let zone { out[zone.zone, default: 0] += 1 } }
+        return out
     }
 
     func go(to i: Int) {
@@ -153,7 +179,24 @@ final class PlayerLabModel {
 
     private func recompose() {
         guard let f = frame, let image = raw[index], let rec = recording else { composed = nil; return }
-        composed = PlayerOverlay.compose(image, frame: f, recording: rec.recordingId, net: rec.net, lane: lane, options: options)
+        var o = options
+        var drawn: (geometry: CourtLayout, spec: CourtSpec, color: CGColor, dashed: Bool)?
+        if let court, let shown = court.shown, court.segment(at: f.t)?.id == court.segmentId {
+            drawn = (shown.geometry, court.spec, Self.courtColor(shown.style), shown.style != .confirmed)
+        }
+        // In court mode the editor draws the court itself (beyond the frame's edges too).
+        if mode == .court { o.court = false }
+        let frameZones = zones.indices.contains(index) ? zones[index] : nil
+        composed = PlayerOverlay.compose(image, frame: f, recording: rec.recordingId, net: rec.net, lane: lane, options: o, court: drawn,
+                                         zones: frameZones)
+    }
+
+    nonisolated static func courtColor(_ s: CourtCalibrationModel.Style) -> CGColor {
+        switch s {
+        case .proposal: return CGColor(red: 1, green: 0.55, blue: 0.1, alpha: 0.95)
+        case .adjusted: return CGColor(red: 0.2, green: 0.9, blue: 1, alpha: 0.95)
+        case .confirmed: return CGColor(red: 0.3, green: 1, blue: 0.4, alpha: 0.95)
+        }
     }
 
     // MARK: - Snapshots
@@ -171,7 +214,8 @@ final class PlayerLabModel {
         let o = options
         let facts = Facts(recording: recordingId, interval: intervalName, index: index, frame: frame, interval_stats: stats,
                           options: ["boxes": o.boxes, "labels": o.labels, "skeletons": o.skeletons, "unmatchedPoses": o.unmatchedPoses,
-                                    "net": o.net, "lane": o.lane, "tentative": o.tentative, "outOfCourt": o.outOfCourt, "header": o.header])
+                                    "net": o.net, "lane": o.lane, "tentative": o.tentative, "outOfCourt": o.outOfCourt, "header": o.header,
+                                    "court": o.court])
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             guard let data = NSBitmapImageRep(cgImage: composed).representation(using: .png, properties: [:]) else { throw CocoaError(.fileWriteUnknown) }

@@ -43,6 +43,61 @@ enum PlayerOverlay {
         var tentative = true
         var outOfCourt = true
         var header = true
+        /// The court geometry (court_geometry_v1) when one is passed in.
+        var court = true
+    }
+
+    /// Short zone names for labels.
+    static func short(_ z: CourtZone) -> String {
+        switch z {
+        case .nearCourt: return "near"
+        case .farCourt: return "far"
+        case .nearServingArea: return "near-srv"
+        case .farServingArea: return "far-srv"
+        case .outsideCourt: return "out"
+        case .unknown: return "?"
+        }
+    }
+
+    static func zoneColor(_ z: CourtZone, alpha: CGFloat = 1) -> CGColor {
+        switch z {
+        case .nearCourt: return CGColor(red: 0.25, green: 0.6, blue: 1, alpha: alpha)
+        case .farCourt: return CGColor(red: 1, green: 0.6, blue: 0.15, alpha: alpha)
+        case .nearServingArea: return CGColor(red: 0.55, green: 0.85, blue: 1, alpha: alpha)
+        case .farServingArea: return CGColor(red: 1, green: 0.85, blue: 0.4, alpha: alpha)
+        case .outsideCourt: return CGColor(gray: 0.6, alpha: alpha)
+        case .unknown: return CGColor(red: 0.9, green: 0.2, blue: 0.9, alpha: alpha)
+        }
+    }
+
+    /// The court halves and serving areas of `g`, outlined in pixel space of a `w` × `h` picture.
+    static func drawCourt(_ g: CourtLayout, spec: CourtSpec, w: CGFloat, h: CGFloat, color: CGColor, dashed: Bool, ctx: CGContext,
+                          settings: CourtZoneClassifier.Settings = .init()) {
+        func path(_ pts: [(Double, Double)]) {
+            guard let f = pts.first else { return }
+            ctx.move(to: CGPoint(x: f.0 * w, y: f.1 * h))
+            for p in pts.dropFirst() { ctx.addLine(to: CGPoint(x: p.0 * w, y: p.1 * h)) }
+            ctx.closePath()
+        }
+        let near = g.outline([(0, 0), (1, 0), (1, 0.5), (0, 0.5)]), far = g.outline([(0, 0.5), (1, 0.5), (1, 1), (0, 1)])
+        ctx.setFillColor(zoneColor(.nearCourt, alpha: 0.12)); path(near); ctx.fillPath()
+        ctx.setFillColor(zoneColor(.farCourt, alpha: 0.12)); path(far); ctx.fillPath()
+        ctx.setStrokeColor(color)
+        ctx.setLineWidth(2)
+        ctx.setLineDash(phase: 0, lengths: dashed ? [8, 5] : [])
+        path(near); path(far); ctx.strokePath()
+        let d = settings.serveDepthM / spec.lengthM, m = settings.serveSideMargin
+        ctx.setLineWidth(1)
+        ctx.setLineDash(phase: 0, lengths: [3, 4])
+        if g.map(near: true) != nil { path(g.outline([(-m, -d), (1 + m, -d), (1 + m, 0), (-m, 0)])) }
+        if g.map(near: false) != nil { path(g.outline([(-m, 1), (1 + m, 1), (1 + m, 1 + d), (-m, 1 + d)])) }
+        ctx.strokePath()
+        ctx.setLineDash(phase: 0, lengths: [])
+        for r in CourtLayout.Role.allCases where g[r].status != .unknown {
+            let p = CGPoint(x: g[r].x * w, y: g[r].y * h), rect = CGRect(x: p.x - 4, y: p.y - 4, width: 8, height: 8)
+            ctx.setStrokeColor(color)
+            if g[r].status == .seen { ctx.setFillColor(color); ctx.fillEllipse(in: rect) } else { ctx.strokeEllipse(in: rect) }
+        }
     }
 
     static func color(_ track: Int, alpha: CGFloat = 1) -> CGColor {
@@ -50,7 +105,7 @@ enum PlayerOverlay {
         return CGColor(red: c.0, green: c.1, blue: c.2, alpha: alpha)
     }
 
-    private static func text(_ s: String, at p: CGPoint, size: CGFloat, color: CGColor, in ctx: CGContext) {
+    static func text(_ s: String, at p: CGPoint, size: CGFloat, color: CGColor, in ctx: CGContext) {
         let font = CTFontCreateWithName("Menlo-Bold" as CFString, size, nil)
         let attrs: [NSAttributedString.Key: Any] = [NSAttributedString.Key(kCTFontAttributeName as String): font,
                                                     NSAttributedString.Key(kCTForegroundColorAttributeName as String): color]
@@ -84,6 +139,12 @@ enum PlayerOverlay {
         compose(image, frame: frame, recording: recording, net: net, lane: lane, options: Options()).flatMap(jpeg)
     }
 
+    private static func membership(_ p: PlayerFeatures.Person, _ zones: [PersonZone?]?, _ i: Int) -> PlayerFeatures.CourtMembership {
+        guard let zones else { return p.court }
+        guard zones.indices.contains(i), let z = zones[i] else { return .unknown }
+        return CourtMembershipPass.membership(z)
+    }
+
     static func jpeg(_ image: CGImage) -> Data? {
         let data = NSMutableData()
         guard let dest = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
@@ -93,8 +154,11 @@ enum PlayerOverlay {
     }
 
     /// The frame with the chosen layers drawn on it.
+    /// `court`: a court to draw and the colour to draw it in (dashed: not confirmed). `zones`: per person, zones to
+    /// show in place of the frame line's own (a preview against a court being edited), nil to show the line's.
     static func compose(_ image: CGImage, frame: PlayerFeatures.Frame, recording: String, net: PlayerFeatures.NetGeometry?, lane: PlayerCourtLane?,
-                        options o: Options) -> CGImage? {
+                        options o: Options, court: (geometry: CourtLayout, spec: CourtSpec, color: CGColor, dashed: Bool)? = nil,
+                        zones: [PersonZone?]? = nil) -> CGImage? {
         let w = CGFloat(image.width), h = CGFloat(image.height)
         guard let ctx = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
@@ -106,7 +170,10 @@ enum PlayerOverlay {
             for c in net.corners.dropFirst() + [net.corners[0]] { ctx.addLine(to: CGPoint(x: c[0] * w, y: c[1] * h)) }
             ctx.strokePath()
         }
-        if o.lane, let lane {
+        if o.court, let court {
+            drawCourt(court.geometry, spec: court.spec, w: w, h: h, color: court.color, dashed: court.dashed, ctx: ctx)
+        }
+        if o.lane, let lane, court == nil {
             ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 0, alpha: 0.5))
             ctx.setLineWidth(1)
             ctx.setLineDash(phase: 0, lengths: [6, 4])
@@ -121,16 +188,24 @@ enum PlayerOverlay {
             ctx.strokePath()
             ctx.setLineDash(phase: 0, lengths: [])
         }
-        for p in frame.persons where (o.tentative || p.state == .confirmed) && (o.outOfCourt || p.court != .outside) {
+        for (i, p) in frame.persons.enumerated() where (o.tentative || p.state == .confirmed) && (o.outOfCourt || membership(p, zones, i) != .outside) {
+            let zone = zones.map { $0.indices.contains(i) ? $0[i] : nil } ?? p.zone
             let col = color(p.track)
             ctx.setStrokeColor(col)
             ctx.setLineWidth(p.state == .confirmed ? 2.5 : 1)
-            ctx.setLineDash(phase: 0, lengths: p.court == .outside ? [5, 4] : [])
+            ctx.setLineDash(phase: 0, lengths: membership(p, zones, i) == .outside ? [5, 4] : [])
             if o.boxes { ctx.stroke(CGRect(x: p.box.x * w, y: p.box.y * h, width: p.box.w * w, height: p.box.h * h)) }
             ctx.setLineDash(phase: 0, lengths: [])
             if o.skeletons, let pose = p.pose { skeleton(pose, color: col, dashed: false, w: w, h: h, ctx: ctx) }
+            if let zone {
+                // The ground point the zone was read at, in the zone's colour.
+                let g = CourtGround.point(p)
+                ctx.setFillColor(zoneColor(zone.zone))
+                ctx.fillEllipse(in: CGRect(x: g.x * w - 4, y: g.y * h - 4, width: 8, height: 8))
+            }
             guard o.labels else { continue }
-            let tag = "#\(p.track)\(p.state == .tentative ? "?" : "")\(p.ambiguous ? "!" : "") \(p.court.rawValue)"
+            let where_ = zone.map { "\(short($0.zone))\($0.uncertain ? "~" : "")" } ?? p.court.rawValue
+            let tag = "#\(p.track)\(p.state == .tentative ? "?" : "")\(p.ambiguous ? "!" : "") \(where_)"
             text(tag, at: CGPoint(x: p.box.x * w, y: min(h - 14, p.box.maxY * h + 3)), size: 10, color: col, in: ctx)
         }
         for pose in frame.unmatchedPoses where o.unmatchedPoses { skeleton(pose, color: CGColor(gray: 1, alpha: 0.9), dashed: true, w: w, h: h, ctx: ctx) }
