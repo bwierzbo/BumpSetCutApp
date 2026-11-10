@@ -493,7 +493,7 @@ final class SamplerModel {
         }
         defer { watch.cancel() }
         do {
-            _ = try await processor.processVideo(video, videoId: UUID())
+            _ = try await processor.analyzeVideo(video)
         } catch ProcessingError.noRalliesDetected {
             // Fine: random frames and any hand labels still apply.
         }
