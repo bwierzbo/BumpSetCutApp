@@ -672,13 +672,18 @@ final class RallyLabModel {
             truth: truth,
             baselineRaw: rawPredictions)
         let outURL = TrainingDataExporter.exportURL(for: videoURL)
+        // The open project is the one whose session the marks and cuts above came from; every other project
+        // RallyLab knows is asked too, as the headless export asks (withheld in one is withheld).
+        let open = UserDefaults.standard.string(forKey: "RallyLab.datasetRoot").map { URL(fileURLWithPath: $0, isDirectory: true) }
         do {
             // Empty when every frame lies inside a cut: written all the same, so an earlier export with
             // the frames in it is replaced (the trainer skips an empty one).
-            try TrainingDataExporter.write(export, to: outURL)
+            try TrainingDataExporter.write(export, forVideo: videoURL, projectRoots: try TrainingDataExporter.projectRoots(withOpen: open))
             status = export.frames.isEmpty
                 ? "Every frame lies inside a cut range (not footage) — an empty export replaced \(outURL.lastPathComponent)."
                 : "Exported \(export.frames.count) frames + \(export.labels.count) rallies + \(export.excluded.count) excluded spans" + (export.labels.isEmpty ? " (no rally: negative-only)" : "") + " → \(outURL.lastPathComponent)"
+        } catch let withheld as TrainingDataExporter.Withheld {
+            status = "⛔ \(withheld.localizedDescription)"
         } catch {
             status = "Training-data export failed: \(error.localizedDescription)"
         }
@@ -1033,7 +1038,11 @@ final class RallyLabModel {
     /// open project (D-002), or the reservations can't be read. nil = go ahead.
     static func finalTestRefusal(for url: URL) -> String? {
         guard let rootPath = UserDefaults.standard.string(forKey: "RallyLab.datasetRoot") else { return nil }
-        let root = URL(fileURLWithPath: rootPath, isDirectory: true)
+        return finalTestRefusal(for: url, root: URL(fileURLWithPath: rootPath, isDirectory: true))
+    }
+
+    /// The same refusal against the project at `root`.
+    nonisolated static func finalTestRefusal(for url: URL, root: URL) -> String? {
         do {
             // Matched by path, name or content, so a copy of a reserved recording is refused too.
             guard let match = try ReservedVideos.match(url, root: root), match.reserved else { return nil }
@@ -1087,7 +1096,11 @@ final class RallyLabModel {
     /// split manifest must know about (D-002); logged as the run starts.
     static func recordRallyScoring(_ url: URL, ref: String) throws {
         guard let rootPath = UserDefaults.standard.string(forKey: "RallyLab.datasetRoot") else { return }
-        let root = URL(fileURLWithPath: rootPath, isDirectory: true)
+        try recordRallyScoring(url, ref: ref, root: URL(fileURLWithPath: rootPath, isDirectory: true))
+    }
+
+    /// The same record on the ledger of the project at `root`.
+    nonisolated static func recordRallyScoring(_ url: URL, ref: String, root: URL) throws {
         guard let match = try ReservedVideos.match(url, root: root) else { return }   // not a project video
         try ExposureLog.record(videos: [match.session], kind: .rallyScoring, ref: ref, note: nil, in: root)
     }
@@ -1145,8 +1158,11 @@ final class RallyLabModel {
     /// in Finder.
     func exportDebugVideo() async {
         guard let url = videoURL, !isProcessing, !exportingDebugVideo else { return }
+        // The same pipeline run as the Pipeline tab's, so the same refusal and the same ledger row (D-002).
+        if let refusal = Self.finalTestRefusal(for: url) { status = refusal; return }
         refreshCuts()
         if let cutsProblem { status = cutsProblem; return }
+        do { try Self.recordRallyScoring(url, ref: "RallyLab debug video") } catch { status = "❌ \(error.localizedDescription)"; return }
         exportingDebugVideo = true
         // The marked rallies of the video exported, not whatever's open when it finishes — outside its cut ranges.
         let cuts = self.cuts

@@ -239,8 +239,8 @@ final class ModelLibrary {
 
     func evaluate() {
         guard !isBusy else { return }
-        if (try? PipelineTuner.ValidationSet.finalTestNames(in: sampler.store.root)) == nil {
-            status = "❌ pipeline_tuning/validation.json exists but can't be read — final-test reservations unknown, so nothing is evaluated (D-002)."
+        do { _ = try PipelineTuner.ValidationSet.finalTestNames(in: sampler.store.root) } catch {
+            status = "❌ \(error.localizedDescription) Final-test reservations unknown, so nothing is evaluated (D-002)."
             return
         }
         let frames = evaluationFrames

@@ -835,7 +835,9 @@ enum HeadlessProjects {
     @MainActor
     private static func confirmYouTubeSourceIDs(_ projects: ProjectsModel, apply: Bool) -> Bool {
         guard let dir = projects.projectDir else { log("❌ No project folder."); return false }
-        let plan = YouTubeSourceIDs.plan(sources: ReservedVideos.sources(in: dir))
+        // The cards strictly: a project.json that can't be read is not a project with nothing to confirm.
+        let plan: YouTubeSourceIDs.Plan
+        do { plan = YouTubeSourceIDs.plan(sources: try ReservedVideos.sources(in: dir)) } catch { log("❌ \(error.localizedDescription)"); return false }
         let out = dir.appendingPathComponent("manifests", isDirectory: true)
         try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         let f = DateFormatter(); f.dateFormat = "yyyyMMdd-HHmmss"

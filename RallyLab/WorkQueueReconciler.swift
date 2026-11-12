@@ -250,7 +250,7 @@ enum WorkQueueReconciler {
         let proposals = try NetAIProposalStore(projectDir: root).load()
         let exclusions = try NetExclusionStore(projectDir: root).load()
         // The cards strictly: a project.json that can't be read leaves the net state unknown, not empty.
-        _ = try EventReview.projectSourcesStrict(in: root)
+        _ = try ReservedVideos.sources(in: root)
         var items: [(video: String, camera: String)] = []
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601

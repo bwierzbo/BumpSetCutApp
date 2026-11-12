@@ -221,9 +221,9 @@ final class ReservationAndExposureTests: XCTestCase {
         try enc.encode(project).write(to: root.appendingPathComponent("project.json"))
         try writeValidation(#"{"tune":[],"holdout":[],"finalTest":["grs_extra_self_06"]}"#)
 
-        XCTAssertEqual(try ReservedVideos.match(video, root: root), .init(session: "grs_extra_self_06", reserved: true), "by path")
+        XCTAssertEqual(try ReservedVideos.match(video, root: root), .init(session: "grs_extra_self_06", reserved: true, withheld: true), "by path")
         let renamed = root.appendingPathComponent("somewhere else.mp4"); try fm.copyItem(at: video, to: renamed)
-        XCTAssertEqual(try ReservedVideos.match(renamed, root: root), .init(session: "grs_extra_self_06", reserved: true), "a copy under another name, by content")
+        XCTAssertEqual(try ReservedVideos.match(renamed, root: root), .init(session: "grs_extra_self_06", reserved: true, withheld: true), "a copy under another name, by content")
         let other = root.appendingPathComponent("other.mp4"); try Data([1, 2, 3]).write(to: other)
         XCTAssertNil(try ReservedVideos.match(other, root: root), "a file that is not a project video")
         // The Pipeline tab's cut lookup goes through the same match: the session's cuts, by path.
@@ -297,7 +297,7 @@ final class ReservationAndExposureTests: XCTestCase {
         try writeValidation(#"{"tune":[],"holdout":[],"finalTest":["bch_a"],"finalTestCandidates":["bch_c"]}"#)
         XCTAssertEqual(try PipelineTuner.ValidationSet.finalTestNames(in: root), ["bch_a", "bch_c", "bch_c_copy"], "candidates and their aliases are protected everywhere")
         let set = try XCTUnwrap(try PipelineTuner.ValidationSet.loadStrict(from: root))
-        let (finalTest, lineage, candidates) = ReservedVideos.expanded(set, sources: ReservedVideos.sources(in: root))
+        let (finalTest, lineage, candidates) = ReservedVideos.expanded(set, sources: try ReservedVideos.sources(in: root))
         XCTAssertEqual(finalTest, ["bch_a"])
         XCTAssertEqual(lineage, [])
         XCTAssertEqual(candidates, ["bch_c", "bch_c_copy"], "a candidate's alias is a candidate, not final test")
@@ -317,7 +317,7 @@ final class ReservationAndExposureTests: XCTestCase {
         XCTAssertEqual(try PipelineTuner.ValidationSet.finalTestNames(in: root), ["bch_c", "bch_l", "bch_n"],
                        "the lineage holdout and its same-session alias are protected everywhere packages, scoring, tuning and pre-tracking look")
         let set = try XCTUnwrap(try PipelineTuner.ValidationSet.loadStrict(from: root))
-        let (finalTest, lineage, candidates) = ReservedVideos.expanded(set, sources: ReservedVideos.sources(in: root))
+        let (finalTest, lineage, candidates) = ReservedVideos.expanded(set, sources: try ReservedVideos.sources(in: root))
         XCTAssertEqual(finalTest, [])
         XCTAssertEqual(lineage, ["bch_l", "bch_n"], "an alias of a lineage-holdout video is lineage holdout")
         XCTAssertEqual(candidates, ["bch_c"], "a name listed in both is lineage holdout, not a candidate")
