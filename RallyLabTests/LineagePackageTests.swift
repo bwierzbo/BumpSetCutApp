@@ -208,6 +208,33 @@ final class LineagePackageTests: XCTestCase {
         }
     }
 
+    /// The 2026-10-25 failure (D-036): a train card registered with the bytes of a lineage-holdout
+    /// recording's video, its own video a different encode. Stored identities differ, contents differ;
+    /// the train card's stored fingerprint is the holdout's content.
+    func testPlanRefusesATrainCardRegisteredWithAWithheldRecordingsVideo() throws {
+        let clips = [F.clip("grs_t", environment: "Grass", split: "train", videos: [F.source("grs_t", uploader: "", fingerprint: "file:CUT")]),
+                     F.clip("grs_h", environment: "Grass", split: nil, videos: [F.source("grs_h", uploader: "", fingerprint: "file:ORIGINAL")])]
+        var inputs = F.inputs(validation: PipelineTuner.ValidationSet(tune: ["bch_a"], holdout: ["bch_a_v2"], lineageHoldout: ["grs_h"]),
+                              extraClips: clips, extraSessions: [F.session("grs_t", split: "train"), F.session("grs_h", split: "val")])
+        inputs.content = { ["grs_h": .read("file:CUT"), "grs_t": .read("file:REENCODED")][$0.name] ?? .absent }
+        let manifest = try DatasetSplitManifest.build(inputs)
+        // The audit names it a hard leak, and the plan refuses on that alone…
+        XCTAssertThrowsError(try LineagePackage.plan(manifest: manifest, audit: DatasetAudit.run(manifest: manifest, now: F.day),
+                                                     withheldClosure: ["grs_h", "bch_a_v2"], generator: "test", now: F.day)) { error in
+            XCTAssertEqual(error as? LineagePackage.PlanError, .hardLeak(1))
+        }
+        // …and with no audit finding to lean on, the plan's own identity check still refuses it.
+        let empty = DatasetAudit(createdAt: F.day, manifestHashes: manifest.hashes, findings: [])
+        XCTAssertThrowsError(try LineagePackage.plan(manifest: manifest, audit: empty, withheldClosure: ["grs_h", "bch_a_v2"], generator: "test", now: F.day)) { error in
+            XCTAssertEqual(error as? LineagePackage.PlanError, .sharedIdentity(eligible: "grs_t", withheld: "grs_h", identity: "fp:file:CUT"))
+        }
+        // A manifest written before content fingerprints (or with the footage away) cannot see it: the audit says what was not compared.
+        inputs.content = { _ in .absent }
+        let blind = try DatasetSplitManifest.build(inputs)
+        XCTAssertNoThrow(try LineagePackage.plan(manifest: blind, audit: empty, withheldClosure: ["grs_h", "bch_a_v2"], generator: "test", now: F.day))
+        XCTAssertTrue(DatasetAudit.run(manifest: blind, now: F.day).findings.contains { $0.code == "CONTENT-ABSENT" && $0.videos.contains("grs_h") })
+    }
+
     func testPlanNeedsBothSides() throws {
         var inputs = F.inputs(validation: PipelineTuner.ValidationSet(tune: [], holdout: []))
         inputs.sessions = inputs.sessions.map { F.session($0.name, split: "train") }
@@ -458,6 +485,18 @@ final class LineagePackageTests: XCTestCase {
         let q = try preflight(dir, plan: thePlan, sources: ["v": "file:V"])
         XCTAssertEqual(failed(q), ["sources-not-protected"])
         XCTAssertTrue(q.checks.first { $0.name == "sources-not-protected" }!.detail.contains("t: no source fingerprint"))
+    }
+
+    func testPreflightFailsWhenAPackagedCardWasRegisteredWithAWithheldRecordingsVideo() throws {
+        let dir = try writeCleanPackage()
+        var thePlan = plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"])
+        // t's own video is a different encode (file:T), but its card was registered with w's video.
+        thePlan.eligible[0].identities = ["fp:file:T", "fp:file:W"]
+        let p = try preflight(dir, plan: thePlan)
+        XCTAssertEqual(failed(p), ["sources-not-protected"])
+        XCTAssertTrue(p.checks.first { $0.name == "sources-not-protected" }!.detail.contains("t: its card was registered with a withheld recording's video"))
+        thePlan.eligible[0].identities = ["fp:file:T", "fp:youtube:T", "src:IMG_1"]
+        XCTAssertTrue(try preflight(dir, plan: thePlan).passed)
     }
 
     func testSourceFingerprintsRecogniseACopyOfProtectedFootageByContent() throws {

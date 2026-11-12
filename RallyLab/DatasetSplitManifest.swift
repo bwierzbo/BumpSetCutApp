@@ -97,6 +97,10 @@ struct ExposureRecord: Codable, Equatable, Hashable {
     /// ISO-8601 date when known.
     var date: String?
     var note: String?
+    /// Set on a row this video did not earn itself but took from a project video with no dataset
+    /// session in its alias group: `recording` when that video is the same recording (a shared file
+    /// or confirmed sourceId), `group` when it only shares a session or venue. Absent on a direct row.
+    var inherited: String? = nil
 }
 
 struct ManifestVideo: Codable, Equatable {
@@ -110,7 +114,17 @@ struct ManifestVideo: Codable, Equatable {
     var uploader: String?
     /// "link" or "file"; the origin itself (URL or local path) stays in project.json.
     var originKind: String?
+    /// The identity the card was registered with (ClipSource.fingerprint, else derived from its origin):
+    /// a link's video ID, or the content fingerprint of the file it was added from. It can name another
+    /// file's bytes than the one read today — the original a cut was made from, or a file since replaced.
     var fingerprint: String?
+    /// The content fingerprint (ProjectsModel.fileFingerprint) of the video this session is read from, as
+    /// it is now; nil unless `contentState` is "read". Compared with every other video's `fingerprint` and
+    /// `contentFingerprint` by the audit, so the same file under two cards is seen whatever the cards say (D-036).
+    var contentFingerprint: String? = nil
+    /// "read", "absent" (no file on this Mac) or "unreadable" (a file is here and could not be read);
+    /// nil in a manifest written before D-036. Anything but "read" was not compared by content.
+    var contentState: String? = nil
     var sourceId: ProvenanceValue
     var sessionId: ProvenanceValue
     var venueId: ProvenanceValue
@@ -172,6 +186,23 @@ struct DatasetSplitManifest: Codable {
         }
     }
 
+    /// What reading a session's video for its content fingerprint gave.
+    enum ContentIdentity: Equatable {
+        case read(String)
+        /// No file at the session's path on this Mac.
+        case absent
+        /// Something is there (a file, or a link into a share that is down) and it could not be read.
+        case unreadable
+
+        var state: String {
+            switch self {
+            case .read: return "read"
+            case .absent: return "absent"
+            case .unreadable: return "unreadable"
+            }
+        }
+    }
+
     /// Everything `build` reads, so it can run on fixtures without a project folder.
     struct Inputs {
         var project: Project?
@@ -179,6 +210,8 @@ struct DatasetSplitManifest: Codable {
         var validation: PipelineTuner.ValidationSet?
         /// The file identity of a video, nil when the file is unreachable and the link has none.
         var fingerprint: (ClipSource) -> String?
+        /// The content of the video a session is read from, as it is now.
+        var content: (VideoSession) -> ContentIdentity = { _ in .absent }
         /// The manifest written last time; its exposure records carry forward.
         var previous: DatasetSplitManifest?
         /// Exposure found in artefacts (score runs, exported packages, the seed file), by video.
@@ -212,11 +245,19 @@ struct DatasetSplitManifest: Codable {
         let sessionNames = Set(inputs.sessions.map(\.name))
         var sessionless: [String: [String]] = [:]   // group id → sessionless member names
         for (name, group) in groupOf where !sessionNames.contains(name) { sessionless[group, default: []].append(name) }
-        func inheritedExposure(forGroup group: String?) -> Set<ExposureRecord> {
+        // The same use is the video's own when the sessionless member is the same recording, and only
+        // its group's when they were filmed together: the row says which, so a reader that asks "was
+        // this recording used" (the audit's LINEAGE-HOLDOUT-TRAINED) does not count a venue mate's use.
+        let recordingOf = ReservedVideos.groups(over: sources, recordingOnly: true)
+        func inheritedExposure(for name: String) -> Set<ExposureRecord> {
             var out = Set<ExposureRecord>()
-            for m in (group.flatMap { sessionless[$0] } ?? []).sorted() {
+            for m in (groupOf[name].flatMap { sessionless[$0] } ?? []).sorted() {
+                let relation = recordingOf[m] != nil && recordingOf[m] == recordingOf[name] ? "recording" : "group"
                 for r in (previous[m] ?? []) + (inputs.discovered[m] ?? []) {
-                    out.insert(ExposureRecord(kind: r.kind, ref: r.ref, date: r.date, note: (r.note.map { $0 + "; " } ?? "") + "via sessionless alias \(m)"))
+                    // A row the member itself only took from its group stays the group's, however close
+                    // the member is to this video: it was never the member's recording's use.
+                    out.insert(ExposureRecord(kind: r.kind, ref: r.ref, date: r.date, note: (r.note.map { $0 + "; " } ?? "") + "via sessionless alias \(m)",
+                                              inherited: r.inherited == "group" ? "group" : relation))
                 }
             }
             return out
@@ -247,7 +288,13 @@ struct DatasetSplitManifest: Codable {
             var exposure = Set(previous[session.name] ?? [])
             exposure.formUnion(inputs.discovered[session.name] ?? [])
             if let source = card?.source, let print = inputs.fingerprint(source) { exposure.formUnion(previousByPrint[print] ?? []) }
-            exposure.formUnion(inheritedExposure(forGroup: groupOf[session.name]))
+            for row in inheritedExposure(for: session.name) {
+                // A manifest written before rows said how they were inherited holds the same row unmarked.
+                var unmarked = row
+                unmarked.inherited = nil
+                exposure.remove(unmarked)
+                exposure.insert(row)
+            }
             if tune.contains(session.name) {
                 exposure.insert(ExposureRecord(kind: .pipelineTune, ref: "pipeline_tuning/validation.json", date: nil, note: nil))
             }
@@ -260,6 +307,9 @@ struct DatasetSplitManifest: Codable {
             if let confirmed = card?.source.sourceId, !confirmed.isEmpty { sourceId = .confirmed(confirmed) }
             else if let source = card?.source, let print = inputs.fingerprint(source) { sourceId = .inferred(print) }
             else { sourceId = .unknown }
+            let content = inputs.content(session)
+            var contentFingerprint: String?
+            if case .read(let print) = content { contentFingerprint = print }
 
             return ManifestVideo(
                 video: session.name,
@@ -271,6 +321,8 @@ struct DatasetSplitManifest: Codable {
                 uploader: card.flatMap { $0.source.uploader.isEmpty ? nil : $0.source.uploader },
                 originKind: card?.source.kind.rawValue,
                 fingerprint: card.flatMap { inputs.fingerprint($0.source) },
+                contentFingerprint: contentFingerprint,
+                contentState: content.state,
                 sourceId: sourceId,
                 sessionId: card?.source.sessionId.flatMap { $0.isEmpty ? nil : ProvenanceValue.confirmed($0) } ?? ProvenanceValue.unknown,
                 venueId: card?.source.venueId.flatMap { $0.isEmpty ? nil : ProvenanceValue.confirmed($0) } ?? ProvenanceValue.unknown,
