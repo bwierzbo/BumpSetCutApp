@@ -4,13 +4,21 @@
 //
 //  Leakage and provenance-quality checks over a DatasetSplitManifest
 //  (decisions D-002, D-009; AGENTS.md rule 3). A *hard* finding means two
-//  videos that share a recording (same file fingerprint) or a confirmed
+//  videos that share a recording (same file fingerprint, or the same file
+//  by content under two cards) or a confirmed
 //  sourceId / sessionId / venueId sit on different sides of a split
 //  boundary; `--audit-dataset` exits non-zero on any. *Soft* findings are
 //  grouping that might be a leak but isn't proven: the same clip card or
-//  uploader, cards the dataset split per video. *Info*
+//  uploader, cards the dataset split per video; and history that can't be
+//  undone and must not be read past: a lineage-holdout recording that is in
+//  a training package (D-036). *Info*
 //  is what the owner needs to decide: final-test candidates, provenance
 //  still unconfirmed.
+//
+//  What it cannot see: a re-encoded copy has other bytes and, until a person
+//  confirms a shared sourceId, no identity in common. That is the content-
+//  lineage audit's job (scripts/content_lineage/audit.py), which proposes and
+//  never decides.
 //
 
 import Foundation
@@ -46,6 +54,7 @@ struct DatasetAudit: Codable {
         findings += grouped(videos, code: "SOURCE-SHARED", label: "same confirmed sourceId", proven: true) { $0.sourceId.origin == .confirmed ? $0.sourceId.value : nil }
         findings += grouped(videos, code: "SESSION-SHARED", label: "same confirmed sessionId", proven: true) { $0.sessionId.origin == .confirmed ? $0.sessionId.value : nil }
         findings += grouped(videos, code: "VENUE-SHARED", label: "same confirmed venueId", proven: true) { $0.venueId.origin == .confirmed ? $0.venueId.value : nil }
+        findings += contentShared(videos)
         // Heuristic groups — a card is a planned category (one channel/outing as the owner filed it)
         // and an uploader is one channel, neither confirmed identity (D-009): soft.
         findings += grouped(videos, code: "CARD-SPLIT", label: "same clip card", proven: false) { $0.clipId }
@@ -146,6 +155,17 @@ struct DatasetAudit: Codable {
         // Say what each member's history is, and what else in train/dev has no known relation to it.
         let lineage = videos.filter { $0.split == .lineageHoldout }
         if !lineage.isEmpty {
+            // A lineage-holdout recording that is in a training package, itself or under another name
+            // (D-036): nothing can undo it, so it is said on every run. Results on it are not independent
+            // for any model trained from those packages.
+            let packaged = packagedRecordings(lineage, among: videos)
+            for v in lineage {
+                guard let found = packaged[v.video] else { continue }
+                let via = found.via.isEmpty ? "" : " as " + found.via.joined(separator: ", ")
+                findings.append(Finding(severity: .soft, code: "LINEAGE-HOLDOUT-TRAINED",
+                                        message: "\(v.video) (lineage_holdout) is in training package(s) \(found.packages.joined(separator: ", "))\(via): not independent evaluation footage for any model trained from them.",
+                                        videos: ([v.video] + found.via).sorted()))
+            }
             for v in lineage {
                 var notes: [String] = []
                 let kinds = Set(v.exposure.map(\.kind.rawValue)).sorted()
@@ -156,7 +176,9 @@ struct DatasetAudit: Codable {
                 if v.venueId.origin != .confirmed { notes.append("venueId unconfirmed") }
                 if v.sessionId.origin != .confirmed { notes.append("sessionId unconfirmed") }
                 findings.append(Finding(severity: .info, code: "LINEAGE-HOLDOUT",
-                                        message: "\(v.video): " + notes.joined(separator: "; ") + ". Results on it are valid only for model lineages trained after the D-017 cut-over.",
+                                        message: "\(v.video): " + notes.joined(separator: "; ")
+                                            + (packaged[v.video] == nil ? ". Results on it are valid only for model lineages trained after the D-017 cut-over."
+                                                                        : ". In a training package (LINEAGE-HOLDOUT-TRAINED): results on it are valid only for models trained from none of those packages."),
                                         videos: [v.video]))
             }
             let surfaces = Dictionary(grouping: lineage, by: { $0.surface ?? "?" }).mapValues(\.count)
@@ -252,6 +274,83 @@ struct DatasetAudit: Codable {
         var groups: [String: Set<String>] = [:]
         for v in videos { groups[find(v.video), default: []].insert(v.video) }
         return Dictionary(uniqueKeysWithValues: videos.map { ($0.video, groups[find($0.video)] ?? [$0.video]) })
+    }
+
+    /// The same file under two cards (D-036). A video carries up to two file identities: the one its card
+    /// was registered with and the content of the file read now; either of one video equal to either of
+    /// another is one file. Across splits that is hard, like FP-SHARED (which already reports two cards
+    /// registered with the same fingerprint, so that case is left to it). Within a split it is soft when
+    /// the two share no alias group: nothing else groups them, and a grouped split or fold would part them.
+    /// Videos whose file could not be compared are counted, never cleared.
+    private static func contentShared(_ videos: [ManifestVideo]) -> [Finding] {
+        var out: [Finding] = []
+        var holders: [String: [ManifestVideo]] = [:]
+        for v in videos {
+            for id in Set([v.fingerprint, v.contentFingerprint].compactMap { $0 }) where id.hasPrefix("file:") {
+                holders[id, default: []].append(v)
+            }
+        }
+        var reported = Set<[String]>()
+        for (id, rows) in holders.sorted(by: { $0.key < $1.key }) where rows.count > 1 {
+            guard !rows.allSatisfy({ $0.fingerprint == id }) else { continue }   // FP-SHARED's case
+            let names = rows.map(\.video).sorted()
+            guard reported.insert(names).inserted else { continue }
+            let splits = Set(rows.map(\.split))
+            let short = String(id.dropFirst("file:".count).prefix(12))
+            if splits.count > 1 {
+                out.append(Finding(severity: .hard, code: "CONTENT-SHARED",
+                                   message: "\(rows.count) videos are one file by content (\(short)…) and sit in \(splits.map(\.rawValue).sorted().joined(separator: " + ")). Confirm the shared recording with `--set-provenance <video> --source-id <id>`.",
+                                   videos: names))
+            } else if Set(rows.map { $0.aliasGroup ?? $0.video }).count > 1 {
+                out.append(Finding(severity: .soft, code: "CONTENT-DUPLICATE",
+                                   message: "\(rows.count) videos are one file by content (\(short)…) with no identity in common; both are \(rows[0].split.rawValue). Confirm the shared recording with `--set-provenance <video> --source-id <id>`.",
+                                   videos: names))
+            }
+        }
+        let unreadable = videos.filter { $0.contentState == "unreadable" }.map(\.video).sorted()
+        if !unreadable.isEmpty {
+            out.append(Finding(severity: .soft, code: "CONTENT-UNREADABLE",
+                               message: "\(unreadable.count) video(s) are here but could not be read (is the footage share mounted and reachable?): not compared by content, not cleared.",
+                               videos: unreadable))
+        }
+        let absent = videos.filter { $0.contentState == "absent" }.map(\.video).sorted()
+        if !absent.isEmpty {
+            out.append(Finding(severity: .info, code: "CONTENT-ABSENT",
+                               message: "\(absent.count) video(s) have no file on this Mac: not compared by content, not cleared.",
+                               videos: absent))
+        }
+        return out
+    }
+
+    /// For each lineage-holdout video that is in a training package — itself, or as another video that
+    /// is the same recording — the packages, and the other names it is in them under. "The same
+    /// recording" is a shared file identity or confirmed sourceId, followed to a fixed point (A and B
+    /// share a sourceId, B and C a file: A, B and C are one recording); a shared venue or session is
+    /// another recording and joins nothing here — nor does a package row a video only inherited from
+    /// a sessionless venue or session mate (`inherited == "group"`).
+    private static func packagedRecordings(_ lineage: [ManifestVideo], among videos: [ManifestVideo]) -> [String: (packages: [String], via: [String])] {
+        var holders: [String: [String]] = [:]
+        for v in videos {
+            var ids = Set([v.fingerprint, v.contentFingerprint].compactMap { $0 }.map { "fp:" + $0 })
+            if v.sourceId.origin == .confirmed, let x = v.sourceId.value { ids.insert("src:" + x) }
+            for id in ids { holders[id, default: []].append(v.video) }
+        }
+        var parent = Dictionary(uniqueKeysWithValues: videos.map { ($0.video, $0.video) })
+        func find(_ x: String) -> String { var r = x; while parent[r] != r { r = parent[r]! }; return r }
+        for names in holders.values { for n in names.dropFirst() { parent[find(n)] = find(names[0]) } }
+        let recordings = Dictionary(grouping: videos, by: { find($0.video) })
+        var out: [String: (packages: [String], via: [String])] = [:]
+        for v in lineage {
+            let same = recordings[find(v.video)] ?? [v]
+            func ownPackages(_ video: ManifestVideo) -> [String] {
+                video.exposure.filter { $0.kind == .trainingPackage && $0.inherited != "group" }.map(\.ref)
+            }
+            let packages = Set(same.flatMap(ownPackages)).sorted()
+            guard !packages.isEmpty else { continue }
+            let via = same.filter { $0.video != v.video && !ownPackages($0).isEmpty }.map(\.video).sorted()
+            out[v.video] = (packages, via)
+        }
+        return out
     }
 
     /// Videos that share `key` but sit in different splits. A `proven` key
