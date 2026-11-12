@@ -169,7 +169,9 @@ enum TrainingDataExporter {
     /// it has there, and why it may not be exported when one of them withholds it: reserved there — final test,
     /// a candidate or the lineage holdout, recognised as `ReservedVideos.match` recognises it, so a copy under
     /// another name is refused by content, and a card with no session over it is recognised too — or in that
-    /// project's lineage-withheld closure (the legacy holdout too, and every alias; D-017). Every project is asked, not only the first that knows the video: withheld in one is
+    /// project's lineage-withheld closure (the legacy holdout too, and every alias; D-017), which `match` looks
+    /// through before any video that is not withheld, so a session of another name over a legacy-holdout
+    /// card's file is still that card's recording. Every project is asked, not only the first that knows the video: withheld in one is
     /// withheld. Throws when a project's reservations, cards or sessions can't be read (fails closed).
     private static func projectUses(ofVideo url: URL, projectRoots: [URL]?) throws -> (known: [(project: URL, name: String)], refusal: String?) {
         var known: [(project: URL, name: String)] = []
@@ -177,7 +179,7 @@ enum TrainingDataExporter {
             guard let match = try ReservedVideos.match(url, root: project) else { continue }
             let name = match.session
             if match.reserved { return ([], "\(name) is reserved as final_test (D-002) in \(project.lastPathComponent)") }
-            if try ReservedVideos.lineageWithheldNames(in: project).contains(name) {
+            if match.withheld {
                 return ([], "\(name) is withheld in \(project.lastPathComponent) — a lineage or legacy holdout, or an alias of one (D-017)")
             }
             known.append((project, name))

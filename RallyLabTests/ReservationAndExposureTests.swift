@@ -221,9 +221,9 @@ final class ReservationAndExposureTests: XCTestCase {
         try enc.encode(project).write(to: root.appendingPathComponent("project.json"))
         try writeValidation(#"{"tune":[],"holdout":[],"finalTest":["grs_extra_self_06"]}"#)
 
-        XCTAssertEqual(try ReservedVideos.match(video, root: root), .init(session: "grs_extra_self_06", reserved: true), "by path")
+        XCTAssertEqual(try ReservedVideos.match(video, root: root), .init(session: "grs_extra_self_06", reserved: true, withheld: true), "by path")
         let renamed = root.appendingPathComponent("somewhere else.mp4"); try fm.copyItem(at: video, to: renamed)
-        XCTAssertEqual(try ReservedVideos.match(renamed, root: root), .init(session: "grs_extra_self_06", reserved: true), "a copy under another name, by content")
+        XCTAssertEqual(try ReservedVideos.match(renamed, root: root), .init(session: "grs_extra_self_06", reserved: true, withheld: true), "a copy under another name, by content")
         let other = root.appendingPathComponent("other.mp4"); try Data([1, 2, 3]).write(to: other)
         XCTAssertNil(try ReservedVideos.match(other, root: root), "a file that is not a project video")
         // The Pipeline tab's cut lookup goes through the same match: the session's cuts, by path.

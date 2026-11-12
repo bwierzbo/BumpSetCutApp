@@ -348,16 +348,47 @@ final class WithheldConsumerGuardsTests: XCTestCase {
         let video = try XCTUnwrap(videos["l"])
         let copy = base.appendingPathComponent("footage/renamed copy.mp4")
         try FileManager.default.copyItem(at: video, to: copy)
-        XCTAssertEqual(try ReservedVideos.match(video, root: root), .init(session: "l", reserved: true), "the card's own cut file")
-        XCTAssertEqual(try ReservedVideos.match(copy, root: root), .init(session: "l", reserved: true), "a copy, by content")
+        XCTAssertEqual(try ReservedVideos.match(video, root: root), .init(session: "l", reserved: true, withheld: true), "the card's own cut file")
+        XCTAssertEqual(try ReservedVideos.match(copy, root: root), .init(session: "l", reserved: true, withheld: true), "a copy, by content")
         XCTAssertNotNil(try SamplerModel.ingestRefusal(of: video, root: root), "not sampled into a new session")
         XCTAssertNotNil(try SamplerModel.ingestRefusal(of: copy, root: root))
         XCTAssertNotNil(RallyLabModel.finalTestRefusal(for: copy, root: root), "nor run through the pipeline")
         XCTAssertThrowsError(try TrainingDataExporter.admit(video: copy, projectRoots: [root])) { XCTAssertTrue($0 is TrainingDataExporter.Withheld, "\($0)") }
         // An unreserved card with no session is the project's too: matched, not reserved.
         try FileManager.default.removeItem(at: root.appendingPathComponent("sessions/t.json"))
-        XCTAssertEqual(try ReservedVideos.match(videos["t"]!, root: root), .init(session: "t", reserved: false))
+        XCTAssertEqual(try ReservedVideos.match(videos["t"]!, root: root), .init(session: "t", reserved: false, withheld: false))
         XCTAssertNil(try SamplerModel.ingestRefusal(of: videos["t"]!, root: root))
+    }
+
+    func testASessionOfAnotherNameOverALegacyHoldoutCardsFileIsStillTheLegacyHoldout() async throws {
+        // The legacy holdout's own session is gone; a session with no card of its own (`other`) sits over the
+        // card's cut file. The file is the legacy holdout's recording: `other` is in no closure, and matching
+        // it first would clear the recording for export.
+        let video = try XCTUnwrap(try makeProject()["h"])
+        try FileManager.default.removeItem(at: root.appendingPathComponent("sessions/h.json"))
+        var other = VideoSession(name: "other", sourcePath: video.path, split: "train", addedAt: F.day, frames: [])
+        other.ralliesMarked = true
+        try DatasetStore(root: root).save(other)
+        XCTAssertFalse(try ReservedVideos.lineageWithheldNames(in: root).contains("other"), "the fixture: no card links the session into the closure")
+        XCTAssertEqual(try ReservedVideos.match(video, root: root), .init(session: "h", reserved: false, withheld: true))
+        let copy = base.appendingPathComponent("footage/renamed copy.mp4")
+        try FileManager.default.copyItem(at: video, to: copy)
+        XCTAssertEqual(try ReservedVideos.match(copy, root: root), .init(session: "h", reserved: false, withheld: true), "a copy, by content")
+        let runs = Runs()
+        for file in [video, copy] {
+            XCTAssertThrowsError(try TrainingDataExporter.admit(video: file, projectRoots: [root])) { XCTAssertTrue($0 is TrainingDataExporter.Withheld, "\($0)") }
+            XCTAssertThrowsError(try TrainingDataExporter.write(emptyExport, forVideo: file, projectRoots: [root]))
+            let exported = await HeadlessTrainingExport.export(file, projectRoots: [root]) { _ in runs.count += 1; return ([], 10) }
+            XCTAssertFalse(exported)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: TrainingDataExporter.exportURL(for: file).path))
+        }
+        XCTAssertEqual(runs.count, 0, "the pipeline never ran over it")
+        XCTAssertFalse(ledgerExists)
+        // The lineage holdout the same way: a session of another name over its card's file is reserved.
+        let lineage = try XCTUnwrap(try makeProject()["l"])
+        try FileManager.default.removeItem(at: root.appendingPathComponent("sessions/l.json"))
+        try DatasetStore(root: root).save(VideoSession(name: "other2", sourcePath: lineage.path, split: "train", addedAt: F.day, frames: []))
+        XCTAssertEqual(try ReservedVideos.match(lineage, root: root), .init(session: "l", reserved: true, withheld: true))
     }
 
     @MainActor

@@ -15,6 +15,8 @@ enum ReservedVideos {
         /// The project video's name: its session's, or its card's when no session is over the card.
         let session: String
         let reserved: Bool
+        /// In the lineage-withheld closure (D-017): reserved, or the legacy holdout, or an alias of either.
+        let withheld: Bool
     }
 
     /// project.json is there but can't be read or decoded: the recordings' identities are unknown.
@@ -144,12 +146,16 @@ enum ReservedVideos {
     /// The project video `url` is, or nil for a file that is not one of the
     /// project's videos. A card with no session over it (missing or renamed)
     /// is still the project's recording — the reservations name cards — and
-    /// is matched by its cut file's path or name, or by content. Throws when the reservations or project.json can't be read — or a
+    /// is matched by its cut file's path or name, or by content. A file that is
+    /// more than one of the project's videos is the most protected of them: a
+    /// reserved one, then one of the legacy holdout's closure, then any other.
+    /// Throws when the reservations or project.json can't be read — or a
     /// session can't: a session that won't decode is unknown, not absent, and
     /// a video it may be over is neither cleared as unreserved nor read as
     /// having no cut ranges (D-002, D-030; fails closed).
     static func match(_ url: URL, root: URL) throws -> Match? {
         let reserved = try reservedNames(in: root)
+        let withheld = try lineageWithheldNames(in: root)
         let sessions = try DatasetStore(root: root).loadSessionsStrict()
         let sources = try sources(in: root)
         let path = url.standardizedFileURL.path
@@ -176,12 +182,20 @@ enum ReservedVideos {
             if effectiveFingerprint(source) == mine { return true }
             return FileManager.default.fileExists(atPath: cut.path) && ProjectsModel.fileFingerprint(atPath: cut.path) == mine
         }
-        // Reserved videos are checked first — sessions, then cards with none — so a copy of one is refused
-        // even if an unreserved video also matches.
-        if let hit = sessions.first(where: { reserved.contains($0.name) && isThis($0) }) { return Match(session: hit.name, reserved: true) }
-        if let hit = cards.first(where: { reserved.contains($0.key) && isThis(card: $0.key, $0.value) }) { return Match(session: hit.key, reserved: true) }
-        if let hit = sessions.first(where: isThis) { return Match(session: hit.name, reserved: false) }
-        if let hit = cards.first(where: { isThis(card: $0.key, $0.value) }) { return Match(session: hit.key, reserved: false) }
+        // The withheld are checked first — the reserved, then the rest of the lineage-withheld closure (the
+        // legacy holdout and its aliases); in each, sessions, then cards with none — so a copy of one is refused
+        // even if a video that is not withheld also matches: a session over a withheld card's file is that card's
+        // recording, whatever the session is called.
+        for names in [reserved, withheld.subtracting(reserved)] {
+            if let hit = sessions.first(where: { names.contains($0.name) && isThis($0) }) {
+                return Match(session: hit.name, reserved: reserved.contains(hit.name), withheld: true)
+            }
+            if let hit = cards.first(where: { names.contains($0.key) && isThis(card: $0.key, $0.value) }) {
+                return Match(session: hit.key, reserved: reserved.contains(hit.key), withheld: true)
+            }
+        }
+        if let hit = sessions.first(where: isThis) { return Match(session: hit.name, reserved: false, withheld: false) }
+        if let hit = cards.first(where: { isThis(card: $0.key, $0.value) }) { return Match(session: hit.key, reserved: false, withheld: false) }
         return nil
     }
 }
