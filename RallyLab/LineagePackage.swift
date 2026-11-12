@@ -106,13 +106,18 @@ enum LineagePackage {
         }
     }
 
-    /// Identity keys as ReservedVideos.closure sees them, from the manifest row.
+    /// Identity keys as ReservedVideos.closure sees them, from the manifest row — plus the content of the
+    /// file the session is read from today. A card's stored fingerprint names the file it was registered
+    /// from, which can be another recording's video (a cut registered from a cut): on 2026-10-25 three
+    /// train cards registered with the bytes of lineage-holdout videos were packaged because only stored
+    /// identities met stored identities here, and only content met content in the preflight (D-036).
     static func identities(of v: ManifestVideo) -> [String] {
-        var ids: [String] = []
-        if let f = v.fingerprint { ids.append("fp:" + f) }
-        if let s = v.sourceId.value, !s.isEmpty { ids.append("src:" + s) }
-        if let s = v.sessionId.value, !s.isEmpty { ids.append("ses:" + s) }
-        if let s = v.venueId.value, !s.isEmpty { ids.append("ven:" + s) }
+        var ids = Set<String>()
+        if let f = v.fingerprint { ids.insert("fp:" + f) }
+        if let f = v.contentFingerprint { ids.insert("fp:" + f) }
+        if let s = v.sourceId.value, !s.isEmpty { ids.insert("src:" + s) }
+        if let s = v.sessionId.value, !s.isEmpty { ids.insert("ses:" + s) }
+        if let s = v.venueId.value, !s.isEmpty { ids.insert("ven:" + s) }
         return ids.sorted()
     }
 
@@ -460,12 +465,21 @@ enum LineagePackage {
         // Every clip whose frames are in the package — with windows or without — is checked against the withheld identities.
         let packagedClips = Set(windowsByClip.keys).union(noWindowClips.compactMap { eligibleBySafe[$0] })
         var badSources: [String] = []
+        // Both of a packaged clip's file identities are held against the withheld ones: the file exported
+        // from, and the file its card was registered with (the plan's `fp:` identities) — the second is how
+        // a cut registered from a withheld recording's cut is recognised when its own bytes differ (D-036).
+        let registered = Dictionary(uniqueKeysWithValues: plan.eligible.map { e in
+            (e.video, e.identities.filter { $0.hasPrefix("fp:") }.map { String($0.dropFirst(3)) })
+        })
         for clip in packagedClips.sorted() {
             guard let fp = sourceFingerprints[clip] else { badSources.append("\(clip): no source fingerprint"); continue }
             if protectedSources.contains(fp) { badSources.append("\(clip): its video is a withheld recording's (\(fp.prefix(21))…)") }
+            for stored in (registered[clip] ?? []).sorted() where stored != fp && protectedSources.contains(stored) {
+                badSources.append("\(clip): its card was registered with a withheld recording's video (\(stored.prefix(21))…)")
+            }
         }
         check("sources-not-protected", badSources,
-              ok: "every packaged clip's video is fingerprinted and matches none of the \(protectedSources.count) withheld identities")
+              ok: "every packaged clip's video is fingerprinted, and neither it nor the file its card was registered with matches any of the \(protectedSources.count) withheld identities")
         // The same footage on both sides of the package (two sessions, two project identities, one
         // file) would let val score what train saw. Grouped by the file actually exported; a clip
         // without windows counts on its planned side, its frames being in the package all the same.

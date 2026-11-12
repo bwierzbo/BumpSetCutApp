@@ -326,11 +326,12 @@ final class CutRangeConsumersTests: XCTestCase {
         XCTAssertEqual(none.frames.count, 100); XCTAssertTrue(none.labels.isEmpty); XCTAssertEqual(none.excluded.count, 1); XCTAssertTrue(none.complete)
         // …and the empty export is still written, replacing an earlier one with the frames in it: the trainer
         // reads sidecars without the project, so a stale one would train on the cut footage.
-        let sidecar = FileManager.default.temporaryDirectory.appendingPathComponent("v-\(UUID().uuidString).trainingdata.json")
+        let exported = FileManager.default.temporaryDirectory.appendingPathComponent("v-\(UUID().uuidString).mp4")   // no project knows it
+        let sidecar = TrainingDataExporter.exportURL(for: exported)
         defer { try? FileManager.default.removeItem(at: sidecar) }
-        try TrainingDataExporter.write(export, to: sidecar)
+        try TrainingDataExporter.write(export, forVideo: exported, projectRoots: [])
         XCTAssertEqual(try JSONDecoder().decode(TrainingDataExporter.Export.self, from: Data(contentsOf: sidecar)).frames.count, 80)
-        try TrainingDataExporter.write(whole, to: sidecar)
+        try TrainingDataExporter.write(whole, forVideo: exported, projectRoots: [])
         let replaced = try JSONDecoder().decode(TrainingDataExporter.Export.self, from: Data(contentsOf: sidecar))
         XCTAssertTrue(replaced.frames.isEmpty); XCTAssertEqual(replaced.cuts.map { [$0.start, $0.end] }, [[0, 100]])
 

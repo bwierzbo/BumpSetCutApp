@@ -311,6 +311,14 @@ final class VideoProcessor: @unchecked Sendable {
         return try await processVideoMetadata(url, videoId: videoId)
     }
 
+    /// Run the pipeline on a video and return what it found, keeping nothing on disk: no metadata
+    /// file and no resume checkpoint. For analysis runs on videos that are not in the library
+    /// (RallyLab's scoring, tuning, export and labeling runs): a file saved under an ID nothing
+    /// remembers is never read again and never removed.
+    func analyzeVideo(_ url: URL) async throws -> ProcessingMetadata {
+        try await processVideoMetadata(url, videoId: UUID(), persist: false)
+    }
+
     #if os(iOS)
     // MARK: - Debug path (no cutting, full-length annotated video)
     func processVideoDebug(_ url: URL) async throws -> URL {
@@ -480,7 +488,9 @@ final class VideoProcessor: @unchecked Sendable {
     #endif
 
     // MARK: - Metadata path (production mode with metadata generation)
-    func processVideoMetadata(_ url: URL, videoId: UUID) async throws -> ProcessingMetadata {
+    /// `persist: false` (analyzeVideo) leaves the metadata store unset for the run, so nothing below
+    /// reads or writes a checkpoint, looks for earlier manual segments, or saves the result.
+    func processVideoMetadata(_ url: URL, videoId: UUID, persist: Bool = true) async throws -> ProcessingMetadata {
         await MainActor.run {
             isProcessing = true; progress = 0; processedMetadata = nil
             backgroundGuard.begin {
@@ -500,7 +510,7 @@ final class VideoProcessor: @unchecked Sendable {
         eventLog.log(.processingStarted, detail: "videoId=\(videoId)")
 
         // Initialize metadata store on main actor
-        self.metadataStore = await MainActor.run { MetadataStore.shared }
+        self.metadataStore = persist ? await MainActor.run { MetadataStore.shared } : nil
 
         let asset = AVURLAsset(url: url)
 
@@ -1244,16 +1254,18 @@ final class VideoProcessor: @unchecked Sendable {
         )
 
         // Save metadata to store
-        do {
-            guard let metadataStore = metadataStore else {
-                throw ProcessingError.metadataStoreUnavailable
+        if persist {
+            do {
+                guard let metadataStore = metadataStore else {
+                    throw ProcessingError.metadataStoreUnavailable
+                }
+                try await metadataStore.saveMetadata(metadata)
+                print("✅ Successfully saved metadata for video \(videoId)")
+            } catch {
+                print("❌ Failed to save metadata: \(error)")
+                await MainActor.run { backgroundGuard.end() }
+                throw error // eventLog already embedded in metadata at this point
             }
-            try await metadataStore.saveMetadata(metadata)
-            print("✅ Successfully saved metadata for video \(videoId)")
-        } catch {
-            print("❌ Failed to save metadata: \(error)")
-            await MainActor.run { backgroundGuard.end() }
-            throw error // eventLog already embedded in metadata at this point
         }
 
         // The run finished — its resume checkpoint is obsolete.

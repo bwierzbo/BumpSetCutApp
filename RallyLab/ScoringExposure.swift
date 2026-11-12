@@ -13,7 +13,9 @@
 //
 //  Also the one refusal for the headless scoring commands: reserved final-test
 //  recordings (D-002) and the lineage-withheld closure (D-017: lineage and
-//  legacy holdouts and every alias) are not scored.
+//  legacy holdouts and every alias) are not scored. And the one admission
+//  (refuse the reserved, then record) for a model run over named recordings:
+//  a package's frames in HeatmapLab, a ball path, the Track tab's detectors.
 //
 
 import CryptoKit
@@ -127,5 +129,21 @@ enum ScoringExposure {
         if reserved.contains(name) { return "⛔ \(name) is reserved as final_test (D-002) — not scored." }
         if withheld.contains(name) { return "⛔ \(name) is withheld — a lineage or legacy holdout, or an alias of one (D-017) — not scored." }
         return nil
+    }
+
+    /// Reserved recordings among those a model was about to run over: none is run.
+    struct Reserved: LocalizedError, Equatable {
+        let names: [String]
+        var errorDescription: String? { "\(names.joined(separator: ", ")) reserved as final_test (D-002) — no model is run over reserved footage." }
+    }
+
+    /// Admits a model or pipeline run over these recordings, or throws: `Reserved` when any of them is
+    /// reserved (D-002: the listed final test, candidates and lineage holdout, and their aliases), and what
+    /// the reservations or the ledger throw when they can't be read or written (fails closed). The use is on
+    /// the ledger when this returns — before any model runs, so an interrupted run is still on record.
+    static func admit(_ names: Set<String>, kind: ExposureRecord.Kind, ref: String, note: String?, root: URL) throws {
+        let reserved = names.intersection(try PipelineTuner.ValidationSet.finalTestNames(in: root))
+        guard reserved.isEmpty else { throw Reserved(names: reserved.sorted()) }
+        try ExposureLog.record(videos: names, kind: kind, ref: ref, note: note, in: root)
     }
 }

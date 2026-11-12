@@ -261,7 +261,7 @@ enum RallyClassifierExporter {
         let closure = try ReservedVideos.lineageWithheldNames(in: projectDir)
         guard !closure.isEmpty else { throw Failure.emptyClosure }
         let (_, isolated) = try LineagePackage.isolation(manifest: manifest, audit: audit, withheldClosure: closure)
-        let sources = ReservedVideos.sources(in: projectDir)
+        let sources = try ReservedVideos.sources(in: projectDir)
         let withheld = Withheld(names: closure.sorted(),
                                 sourceIds: Set(closure.compactMap { sources[$0]?.sourceId }.filter { !$0.isEmpty }).sorted(),
                                 fingerprints: Set(closure.compactMap { sources[$0].flatMap(ReservedVideos.effectiveFingerprint) }).sorted())
@@ -1153,7 +1153,7 @@ enum RallyClassifierExporter {
         let processor = VideoProcessor()
         processor.config = config
         processor.collectFrameEvidence = true
-        do { _ = try await processor.processVideo(url, videoId: UUID()) } catch ProcessingError.noRalliesDetected {
+        do { _ = try await processor.analyzeVideo(url) } catch ProcessingError.noRalliesDetected {
             // No rally is a result; the evidence is still there.
         }
         let asset = AVURLAsset(url: url)

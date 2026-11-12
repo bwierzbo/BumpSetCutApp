@@ -345,8 +345,8 @@ final class EventReviewTests: XCTestCase {
             do {
                 _ = try await EventReview.open(s, root: root, tool: "t", now: now)
                 XCTFail("\(s.name) must be refused while project.json is unreadable")
-            } catch let failure as EventReview.Failure {
-                guard case .projectUnreadable = failure else { return XCTFail("\(failure)") }
+            } catch {
+                XCTAssertTrue(error is ReservedVideos.ProjectUnreadable, "\(error)")
             }
         }
         XCTAssertThrowsError(try EventInventory.build(root: root, now: now))

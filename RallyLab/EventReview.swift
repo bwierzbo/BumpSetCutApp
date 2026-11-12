@@ -36,7 +36,7 @@ extension EventReview {
     /// byte-identical copy). Identities and sessions are read strictly; anything unreadable throws, and the caller
     /// publishes nothing then (fail closed).
     static func publishedWithheldNames(in root: URL) throws -> Set<String> {
-        _ = try projectSourcesStrict(in: root)
+        _ = try ReservedVideos.sources(in: root)
         let sessions = try DatasetStore(root: root).loadSessionsStrict()
         // The protected identities (every withheld recording's files fingerprinted) are computed once for the scan.
         guard let context = try withheldContext(root: root, sessions: sessions) else { return [] }
@@ -61,7 +61,7 @@ extension EventReview {
     static func withheldContext(root: URL, sessions: [VideoSession]) throws -> WithheldContext? {
         let withheld = try withheldNames(in: root)
         guard !withheld.isEmpty else { return nil }
-        let sources = try projectSourcesStrict(in: root)
+        let sources = try ReservedVideos.sources(in: root)
         func standard(_ path: String) -> String { URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL.path }
         var files: [(path: String, owner: String, what: String)] = []
         for w in sessions where withheld.contains(w.name) { files.append((standard(w.sourcePath), w.name, "file")) }
@@ -77,18 +77,6 @@ extension EventReview {
         do { protected = try LineagePackage.protectedSourceFingerprints(sessions: sessions, withheld: withheld, sources: sources) }
         catch { throw Failure.withheldIdentityUnknown(error.localizedDescription) }
         return WithheldContext(withheld: withheld, sources: sources, files: files, protected: protected)
-    }
-
-    /// The project's videos by session name, strictly: a project.json that exists but can't be decoded
-    /// throws, since the withheld recordings' cut files and fingerprints would otherwise vanish from
-    /// the guard. No project.json (a project from before the Projects tab) is an empty map.
-    static func projectSourcesStrict(in root: URL) throws -> [String: ClipSource] {
-        let url = root.appendingPathComponent("project.json")
-        guard FileManager.default.fileExists(atPath: url.path) else { return [:] }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        do { _ = try decoder.decode(Project.self, from: Data(contentsOf: url)) } catch { throw Failure.projectUnreadable(error.localizedDescription) }
-        return ReservedVideos.sources(in: root)
     }
 
     /// Why `session` is withheld, or nil when it may be reviewed. By name (the closure); by path (its
