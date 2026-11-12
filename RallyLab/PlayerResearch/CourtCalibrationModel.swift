@@ -275,7 +275,7 @@ final class CourtCalibrationModel {
             draft = nil
             baseline = nil
             startedFrom = nil
-            message = "Confirmed segment \(segmentId)\(method == CourtConfirmation.personMethod ? "" : " (scripted: not used as evidence)")."
+            message = "Confirmed segment \(segmentId)\(CourtConfirmation.personMethods.contains(method) ? "" : " (scripted: not used as evidence)")."
         } catch { message = error.localizedDescription }
         changed()
     }

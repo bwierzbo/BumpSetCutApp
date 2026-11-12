@@ -10,6 +10,8 @@
 //        PlayerFeaturesRun, headless: reads the source project, writes only <experiment>.
 //    RallyLab --player-lab-court <experiment> --run <run> --report <name> [--propose] [--audit <csv>]
 //        CourtPilot, headless: court proposals and zones over an existing run; writes only <experiment>.
+//    RallyLab --player-lab-court <experiment> --run <run> --import-web <export.json> [--dry-run]
+//        CourtWebImport: the owner's decisions from the Court Check page into <experiment>/court-calibrations.
 //    RallyLab --player-lab <experiment> [--run <run>] [--court] [--script <steps.json>]
 //        The Player Lab window over <experiment>'s runs (PlayerLabView). With --script it
 //        performs the listed steps — choose a run, recording, interval and frame, set the
@@ -105,8 +107,19 @@ enum PlayerLab {
                 }
                 dispatchMain()
             }
+            if let run = value(after: "--run", in: args), let file = value(after: "--import-web", in: args) {
+                Task { @MainActor in
+                    do {
+                        let out = try CourtWebImport.run(experiment: path(experiment), runName: run, exportFile: path(file),
+                                                         dryRun: args.contains("--dry-run"), log: { log($0) })
+                        log("✅ \(out.filter(\.applied).count) of \(out.count) page decisions applied")
+                        exit(0)
+                    } catch { log("❌ \(error.localizedDescription)"); exit(1) }
+                }
+                dispatchMain()
+            }
             guard let run = value(after: "--run", in: args), let report = value(after: "--report", in: args) else {
-                log("--player-lab-court <experiment> needs --run <run> --report <name> [--propose] [--audit <csv>] [--review <dir>], or --run <run> --make-review <name> [--per-recording n] [--audit <csv>]")
+                log("--player-lab-court <experiment> needs --run <run> --report <name> [--propose] [--audit <csv>] [--review <dir>], or --run <run> --make-review <name> [--per-recording n] [--audit <csv>], or --run <run> --import-web <export.json> [--dry-run]")
                 exit(2)
             }
             Task { @MainActor in

@@ -312,7 +312,7 @@ enum CourtPilot {
                                 points: Dictionary(uniqueKeysWithValues: CourtLayout.Role.allCases.map { ($0.rawValue, p.geometry[$0].status.rawValue) }),
                                 pointSources: p.pointSources, uncertainty: p.uncertainty, geometry: p.geometry)
             }
-            let confirmedFirst = lookup.unusable == nil ? lookup.file?.segments.first { $0.confirmation?.method == CourtConfirmation.personMethod } : nil
+            let confirmedFirst = lookup.unusable == nil ? lookup.file?.segments.first { $0.confirmation?.isPersonMade == true } : nil
             var reviewResult: Review?
             if let review {
                 let labels = review.persons.filter { $0.key.hasPrefix("\(rec.recordingId)|") }

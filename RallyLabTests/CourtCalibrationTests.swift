@@ -412,4 +412,63 @@ final class CourtCalibrationTests: XCTestCase {
         old = try JSONSerialization.data(withJSONObject: json)
         XCTAssertNil(try JSONDecoder().decode(PlayerFeatures.Person.self, from: old).zone, "a line from before P2 decodes")
     }
+
+    // MARK: The Court Check page (remote confirmation)
+
+    private func pageRow(_ decision: String, geometry: CourtLayout?, decoded: String = "file:copy", at time: String = "2026-11-12T18:04:05.123Z") throws -> String {
+        let g = try geometry.map { String(decoding: try JSONEncoder().encode($0), as: UTF8.self) } ?? "null"
+        return """
+        {"recordingId":"rec_01","segment":0,"binding":{"sourceFingerprint":"file:orig","decodedFingerprint":"\(decoded)","frameWidth":960,"frameHeight":540,"orientation":1},
+         "setup":{"surface":"indoor","format":"6v6","markings":"lines","answeredAt":"2026-11-12T18:00:00.000Z"},
+         "decision":"\(decision)","geometry":\(g),"startedFrom":"net_guided_v1","decidedAt":"\(time)","decidedBy":"u_owner","note":null}
+        """
+    }
+
+    private func export(_ rows: [String]) throws -> CourtWebImport.Export {
+        let text = #"{"artifact":"https://claude.ai/artifact/test","courts":["# + rows.joined(separator: ",") + "]}"
+        return try JSONDecoder().decode(CourtWebImport.Export.self, from: Data(text.utf8))
+    }
+
+    func testTheOwnersPageConfirmationIsEvidenceAndDraftsOrOtherFootageAreNot() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("court-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = CourtCalibrationStore(experiment: dir)
+        var f = CourtCalibrationFile.new(for: CourtCalibrationFile.Binding(recording(decoded: "file:copy")))
+        f.segments[0].proposals = [proposal(layout())]
+        try store.save(f)
+        let recs = [recording(decoded: "file:copy")]
+        let moved = layout().moving(.nearLeft, to: 0.12, 0.1)
+
+        // A draft is never applied; a row made on other footage is refused; neither writes anything.
+        let before = try Data(contentsOf: store.url("rec_01"))
+        var out = try CourtWebImport.apply(export([pageRow("draft", geometry: moved)]), experiment: dir, recordings: recs, dryRun: false)
+        XCTAssertEqual(out.map(\.applied), [false])
+        out = try CourtWebImport.apply(export([pageRow("confirmed", geometry: moved, decoded: "file:other")]), experiment: dir, recordings: recs, dryRun: false)
+        XCTAssertEqual(out.map(\.applied), [false])
+        XCTAssertEqual(try Data(contentsOf: store.url("rec_01")), before)
+        XCTAssertEqual(store.confirmedLookup(for: CourtCalibrationFile.Binding(recs[0])).unusable, "court calibration not confirmed by a person")
+
+        // The owner's Confirm: recorded as the page's, at the time it was pressed, and used as evidence.
+        out = try CourtWebImport.apply(export([pageRow("confirmed", geometry: moved)]), experiment: dir, recordings: recs, dryRun: false)
+        XCTAssertEqual(out.map(\.applied), [true])
+        let c = try XCTUnwrap(try store.load("rec_01")?.confirmed(at: 10))
+        XCTAssertEqual(c.method, CourtConfirmation.webMethod)
+        XCTAssertEqual(c.geometry, moved)
+        XCTAssertEqual(c.adjustedRoles, ["nearLeft"], "measured against the proposal it started from")
+        XCTAssertEqual(c.confirmedAt, CourtWebImport.date("2026-11-12T18:04:05.123Z"))
+        XCTAssertEqual(c.format, "6v6")
+        XCTAssertNil(store.confirmedLookup(for: CourtCalibrationFile.Binding(recs[0])).unusable)
+        // Importing the same export again changes nothing.
+        let after = try Data(contentsOf: store.url("rec_01"))
+        out = try CourtWebImport.apply(export([pageRow("confirmed", geometry: moved)]), experiment: dir, recordings: recs, dryRun: false)
+        XCTAssertEqual(out.map(\.detail), ["already imported"])
+        XCTAssertEqual(try Data(contentsOf: store.url("rec_01")), after)
+
+        // Marking the view as not one court later takes it out of use and keeps the confirmation in history.
+        out = try CourtWebImport.apply(export([pageRow("unknown_view", geometry: nil, at: "2026-11-12T19:00:00Z")]), experiment: dir, recordings: recs, dryRun: false)
+        XCTAssertEqual(out.map(\.applied), [true])
+        let g = try XCTUnwrap(try store.load("rec_01")?.segments.first)
+        XCTAssertEqual(g.status, .unknownView)
+        XCTAssertEqual(g.history.last?.method, CourtConfirmation.webMethod)
+    }
 }

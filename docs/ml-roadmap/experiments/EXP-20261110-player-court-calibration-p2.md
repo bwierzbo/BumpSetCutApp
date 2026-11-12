@@ -54,6 +54,13 @@ pr: research/player-pose-feasibility-p0 (#166)
 - Python: 25/25, including the review page.
 - Full RallyLabTests: see the PR.
 
+## Remote confirmation (2026-11-12)
+- **The page.** Court Check is a private claude.ai artifact holding 30 still frames, uploaded with the owner's approval. On it the owner confirms the courts and labels the review. Documents are stored in the page's database, which only the owner can write.
+- **Importing.**
+  - Courts: `--player-lab-court … --import-web <export.json>` (`player_lab_web`, person-made; refuses other footage, stale files and drafts; re-import is a no-op).
+  - Labels: `scripts/player_features/import_review_rows.py`.
+- **Not stored in this record.** No page data, and no frames: the export and the filled sheets stay in the experiment folder.
+
 ## Next (owner)
 
 1. Confirm the six courts in Player Lab, then re-run the pilot without `--propose`.

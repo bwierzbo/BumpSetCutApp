@@ -56,7 +56,13 @@ struct CourtProposal: Codable, Equatable, Sendable {
 
 struct CourtConfirmation: Codable, Equatable, Sendable {
     static let personMethod = "player_lab_gui"
+    /// The owner's Confirm on the private Court Check page (claude.ai), brought in by `CourtWebImport`.
+    static let webMethod = "player_lab_web"
     static let scriptMethod = "player_lab_script"
+    /// The confirmations a person made — the only ones used as evidence.
+    static let personMethods: Set<String> = [personMethod, webMethod]
+
+    var isPersonMade: Bool { Self.personMethods.contains(method) }
 
     var geometry: CourtLayout
     /// The proposal it started from (`net_guided_v1`…), or `manual` when the person placed it from nothing.
@@ -65,8 +71,8 @@ struct CourtConfirmation: Codable, Equatable, Sendable {
     var adjustedRoles: [String]
     var confirmedAt: Date
     var confirmedBy: String
-    /// How: `player_lab_gui` (a person pressed Confirm — the only confirmation used as evidence) or `player_lab_script`
-    /// (a scripted GUI test: recorded, never used).
+    /// How: `player_lab_gui` (a person pressed Confirm in Player Lab) or `player_lab_web` (the owner pressed Confirm on the
+    /// Court Check page) — the only confirmations used as evidence — or `player_lab_script` (a scripted GUI test: recorded, never used).
     var method: String
     /// The net the geometry was checked against: the person net label's corners and the file it was made on.
     var net: PlayerFeatures.NetGeometry?
@@ -221,7 +227,7 @@ struct CourtCalibrationFile: Codable, Equatable, Sendable {
     /// no segment there).
     func confirmed(at t: Double) -> CourtConfirmation? {
         guard let g = segments.first(where: { $0.contains(t) }), g.status == .confirmed, let c = g.confirmation,
-              c.method == CourtConfirmation.personMethod, c.geometry.isUsable else { return nil }
+              c.isPersonMade, c.geometry.isUsable else { return nil }
         return c
     }
 
@@ -286,7 +292,7 @@ struct CourtCalibrationStore {
             guard let f = try load(b.recordingId) else { return (nil, "no court calibration") }
             if let why = f.staleReason(for: b) { return (nil, "court calibration is stale: \(why)") }
             guard f.segmentProblems.isEmpty else { return (nil, "court calibration is malformed: \(f.segmentProblems.joined(separator: "; "))") }
-            guard f.segments.contains(where: { $0.status == .confirmed && $0.confirmation?.method == CourtConfirmation.personMethod }) else {
+            guard f.segments.contains(where: { $0.status == .confirmed && $0.confirmation?.isPersonMade == true }) else {
                 return (f, "court calibration not confirmed by a person")
             }
             return (f, nil)

@@ -230,5 +230,19 @@ These are candidate human-verified labels. Proposals are never labels.
 
   Owner-labelled rows carry the reviewer's name. Claude's earlier counts (§5.2) stay labelled as approximate.
 
+**Remote confirmation and labelling (owner request, 2026-11-12):** the owner asked to do both tasks away from the Mac. They chose a private claude.ai page, *Court Check*, over a Mac-only page, the Labeler app (which would widen D-034) and screen sharing.
+- **What leaves the Mac.** The owner approved uploading 30 still frames to the private page: the 24 review frames and one median frame per pilot recording. No video, footage file or Scratch data is uploaded. Nothing is committed to Git.
+- **On the page.**
+  - *Courts:* each recording opens on its best proposal. The owner answers surface, format and markings, drags the six ground points (pan, pinch or zoom; points may lie off the frame), and sets each point to seen, estimated or unknown. Then they press *Confirm court*, *Not one court view* or *Can't place this court*.
+  - *Players:* tap a box, then a label (the same ten labels as the sheets), and set missed near and far players for each frame.
+  - Only the artifact's owner can write (`db` rules: read `admin`, write `owner`). Each document records the viewer id and the time of the press. A draft is stored but never imported.
+- **Back into the experiment.**
+  - Claude exports the page's documents to JSON.
+  - `RallyLab --player-lab-court <experiment> --run <run> --import-web <export.json> [--dry-run]` (`CourtWebImport`) applies each decided court to `court-calibrations/`. It refuses a row whose footage binding differs from the calibration file, or whose file is stale.
+  - A confirmation keeps the time the owner pressed Confirm, rounded to the second as stored. It is recorded as `player_lab_web`, which the owner accepted as person-made alongside `player_lab_gui` (`CourtConfirmation.personMethods`). `player_lab_script` is still never used.
+  - Re-importing the same export changes nothing.
+  - `scripts/player_features/import_review_rows.py <export.json> <review folder>` fills `persons.csv` and `frames.csv` only with what the owner entered. It keeps the blank sheets as `*.blank.csv`, and refuses an unknown label or box.
+  - Tests: `testTheOwnersPageConfirmationIsEvidenceAndDraftsOrOtherFootageAreNot`, `scripts/tests/test_import_review_rows.py`.
+
 **Pending the owner:** confirm the six courts, and fill the review sheet. Then the evaluation is re-run without `--propose`, and §5.2–5.3 are replaced by owner-verified figures.
 
