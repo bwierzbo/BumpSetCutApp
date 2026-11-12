@@ -46,6 +46,7 @@ The authoritative record of product, architecture, data and process decisions fo
 | [D-032](#d-032) | 2026-11-03 | accepted | A recording's type — continuous, edited, unknown — is confirmed by a person at the end of the marking pass, kept apart from the pass being complete, from the cut ranges and from eligibility, never inferred; the phone shows the facts and cannot sync the type without a backend change |
 | [D-033](#d-033) | 2026-11-03 | accepted | Recording-type claims: the phone submits a claim (continuous, edited, unknown) through the labeling server, RallyLab validates it against the project and writes the authoritative footage-properties record, then settles the claim accepted or rejected; one open claim per recording, statuses only move forward, no second authority on the phone or the server |
 | [D-035](#d-035) | 2026-11-09 | accepted | The `bch_onl_ovc_land_onl_02` group (one uploader, four recordings) moves whole into `dev_val`: three names leave validation.json's `tune` list; amends D-015 §3 for this group only |
+| [D-034](#d-034) | 2026-11-08 | accepted (research scope, owner 2026-11-10; production separately gated) | Player detection, tracking and pose: a research-only feasibility workstream (Phase P0) in RallyLab; production scope unchanged; every further step owner-gated |
 
 ---
 
@@ -471,3 +472,40 @@ The authoritative record of product, architecture, data and process decisions fo
 **Consequences.** The pipeline tuner's pool (D-027) drops from 9 to 6 recordings; the next `--tune-pipeline` / `--serve-report` run is on the smaller pool, and earlier reports' numbers are not comparable. For rc-v1 (49 recordings): `tune` 9 → 6, `dev_val` 2 → 5, `train` 38. validation.json SHA-256 `6d160a1a…4a23d1602` → `cc22cd32…87f8f70`; the file before the change is kept at `~/Movies/RallyLab/Reports/split-move-20261109/validation.json.before`. The split manifest is regenerated (`RallyLab --project Scratch --manifest`) before the export is run again; the export's plan refuses a group across splits since PR #168.
 
 **Source.** Owner chat 2026-11-09; validation report `Scratch/manifests/rally-classifier/20261109-141417-validation.json`; PR #168.
+
+### D-034
+
+**Player detection, tracking and pose: a research-only feasibility workstream (Phase P0) in RallyLab; production scope unchanged; every further step owner-gated** — 2026-11-08 — accepted (research scope; owner, 2026-11-10) — owner (assignment "Player Detection, Tracking and Pose Feasibility (Phase P0)", 2026-11-08: implementation and a bounded pilot authorised; training, production integration and bulk processing not; and "Additional authorization — RallyLab player-model pilot testing", 2026-11-08: RallyLab may be launched for bounded GUI pilot testing in a separate experimental project, the live Scratch project — annotations, splits, footage properties, exposure ledger — is not modified).
+
+**Context.** D-001's consequences keep "player tracking/pose" out of scope, and `CLAUDE.md` repeats it for the product pipeline. The owner wants to learn whether player positions and poses could improve the learned temporal rally classifier beyond ball features (ablation arms A ball only, B + player positions and movement, C + poses, D + ball–player interaction), without touching the ball-only classifier work.
+
+**Decision.**
+1. Two RallyLab-only research launches (`RallyLab/PlayerResearch/`), both decided before any RallyLab model exists, so no project is restored and no sync starts. `--player-lab-run` runs Apple Vision's people and body-pose requests on sampled frames of development recordings, tracks people with a simple deterministic tracker and writes `player_features_v1` ([contract](../ml-roadmap/PLAYER_FEATURES_V1_CONTRACT.md)). `--player-lab` opens the Player Lab window over the results. Neither is part of the iOS app, the shared processing pipeline, `rcf_v1` or `rally_classifier_dataset_v1`.
+2. The run works in a separate experiment folder and only reads the source project. It copies the eligible recordings' local scrub proxies into the experiment and records each use in the **experiment's own** exposure ledger (`detector_evaluation`) before decoding; the source project's ledger is not written. The plan is bounded (≤ 12 recordings, ≤ 60 s per interval, ≤ 600 s in all, ≤ 10 Hz). Before any video is opened, the run refuses what the rally-classifier exporter refuses: the withheld closure, isolation, non-development splits, unadmitted recordings, rally-classifier ineligibility, and withheld content. A stale split manifest is refused, never rebuilt.
+3. Nothing produced here is ground truth: pose and person outputs are never labels, geometric proximity is never a contact, and absent ball or pose data is never a non-rally label (D-010).
+4. Out of scope until the owner decides otherwise: any training on these features, any production or iOS integration, processing beyond a bounded plan, writing the experiment's uses into the project ledger or a dedicated exposure kind, and third-party pose models (each needs licence provenance first).
+
+**Consequences.** D-001's out-of-scope clause stands for production; this entry carves out the research tool only. The six pilot recordings' use is on record in `<experiment>/manifests/exposure-log.json`, not in Scratch's ledger. Whether to copy those rows into Scratch's ledger is the owner's call. Results and the next gate: [PLAYER_POSE_FEASIBILITY_P0_2026-11-08.md](../ml-roadmap/PLAYER_POSE_FEASIBILITY_P0_2026-11-08.md), [EXP-20261108](../ml-roadmap/experiments/EXP-20261108-player-pose-feasibility-p0.md). Proposed until the owner merges the PR that carries it.
+
+**P2 — assisted court calibration (proposed with this entry, 2026-11-10).**
+1. Court geometry for player research is `court_geometry_v1`, kept only in the experiment folder.
+   - It is bound to the recording's identity and the decoded file; a file that no longer matches is stale and never used.
+   - It is split into segments, one per stable camera view.
+2. Automatic proposals (`net_guided_v1`, `court_lines_v1`, `combined_v1`) are never labels and never evidence.
+   - Only a person's Confirm in Player Lab (`player_lab_gui`) makes a court evidence. A scripted test's confirmation is recorded and never used.
+   - Each confirmation keeps the proposal it started from and the points the person moved.
+3. The person's net label is the net input and is never written by this work.
+4. Players are placed in zones (`court_polygon_v1`) only against confirmed geometry.
+   - Doubt is kept and smoothed per track; nobody is dropped for being one too many.
+   - The net lane stays the fallback outside confirmed segments.
+5. The person is asked the court's surface, format and markings. The answers choose the court size the proposals assume and whether the line search runs. They are metadata, never proof of where the court is.
+6. Court proposals record their frame reads in the experiment's ledger first.
+7. Not authorised: training a court model, bulk calibration, and any production or iOS use.
+
+**Owner decisions, 2026-11-10 ("P2 Validation and PR #166 Completion").**
+1. The research-only scope is accepted. Production integration remains separately gated.
+2. All three court-proposal methods are kept: `net_guided_v1`, `court_lines_v1` and `combined_v1`.
+3. Court-line detection is an optional proposal method, never an authoritative way to exclude players. The pilot's 3.1 players per frame lost to the line court is unacceptable.
+4. A person-confirmed calibration is the authoritative source of court membership. Before confirmation, proposed geometry may be shown and evaluated. It is never represented as confirmed, and never used as trusted evidence for classifier experiments.
+
+**Source.** Owner assignment and additional authorisation of 2026-11-08; owner direction of 2026-11-10; the PR carrying this entry.

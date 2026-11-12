@@ -71,6 +71,16 @@ final class LaunchGuardTests: XCTestCase {
         XCTAssertNil(refusal(["--export-training-data"]))
     }
 
+    func testPlayerLabLaunchesNeedTheirExperimentFolder() {
+        XCTAssertNil(refusal(["--player-lab", "/x/experiment"]))
+        XCTAssertNil(refusal(["--player-lab", "/x/experiment", "--script", "/x/steps.json"]))
+        XCTAssertNil(refusal(["--player-lab-run", "/x/experiment", "--source-project", "/p", "--plan", "/x/plan.json", "--run", "r1"]))
+        XCTAssertNil(refusal(["--player-lab-court", "/x/experiment", "--run", "r1", "--report", "c1", "--propose"]))
+        XCTAssertNotNil(refusal(["--player-lab-court", "--run", "r1"]), "without the folder it would fall through to the window app")
+        XCTAssertNotNil(refusal(["--player-lab"]), "without the folder it would fall through to the window app and reopen the last project")
+        XCTAssertNotNil(refusal(["--player-lab-run", "--plan", "/x/plan.json"]))
+    }
+
     // MARK: - Guarded mode: operations
 
     func testGuardedModeAcceptsOnlyTheAcceptanceOperations() {

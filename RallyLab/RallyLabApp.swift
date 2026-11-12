@@ -32,6 +32,9 @@ struct RallyLabApp: App {
             FileHandle.standardError.write(Data("RallyLab: \(refusal.message)\n".utf8))
             exit(2)
         }
+        // The player-feasibility research (P0): its own window or headless run over an experiment folder, started before
+        // any model exists so no project is restored and no sync starts (PlayerLab). Never returns when requested.
+        _ = PlayerLab.runIfRequested()
         // A guarded run keeps its labeling session apart from the app's: a Keychain item of its own.
         if CommandLine.arguments.contains("--project-root") { LabelingClient.keychainService = LaunchGuard.acceptanceKeychainService }
         // `RallyLab --export-training-data [path]` batch-exports classifier
