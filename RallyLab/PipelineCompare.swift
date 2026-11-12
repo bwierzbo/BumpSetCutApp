@@ -67,7 +67,7 @@ enum PipelineCompare {
         let started = Date()
         var segments: [RallySegment] = []
         do {
-            segments = try await processor.processVideo(video, videoId: UUID()).rallySegments
+            segments = try await processor.analyzeVideo(video).rallySegments
         } catch ProcessingError.noRalliesDetected {
             segments = []
         } catch {
