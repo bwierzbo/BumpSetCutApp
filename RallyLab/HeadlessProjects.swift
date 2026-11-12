@@ -927,6 +927,10 @@ enum HeadlessProjects {
             project: projects.project, sessions: projects.sampler.sessions,
             validation: validation,
             fingerprint: { projects.fingerprint(of: $0) },
+            content: { session in
+                guard LineagePackage.isPresent(session.sourcePath) else { return .absent }
+                return ProjectsModel.fileFingerprint(atPath: session.sourcePath).map { .read($0) } ?? .unreadable
+            },
             previous: previous,
             discovered: discovered,
             hashes: hashes, generator: generator, now: Date())

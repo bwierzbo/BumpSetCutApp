@@ -1153,7 +1153,7 @@ enum RallyClassifierExporter {
         let processor = VideoProcessor()
         processor.config = config
         processor.collectFrameEvidence = true
-        do { _ = try await processor.processVideo(url, videoId: UUID()) } catch ProcessingError.noRalliesDetected {
+        do { _ = try await processor.analyzeVideo(url) } catch ProcessingError.noRalliesDetected {
             // No rally is a result; the evidence is still there.
         }
         let asset = AVURLAsset(url: url)

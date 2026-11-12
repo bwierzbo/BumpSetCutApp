@@ -172,7 +172,7 @@ final class BallPathBuilder {
         }
         defer { watch.cancel() }
         do {
-            _ = try await processor.processVideo(playback, videoId: UUID())
+            _ = try await processor.analyzeVideo(playback)
         } catch ProcessingError.noRalliesDetected {
             // Still saw the ball, most likely — the sightings are what we want.
         }

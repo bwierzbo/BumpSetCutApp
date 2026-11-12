@@ -92,10 +92,13 @@ enum ReservedVideos {
         return FileManager.default.fileExists(atPath: path) ? ProjectsModel.fileFingerprint(atPath: path) : ProjectsModel.linkFingerprint(origin)
     }
 
-    static func identities(_ s: ClipSource) -> Set<String> {
+    /// `recordingOnly` keeps the identities that say two videos are one recording (a file, a confirmed
+    /// sourceId) and leaves out the ones that only say they were filmed together (session, venue).
+    static func identities(_ s: ClipSource, recordingOnly: Bool = false) -> Set<String> {
         var ids = Set<String>()
         if let f = effectiveFingerprint(s) { ids.insert("fp:" + f) }
         if let v = s.sourceId, !v.isEmpty { ids.insert("src:" + v) }
+        if recordingOnly { return ids }
         if let v = s.sessionId, !v.isEmpty { ids.insert("ses:" + v) }
         if let v = s.venueId, !v.isEmpty { ids.insert("ven:" + v) }
         return ids
@@ -103,9 +106,10 @@ enum ReservedVideos {
 
     /// Every video's alias group over the whole project (sessionless videos
     /// included, since they can bridge two sessions): name → group ID, the
-    /// smallest name in the group. Same identities as `closure`.
-    static func groups(over sources: [String: ClipSource]) -> [String: String] {
-        let ids = sources.mapValues(identities)
+    /// smallest name in the group. Same identities as `closure`; with `recordingOnly`, the groups are
+    /// recordings (one file or confirmed sourceId under several names), not reservation groups.
+    static func groups(over sources: [String: ClipSource], recordingOnly: Bool = false) -> [String: String] {
+        let ids = sources.mapValues { identities($0, recordingOnly: recordingOnly) }
         var byIdentity: [String: [String]] = [:]
         for (name, mine) in ids { for id in mine { byIdentity[id, default: []].append(name) } }
         var parent = Dictionary(uniqueKeysWithValues: sources.keys.map { ($0, $0) })
@@ -122,7 +126,7 @@ enum ReservedVideos {
     /// identities, to a fixed point: A reserved, A and B share a file, B and
     /// C share a confirmed venue → A, B and C are all reserved.
     static func closure(of named: Set<String>, over sources: [String: ClipSource]) -> Set<String> {
-        let ids = sources.mapValues(identities)
+        let ids = sources.mapValues { identities($0) }
         var all = named
         var reservedIds = Set<String>()
         var grew = true

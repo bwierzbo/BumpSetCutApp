@@ -1124,7 +1124,7 @@ final class RallyLabModel {
         defer { activeProcessor = nil }
 
         do {
-            _ = try await processor.processVideo(url, videoId: UUID())
+            _ = try await processor.analyzeVideo(url)
         } catch is CancellationError {
             status = "Pipeline cancelled."
             return
@@ -1180,7 +1180,7 @@ final class RallyLabModel {
         status = "Debug video: running the app's pipeline…"
         var segments: [RallySegment] = []
         do {
-            segments = try await processor.processVideo(url, videoId: UUID()).rallySegments
+            segments = try await processor.analyzeVideo(url).rallySegments
         } catch ProcessingError.noRalliesDetected {
             // No rallies is still worth seeing: the evidence is all there.
         } catch is CancellationError {

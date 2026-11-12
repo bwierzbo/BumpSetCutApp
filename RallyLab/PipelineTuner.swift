@@ -353,7 +353,7 @@ enum PipelineTuner {
         processor.collectFrameEvidence = true
         var segments: [RallySegment] = []
         do {
-            segments = try await processor.processVideo(URL(fileURLWithPath: video.session.sourcePath), videoId: UUID()).rallySegments
+            segments = try await processor.analyzeVideo(URL(fileURLWithPath: video.session.sourcePath)).rallySegments
         } catch ProcessingError.noRalliesDetected {
             segments = []
         } catch {

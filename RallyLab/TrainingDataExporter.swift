@@ -299,7 +299,7 @@ enum HeadlessTrainingExport {
         processor.config = ProcessorConfig()
         processor.collectFrameEvidence = true
         do {
-            _ = try await processor.processVideo(video, videoId: UUID())
+            _ = try await processor.analyzeVideo(video)
         } catch ProcessingError.noRalliesDetected {
             // Zero predictions is a valid outcome; evidence was still captured.
         }

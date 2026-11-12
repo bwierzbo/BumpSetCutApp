@@ -90,7 +90,7 @@ enum RallyCutScore {
         processor.collectFrameEvidence = true
         var segments: [RallySegment] = []
         do {
-            segments = try await processor.processVideo(video, videoId: UUID()).rallySegments
+            segments = try await processor.analyzeVideo(video).rallySegments
         } catch ProcessingError.noRalliesDetected {
             segments = []
         } catch {

@@ -185,6 +185,63 @@ final class ProcessingCheckpointTests: XCTestCase {
                      "A completed run must consume its checkpoint")
     }
 
+    /// An analysis run (RallyLab's scoring, tuning, export and labeling runs) keeps nothing on
+    /// disk: it reads no checkpoint, writes none and saves no metadata, so a run under an ID
+    /// nothing remembers leaves no file behind. A library run still saves its metadata.
+    @MainActor
+    func testAnAnalysisRunReadsAndWritesNothingInTheMetadataFolder() async throws {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AnalysisRun_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        StorageManager.storageDirectoryOverride = tempDirectory
+        defer {
+            StorageManager.storageDirectoryOverride = nil
+            try? FileManager.default.removeItem(at: tempDirectory)
+        }
+        let videoURL = tempDirectory.appendingPathComponent("analysis.mp4")
+        try TestVideoFactory.writeVideo(to: videoURL, duration: 8.0, size: CGSize(width: 160, height: 120), fps: 5)
+        let videoId = UUID()
+        let processor = VideoProcessor()
+        let store = MetadataStore()
+        let checkpointURL = store.processingCheckpointFileURL(for: videoId)
+        ProcessingCheckpoint(
+            videoId: videoId, configHash: ProcessingCheckpoint.hash(of: processor.config), videoDurationSec: 8.0,
+            collectEvidence: false, resumeTime: 6.0, rawSegments: [.init(start: 1.0, end: 6.0)],
+            ballHeights: [], ballSizes: [], evidence: [],
+            physics: [.init(t: 2.0, isValid: true, rSquared: 0.9, confidenceLevel: 0.85)],
+            trajectorySpans: [.init(start: 1.2, end: 5.5)],
+            counters: .init(rawFrameIndex: 30, skippedFrames: 10, frameCount: 20, totalDetections: 15, detectionFrameCount: 12,
+                            trackingFrameCount: 10, rallyFrameCount: 8, physicsValidFrameCount: 6,
+                            confidenceSum: 9.0, rSquaredSum: 5.4, rSquaredCount: 6),
+            net: nil, savedAt: Date()
+        ).write(to: checkpointURL)
+        func files() throws -> [String] {
+            try FileManager.default.contentsOfDirectory(atPath: store.metadataDirectory.path).sorted()
+        }
+        let before = try files()
+        XCTAssertEqual(before, [checkpointURL.lastPathComponent])
+
+        // Even under the checkpoint's own ID, a run that keeps nothing does not resume from it: the
+        // synthetic video has no ball, so without the checkpointed rally there is nothing to report.
+        do {
+            _ = try await processor.processVideoMetadata(videoURL, videoId: videoId, persist: false)
+            XCTFail("the checkpoint was read")
+        } catch ProcessingError.noRalliesDetected {}
+        XCTAssertEqual(try files(), before, "no metadata, and the checkpoint neither consumed nor rewritten")
+
+        do {
+            _ = try await processor.analyzeVideo(videoURL)
+            XCTFail("a video with no ball has no rallies")
+        } catch ProcessingError.noRalliesDetected {}
+        XCTAssertEqual(try files(), before, "nothing under the run's throwaway ID")
+
+        // The library path is unchanged: it resumes, consumes the checkpoint and saves the metadata.
+        let saved = try await processor.processVideo(videoURL, videoId: videoId)
+        XCTAssertEqual(saved.rallySegments.count, 1)
+        XCTAssertEqual(try store.loadMetadata(for: videoId).rallySegments.count, 1)
+        XCTAssertNil(ProcessingCheckpoint.load(from: checkpointURL))
+    }
+
     /// The resume path seeds a fresh SegmentBuilder with the checkpoint's raw
     /// ranges. That only works if seeding reproduces the original builder's
     /// finalized output exactly — padding must derive deterministically.
