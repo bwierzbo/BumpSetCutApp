@@ -182,8 +182,10 @@ def _inside(path: str, folder: str) -> bool:
 
 def run(project_dir: str, scope: dict, out_dir: str, origin_projects: list[str] | None = None,
         signature_cache: str | None = None, log=print) -> dict:
-    if _inside(out_dir, project_dir):
-        raise ScopeError("the output folder is inside the project: this audit writes nothing under the project folder")
+    # Both folders are written to (the log, the proposals, a signature on a cache miss): neither may be the project's.
+    for what, folder in (("output folder", out_dir), ("signature cache", signature_cache)):
+        if folder and _inside(folder, project_dir):
+            raise ScopeError(f"the {what} is inside the project: this audit writes nothing under the project folder")
     planned = plan(project_dir, scope)
     access = AccessLog(os.path.join(out_dir, "access-log.jsonl"))
     config, tool = configuration(), tool_identity()

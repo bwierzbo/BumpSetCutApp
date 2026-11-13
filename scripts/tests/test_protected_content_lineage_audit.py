@@ -171,9 +171,34 @@ class Run(Fixture):
         before = listing()
         p.run(self.project, scope("hold_a"), self.out, log=lambda _: None)
         self.assertEqual(listing(), before)
+        self.opened.clear()
+        os.remove(os.path.join(self.out, "access-log.jsonl"))
         with self.assertRaises(p.ScopeError):
             p.run(self.project, scope("hold_a"), os.path.join(self.project, "audit-out"), log=lambda _: None)
+        # A signature cache is written to on a miss: one inside the project is refused as the output folder is,
+        # before anything is opened or logged.
+        with self.assertRaises(p.ScopeError):
+            p.run(self.project, scope("hold_a"), self.out, signature_cache=os.path.join(self.project, "signatures"), log=lambda _: None)
         self.assertEqual(listing(), before)
+        self.assertEqual(self.opened, [])
+        self.assertFalse(os.path.exists(os.path.join(self.out, "access-log.jsonl")))
+
+    def test_a_cache_miss_is_written_outside_the_project(self):
+        a.media_from_file = self.real
+        real_read, real_probe = a.read_signatures, a.probe
+        a.read_signatures = lambda path, step=a.STEP_SEC: (self.footage["hold_a"].full, self.footage["hold_a"].centre)
+        a.probe = lambda path: {"width": 64, "height": 36, "durationSec": 60.0}
+        try:
+            def listing():
+                return sorted(os.path.join(d, f) for d, _, fs in os.walk(self.project) for f in fs)
+            before = listing()
+            cache = os.path.join(self.base, "earlier-signatures")
+            p.run(self.project, scope("hold_a"), self.out, signature_cache=cache, log=lambda _: None)
+            self.assertEqual(listing(), before)
+            self.assertEqual(len(os.listdir(cache)), 3, "the ordinary recordings' signatures, in the cache that was named")
+            self.assertEqual(len(os.listdir(os.path.join(self.out, "signatures-protected"))), 1, "the protected one's, under the output folder")
+        finally:
+            a.read_signatures, a.probe = real_read, real_probe
 
     def test_a_protected_file_that_cannot_be_read_is_logged_and_not_cleared(self):
         del self.footage["legacy_a"]

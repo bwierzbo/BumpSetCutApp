@@ -53,4 +53,4 @@ Not run yet. To be added: the tool's commit, the scope file and access log (SHA-
 
 ## Tests
 
-`python3 -m unittest scripts.tests.test_protected_content_lineage_audit` — 12 tests on a synthetic project: the scope's checks; nothing opened and nothing logged when the scope reaches outside; each protected file on the log before it is opened; unnamed protected recordings never opened; a re-encoded copy and an excerpt of protected footage proposed, and only proposed; nothing written under the project; an unreadable file logged and not cleared; the log appended to by a second run; the ordinary audit still opens no protected recording.
+`python3 -m unittest scripts.tests.test_protected_content_lineage_audit` XX each protected file on the log before it is opened; unnamed protected recordings never opened; a re-encoded copy and an excerpt of protected footage proposed, and only proposed; nothing written under the project; an unreadable file logged and not cleared; the log appended to by a second run; the ordinary audit still opens no protected recording.
