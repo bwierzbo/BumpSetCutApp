@@ -128,6 +128,31 @@ final class NetLabelsNavigationTests: XCTestCase {
         XCTAssertNil(model.pending)
     }
 
+    /// The list's skips are as of its last reload. A recording withheld since — listed in validation.json while
+    /// the tab stays on screen — is shown no model: no proposal, no ledger row. An ordinary one still is.
+    func testNoProposalIsMadeForARecordingWithheldSinceTheListWasRead() async throws {
+        let a = try project(named: "A", videos: [Video(id: "c_ok"), Video(id: "d_next")])
+        let current = try open(a)
+        let footage = NetLabelsTests.ScriptedFootage()
+        let model = NetLabelsModel(project: { current }, footage: footage, prefetchAhead: 0)
+        model.activate(true)
+        XCTAssertNil(model.items.first { $0.video == "c_ok" }?.skip, "the fixture: listed as an ordinary recording")
+        try FileManager.default.createDirectory(at: a.appendingPathComponent("pipeline_tuning"), withIntermediateDirectories: true)
+        try #"{"tune":[],"holdout":["c_ok"],"finalTest":[]}"#.write(to: PipelineTuner.ValidationSet.file(in: a), atomically: true, encoding: .utf8)
+
+        model.select("c_ok")
+        await settle()
+        XCTAssertEqual(footage.proposalCalls, 0, "the model did not run")
+        XCTAssertTrue(model.status.contains("c_ok is withheld"), model.status)
+        XCTAssertNil(model.proposal)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ExposureLog.url(in: a).path), "and nothing was recorded")
+
+        model.select("d_next")
+        await settle()
+        XCTAssertEqual(footage.proposalCalls, 1, "an ordinary recording still gets its proposal")
+        XCTAssertEqual(try ExposureLog.readStrict(in: a).map { "\($0.video) \($0.kind.rawValue)" }, ["d_next net_proposal"])
+    }
+
     /// The tab already on screen: the request is applied at once, without a reload.
     func testARequestWhileTheTabIsActiveIsAppliedAtOnce() async throws {
         let a = try project(named: "A", videos: [Video(id: "c_ok"), Video(id: "d_next")])

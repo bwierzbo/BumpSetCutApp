@@ -16,7 +16,7 @@
 //
 //  No frame of a withheld recording — the final test, a lineage or legacy
 //  holdout, an alias of one (D-002, D-017) — is written into images/ or
-//  labels/: `writeLabel`, the folder's one writer, parks it under excluded/.
+//  labels/: `writeLabels`, the folder's one writer, parks it under excluded/.
 //  A dataset with no pipeline_tuning/validation.json withholds nothing.
 //
 
@@ -254,25 +254,32 @@ final class DatasetStore: @unchecked Sendable {
         return "images/\(split)/\(name)__\(base).\(copiedFile.pathExtension.lowercased())"
     }
 
-    /// Write (or clear) one frame's YOLO label file. A frame that's not kept,
-    /// or not reviewed when only reviewed labels are wanted, has its label
-    /// file removed so the trainer never sees it — Ultralytics skips images
-    /// without a label file only when `keep` is false, so the image itself is
-    /// moved aside too.
-    /// `inCut`: the frame lies inside one of its recording's cut ranges (not footage; D-030) —
-    /// parked like a discarded one, and back when the cut goes.
-    /// `session`: the recording the frame is of. A frame of a withheld recording — the final test, a
-    /// lineage or legacy holdout, an alias of one (D-002, D-017; owner, 2026-11-12 §5C) — is never in the
-    /// dataset a trainer is pointed at, whatever the options: parked the same way, where review still
-    /// finds it (`currentImageURL`). Every writer comes through here, so none can put one back. Throws,
-    /// with nothing written or moved, when the reservations or the project can't be read (fails closed).
-    /// Returns whether the frame is in the dataset now.
+    /// Write (or clear) the YOLO label files of these frames of the recording `session`. A frame
+    /// that's not kept, or not reviewed when only reviewed labels are wanted, has its label file
+    /// removed so the trainer never sees it — Ultralytics skips images without a label file only
+    /// when `keep` is false, so the image itself is moved aside too.
+    /// `cuts`: the recording's cut ranges (not footage; D-030) — a frame inside one is parked like a
+    /// discarded one, and back when the cut goes.
+    /// A frame of a withheld recording — the final test, a lineage or legacy holdout, an alias of one
+    /// (D-002, D-017; owner, 2026-11-12 §5C) — is never in the dataset a trainer is pointed at, whatever
+    /// the options: parked the same way, where review still finds it (`currentImageURL`). The
+    /// reservations are asked as they are at this call (`ScoringExposure.Closures.current`). Every
+    /// writer comes through here, so none can put one back. Throws, with nothing written or moved, when
+    /// the reservations or the project can't be read (fails closed). Returns how many of the frames are
+    /// in the dataset now.
     @discardableResult
-    func writeLabel(for frame: FrameRecord, of session: String, reviewedOnly: Bool, inCut: Bool = false) throws -> Bool {
+    func writeLabels(for frames: [FrameRecord], of session: String, reviewedOnly: Bool, cuts: [CutRange]) throws -> Int {
         let withheld = try ScoringExposure.Closures.current(in: root).withheld.contains(session)
+        return try frames.reduce(0) { count, frame in
+            let excluded = withheld || !frame.keep || (reviewedOnly && !frame.reviewed) || cuts.contains(frame.time)
+            return try count + (writeLabel(for: frame, excluded: excluded) ? 1 : 0)
+        }
+    }
+
+    /// One frame's label file and image, in the dataset or parked out of it; whether it is in.
+    private func writeLabel(for frame: FrameRecord, excluded: Bool) throws -> Bool {
         let labelURL = root.appendingPathComponent(frame.labelFile)
         let imageURL = root.appendingPathComponent(frame.file)
-        let excluded = !frame.keep || (reviewedOnly && !frame.reviewed) || inCut || withheld
         let parkedURL = parkedImageURL(for: frame)
 
         if excluded {

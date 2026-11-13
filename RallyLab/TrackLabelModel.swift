@@ -71,10 +71,9 @@ final class TrackLabelModel {
     @ObservationIgnored private var playTask: Task<Void, Never>?
     @ObservationIgnored private let snapDetector = SnapDetector()
     @ObservationIgnored private let lookAgainHeat = LookAgainHeat()
-    /// Whether a model may run over the open video, once asked (`modelAdmission`): nil inside when it may, else
-    /// why not. Asked before the first model run of an opening and kept until another video is opened, so the
-    /// reservations are not read again on every click.
-    @ObservationIgnored private var modelRefusal: String??
+    /// The detectors' admission over the open video (`modelAdmission`), asked before every model run: it
+    /// follows the reservations as they are then.
+    @ObservationIgnored private var modelsAdmission = ScoringExposure.OpenAdmission(ask: TrackLabelModel.modelAdmission)
 
     /// Frames are read about this often, whatever the video's frame rate —
     /// the same spacing as the multi-frame package.
@@ -156,7 +155,6 @@ final class TrackLabelModel {
         stop()
         trackTask?.cancel()
         sessionName = name
-        modelRefusal = nil
         rallies = session.tracks ?? []
         selectedId = nil
         index = 0
@@ -320,11 +318,11 @@ final class TrackLabelModel {
                                   otherwise: "no model is run over it: place the ball by hand.")
     }
 
-    /// False, with the reason shown, when no model may run over the open video.
-    private func modelsAdmitted() -> Bool {
+    /// False, with the reason shown, when no model may run over the open video now. Asked before every
+    /// model run, never kept from an earlier one: the video may have become withheld since.
+    func modelsAdmitted() -> Bool {
         guard let sessionName else { return false }
-        let refusal = modelRefusal ?? Self.modelAdmission(of: sessionName, in: sampler.datasetRoot)
-        modelRefusal = .some(refusal)
+        let refusal = modelsAdmission.refusal(of: sessionName, in: sampler.datasetRoot)
         if let refusal { status = refusal }
         return refusal == nil
     }

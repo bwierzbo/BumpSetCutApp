@@ -17,7 +17,9 @@
 //  words it for the headless scoring commands, and `admit` is the one
 //  admission (refuse the withheld, then record) for a model run over named
 //  recordings: a package's frames in HeatmapLab, a ball path, the Track tab's
-//  and the Sampler's detectors. There is no way past it: an authorised
+//  and the Sampler's detectors (`OpenAdmission`: asked again at every click,
+//  so it follows the reservations while a recording stays open). There is no
+//  way past it: an authorised
 //  evaluation of a holdout is a separately controlled, logged path of its own.
 //
 
@@ -150,30 +152,40 @@ enum ScoringExposure {
             sessions.filter { !withheld.contains($0.name) }
         }
 
-        /// The closures of validation.json and project.json as they are now, read again only when either file
-        /// has changed (size, modification time, or there or not) — for a caller that asks once per frame (the
-        /// project dataset's writer, `DatasetStore.writeLabel`). A read that throws is never kept: unreadable
-        /// reservations throw on every call (fails closed).
+        /// The closures as they are now, read again whenever anything they are read from has changed — for a
+        /// caller that asks often (a tab before every model run of a click, the project dataset's writer). What
+        /// they are read from is watched whole: validation.json, project.json, and the origin file of every
+        /// video whose identity is derived from it (`ReservedVideos.derivedIdentityFile`) — each by whether it
+        /// is there, its size, its modification time and its file number, asked on every call. So an answer
+        /// kept here never outlives the reservations or the identities it was computed from. A read that
+        /// throws is never kept: unreadable reservations throw on every call (fails closed).
         static func current(in root: URL) throws -> Closures {
-            let files = [PipelineTuner.ValidationSet.file(in: root), root.appendingPathComponent("project.json")]
-            let stamp = files.map { file -> String in
-                guard let a = try? FileManager.default.attributesOfItem(atPath: file.path) else { return "none" }
-                return "\(a[.size] as? UInt64 ?? 0)@\((a[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate ?? 0)"
-            }
             let key = root.standardizedFileURL.path
             keptLock.lock()
             let hit = kept[key]
             keptLock.unlock()
-            if let hit, hit.stamp == stamp { return hit.closures }
+            if let hit, hit.read.allSatisfy({ stamp($0.key) == $0.value }) { return hit.closures }
+            // Stamped before they are read: a file that changes meanwhile is read again on the next call.
+            var read = [PipelineTuner.ValidationSet.file(in: root).path, root.appendingPathComponent("project.json").path]
+                .reduce(into: [String: String]()) { $0[$1] = stamp($1) }
+            // Cards that can't be read change nothing here: `Closures(in:)` throws for them when it needs them.
+            for source in ((try? ReservedVideos.sources(in: root)) ?? [:]).values {
+                if let file = ReservedVideos.derivedIdentityFile(source) { read[file] = stamp(file) }
+            }
             let closures = try Closures(in: root)
             keptLock.lock()
-            kept[key] = (stamp, closures)
+            kept[key] = (read, closures)
             keptLock.unlock()
             return closures
         }
 
+        private static func stamp(_ path: String) -> String {
+            guard let a = try? FileManager.default.attributesOfItem(atPath: path) else { return "none" }
+            return "\(a[.size] as? UInt64 ?? 0)@\((a[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate ?? 0)#\(a[.systemFileNumber] as? UInt64 ?? 0)"
+        }
+
         private static let keptLock = NSLock()
-        nonisolated(unsafe) private static var kept: [String: (stamp: [String], closures: Closures)] = [:]
+        nonisolated(unsafe) private static var kept: [String: (read: [String: String], closures: Closures)] = [:]
     }
 
     /// What keeps a recording from every routine model run, worded to follow "<name> is": the final test named
@@ -233,6 +245,29 @@ enum ScoringExposure {
             return "⛔ \(refused.reason) — \(otherwise)"
         } catch {
             return "❌ \(name): \(error.localizedDescription)"
+        }
+    }
+
+    /// The admission of the recording a person has open, asked before every model run of a tab — every click.
+    /// The full admission (`ask`: the reservations read fresh, the use on the ledger) is made the first time,
+    /// and again whenever there is any doubt; in between, the one thing remembered is that this recording's
+    /// use is on the ledger, and it is believed only while the reservations as they are now
+    /// (`Closures.current`, which reads again when validation.json, project.json or an identity's file has
+    /// changed) still admit the recording. A recording that becomes withheld while it is open — listed, or an
+    /// alias by a provenance change — is refused at the next click; nothing a refusal says is remembered.
+    struct OpenAdmission {
+        /// Why no model may run over the recording in the dataset, or nil once its use is on the ledger.
+        let ask: (_ name: String, _ root: URL) -> String?
+        private var recorded: (name: String, root: URL)?
+
+        init(ask: @escaping (_ name: String, _ root: URL) -> String?) { self.ask = ask }
+
+        mutating func refusal(of name: String, in root: URL) -> String? {
+            if let recorded, recorded.name == name, recorded.root == root,
+               (try? Closures.current(in: root).withheld.contains(name)) == false { return nil }
+            let refusal = ask(name, root)
+            recorded = refusal == nil ? (name, root) : nil
+            return refusal
         }
     }
 }

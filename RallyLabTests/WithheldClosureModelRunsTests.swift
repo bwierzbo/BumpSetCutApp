@@ -164,6 +164,134 @@ final class WithheldClosureModelRunsTests: XCTestCase {
         XCTAssertEqual(try ledger().count, 3)
     }
 
+    // MARK: - An admission does not outlive the reservations it was made under
+
+    private let ordinary = #"{"tune":[],"holdout":["h"],"finalTest":[],"lineageHoldout":["l"]}"#
+    private let tListed = #"{"tune":[],"holdout":["h","t"],"finalTest":[],"lineageHoldout":["l"]}"#
+
+    /// One click on the frame under review, waited for; the status it leaves.
+    private func click(_ sampler: SamplerModel) async throws -> String {
+        sampler.snapBox(at: CGPoint(x: 0.5, y: 0.5))
+        while sampler.snapping != nil { try await Task.sleep(nanoseconds: 20_000_000) }
+        return sampler.status
+    }
+
+    func testAClickToBoxAdmittedOnceIsRefusedWhenItsRecordingBecomesWithheld() async throws {
+        try makeProject()
+        let sampler = sampler()
+        let projects = ProjectsModel(sampler: sampler, defaults: defaults, restoreLastProject: false)
+        projects.open(root)
+        XCTAssertNotNil(projects.opening, projects.status)
+        sampler.openSession(try session("t"))
+        while sampler.isLoadingSession { try await Task.sleep(nanoseconds: 20_000_000) }
+        // Admitted: the use is on the ledger, once, however many clicks ask.
+        let row = ["t pre_tracking RallyLab Sampler review"]
+        XCTAssertNil(sampler.snapRefusal())
+        XCTAssertNil(sampler.snapRefusal())
+        XCTAssertEqual(try ledger(), row)
+
+        // Listed in validation.json while the session stays open: the next click runs no model.
+        try writeValidation(tListed)
+        XCTAssertEqual(sampler.snapRefusal()?.contains("t is \(withheldPhrase)"), true)
+        var status = try await click(sampler)
+        XCTAssertTrue(status.contains("t is \(withheldPhrase)"), status)
+        XCTAssertFalse(status.contains("(detector"), "the box was placed without the model: \(status)")
+        XCTAssertEqual(try session("t").frames.first?.boxes.count, 1, "and still placed")
+        XCTAssertEqual(try ledger(), row, "no row for a run that did not happen")
+        // Closing and reopening the same session brings no admission back.
+        sampler.closeSession()
+        sampler.openSession(try session("t"))
+        while sampler.isLoadingSession { try await Task.sleep(nanoseconds: 20_000_000) }
+        XCTAssertNotNil(sampler.snapRefusal())
+
+        // The listing withdrawn: admitted again, on the row it already has.
+        try writeValidation(ordinary)
+        XCTAssertNil(sampler.snapRefusal())
+        XCTAssertEqual(try ledger(), row)
+
+        // Made an alias of the legacy holdout by a provenance change (project.json): the next click runs no model.
+        XCTAssertTrue(projects.setProvenance(videoId: "t", sourceId: "camera-roll-2", sessionId: nil, venueId: nil))
+        XCTAssertEqual(try ScoringExposure.Closures(in: root).standing(of: "t"), withheldPhrase, "the fixture: t now shares h's confirmed sourceId")
+        XCTAssertEqual(sampler.snapRefusal()?.contains("t is \(withheldPhrase)"), true)
+        status = try await click(sampler)
+        XCTAssertTrue(status.contains("t is \(withheldPhrase)"), status)
+        XCTAssertFalse(status.contains("(detector"), status)
+        XCTAssertEqual(try ledger(), row)
+
+        // Reservations that can't be read while it is open: refused, not waved through on the old answer.
+        XCTAssertTrue(projects.setProvenance(videoId: "t", sourceId: "", sessionId: nil, venueId: nil))
+        XCTAssertNil(sampler.snapRefusal())
+        try writeValidation(#"{"tune":[],"holdout":["h"]"#)
+        XCTAssertEqual(sampler.snapRefusal()?.hasPrefix("❌"), true)
+        XCTAssertEqual(try ledger(), row)
+    }
+
+    func testTheTrackTabsDetectorsAreRefusedWhenTheOpenVideoBecomesWithheld() async throws {
+        try makeProject()
+        let sampler = sampler()
+        let projects = ProjectsModel(sampler: sampler, defaults: defaults, restoreLastProject: false)
+        projects.open(root)
+        let tracker = TrackLabelModel(sampler: sampler)
+        await tracker.openAndWait(sessionName: "t")
+        let row = ["t pre_tracking RallyLab Track tab"]
+        XCTAssertTrue(tracker.modelsAdmitted())
+        XCTAssertTrue(tracker.modelsAdmitted())
+        XCTAssertEqual(try ledger(), row)
+        // Listed while the video stays open.
+        try writeValidation(tListed)
+        XCTAssertFalse(tracker.modelsAdmitted(), "auto-track, click-to-box and look-again all ask this first")
+        XCTAssertTrue(tracker.status.contains("t is \(withheldPhrase)"), tracker.status)
+        try writeValidation(ordinary)
+        XCTAssertTrue(tracker.modelsAdmitted())
+        // An alias by a provenance change while it stays open.
+        XCTAssertTrue(projects.setProvenance(videoId: "t", sourceId: "camera-roll-2", sessionId: nil, venueId: nil))
+        XCTAssertFalse(tracker.modelsAdmitted())
+        XCTAssertTrue(tracker.status.contains("t is \(withheldPhrase)"), tracker.status)
+        XCTAssertEqual(try ledger(), row, "nothing recorded for the refused runs")
+    }
+
+    func testKeptClosuresAreReadAgainWhenAnythingTheyAreReadFromChanges() throws {
+        let videos = try makeProject()
+        XCTAssertEqual(try ScoringExposure.Closures.current(in: root).withheld, ["a", "g", "h", "l"])
+        // validation.json.
+        try writeValidation(tListed)
+        XCTAssertEqual(try ScoringExposure.Closures.current(in: root).withheld, ["a", "g", "h", "l", "t"])
+        try writeValidation(ordinary)
+        XCTAssertEqual(try ScoringExposure.Closures.current(in: root).withheld, ["a", "g", "h", "l"])
+        // project.json: an older card `x` that stored no fingerprint — its identity is read from its origin file,
+        // which is not there yet.
+        let origin = base.appendingPathComponent("footage/original of x.mp4")
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        var project = try decoder.decode(Project.self, from: Data(contentsOf: root.appendingPathComponent("project.json")))
+        var x = F.source("x", fingerprint: nil)
+        x.origin = origin.path
+        project.clips.append(F.clip("x", split: "train", videos: [x]))
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(project).write(to: root.appendingPathComponent("project.json"))
+        XCTAssertEqual(try ScoringExposure.Closures.current(in: root).withheld, ["a", "g", "h", "l"])
+        // Neither JSON file changes from here on. The origin file appears, and it is the legacy holdout's
+        // content: `x` is an alias now, and the kept answer must not say otherwise.
+        try FileManager.default.copyItem(at: try XCTUnwrap(videos["h"]), to: origin)
+        XCTAssertEqual(try ScoringExposure.Closures(in: root).withheld, ["a", "g", "h", "l", "x"], "the fixture: read fresh")
+        XCTAssertEqual(try ScoringExposure.Closures.current(in: root).withheld, ["a", "g", "h", "l", "x"])
+        var admission = ScoringExposure.OpenAdmission(ask: SamplerModel.snapAdmission)
+        XCTAssertEqual(admission.refusal(of: "x", in: root)?.contains("x is \(withheldPhrase)"), true)
+        // Its content changes to something of its own: an ordinary recording again, admitted and recorded.
+        try Data((0..<4000).map { UInt8($0 % 199) }).write(to: origin)
+        XCTAssertEqual(try ScoringExposure.Closures.current(in: root).withheld, ["a", "g", "h", "l"])
+        XCTAssertNil(admission.refusal(of: "x", in: root))
+        XCTAssertEqual(try ledger(), ["x pre_tracking RallyLab Sampler review"])
+        // And back to the holdout's content while `x` stays "open": refused at the next ask, no new row.
+        try FileManager.default.removeItem(at: origin)
+        try FileManager.default.copyItem(at: try XCTUnwrap(videos["h"]), to: origin)
+        XCTAssertEqual(admission.refusal(of: "x", in: root)?.contains("x is \(withheldPhrase)"), true)
+        XCTAssertEqual(try ledger().count, 1)
+        // Unreadable reservations are never kept as an answer.
+        try writeValidation(#"{"tune":[],"holdout":["h"]"#)
+        XCTAssertThrowsError(try ScoringExposure.Closures.current(in: root))
+        XCTAssertThrowsError(try ScoringExposure.Closures.current(in: root))
+    }
+
     // MARK: - Models tab: score against YOLO, test-set scoring, render, detector evaluation
 
     private func export(_ name: String, clips: [String]) throws -> URL {
@@ -374,8 +502,8 @@ final class WithheldClosureModelRunsTests: XCTestCase {
 
         // The one writer refuses on its own, whoever calls it (a review edit, a cut, an ingest).
         let h = try XCTUnwrap(try session("h").frames.first), t = try XCTUnwrap(try session("t").frames.first)
-        XCTAssertFalse(try store.writeLabel(for: h, of: "h", reviewedOnly: false))
-        XCTAssertTrue(try store.writeLabel(for: t, of: "t", reviewedOnly: false))
+        XCTAssertEqual(try store.writeLabels(for: [h], of: "h", reviewedOnly: false, cuts: []), 0)
+        XCTAssertEqual(try store.writeLabels(for: [t], of: "t", reviewedOnly: false, cuts: []), 1)
         assertWithheldOut("written directly")
 
         // Reservations that can't be read: nothing is written or moved.
@@ -383,7 +511,7 @@ final class WithheldClosureModelRunsTests: XCTestCase {
         sampler.reviewedOnly = false
         sampler.writeDataset()
         XCTAssertTrue(sampler.status.hasPrefix("Couldn't write the dataset"), sampler.status)
-        XCTAssertThrowsError(try store.writeLabel(for: t, of: "t", reviewedOnly: false))
+        XCTAssertThrowsError(try store.writeLabels(for: [t], of: "t", reviewedOnly: false, cuts: []))
         assertWithheldOut("reservations unreadable")
         XCTAssertTrue(parked("images/train/t_1.jpg"), "not brought back while the reservations are unknown")
 

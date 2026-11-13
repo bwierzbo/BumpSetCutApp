@@ -20,7 +20,7 @@
 //
 //  The project's own data.yaml (images/train, images/val) is NOT a lineage
 //  dataset: its writer keeps withheld recordings' frames out of it
-//  (DatasetStore.writeLabel), but nothing plans, audits or hashes that
+//  (DatasetStore.writeLabels), but nothing plans, audits or hashes that
 //  folder. A lineage trains only from a package written here with a passing
 //  preflight.
 //

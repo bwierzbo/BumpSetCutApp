@@ -296,10 +296,9 @@ final class SamplerModel {
     /// the canvas to show a ring while it looks.
     private(set) var snapping: CGPoint?
     @ObservationIgnored private let snapDetector = SnapDetector()
-    /// Whether the click-to-box detector may run over a session's frames, once asked (`snapAdmission`): the
-    /// session and dataset it was asked for, and why not (nil: it may). Kept until another session is boxed in,
-    /// so the reservations are not read again on every click.
-    @ObservationIgnored private var snapAsked: (session: String, root: URL, refusal: String?)?
+    /// The click-to-box detector's admission over the session under review (`snapAdmission`), asked at every
+    /// click: it follows the reservations as they are then.
+    @ObservationIgnored private var snapAdmitted = ScoringExposure.OpenAdmission(ask: SamplerModel.snapAdmission)
     /// Frames already checked for balls that stayed put, this session.
     @ObservationIgnored private var heldChecked: Set<UUID> = []
     private var loadTask: Task<Void, Never>?
@@ -372,16 +371,13 @@ final class SamplerModel {
 
     /// Rewrites every label file under the current policy and refreshes
     /// data.yaml — the one step before training. Whatever the policy, no frame of a
-    /// withheld recording is in what it writes (`DatasetStore.writeLabel`).
+    /// withheld recording is in what it writes (`DatasetStore.writeLabels`).
     func writeDataset() {
         do {
             try store.prepare()
             var written = 0
             for session in sessions {
-                let cuts = session.cutRanges
-                for frame in session.frames where try store.writeLabel(for: frame, of: session.name, reviewedOnly: reviewedOnly, inCut: cuts.contains(frame.time)) {
-                    written += 1
-                }
+                written += try store.writeLabels(for: session.frames, of: session.name, reviewedOnly: reviewedOnly, cuts: session.cutRanges)
             }
             try store.writeDataYAML()
             reloadSessions()
@@ -508,7 +504,7 @@ final class SamplerModel {
         if let cuts = job.cuts, !cuts.isEmpty { session.cuts = cuts }
         try store.save(session)
         let ranges = session.cutRanges
-        for frame in records { try store.writeLabel(for: frame, of: name, reviewedOnly: reviewedOnly, inCut: ranges.contains(frame.time)) }
+        try store.writeLabels(for: records, of: name, reviewedOnly: reviewedOnly, cuts: ranges)
         try store.writeDataYAML()
         return session
     }
@@ -1151,14 +1147,19 @@ final class SamplerModel {
                                   otherwise: "no model is run over it: the box is placed without one.")
     }
 
+    /// Why the click-to-box detector may not run over the session under review now, or nil when it may (its
+    /// use is on the ledger). Asked before every click's model run, never kept from an earlier one: the
+    /// session may have become withheld since — listed, or an alias by a provenance change.
+    func snapRefusal() -> String? {
+        guard let session = currentSession else { return "No session is open." }
+        return snapAdmitted.refusal(of: session.name, in: datasetRoot)
+    }
+
     /// Click on a ball: find it (BallSnapper) and box it as a volleyball.
     /// `point` is top-left normalised in the frame.
     func snapBox(at point: CGPoint) {
-        guard let sample = selected, let session = currentSession, snapping == nil else { return }
-        if snapAsked?.session != session.name || snapAsked?.root != datasetRoot {
-            snapAsked = (session.name, datasetRoot, Self.snapAdmission(of: session.name, in: datasetRoot))
-        }
-        let refusal = snapAsked?.refusal
+        guard let sample = selected, currentSession != nil, snapping == nil else { return }
+        let refusal = snapRefusal()
         snapping = point
         let url = store.currentImageURL(for: sample.record)
         let model = prelabelModel
@@ -1332,7 +1333,7 @@ final class SamplerModel {
         }
         saveSession(session)
         do {
-            try store.writeLabel(for: record, of: session.name, reviewedOnly: reviewedOnly, inCut: session.cutRanges.contains(record.time))
+            try store.writeLabels(for: [record], of: session.name, reviewedOnly: reviewedOnly, cuts: session.cutRanges)
         } catch {
             status = "Couldn't save: \(error.localizedDescription)"
         }
@@ -1374,7 +1375,7 @@ final class SamplerModel {
         guard let session = sessions.first(where: { $0.name == name }) else { return }
         let ranges = session.cutRanges
         do {
-            for frame in session.frames { try store.writeLabel(for: frame, of: name, reviewedOnly: reviewedOnly, inCut: ranges.contains(frame.time)) }
+            try store.writeLabels(for: session.frames, of: name, reviewedOnly: reviewedOnly, cuts: ranges)
         } catch {
             status = "Couldn't park the frames inside the cuts: \(error.localizedDescription)"
         }
