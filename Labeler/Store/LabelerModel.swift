@@ -20,8 +20,12 @@ final class LabelerModel: ReviewStore {
     enum Phase { case starting, signedOut, notLabeler, ready }
 
     private(set) var phase = Phase.starting
-    private(set) var snapshot = LabelSnapshot()
+    private(set) var snapshot = LabelSnapshot() { didSet { publishModelLeave() } }
     private(set) var outbox = Outbox()
+    /// Which recordings no model is kept from, as this phone knows now, for model work running off the main actor
+    /// to ask before every frame and window (ModelLeave): set at every change of the snapshot — the list, the
+    /// rows, the account's role — and nowhere else.
+    @ObservationIgnored let modelLeave = ModelLeave()
     /// Rows the server has accepted whose settlement the snapshot on the phone may not hold yet: they are written
     /// with the outbox until the snapshot write that carries them has completed, so a launch after a kill in between
     /// finds them still owed and sends them again (each send is a repeat the server takes as is) instead of loading
@@ -47,6 +51,11 @@ final class LabelerModel: ReviewStore {
     init() {
         snapshot = LocalStore.load(LabelSnapshot.self, "snapshot.json") ?? LabelSnapshot()
         outbox = LocalStore.load(Outbox.self, "outbox.json") ?? Outbox()
+        publishModelLeave()
+    }
+
+    private func publishModelLeave() {
+        modelLeave.set(open: Set(snapshot.videos.filter { access(for: $0) == .open }.map(\.id)))
     }
 
     // MARK: - Session
@@ -807,12 +816,18 @@ final class LabelerModel: ReviewStore {
 
     private func flushOnce() async {
         guard !outbox.isEmpty else { return }
-        // Edits of a recording closed to this account since they were made (withheld, or its project's list gone)
-        // stay on the phone, unsent: the server refuses them, and one refused row would hold back every other.
-        let closed = Set(snapshot.videos.filter { !access(for: $0).offersMarking }.map(\.id))
-        let heldBack = outbox.times.keys.filter(closed.contains).count + outbox.tracks.values.filter { closed.contains($0.videoId) }.count
-        if heldBack > 0 { syncProblem = "\(heldBack) edit\(heldBack == 1 ? "" : "s") of a recording that is not open to labeling here now kept on this phone, not sent." }
-        for (id, times) in outbox.times where !closed.contains(id) {
+        // What may go, judged when it is sent — every send here suspends, and the list can change under the ones
+        // before it. Edits of a recording closed to this account since they were made (withheld, or its project's
+        // list gone) stay on the phone, unsent: the server refuses them, and one refused row would hold back
+        // every other. And a rally the server does not have that a model found the ball in stays here while its
+        // recording is withheld or not known not to be (TrackedRally.mayGoUp — the Mac's sync holds the same).
+        // A recording whose row is gone from what the server serves is not known.
+        func accessNow(_ videoId: UUID) -> LabelAccess {
+            snapshot.videos.first { $0.id == videoId }.map { access(for: $0) } ?? LabelAccess(withheld: nil, byHand: snapshot.lead)
+        }
+        var heldBack = 0
+        for (id, times) in outbox.times {
+            guard accessNow(id).offersMarking else { heldBack += 1; continue }
             do {
                 let saved = try await client.save(times)
                 if outbox.times[id] == times { outbox.times[id] = nil; settling.times[id] = times }
@@ -922,7 +937,13 @@ final class LabelerModel: ReviewStore {
                 break
             }
         }
-        let tracks = outbox.tracks.values.filter { !closed.contains($0.videoId) }
+        let onServer = Set(snapshot.tracks.map(\.id))
+        let tracks = outbox.tracks.values.filter { t in
+            let access = accessNow(t.videoId)
+            return access.offersMarking && t.rally.mayGoUp(new: !onServer.contains(t.id), access: access)
+        }
+        heldBack += outbox.tracks.count - tracks.count
+        if heldBack > 0 { syncProblem = "\(heldBack) edit\(heldBack == 1 ? "" : "s") of a recording that is withheld, or not open to labeling here now, kept on this phone, not sent." }
         if !tracks.isEmpty {
             do {
                 try await client.save(tracks)
@@ -1009,10 +1030,15 @@ final class LabelerModel: ReviewStore {
 
     /// The pipeline's sightings of the ball over the video, made on the Mac
     /// and sent next to the clip; fetched once and kept.
+    ///
+    /// The path is the pipeline's output over the recording: not fetched for one no model may run over, and not
+    /// handed on when the recording was withheld while it was being fetched (ModelLeave.delivered) — marking
+    /// goes on by hand then, without snapping.
     func ballPath(for video: LabelVideo) async -> [BallPath.Sample]? {
-        // The path is the pipeline's output over the recording: not shown, and not fetched, for one no model may
-        // run over — marking it goes on by hand, without snapping.
-        guard access(for: video) == .open else { return nil }
+        await ModelLeave.delivered(if: { access(for: video) == .open }) { await storedBallPath(for: video) } ?? nil
+    }
+
+    private func storedBallPath(for video: LabelVideo) async -> [BallPath.Sample]? {
         let local = LocalStore.ballPath(for: video)
         if let file = BallPathFile.load(local) { return file.samples }
         guard let clip = video.clipPath, !ballPathsMissing.contains(video.id) else { return nil }

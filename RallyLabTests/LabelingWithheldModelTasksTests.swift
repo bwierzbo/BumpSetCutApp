@@ -533,6 +533,198 @@ final class LabelingWithheldModelTasksTests: XCTestCase {
         XCTAssertTrue(sync.status.contains("19 kept on this Mac, not published"), sync.status)
     }
 
+    func testARowWithWhatThePipelineFoundIsNotPublishedUnderTheClosureAnEarlierRowWentUpUnder() async throws {
+        try makeProject(validation: nil)
+        server.hold("save(video)")   // the first row's save is on its way back
+        let round = Task { await self.sync.sync(videos: true) }
+        let parked = await server.arrived()
+        XCTAssertTrue(parked, "\(server.calls)")
+        let first = try XCTUnwrap(server.savedVideos.first?.sessionName)
+        // One not published yet this round, and no other recording's alias (the lineage holdout and its copy go together).
+        let later = try XCTUnwrap([holdout, train].first { $0 != first })
+        try withhold([later])
+        server.release()
+        let synced = await round.value
+        XCTAssertTrue(synced, sync.status)
+        XCTAssertEqual(Set(server.savedVideos.compactMap(\.sessionName)), Set(all).subtracting([later]), "the row of the recording withheld meanwhile was not published")
+        XCTAssertFalse(server.uploads.contains(ballPath(later)), "nor its ball path")
+    }
+
+    // MARK: - Model work asks before every unit; what comes back late is dropped (ModelLeave)
+
+    func testTheLeaveIsWhatTheDeviceKnowsNowFromAnyThread() async {
+        let leave = ModelLeave()
+        let recording = UUID(), other = UUID()
+        let ask = leave.question(for: recording)
+        XCTAssertFalse(ask(), "a recording never heard of is not open")
+        leave.set(open: [recording])
+        XCTAssertTrue(ask())
+        XCTAssertFalse(leave.isOpen(other))
+        // Asked off the main actor, where the detectors run, after the list changed on it.
+        leave.set(open: [other])
+        let seenOffMain = await Task.detached { ask() }.value
+        XCTAssertFalse(seenOffMain)
+        // Units stop at the next one, and what the earlier ones gave is not handed on.
+        leave.set(open: [recording])
+        var run: [Int] = []
+        let stopped = ModelLeave.each(0..<10, whileAllowed: ask) { unit -> Int in
+            run.append(unit)
+            if unit == 3 { leave.set(open: []) }
+            return unit
+        }
+        XCTAssertNil(stopped)
+        XCTAssertEqual(run, [0, 1, 2, 3], "no unit ran after the change")
+        leave.set(open: [recording])
+        XCTAssertEqual(ModelLeave.each(0..<4, whileAllowed: ask) { $0 * 2 }, [0, 2, 4, 6], "an open recording runs them all")
+    }
+
+    /// Stands in for the multi-frame model's windows: every push and the finish count as a window run.
+    private struct CountingWindows: HeatWindowing {
+        final class Count { var pushes = 0; var finishes = 0; var onPush: (Int) -> Void = { _ in } }
+        let count = Count()
+        mutating func push(_ frame: Int) -> [[HeatmapBallDetector.Peak]] {
+            count.pushes += 1
+            count.onPush(count.pushes)
+            return [[]]
+        }
+        mutating func finish() -> [[HeatmapBallDetector.Peak]] {
+            count.finishes += 1
+            return [[], []]
+        }
+    }
+
+    func testTheHeatmapPassStopsAtTheNextWindowWhenTheRecordingIsWithheldMidPass() {
+        let leave = ModelLeave()
+        let recording = UUID()
+        let frames: [Int?] = Array(0..<12)
+        for narrowedAt in [1, 5, 12] {
+            leave.set(open: [recording])
+            var windows = CountingWindows()
+            // The list withholds the recording while window `narrowedAt` is running.
+            windows.count.onPush = { n in if n == narrowedAt { leave.set(open: []) } }
+            let peaks = TrackFinder.heatPeaks(&windows, frames: frames, whileAllowed: leave.question(for: recording))
+            XCTAssertNil(peaks, "nothing is handed back (narrowed at \(narrowedAt))")
+            XCTAssertEqual(windows.count.pushes, narrowedAt, "windows run after the change: 0")
+            XCTAssertEqual(windows.count.finishes, 0, "the last window did not run either")
+        }
+        // Withheld before the pass: no window at all.
+        leave.set(open: [])
+        var none = CountingWindows()
+        XCTAssertNil(TrackFinder.heatPeaks(&none, frames: frames, whileAllowed: leave.question(for: recording)))
+        XCTAssertEqual(none.count.pushes + none.count.finishes, 0)
+        // A recording still open: every window, and the answers in order.
+        leave.set(open: [recording])
+        var all = CountingWindows()
+        let peaks = TrackFinder.heatPeaks(&all, frames: frames, whileAllowed: leave.question(for: recording))
+        XCTAssertEqual(all.count.pushes, 12)
+        XCTAssertEqual(all.count.finishes, 1)
+        XCTAssertEqual(peaks?.count, 14)
+    }
+
+    private func picture() throws -> CGImage {
+        let context = try XCTUnwrap(CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        return try XCTUnwrap(context.makeImage())
+    }
+
+    func testLookingAgainStopsAtTheNextCropWhenTheRecordingIsWithheldMidSearch() throws {
+        let image = try picture()
+        // A fix on frame 10 of 21, nothing found on the frames around it: the search goes to the detector's crops.
+        let box = TrackCandidate(rect: CGRect(x: 0.4, y: 0.4, width: 0.05, height: 0.05), confidence: 1)
+        var points = (0..<21).map { TrackPoint(time: Double($0) / 30, state: .unknown, origin: .auto, box: nil) }
+        points[10] = TrackPoint(time: 10.0 / 30, state: .visible, origin: .user, box: box)
+        let rally = TrackedRally(id: UUID(), start: 0, end: 20.0 / 30, points: points, candidates: points.map { _ in [] }, done: false)
+        let leave = ModelLeave()
+        let recording = UUID()
+        var windows = 0, crops = 0
+        var narrowAtCrop: Int?, narrowAtWindows = false
+        func search() -> [Int: [TrackCandidate]] {
+            windows = 0; crops = 0
+            leave.set(open: [recording])
+            return TrackFinder.lookAgain(from: 10, in: rally, whileAllowed: leave.question(for: recording), faint: { span in
+                var counting = CountingWindows()
+                counting.count.onPush = { _ in windows += 1; if narrowAtWindows { leave.set(open: []) } }
+                return TrackFinder.heatPeaks(&counting, frames: span.map { Optional($0) }, whileAllowed: leave.question(for: recording))
+            }, detect: { _ in
+                crops += 1
+                if crops == narrowAtCrop { leave.set(open: []) }
+                return []
+            }, image: { _ in image })
+        }
+        // Still open: the whole search — every window, then two frames each way, two crops each.
+        XCTAssertEqual(search(), [:], "the stand-ins find nothing")
+        XCTAssertEqual(crops, 8)
+        XCTAssertGreaterThan(windows, 1)
+        // Withheld while the first crop is in the detector: no crop after it.
+        narrowAtCrop = 1
+        XCTAssertEqual(search(), [:])
+        XCTAssertEqual(crops, 1, "crops run after the change: 0")
+        narrowAtCrop = 5
+        XCTAssertEqual(search(), [:])
+        XCTAssertEqual(crops, 5)
+        // Withheld during the multi-frame model's first window: no further window, and no crop at all.
+        narrowAtCrop = nil; narrowAtWindows = true
+        XCTAssertEqual(search(), [:])
+        XCTAssertEqual(windows, 1, "windows run after the change: 0")
+        XCTAssertEqual(crops, 0)
+    }
+
+    /// The marking screen as far as its ball path goes: what the phone knows of the recording, how often the
+    /// path was fetched, and the path installed for snapping.
+    @MainActor private final class MarkingScreen {
+        var access = LabelAccess.open
+        var downloads = 0
+        var installed: [Double]?
+
+        /// LabelerModel.ballPath, then MarkRalliesView's install — with a stand-in client whose download waits
+        /// until `download` is opened.
+        func fetchAndInstall(_ download: Latch) async {
+            let seen = await ModelLeave.delivered(if: { access == .open }) { () async -> [Double] in
+                downloads += 1
+                try? await download.wait()
+                return [1, 2, 3]
+            }
+            if let seen { installed = seen }
+        }
+    }
+
+    func testABallPathWhoseDownloadCompletesAfterTheRecordingIsWithheldIsNotInstalled() async {
+        let screen = MarkingScreen()
+        // Withheld while the download is suspended: the access change clears the path; the samples that then
+        // arrive are not installed over it.
+        let suspended = Latch()
+        let late = Task { await screen.fetchAndInstall(suspended) }
+        while screen.downloads == 0 { await Task.yield() }
+        screen.access = withheldLead
+        screen.installed = nil
+        suspended.open()
+        await late.value
+        XCTAssertNil(screen.installed, "a late ball path for a recording withheld meanwhile is dropped")
+        // Not known is the same; and nothing is fetched at all for a recording already withheld.
+        screen.access = unknownLead
+        let already = Latch(); already.open()
+        await screen.fetchAndInstall(already)
+        XCTAssertEqual(screen.downloads, 1, "not fetched")
+        XCTAssertNil(screen.installed)
+        // A recording still open: fetched and installed.
+        screen.access = .open
+        let open = Latch(); open.open()
+        await screen.fetchAndInstall(open)
+        XCTAssertEqual(screen.downloads, 2)
+        XCTAssertEqual(screen.installed, [1, 2, 3])
+    }
+
+    func testARallyGoesUpByWhatItsRecordingIsWhenItIsSent() {
+        // The Mac's sync and the phone's outbox ask the same rule at the moment of sending.
+        for access in [withheldLead, unknownLead, withheldLabeler, unknownLabeler] {
+            XCTAssertFalse(rally("machine").mayGoUp(new: true, access: access), "\(access)")
+            XCTAssertFalse(rally("assisted").mayGoUp(new: true, access: access), "tracked while it was open, sent after it was withheld: \(access)")
+            XCTAssertTrue(rally("hand").mayGoUp(new: true, access: access), "every frame placed by a person")
+            XCTAssertTrue(rally("machine").mayGoUp(new: false, access: access), "a row the server already has keeps syncing")
+        }
+        for kind in ["machine", "assisted", "hand"] { XCTAssertTrue(rally(kind).mayGoUp(new: true, access: .open), kind) }
+    }
+
     // MARK: - What a model found the ball in
 
     func testARallyCarriesModelOutputWhenPreTrackedOrWhenABoxIsTheDetectorsPick() {

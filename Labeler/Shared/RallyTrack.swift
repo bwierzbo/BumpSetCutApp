@@ -167,6 +167,13 @@ extension TrackedRally {
     /// solver chose (not a box a person placed or confirmed).
     var carriesModelOutput: Bool { isMachine || points.contains { $0.origin == .auto && $0.box != nil } }
 
+    /// Whether the rally may go to the server now, from the Mac's sync or the phone's outbox. One the server
+    /// already has keeps syncing (the record made before, and what a person changes in it by hand). A new one
+    /// goes for a recording no model is kept from, or when a person placed every frame of it: a rally a model
+    /// found the ball in is model output, and none is published for a recording that is withheld or not known
+    /// not to be — judged when it is sent, not when it was made.
+    func mayGoUp(new: Bool, access: LabelAccess) -> Bool { !new || access == .open || !carriesModelOutput }
+
     /// Frames with a decided label (the ball, or hidden): what training gets.
     var labeledFrames: Int { points.filter { $0.state != .unknown }.count }
     /// Of those, the ones a person checked in review (or marked hidden).

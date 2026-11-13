@@ -169,6 +169,10 @@ final class TrackSession {
             guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw ClipEncoder.Failure.noVideo }
             let times = try await Self.frameTimes(track, start: rally.start, end: rally.end)
             guard !times.isEmpty else { throw ClipEncoder.Failure.cantRead }
+            // The clip may have taken minutes to come: the work as it stands now, before a rally not tracked yet
+            // is given its frames and saved (withheld meanwhile, it does not open) and before any detector runs.
+            let launched = workNow()
+            if case .refused = launched.work { return }
             if rally.points.isEmpty {
                 rally.start = times.first!
                 rally.end = times.last!
@@ -182,12 +186,10 @@ final class TrackSession {
             }
             // An existing track's own frame times win (they're what was labeled).
             let wanted = rally.points.map(\.time)
-            let launched = workNow()
-            if case .refused = launched.work { return }
             let what = launched.work == .assisted ? "Finding the ball on \(wanted.count) frames…" : "Reading \(wanted.count) frames…"
             phase = .preparing(what, 0)
             let found = try await Self.readFrames(asset: asset, times: wanted, work: launched,
-                                                  stillAssisted: { [weak self] in await self?.isAssistedNow() ?? false }) { done in
+                                                  whileAllowed: model.modelLeave.question(for: video.id)) { done in
                 Task { @MainActor [weak self] in
                     self?.phase = .preparing(what, Double(done) / Double(wanted.count))
                 }
@@ -242,20 +244,20 @@ final class TrackSession {
         var candidates: [[TrackCandidate]]
     }
 
-    private func isAssistedNow() -> Bool { workNow().work == .assisted }
-
     /// Every frame read once, in order. Assisted: YOLO's candidates and the
     /// frame for the multi-frame model, then the multi-frame model's peaks
     /// merged in. By hand: the frames only — the detectors are built through
     /// `work.models`, so none is for a recording no model may run over, and
-    /// no candidate comes back. `stillAssisted` is asked before each frame:
-    /// once the recording is withheld the detectors stop there, the rest of
-    /// the frames are only read, and nothing found comes back.
+    /// no candidate comes back. `whileAllowed` (ModelLeave) is asked before
+    /// the detectors are built, before each frame's detection and before
+    /// each of the multi-frame model's windows: once the recording is
+    /// withheld they stop there, the rest of the frames are only read, and
+    /// nothing found comes back.
     private static func readFrames(asset: AVURLAsset, times: [Double], work: TrackWork.Now,
-                                   stillAssisted: @escaping @Sendable () async -> Bool,
+                                   whileAllowed: @escaping @Sendable () -> Bool,
                                    progress: @escaping @Sendable (Int) -> Void) async throws -> Found {
         try await Task.detached(priority: .userInitiated) {
-            let models = try? work.models { () -> (yolo: YOLODetector, heat: HeatmapBallDetector?) in
+            let models = !whileAllowed() ? nil : try? work.models { () -> (yolo: YOLODetector, heat: HeatmapBallDetector?) in
                 let yolo = YOLODetector(modelName: "ball_v2_small", computeUnits: .cpuAndNeuralEngine)
                 yolo.minConfidence = candidateConfidence
                 yolo.suppressesStaticObjects = false
@@ -280,7 +282,7 @@ final class TrackSession {
                 let requests = indices.map { CMTime(seconds: times[$0], preferredTimescale: 600_000) }
                 for await result in generator.images(for: requests) {
                     try Task.checkCancellation()
-                    if detecting, !(await stillAssisted()) { detecting = false }
+                    if detecting, !whileAllowed() { detecting = false }
                     guard let image = try? result.image,
                           let i = indices.first(where: { abs(times[$0] - result.requestedTime.seconds) < 0.0005 }) else { continue }
                     // Each frame's buffers drained before the next: hundreds of
@@ -305,8 +307,8 @@ final class TrackSession {
                 generator.requestedTimeToleranceAfter = CMTime(seconds: 0.25 / frameRate, preferredTimescale: 600_000)
                 try await read(missed)
             }
-            if detecting, let heat { TrackFinder.addHeatmapCandidates(heat, grays: grays, to: &found) }
-            return Found(frames: frames, candidates: detecting ? found : [])
+            if detecting, let heat { detecting = TrackFinder.addHeatmapCandidates(heat, grays: grays, to: &found, whileAllowed: whileAllowed) }
+            return Found(frames: frames, candidates: detecting && whileAllowed() ? found : [])
         }.value
     }
 
@@ -344,15 +346,16 @@ final class TrackSession {
         let launched = workNow()
         guard launched.work == .assisted else { return }
         let snapshot = rally, frames = frames, holder = lookAgainDetector, heatHolder = lookAgainHeat
+        let whileAllowed = model.modelLeave.question(for: video.id)
         isLookingAgain = true
         Task {
             let added = await Task.detached(priority: .userInitiated) { () -> [Int: [TrackCandidate]] in
-                let models = try? launched.models {
+                let models = !whileAllowed() ? nil : try? launched.models {
                     (yolo: holder.detector, heat: heatHolder.detector(for: Bundle.main.url(forResource: "ball_heat", withExtension: "mlmodelc")))
                 }
                 guard let detector = models?.yolo else { return [:] }
                 let heat = models?.heat
-                return TrackFinder.lookAgain(from: fix, in: snapshot, detector: detector, heat: heat) { i in
+                return TrackFinder.lookAgain(from: fix, in: snapshot, detector: detector, heat: heat, whileAllowed: whileAllowed) { i in
                     autoreleasepool { frames.indices.contains(i) ? UIImage(data: frames[i])?.cgImage : nil }
                 }
             }.value

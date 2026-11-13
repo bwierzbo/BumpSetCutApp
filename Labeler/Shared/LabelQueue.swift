@@ -90,6 +90,56 @@ enum LabelAccess: Equatable, Sendable {
     }
 }
 
+/// Model work and model output over a recording, across time. An admission is true of the moment it was given:
+/// a detector runs for seconds over hundreds of frames and windows, a download or an upload takes as long, and
+/// the withheld list can change under either. Two rules, each with its one way through:
+///
+/// - **Before every unit a model runs** — a frame, a heatmap window, a crop — the work asks again. The detectors
+///   run off the main actor, so the answer is kept here where any thread can read it (`isOpen`,
+///   `question(for:)`), set at every change of what the device knows (`set(open:)`). The finders take the
+///   question as `whileAllowed` and stop themselves at the next unit.
+/// - **What a model produced, or the server returned, across a suspension** is handed on only if the recording
+///   is still open to it afterwards (`delivered`): a late result for a recording withheld meanwhile is dropped.
+final class ModelLeave: @unchecked Sendable {
+    private let lock = NSLock()
+    private var open: Set<UUID> = []
+
+    /// The recordings no model is kept from, as the device knows now. Any other — withheld, not known, or never
+    /// heard of — is not open.
+    func set(open ids: Set<UUID>) {
+        lock.lock(); defer { lock.unlock() }
+        open = ids
+    }
+
+    func isOpen(_ id: UUID) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return open.contains(id)
+    }
+
+    /// What model work over one recording asks before every unit it runs.
+    func question(for id: UUID) -> @Sendable () -> Bool { { [self] in isOpen(id) } }
+
+    /// `produce`'s result — a download, a computation — only if `allowed` held before it started and still holds
+    /// once it is back; nil otherwise, and nothing is produced at all when it did not hold to begin with.
+    @MainActor
+    static func delivered<Output>(if allowed: () -> Bool, _ produce: () async throws -> Output) async rethrows -> Output? {
+        guard allowed() else { return nil }
+        let output = try await produce()
+        return allowed() ? output : nil
+    }
+
+    /// `units` run in order, the question asked before each: the results, or nil from the moment the answer is no
+    /// (the units left are not run, and what the earlier ones gave is not handed on).
+    static func each<Unit, Result>(_ units: some Sequence<Unit>, whileAllowed allowed: () -> Bool, _ run: (Unit) -> Result) -> [Result]? {
+        var results: [Result] = []
+        for unit in units {
+            guard allowed() else { return nil }
+            results.append(run(unit))
+        }
+        return allowed() ? results : nil
+    }
+}
+
 enum LabelQueue {
 
     enum Job: Hashable {

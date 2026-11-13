@@ -498,15 +498,23 @@ final class LabelingSync {
             // removed. Remaking them all takes hours, so it isn't automatic.
             let path = "rallylab/\(DatasetStore.safeName(project))/\(session.name)-v\(Self.copyVersion).mp4"
             let stale = video.clipPath.map { remaking(session.name) && $0.hasPrefix("rallylab/") && $0 != path } ?? true
+            // The awaits above (and the encode and the upload below, minutes each) all suspend: the recording may
+            // have been withheld since the closure was read for this loop. Each publication — the copy, then the
+            // row with what the pipeline found in it — asks the closure as it is at that moment.
+            let name = session.name
+            let stillPublished: () async -> Bool = { await Self.withheldClosure(root: root).map { !$0.contains(name) } ?? false }
             if stale {
+                guard await stillPublished() else { continue }
                 status = "Uploading \(session.name) for the phone (\(i + 1) of \(sessions.count))…"
                 do {
-                    try await uploadSmallCopy(of: source, to: path)
+                    try await uploadSmallCopy(of: source, to: path, unless: { !(await stillPublished()) })
                     if let old = video.clipPath { try? await client.remove(old) }
                     video.clipPath = path
                     uploaded += 1
                 } catch LabelingClient.Failure.notSignedIn {
                     throw LabelingClient.Failure.notSignedIn
+                } catch SyncError.withheldMeanwhile {
+                    continue   // nothing went up; the next round leaves it out from the start
                 } catch {
                     // One clip failing (a dropped connection, or the round cancelled) shouldn't stop the rest; the
                     // next sync retries it.
@@ -519,6 +527,7 @@ final class LabelingSync {
             // during the upload: the copy is on the server, and the row is how the phone finds it and the next sync
             // knows not to make it again. The next pass stops at its check.
             if video != existing {
+                guard await stillPublished() else { continue }
                 try await client.save(video)
             }
             listed += 1
@@ -571,7 +580,8 @@ final class LabelingSync {
     /// frame next to the one asked for, and frames sharing a time decoded grey).
     static let copyVersion = 3
 
-    private func uploadSmallCopy(of source: URL, to path: String) async throws {
+    /// `unless` is asked once the copy is encoded (minutes after the caller's own check), right before it goes up.
+    private func uploadSmallCopy(of source: URL, to path: String, unless withheldMeanwhile: () async -> Bool) async throws {
         let out = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
         defer { try? FileManager.default.removeItem(at: out) }
         let run = await ToolEnvironment.run("ffmpeg", [
@@ -581,13 +591,19 @@ final class LabelingSync {
             "-pix_fmt", "yuv420p", "-movflags", "+faststart", out.path,
         ])
         guard run.status == 0 else { throw SyncError.encode(run.lines.last ?? "ffmpeg failed") }
+        guard !(await withheldMeanwhile()) else { throw SyncError.withheldMeanwhile }
         try await client.uploadFile(out, to: path)
     }
 
     enum SyncError: LocalizedError {
         case encode(String)
+        /// The recording was withheld while its copy was being made: nothing was uploaded.
+        case withheldMeanwhile
         var errorDescription: String? {
-            switch self { case .encode(let why): return "Couldn't make the phone copy: \(why)" }
+            switch self {
+            case .encode(let why): return "Couldn't make the phone copy: \(why)"
+            case .withheldMeanwhile: return "The recording was withheld while its phone copy was being made: not uploaded."
+            }
         }
     }
 
@@ -915,8 +931,11 @@ final class LabelingSync {
         var received = 0
         var held = 0
         // The new rallies a model found the ball in that the closure just read lets go up, with their recording.
-        var modelRallies: [UUID: String] = [:]
+        var modelRallies: [UUID: (session: String, rally: TrackedRally)] = [:]
         var closureLost = false
+        // A recording's access by a closure read (nil: unreadable or not read — not known). Marking by hand goes on
+        // on the Mac, so a withheld recording is by hand only, never closed.
+        func access(_ session: String, _ closure: Set<String>?) -> LabelAccess { LabelAccess(withheld: closure.map { $0.contains(session) }, byHand: true) }
         // What each session's synced list becomes once the server has this round's batches: its rallies now, plus
         // the rallies deleted here whose tombstones the server has not acknowledged yet.
         var syncedAfter: [(session: String, ids: [UUID], tombstones: [UUID])] = []
@@ -975,11 +994,11 @@ final class LabelingSync {
             var heldHere: Set<UUID> = []
             for i in local.indices where !known.contains(local[i].id) {
                 if local[i].carriesModelOutput {
-                    if withheld?.contains(name) ?? true {
+                    guard local[i].mayGoUp(new: true, access: access(name, withheld)) else {
                         heldHere.insert(local[i].id)   // model output over a withheld recording (or one not known not to be)
                         continue
                     }
-                    modelRallies[local[i].id] = name
+                    modelRallies[local[i].id] = (name, local[i])
                 }
                 local[i] = local[i].with(updatedAt: now)
                 outgoing.append(LabelTrack(local[i], videoId: video.id))   // new here
@@ -1009,7 +1028,7 @@ final class LabelingSync {
             if n > 0, batch.contains(where: { modelRallies[$0.id] != nil }) {
                 let current = await Self.withheldClosure(root: opening.root)
                 let before = batch.count
-                batch.removeAll { t in modelRallies[t.id].map { current?.contains($0) ?? true } ?? false }
+                batch.removeAll { t in modelRallies[t.id].map { !$0.rally.mayGoUp(new: true, access: access($0.session, current)) } ?? false }
                 held += before - batch.count
                 if current == nil { closureLost = true }
             }
