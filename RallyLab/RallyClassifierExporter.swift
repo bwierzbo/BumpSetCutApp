@@ -190,7 +190,7 @@ enum RallyClassifierExporter {
             case .resumeMismatch(let why): return "The folder given to --resume is not this dataset's staging folder: \(why)."
             case .noManifest(let u): return "No split manifest at \(u.path)."
             case .staleManifest(let why): return "The split manifest is not the project's current one (\(why)); rebuild it before exporting."
-            case .emptyClosure: return "The withheld closure is empty (no validation.json reservations): an empty closure proves nothing, so no dataset is written."
+            case .emptyClosure: return "The withheld closure is empty (no validation.json reservations): an empty closure proves nothing, so nothing is written."
             case .badVariants(let why): return "Baseline variants: \(why)."
             case .detectorUnknown(let why): return "The detector can't be identified: \(why)."
             case .detectorNotUsed(let why): return "The evidence is not the dataset's detector's: \(why). Nothing of it is exported (the staging folder is kept for --resume once the model loads)."
@@ -246,15 +246,11 @@ enum RallyClassifierExporter {
         let configSha = config.canonicalSHA256
 
         // 1. The split manifest, current, and its audit.
-        guard let manifest = try DatasetSplitManifest.readStrict(from: manifestURL) else { throw Failure.noManifest(manifestURL) }
-        let current = currentHashes(projectDir)
-        for (label, have, now) in [("project.json", manifest.hashes.projectJson, current.projectJson),
-                                   ("sessions", manifest.hashes.sessions, current.sessions),
-                                   ("validation.json", manifest.hashes.validationJson, current.validationJson)] {
-            guard let have, let now else { throw Failure.staleManifest("\(label) has no hash") }
-            guard have == now else { throw Failure.staleManifest("\(label) changed since it was built") }
-        }
-        guard let manifestSha = DatasetSplitManifest.sha256(of: manifestURL) else { throw Failure.noManifest(manifestURL) }
+        let manifest: DatasetSplitManifest, manifestSha: String
+        do { (manifest, manifestSha) = try DatasetSplitManifest.readCurrent(from: manifestURL, projectDir: projectDir) }
+        catch DatasetSplitManifest.CurrencyError.missing { throw Failure.noManifest(manifestURL) }
+        catch DatasetSplitManifest.CurrencyError.stale(let why) { throw Failure.staleManifest(why) }
+        guard let splitHashes = SplitHashes(manifest.hashes, manifestJson: manifestSha) else { throw Failure.staleManifest("it records no hash of validation.json") }
         let audit = DatasetAudit.run(manifest: manifest, now: options.now)
 
         // 2. The withheld closure and the isolation, before any video is read.
@@ -262,9 +258,7 @@ enum RallyClassifierExporter {
         guard !closure.isEmpty else { throw Failure.emptyClosure }
         let (_, isolated) = try LineagePackage.isolation(manifest: manifest, audit: audit, withheldClosure: closure)
         let sources = try ReservedVideos.sources(in: projectDir)
-        let withheld = Withheld(names: closure.sorted(),
-                                sourceIds: Set(closure.compactMap { sources[$0]?.sourceId }.filter { !$0.isEmpty }).sorted(),
-                                fingerprints: Set(closure.compactMap { sources[$0].flatMap(ReservedVideos.effectiveFingerprint) }).sorted())
+        let withheld = Withheld(closure: closure, sources: sources)
 
         // 3. The plan.
         let registry = try SourceRegistry.load(root: projectDir, now: options.now)
@@ -282,8 +276,7 @@ enum RallyClassifierExporter {
         let protectedContent: Set<String>
         do { protectedContent = try LineagePackage.protectedSourceFingerprints(sessions: Array(sessions.values), withheld: closure, sources: sources) }
         catch { throw Failure.unreadable(error.localizedDescription) }
-        let withheldFull = Withheld(names: withheld.names, sourceIds: withheld.sourceIds,
-                                    fingerprints: Set(withheld.fingerprints).union(protectedContent).sorted())
+        let withheldFull = withheld.adding(content: protectedContent)
 
         var planned: [Planned] = []
         var leftOut: [LeftOut] = []
@@ -426,8 +419,7 @@ enum RallyClassifierExporter {
             let manifestOut = DatasetManifest(
                 schemaVersion: schemaVersion, createdAt: iso(options.now),
                 generator: Generator(tool: options.tool, codeSha: options.codeSha), project: manifest.project,
-                splitManifest: SplitHashes(projectJson: manifest.hashes.projectJson ?? "", sessions: manifest.hashes.sessions ?? "",
-                                           validationJson: manifest.hashes.validationJson ?? "", manifestJson: manifestSha),
+                splitManifest: splitHashes,
                 withheld: withheldFull, detector: detector, pipelineConfigSha256: configSha, timescale: timescale,
                 samplingHzNominal: samplingHzNominal, featureSchema: FeatureSchema(), labelSchema: LabelSchema(),
                 baseline: BaselineBlock(replayer: replayer, variants: identity.variants), recordings: recordingsOut)
@@ -506,13 +498,6 @@ enum RallyClassifierExporter {
 
     static func isSafeName(_ name: String) -> Bool {
         !name.isEmpty && !name.hasPrefix(".") && name.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) && $0.isASCII || "-_.".unicodeScalars.contains($0) }
-    }
-
-    static func currentHashes(_ dir: URL) -> DatasetSplitManifest.Hashes {
-        DatasetSplitManifest.Hashes(
-            projectJson: DatasetSplitManifest.sha256(of: dir.appendingPathComponent("project.json")),
-            sessions: DatasetSplitManifest.canonicalDigest(ofDirectory: dir.appendingPathComponent("sessions", isDirectory: true)),
-            validationJson: DatasetSplitManifest.sha256(of: PipelineTuner.ValidationSet.file(in: dir)))
     }
 
     /// Recording groups over the planned rows: same card, alias group, uploader, confirmed sourceId / sessionId /
@@ -909,6 +894,34 @@ enum RallyClassifierExporter {
             self.closureSha256 = ""
             self.closureSha256 = RallyClassifierExporter.closureSha256(self)
         }
+
+        /// The closure's recordings by every identity their cards carry: name, confirmed sourceId, stored fingerprint.
+        init(closure: Set<String>, sources: [String: ClipSource]) {
+            self.init(names: closure.sorted(),
+                      sourceIds: Set(closure.compactMap { sources[$0]?.sourceId }.filter { !$0.isEmpty }).sorted(),
+                      fingerprints: Set(closure.compactMap { sources[$0].flatMap(ReservedVideos.effectiveFingerprint) }).sorted())
+        }
+
+        /// The same closure with the identities its recordings' videos have on disk as well
+        /// (LineagePackage.protectedSourceFingerprints): a card's stored fingerprint names the file it was registered
+        /// from, which need not be the video it holds (D-036).
+        func adding(content: Set<String>) -> Withheld {
+            Withheld(names: names, sourceIds: sourceIds, fingerprints: Set(fingerprints).union(content).sorted())
+        }
+
+        /// The withheld closure of the project at `projectDir` as it is now (ReservedVideos.lineageWithheldNames, the
+        /// one withheld rule), with every identity: what a consumer away from the project — a trainer on another
+        /// machine — is handed to hold a package against. Throws when the reservations, the project or a session
+        /// can't be read, when a withheld recording can't be recognised by content, and when nothing is withheld
+        /// (an empty closure proves nothing).
+        static func current(in projectDir: URL) throws -> Withheld {
+            let closure = try ReservedVideos.lineageWithheldNames(in: projectDir)
+            guard !closure.isEmpty else { throw Failure.emptyClosure }
+            let sources = try ReservedVideos.sources(in: projectDir)
+            let sessions = try DatasetStore(root: projectDir).loadSessionsStrict()
+            return Withheld(closure: closure, sources: sources)
+                .adding(content: try LineagePackage.protectedSourceFingerprints(sessions: sessions, withheld: closure, sources: sources))
+        }
     }
 
     struct Detector: Codable, Equatable {
@@ -948,6 +961,54 @@ enum RallyClassifierExporter {
         var sessions: String
         var validationJson: String
         var manifestJson: String
+
+        /// The inputs a split manifest recorded and that manifest file's own hash; nil when it lacks one — a
+        /// record never carries an empty hash for an input that could not be read.
+        init?(_ hashes: DatasetSplitManifest.Hashes, manifestJson: String) {
+            guard let projectJson = hashes.projectJson, let sessions = hashes.sessions, let validationJson = hashes.validationJson else { return nil }
+            self.projectJson = projectJson; self.sessions = sessions; self.validationJson = validationJson; self.manifestJson = manifestJson
+        }
+    }
+
+    /// What a package or a trainer away from the project is held against: the withheld closure with every
+    /// identity, and the split manifest it stands on — read and verified against the project as it is at that
+    /// moment (`current`), never taken from a file written earlier.
+    struct ProjectClosure: Equatable {
+        var splitManifest: SplitHashes
+        var withheld: Withheld
+
+        /// Throws when the split manifest is missing, unreadable or not of the project as it is now
+        /// (DatasetSplitManifest.readCurrent), and whatever `Withheld.current` throws.
+        static func current(in projectDir: URL) throws -> ProjectClosure {
+            let (manifest, sha) = try DatasetSplitManifest.readCurrent(from: NetInventory.manifestURL(in: projectDir), projectDir: projectDir)
+            let withheld = try Withheld.current(in: projectDir)
+            guard let hashes = SplitHashes(manifest.hashes, manifestJson: sha) else {
+                throw DatasetSplitManifest.CurrencyError.stale("it records no hash of validation.json")
+            }
+            return ProjectClosure(splitManifest: hashes, withheld: withheld)
+        }
+
+        /// The closure as a file for `--withheld` (validate_dataset.py, train_net_model.py): names, sourceIds,
+        /// fingerprints and closureSha256 at the top level, with the split manifest's hashes, the project and the time.
+        func file(project: String, now: Date = Date()) throws -> Data {
+            try RallyClassifierExporter.encode(File(project: project, createdAt: RallyClassifierExporter.iso(now), closure: self), pretty: true)
+        }
+
+        private struct File: Encodable {
+            var project: String
+            var createdAt: String
+            var closure: ProjectClosure
+
+            enum CodingKeys: String, CodingKey { case project, createdAt, splitManifest }
+
+            func encode(to encoder: Encoder) throws {
+                try closure.withheld.encode(to: encoder)
+                var c = encoder.container(keyedBy: CodingKeys.self)
+                try c.encode(project, forKey: .project)
+                try c.encode(createdAt, forKey: .createdAt)
+                try c.encode(closure.splitManifest, forKey: .splitManifest)
+            }
+        }
     }
 
     struct FeatureDTO: Codable, Equatable {

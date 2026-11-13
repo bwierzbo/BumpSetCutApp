@@ -316,10 +316,26 @@ final class HeatmapLab {
     }
 
     /// Start training `package` (an exported multi-frame package folder) on
-    /// the desktop; the run's name, or nil if it couldn't start.
+    /// the desktop; the run's name, or nil if it couldn't start. The trainer is given the project's
+    /// withheld closure as it is now, written for this run (RallyClassifierExporter.ProjectClosure):
+    /// desktop.sh and the trainer hold the package to it and refuse one that holds a withheld
+    /// recording or does not say what it holds — so nothing starts when the closure can't be written
+    /// (a split manifest that is not current, reservations that can't be read).
     func startDesktopRun(package: URL, arguments: [String]) async -> String? {
+        let root = sampler.datasetRoot
+        let closure = FileManager.default.temporaryDirectory.appendingPathComponent("withheld-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: closure) }
+        do {
+            // Off the main thread: the withheld recordings' videos are read for their content, over the footage share.
+            try await Task.detached {
+                try RallyClassifierExporter.ProjectClosure.current(in: root).file(project: root.lastPathComponent).write(to: closure)
+            }.value
+        } catch {
+            desktopLine = "Couldn't start: \(error.localizedDescription)"
+            return nil
+        }
         desktopLine = "Sending \(package.lastPathComponent).zip…"
-        let started = await streamDesktop(["train", package.path + ".zip"] + arguments)
+        let started = await streamDesktop(["train", package.path + ".zip", "--withheld", closure.path] + arguments)
         guard started.status == 0, let name = started.lines.lazy.compactMap({ Self.runName(in: $0) }).first else {
             desktopLine = "Couldn't start: " + (started.lines.last ?? "no output")
             return nil

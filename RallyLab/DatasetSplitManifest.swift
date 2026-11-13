@@ -164,6 +164,13 @@ struct DatasetSplitManifest: Codable {
         var sessions: String?
         /// SHA-256 of pipeline_tuning/validation.json.
         var validationJson: String?
+
+        /// The same three, of the project folder as it is now; nil for a file that is not there or can't be read.
+        static func current(of projectDir: URL) -> Hashes {
+            Hashes(projectJson: DatasetSplitManifest.sha256(of: projectDir.appendingPathComponent("project.json")),
+                   sessions: DatasetSplitManifest.canonicalDigest(ofDirectory: projectDir.appendingPathComponent("sessions", isDirectory: true)),
+                   validationJson: DatasetSplitManifest.sha256(of: PipelineTuner.ValidationSet.file(in: projectDir)))
+        }
     }
 
     var schemaVersion: Int
@@ -548,6 +555,53 @@ struct DatasetSplitManifest: Codable {
 
     /// Lenient reader for display; never use it to decide what to overwrite.
     static func read(from file: URL) -> DatasetSplitManifest? { (try? readStrict(from: file)) ?? nil }
+
+    /// A manifest that can't stand for the project as it is now. A consumer that picks, groups or splits
+    /// recordings by the manifest must have none of these: a manifest written before a provenance change
+    /// (a recording newly withheld, two recordings confirmed as one) still names the old splits and groups.
+    enum CurrencyError: LocalizedError, Equatable {
+        case missing(URL)
+        case stale(String)
+
+        static let refresh = "Write it again from the project as it is now: RallyLab --project <name> --manifest --audit-dataset."
+
+        var errorDescription: String? {
+            switch self {
+            case .missing(let file): return "No split manifest at \(file.path). \(Self.refresh)"
+            case .stale(let why): return "The split manifest is not the project's current one (\(why)), so its splits, identities and groups can't be relied on. \(Self.refresh)"
+            }
+        }
+    }
+
+    /// Why this manifest is not of the project at `projectDir` as it is now, or nil when it is: the hashes it
+    /// recorded of project.json, sessions/ and validation.json must be the files' today. A hash the manifest
+    /// lacks, or a file that can't be hashed now, is unverifiable and counts as stale; only a validation.json
+    /// that is not there matches a manifest written when there was none.
+    func staleness(in projectDir: URL) -> String? {
+        let now = Hashes.current(of: projectDir)
+        for (label, have, current) in [("project.json", hashes.projectJson, now.projectJson), ("sessions", hashes.sessions, now.sessions)] {
+            guard let have else { return "it records no hash of \(label)" }
+            guard let current else { return "\(label) can't be read now" }
+            guard have == current else { return "\(label) changed since it was built" }
+        }
+        if FileManager.default.fileExists(atPath: PipelineTuner.ValidationSet.file(in: projectDir).path) {
+            guard let current = now.validationJson else { return "validation.json can't be read now" }
+            guard let have = hashes.validationJson else { return "validation.json was added since it was built" }
+            guard have == current else { return "validation.json changed since it was built" }
+        } else if hashes.validationJson != nil {
+            return "validation.json was there when it was built and is gone"
+        }
+        return nil
+    }
+
+    /// The manifest at `file`, only when it is of the project at `projectDir` as it is now, with the file's
+    /// SHA-256. Throws `CurrencyError` when there is none or it is stale, and what `readStrict` throws when it
+    /// can't be decoded: nothing is ever picked from a manifest that could not be verified.
+    static func readCurrent(from file: URL, projectDir: URL) throws -> (manifest: DatasetSplitManifest, sha256: String) {
+        guard let manifest = try readStrict(from: file), let sha = sha256(of: file) else { throw CurrencyError.missing(file) }
+        if let why = manifest.staleness(in: projectDir) { throw CurrencyError.stale(why) }
+        return (manifest, sha)
+    }
 
     func write(to file: URL) throws {
         let encoder = JSONEncoder()

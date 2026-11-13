@@ -12,8 +12,21 @@ on your windows. A window from sampled frames has one labeled frame,
 placed at a random position among the 9 so every output learns; one from
 a tracked rally has every frame labeled. Only labeled frames are scored.
 
-    python train_heatmap_model.py Test1-multiframe-<stamp>.zip
-    python train_heatmap_model.py <package> --size 1024 --name heat1024
+    python train_heatmap_model.py <package> --withheld <closure.json>
+    python train_heatmap_model.py <package> --withheld <closure.json> --size 1024 --name heat1024
+
+Before anything is unzipped, trained or scored, the package is held to the
+project's withheld closure as it is NOW (withheld_closure.py, beside this
+file; D-036 — a package outlives the project state it was built from):
+--withheld <closure.json> is required (`RallyLab --project P --manifest
+--audit-dataset --withheld-closure <file>`, written at the time of training);
+the package must say what it holds — the l2-manifest.json a lineage package
+(`RallyLab --package-l2`) carries, whose preflight passed and whose window
+list is this one — and no recording in it may be in the closure by name,
+confirmed source, the fingerprint its card was registered with or its
+video's content. A package without that record, a missing, unreadable or
+empty closure file, and a package holding a withheld recording all stop the
+run; --score-only and --resume are held to the same.
 
 Balls in play vs resting balls: a motion model is for the ball in play.
 Balls that sit still through the window (on the sideline, in a cart) are
@@ -74,6 +87,10 @@ import zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+
+import withheld_closure  # noqa: E402  (beside this file: the closure file and the package check, shared with train_net_model.py)
+
 SEQ = 9
 SIZES = {512: (512, 288), 768: (768, 432), 1024: (1024, 576)}
 BASE_WIDTH = 512        # scores are in pixels at this width, whatever the input size
@@ -123,6 +140,14 @@ def download(url: str) -> bytes:
     except ImportError:
         context = None
     return urllib.request.urlopen(url, timeout=120, context=context).read()
+
+
+def admitted(check, *args):
+    """A withheld_closure check, its refusal the run's."""
+    try:
+        return check(*args)
+    except withheld_closure.Refused as e:
+        fail(str(e))
 
 
 def unpack(package: Path) -> Path:
@@ -598,6 +623,8 @@ def show(title: str, metrics: dict) -> None:
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("package", type=Path, help="Multi-frame package .zip or unzipped folder")
+    p.add_argument("--withheld", type=Path, required=True, metavar="CLOSURE",
+                   help="The project's withheld closure as it is now (RallyLab --project P --withheld-closure <file>)")
     p.add_argument("--epochs", type=int, default=60)
     p.add_argument("--size", type=int, choices=sorted(SIZES), default=512,
                    help="Input width: 512 (512×288, the author's), 768 (768×432, ~2.25× the work) or 1024 (1024×576 — far balls twice the pixels, ~4× the work)")
@@ -634,6 +661,9 @@ def main() -> None:
                         "scorer the epochs use, write metrics.json, and stop — so two models can be compared on "
                         "the same windows (paired_compare.py). --size and --color must match the checkpoint.")
     args = p.parse_args()
+    # First of all: the closure, and the package as given held to it — before a zip is opened or a model is built.
+    now = admitted(withheld_closure.load, args.withheld)
+    provenance = admitted(withheld_closure.check_lineage_package, args.package, now)
     if args.seed is not None:
         random.seed(args.seed)
         np.random.seed(args.seed)
@@ -648,6 +678,9 @@ def main() -> None:
         say("⚠️  No CUDA GPU found — this will be very slow. Check the torch install (see train_ball_model.py).")
 
     root = unpack(args.package)
+    if root != args.package:
+        # What is read is the unzipped folder, which may be an earlier unzip of a zip of the same name.
+        provenance = admitted(withheld_closure.check_lineage_package, root, now)
     vballnet_source()
     from model.vballnet_v4c import VballNetV4c
 
@@ -712,7 +745,7 @@ def main() -> None:
     if run.exists() and not resume:
         fail(f"{run} exists — pass a new --name (or delete it), or --resume to go on with it.")
     run.mkdir(parents=True, exist_ok=True)
-    metrics = {"package": root.name, "size": list(size), "from_scratch": args.from_scratch, "color": args.color,
+    metrics = {"package": root.name, "provenance": provenance, "withheld": now["record"], "size": list(size), "from_scratch": args.from_scratch, "color": args.color,
                "aug": args.aug, "occluded": args.occluded, "qfl": args.qfl, "mine": args.mine, "pseudo": args.pseudo, "seed": args.seed,
                "val_windows": len(val_w), "val_digest": digest, "baseline": None, "best": None, "best_epoch": None}
 

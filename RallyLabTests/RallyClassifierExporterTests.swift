@@ -110,7 +110,7 @@ final class RallyClassifierExporterTests: XCTestCase {
         let project = try decoder.decode(Project.self, from: Data(contentsOf: root.appendingPathComponent("project.json")))
         let inputs = DatasetSplitManifest.Inputs(project: project, sessions: sessions, validation: try PipelineTuner.ValidationSet.loadStrict(from: root),
                                                  fingerprint: { $0.fingerprint }, previous: nil, discovered: [:],
-                                                 hashes: X.currentHashes(root), generator: "test", now: now)
+                                                 hashes: .current(of: root), generator: "test", now: now)
         let manifest = try DatasetSplitManifest.build(inputs)
         try FileManager.default.createDirectory(at: manifestURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try manifest.write(to: manifestURL)

@@ -2,7 +2,7 @@
 id: EXP-20261110-lineage-holdout-copies-audit
 status: running — investigation written up; the correction is prepared and not applied to the live project (owner gate)
 created: 2026-11-10T19:53:11Z
-updated: 2026-11-10T22:15:15Z
+updated: 2026-11-13T01:29:30Z
 decision: D-036 (amends D-017, D-018)
 roadmap_phase: dataset integrity (D-002, D-009, D-017, D-018)
 pr: fix/d017-lineage-correction
@@ -118,7 +118,7 @@ After the correction every live guard refuses the three copies by name (they are
 | Artefacts already written keep verifying against the closure they froze (the built L2 package; `rc-v1-20261108`; `.trainingdata.json` sidecars) | open — §6 for the classifier dataset; the L2 package must not be trained from again as a holdout-clean lineage |
 | The copies' frames and labels stay under `images/train` / `labels/train`; `data.yaml` still points there | open — unsupported for lineage training since D-018, and still a folder a trainer can be pointed at |
 | Guards on `reservedNames` alone (pre-tracking, `ModelLibrary.evaluate`, HeatmapLab scoring and rendering, ball paths, the legacy packagers, the Pipeline and Compare tabs) do not cover the legacy `holdout` list or its aliases | open — an owner policy question (the legacy holdout is L1's scored test set), not this pair |
-| `DeciderRetune` and `train_net_model.py` read a split manifest without checking that it is current | open |
+| `DeciderRetune` and `train_net_model.py` read a split manifest without checking that it is current | fixed in `fix/stale-manifest-consumers` (owner, 2026-11-12 §5A): the retune admits a plan only against a manifest whose recorded hashes are the files' today and that vouches for every pool recording (read by content, sharing no identity with a withheld one); the net dataset records the manifest and the closure it was exported against, and the trainer requires that manifest, that provenance and the project's current closure (`--withheld`, from `--withheld-closure`). The heat trainer and `desktop.sh` are held to the same closure file (`scripts/desktop_training/withheld_closure.py`): `--withheld` is required, a package without a lineage package's `l2-manifest.json` is refused, and so is one holding a recording of the current closure by name, confirmed source, registered fingerprint or content — which refuses both `Scratch-multiframe-20261016-2018` (no record) and, once the three copies are in the closure, `Scratch-L2-multiframe-20261021-1917`. Other consumers of earlier-written artefacts — `.trainingdata.json` sidecars, the legacy `train_ball_model.py` packages, the test-set scorer's package, `validate_dataset.py` without `--withheld` — stay open |
 | The copies' rows and uploaded videos on the labeling server stay after they become withheld | open |
 | Net labels, footage-properties records and AI proposals are bound to the stored fingerprint: the three train cards' rows carry the holdout videos' identity | open — owner decision |
 
