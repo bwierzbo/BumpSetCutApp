@@ -94,7 +94,8 @@
 //             model (or M) tracks
 //             rallies in train videos on its own; sure frames become machine labels, the rest go to review;
 //             --redo: track the pre-tracked ones again, e.g. after a better model; --val: val videos instead, a head
-//             start for the test set — every frame goes to review and only checked frames score)
+//             start for the test set — every frame goes to review and only checked frames score; no withheld recording —
+//             final test, lineage or legacy holdout, an alias of one — is tracked)
 //    RallyLab --project v3 --tune-pipeline [--replay-only] [--rounds 2]   (search the pipeline's settings for the cuts
 //             closest to the marked rallies of validation.json's tune videos, less any withheld recording — the file's
 //             holdout list is the legacy holdout, withheld, not a held-out set (D-017; owner 2026-10-31); reports, applies nothing)
@@ -123,6 +124,10 @@
 //    RallyLab --project v3 --diagnose-rallies <clip>… [--rotate] [--ball-model <name>]   (what the pipeline saw in each marked rally)
 //    RallyLab --project v3 --add-model ~/Desktop/best.pt   (convert + add)
 //    RallyLab --project v3 --evaluate [--candidate <model name>] [--all] [--threshold 0.6] [--letterbox]
+//
+//  No command here runs a model or the pipeline over a withheld recording — the final test and its candidates, the
+//  lineage holdout, the legacy holdout (validation.json `holdout`) and every alias of one (D-002, D-017; owner,
+//  2026-11-12 §5C) — or puts one in a package: each operation refuses it itself, and there is no flag past that.
 //
 //  Guarded mode (synthetic acceptance, automation): RallyLab --project <abs path> --project-root <abs dir>
 //      --defaults-suite rallylab.test.<name> --pending-dir <abs dir under the root>
@@ -188,22 +193,18 @@ enum HeadlessProjects {
                 projects.create(name: name, in: location)
             }
             log("Project: \(projects.project?.name ?? name) → \(projects.projectDir?.path ?? "?")")
-            // Final-test reservations (D-002): read once, fail closed, honoured by every scoring command below.
+            // The final-test reservations (D-002) and the whole withheld closure (D-017: lineage and legacy holdouts
+            // and every alias): read once, fail closed, honoured by every scoring command below (owner, 2026-10-31);
+            // the operations behind the other commands read them again themselves (owner, 2026-11-12 §5C).
             let projectRoot = projects.projectDir ?? URL(fileURLWithPath: "/nonexistent")
-            let reserved: Set<String>
-            do { reserved = try PipelineTuner.ValidationSet.finalTestNames(in: projectRoot) } catch {
+            let closures: ScoringExposure.Closures
+            do { closures = try ScoringExposure.Closures(in: projectRoot) } catch {
                 log("❌ \(error.localizedDescription)")
                 exit(1)
             }
+            let reserved = closures.reserved, withheld = closures.withheld
             if !reserved.isEmpty { log("Reserved final-test videos (never packaged, scored, tuned or pre-tracked): \(reserved.sorted().joined(separator: ", "))") }
-            // The lineage-withheld closure (D-017: lineage and legacy holdouts and every alias), read once, fail
-            // closed, honoured by every single-recording scoring command below (owner, 2026-10-31).
-            let withheld: Set<String>
-            do { withheld = try ReservedVideos.lineageWithheldNames(in: projectRoot) } catch {
-                log("❌ \(error.localizedDescription)")
-                exit(1)
-            }
-            if !withheld.isEmpty { log("Withheld from scoring (lineage/legacy holdout and aliases, D-017): \(withheld.count) recordings") }
+            if !withheld.isEmpty { log("Withheld from every model run (the reserved, the lineage and legacy holdouts and their aliases, D-017): \(withheld.count) recordings") }
 
             var ok = true
             if let i = args.firstIndex(of: "--get") {
@@ -594,8 +595,8 @@ enum HeadlessProjects {
             if ok, let i = args.firstIndex(of: "--render-heat"), args.indices.contains(i + 2) {
                 let lab = library.heatmaps
                 lab.reload()
-                if reserved.contains(args[i + 1]) {
-                    log("⛔ \(args[i + 1]) is reserved as final_test (D-002) — not rendered.")
+                if let why = closures.standing(of: args[i + 1]) {
+                    log("⛔ \(args[i + 1]) is \(why) — not rendered.")
                 } else if let item = lab.trackedRallies.first(where: { $0.session == args[i + 1] && abs($0.rally.start - (Double(args[i + 2]) ?? -1)) < 1 }) {
                     lab.renderVideo(session: item.session, rally: item.rally)
                     while lab.isBusy { try? await Task.sleep(nanoseconds: 300_000_000) }
@@ -654,6 +655,9 @@ enum HeadlessProjects {
             case .pulled(let frames, _):
                 log("✅ \(videoId): \(frames) frames sampled into the dataset")
                 return true
+            case .registered(let why):
+                log("✅ \(videoId): in the dataset — \(why)")
+                return true
             case .notStarted:
                 notStarted += 1
                 if notStarted < 20 || projects.sampler.isIngesting || !projects.sampler.queue.isEmpty { continue }
@@ -707,12 +711,14 @@ enum HeadlessProjects {
                 log("▸ \(videoId): kept — it has tracked rallies or reviewed frames")
                 continue
             }
-            projects.repull(videoId, in: clipId)
+            guard projects.repull(videoId, in: clipId) else { log("▸ \(projects.status)"); continue }
             log("▸ \(projects.status)")
             while projects.sampler.isIngesting || !projects.sampler.queue.allSatisfy(\.isFinished) {
                 try? await Task.sleep(nanoseconds: 500_000_000)
             }
-            let frames = projects.session(named: videoId)?.frames.count ?? 0
+            let session = projects.session(named: videoId)
+            if let why = session?.notSampled { log("✅ \(videoId): \(why)"); continue }
+            let frames = session?.frames.count ?? 0
             log(frames > 0 ? "✅ \(videoId): \(frames) frames" : "❌ \(videoId): \(projects.sampler.status)")
         }
         return true

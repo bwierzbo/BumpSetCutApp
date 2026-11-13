@@ -154,12 +154,12 @@ final class HeatmapLab {
         if insideCuts > 0 { log("  \(insideCuts) val window(s) inside cut ranges left out (D-030)") }
         // A kept result counts only for these jobs: one scored on windows now inside a cut is scored again.
         let jobsKey = TestSetScore.jobsKey(jobs, export: export)
-        // Reserved final-test clips (D-002) are never scored, and the run is on the ledger before any model runs; fail closed.
+        // Withheld clips (D-002, D-017) are never scored, and the run is on the ledger before any model runs; fail closed.
         do {
             try ScoringExposure.admit(Set(jobs.map(\.clip)), kind: .testSetScoring, ref: export.lastPathComponent,
                                       note: "models: " + models.map(\.name).joined(separator: ", "), root: sampler.datasetRoot)
-        } catch let reserved as ScoringExposure.Reserved {
-            scoringLine = "\(export.lastPathComponent) contains reserved final-test clips (\(reserved.names.joined(separator: ", "))) — not scored. Re-export the test set."
+        } catch let refused as ScoringExposure.Withheld {
+            scoringLine = "\(export.lastPathComponent) holds clips no model is run over (\(refused.reason)) — not scored. Re-export the test set."
             log("⛔ " + scoringLine)
             return false
         } catch {
@@ -249,13 +249,12 @@ final class HeatmapLab {
     func renderVideo(session name: String, rally: TrackedRally) {
         guard !isBusy, let model = selected,
               let session = sampler.sessions.first(where: { $0.name == name }) else { return }
-        // Running a model over reserved footage is exposure (D-002): refuse, fail closed, log the use.
+        // Running a model over withheld footage is exposure (D-002, D-017): refuse, fail closed, log the use.
         do {
-            if try PipelineTuner.ValidationSet.finalTestNames(in: sampler.datasetRoot).contains(name) {
-                status = "⛔ \(name) is reserved as final_test (D-002) — not rendered."
-                return
-            }
-            try ExposureLog.record(videos: [name], kind: .detectorEvaluation, ref: "render " + model.name, note: nil, in: sampler.datasetRoot)
+            try ScoringExposure.admit([name], kind: .detectorEvaluation, ref: "render " + model.name, note: nil, root: sampler.datasetRoot)
+        } catch let refused as ScoringExposure.Withheld {
+            status = "⛔ \(refused.reason) — not rendered."
+            return
         } catch {
             status = "❌ \(error.localizedDescription)"
             return
@@ -463,9 +462,9 @@ enum HeatEvaluation {
 
     /// `cuts`: each clip's cut ranges, every recording with a session (none as an empty list) — a val window with
     /// a frame inside one is not scored, and a val clip with no entry has no session: unknown cuts, not scored at
-    /// all (D-030; fails closed). `root`: the project the package was made from — a package with a reserved
+    /// all (D-030; fails closed). `root`: the project the package was made from — a package with a withheld
     /// clip among the val windows it would score is refused, and the run is on that project's exposure ledger
-    /// before a model is loaded, so a run that never starts is on record too (D-002; `ScoringExposure.admit`,
+    /// before a model is loaded, so a run that never starts is on record too (D-002, D-017; `ScoringExposure.admit`,
     /// as the test-set scoring).
     static func run(model: URL, package: URL, yolo: URL?, cuts: [String: [CutRange]], root: URL,
                     progress: @escaping @Sendable (Int, Int) -> Void) -> Swift.Result<Result, Failure> {
@@ -484,8 +483,8 @@ enum HeatEvaluation {
             try ScoringExposure.admit(Set(windows.map(\.clip)), kind: .detectorEvaluation,
                                       ref: "score vs YOLO " + model.deletingPathExtension().lastPathComponent + " on " + package.lastPathComponent,
                                       note: nil, root: root)
-        } catch let reserved as ScoringExposure.Reserved {
-            return .failure(Failure(message: "⛔ \(package.lastPathComponent) contains reserved final-test clips (\(reserved.names.joined(separator: ", "))) — not scored. Export the package again."))
+        } catch let refused as ScoringExposure.Withheld {
+            return .failure(Failure(message: "⛔ \(package.lastPathComponent) holds clips no model is run over (\(refused.reason)) — not scored. Export the package again."))
         } catch {
             return .failure(Failure(message: "❌ \(error.localizedDescription)"))
         }

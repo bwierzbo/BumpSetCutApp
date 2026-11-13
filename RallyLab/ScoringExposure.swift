@@ -11,11 +11,16 @@
 //  of these are two uses and the same run again is one — before this, every
 //  `--score-rallies` run shared one ref and a second model's pass left no row.
 //
-//  Also the one refusal for the headless scoring commands: reserved final-test
-//  recordings (D-002) and the lineage-withheld closure (D-017: lineage and
-//  legacy holdouts and every alias) are not scored. And the one admission
-//  (refuse the reserved, then record) for a model run over named recordings:
-//  a package's frames in HeatmapLab, a ball path, the Track tab's detectors.
+//  Also what no routine model run goes into (owner, 2026-11-12 §5C): the whole
+//  withheld closure — reserved final-test recordings (D-002) and the lineage
+//  and legacy holdouts with every alias (D-017). `Closures` reads it, `refusal`
+//  words it for the headless scoring commands, and `admit` is the one
+//  admission (refuse the withheld, then record) for a model run over named
+//  recordings: a package's frames in HeatmapLab, a ball path, the Track tab's
+//  and the Sampler's detectors (`OpenAdmission`: asked again at every click,
+//  so it follows the reservations while a recording stays open). There is no
+//  way past it: an authorised
+//  evaluation of a holdout is a separately controlled, logged path of its own.
 //
 
 import CryptoKit
@@ -122,28 +127,147 @@ enum ScoringExposure {
         return out
     }
 
+    /// The two closures a routine model run is checked against, read together and strictly (an unreadable
+    /// validation.json or project.json throws: nothing is then cleared): `reserved`, the final-test closure
+    /// (`ReservedVideos.reservedNames`: final test, candidates, lineage holdout and their aliases), and `withheld`,
+    /// the whole withheld closure (`ReservedVideos.lineageWithheldNames`: those and the legacy holdout with its
+    /// aliases), which contains it. No routine model run — training or packaging, pre-tracking, scoring, tuning,
+    /// comparison, debug processing, proposals — goes into `withheld` (owner, 2026-11-12 §5C).
+    struct Closures {
+        let reserved: Set<String>
+        let withheld: Set<String>
+
+        init(in root: URL) throws {
+            reserved = try ReservedVideos.reservedNames(in: root)
+            withheld = try ReservedVideos.lineageWithheldNames(in: root)
+        }
+
+        /// What keeps `name` from a model run (see `ScoringExposure.standing`), or nil when it may be run.
+        func standing(of name: String) -> String? {
+            ScoringExposure.standing(reserved: reserved.contains(name), withheld: withheld.contains(name))
+        }
+
+        /// `sessions` less every withheld recording: the ones a model may run over, or a package may hold.
+        func admitted(_ sessions: [VideoSession]) -> [VideoSession] {
+            sessions.filter { !withheld.contains($0.name) }
+        }
+
+        /// The closures as they are now, read again whenever anything they are read from has changed — for a
+        /// caller that asks often (a tab before every model run of a click, the project dataset's writer). What
+        /// they are read from is watched whole: validation.json, project.json, and the origin file of every
+        /// video whose identity is derived from it (`ReservedVideos.derivedIdentityFile`) — each by whether it
+        /// is there, its size, its modification time and its file number, asked on every call. So an answer
+        /// kept here never outlives the reservations or the identities it was computed from. A read that
+        /// throws is never kept: unreadable reservations throw on every call (fails closed).
+        static func current(in root: URL) throws -> Closures {
+            let key = root.standardizedFileURL.path
+            keptLock.lock()
+            let hit = kept[key]
+            keptLock.unlock()
+            if let hit, hit.read.allSatisfy({ stamp($0.key) == $0.value }) { return hit.closures }
+            // Stamped before they are read: a file that changes meanwhile is read again on the next call.
+            var read = [PipelineTuner.ValidationSet.file(in: root).path, root.appendingPathComponent("project.json").path]
+                .reduce(into: [String: String]()) { $0[$1] = stamp($1) }
+            // Cards that can't be read change nothing here: `Closures(in:)` throws for them when it needs them.
+            for source in ((try? ReservedVideos.sources(in: root)) ?? [:]).values {
+                if let file = ReservedVideos.derivedIdentityFile(source) { read[file] = stamp(file) }
+            }
+            let closures = try Closures(in: root)
+            keptLock.lock()
+            kept[key] = (read, closures)
+            keptLock.unlock()
+            return closures
+        }
+
+        private static func stamp(_ path: String) -> String {
+            guard let a = try? FileManager.default.attributesOfItem(atPath: path) else { return "none" }
+            return "\(a[.size] as? UInt64 ?? 0)@\((a[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate ?? 0)#\(a[.systemFileNumber] as? UInt64 ?? 0)"
+        }
+
+        private static let keptLock = NSLock()
+        nonisolated(unsafe) private static var kept: [String: (read: [String: String], closures: Closures)] = [:]
+    }
+
+    /// What keeps a recording from every routine model run, worded to follow "<name> is": the final test named
+    /// first, the rest of the withheld closure after it. nil for a recording that is in neither.
+    static func standing(reserved: Bool, withheld: Bool) -> String? {
+        if reserved { return "reserved as final_test (D-002)" }
+        if withheld { return "withheld — a lineage or legacy holdout, or an alias of one (D-017)" }
+        return nil
+    }
+
     /// Why `name` may not be scored, or nil when it may. `reserved` is the final-test closure
     /// (`ReservedVideos.reservedNames`), `withheld` the lineage-withheld closure
     /// (`ReservedVideos.lineageWithheldNames`): both are checked, the final test named first.
     static func refusal(_ name: String, reserved: Set<String>, withheld: Set<String>) -> String? {
-        if reserved.contains(name) { return "⛔ \(name) is reserved as final_test (D-002) — not scored." }
-        if withheld.contains(name) { return "⛔ \(name) is withheld — a lineage or legacy holdout, or an alias of one (D-017) — not scored." }
-        return nil
+        standing(reserved: reserved.contains(name), withheld: withheld.contains(name)).map { "⛔ \(name) is \($0) — not scored." }
     }
 
-    /// Reserved recordings among those a model was about to run over: none is run.
-    struct Reserved: LocalizedError, Equatable {
-        let names: [String]
-        var errorDescription: String? { "\(names.joined(separator: ", ")) reserved as final_test (D-002) — no model is run over reserved footage." }
+    /// Withheld recordings among those a model was about to run over: none is run.
+    struct Withheld: LocalizedError, Equatable {
+        /// Those in the final-test closure (D-002), sorted.
+        let reserved: [String]
+        /// Those in the rest of the withheld closure (D-017: a lineage or legacy holdout's), sorted.
+        let withheld: [String]
+
+        /// Each group with what keeps it out: "z is reserved as final_test (D-002); h is withheld — a lineage or
+        /// legacy holdout, or an alias of one (D-017)".
+        var reason: String {
+            [(reserved, true), (withheld, false)].filter { !$0.0.isEmpty }.map { names, isReserved in
+                "\(names.joined(separator: ", ")) \(names.count == 1 ? "is" : "are") \(ScoringExposure.standing(reserved: isReserved, withheld: true)!)"
+            }.joined(separator: "; ")
+        }
+        var errorDescription: String? { "\(reason) — no model is run over withheld footage." }
     }
 
-    /// Admits a model or pipeline run over these recordings, or throws: `Reserved` when any of them is
-    /// reserved (D-002: the listed final test, candidates and lineage holdout, and their aliases), and what
-    /// the reservations or the ledger throw when they can't be read or written (fails closed). The use is on
-    /// the ledger when this returns — before any model runs, so an interrupted run is still on record.
+    /// Admits a model or pipeline run over these recordings, or throws: `Withheld` when any of them is in the
+    /// withheld closure (D-002, D-017: the listed final test, candidates, lineage holdout and legacy holdout, and
+    /// their aliases), and what the reservations or the ledger throw when they can't be read or written (fails
+    /// closed). Nothing of a refused run is recorded. The use is on the ledger when this returns — before any
+    /// model runs, so an interrupted run is still on record.
     static func admit(_ names: Set<String>, kind: ExposureRecord.Kind, ref: String, note: String?, root: URL) throws {
-        let reserved = names.intersection(try PipelineTuner.ValidationSet.finalTestNames(in: root))
-        guard reserved.isEmpty else { throw Reserved(names: reserved.sorted()) }
+        let closures = try Closures(in: root)
+        let refused = names.intersection(closures.withheld)
+        guard refused.isEmpty else {
+            throw Withheld(reserved: refused.intersection(closures.reserved).sorted(), withheld: refused.subtracting(closures.reserved).sorted())
+        }
         try ExposureLog.record(videos: names, kind: kind, ref: ref, note: note, in: root)
+    }
+
+    /// `admit` for the one recording a person has open, as the line its tab shows: nil once the use is on the
+    /// ledger, else why no model runs over it — withheld, with `otherwise` saying what the person does without
+    /// the model, or reservations or a ledger that can't be read or written.
+    static func admission(of name: String, kind: ExposureRecord.Kind, ref: String, note: String, root: URL, otherwise: String) -> String? {
+        do {
+            try admit([name], kind: kind, ref: ref, note: note, root: root)
+            return nil
+        } catch let refused as Withheld {
+            return "⛔ \(refused.reason) — \(otherwise)"
+        } catch {
+            return "❌ \(name): \(error.localizedDescription)"
+        }
+    }
+
+    /// The admission of the recording a person has open, asked before every model run of a tab — every click.
+    /// The full admission (`ask`: the reservations read fresh, the use on the ledger) is made the first time,
+    /// and again whenever there is any doubt; in between, the one thing remembered is that this recording's
+    /// use is on the ledger, and it is believed only while the reservations as they are now
+    /// (`Closures.current`, which reads again when validation.json, project.json or an identity's file has
+    /// changed) still admit the recording. A recording that becomes withheld while it is open — listed, or an
+    /// alias by a provenance change — is refused at the next click; nothing a refusal says is remembered.
+    struct OpenAdmission {
+        /// Why no model may run over the recording in the dataset, or nil once its use is on the ledger.
+        let ask: (_ name: String, _ root: URL) -> String?
+        private var recorded: (name: String, root: URL)?
+
+        init(ask: @escaping (_ name: String, _ root: URL) -> String?) { self.ask = ask }
+
+        mutating func refusal(of name: String, in root: URL) -> String? {
+            if let recorded, recorded.name == name, recorded.root == root,
+               (try? Closures.current(in: root).withheld.contains(name)) == false { return nil }
+            let refusal = ask(name, root)
+            recorded = refusal == nil ? (name, root) : nil
+            return refusal
+        }
     }
 }

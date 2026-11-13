@@ -88,10 +88,18 @@ enum ReservedVideos {
     /// fingerprint, else derived from its origin (older videos stored none).
     static func effectiveFingerprint(_ s: ClipSource) -> String? {
         if let stored = s.fingerprint { return stored }
+        guard let path = derivedIdentityFile(s) else { return nil }
+        return FileManager.default.fileExists(atPath: path) ? ProjectsModel.fileFingerprint(atPath: path) : ProjectsModel.linkFingerprint(s.origin.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// The path a video's identity is derived from when it stored no fingerprint — its origin, read as a file:
+    /// whether a file is there, and its content, decide the identity. nil when the fingerprint is stored (or there
+    /// is no origin): then nothing outside project.json is read. What a kept closure must watch
+    /// (`ScoringExposure.Closures.current`).
+    static func derivedIdentityFile(_ s: ClipSource) -> String? {
+        guard s.fingerprint == nil else { return nil }
         let origin = s.origin.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !origin.isEmpty else { return nil }
-        let path = (origin as NSString).expandingTildeInPath
-        return FileManager.default.fileExists(atPath: path) ? ProjectsModel.fileFingerprint(atPath: path) : ProjectsModel.linkFingerprint(origin)
+        return origin.isEmpty ? nil : (origin as NSString).expandingTildeInPath
     }
 
     /// `recordingOnly` keeps the identities that say two videos are one recording (a file, a confirmed

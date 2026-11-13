@@ -901,6 +901,9 @@ final class RallyLabModel {
     /// does not touch the rally pipeline.
     func detectNet() async {
         guard let url = videoURL, !isDetectingNet else { return }
+        // The net model over a project recording's frames: the same refusal as the pipeline's, and a ledger row (D-002).
+        if let refusal = Self.modelRunRefusal(for: url) { netStatus = refusal; return }
+        do { try Self.recordModelRun(url, kind: .netProposal, ref: "RallyLab Net tab") } catch { netStatus = "❌ \(error.localizedDescription)"; return }
         isDetectingNet = true
         netStatus = "Sampling \(Int(netSampleCount)) frames…"
         netSamples = []
@@ -963,6 +966,9 @@ final class RallyLabModel {
     /// the full result for the Phase 1 debug tab (summary, timeline, live overlay).
     func runDeterministic() async {
         guard let url = videoURL, !isRunningFSM else { return }
+        // Ball and net detection over the whole video: the same refusal as the pipeline's, and a ledger row (D-002).
+        if let refusal = Self.modelRunRefusal(for: url) { fsmStatus = refusal; return }
+        do { try Self.recordModelRun(url, kind: .rallyScoring, ref: "RallyLab FSM tab") } catch { fsmStatus = "❌ \(error.localizedDescription)"; return }
         isRunningFSM = true
         fsmStatus = "Sampling ball + net (this runs detection over the whole video)…"
         engineResult = nil
@@ -993,14 +999,14 @@ final class RallyLabModel {
     /// so this is heavier than the live re-score in the Pipeline tab.
     func runComparison() async {
         guard let url = videoURL, !isComparing else { return }
-        if let refusal = Self.finalTestRefusal(for: url) { compareStatus = refusal; return }
+        if let refusal = Self.modelRunRefusal(for: url) { compareStatus = refusal; return }
         refreshCuts()
         if let cutsProblem { compareStatus = cutsProblem; return }
         guard !labels.isEmpty else {
             compareStatus = "Add ground-truth labels in the Pipeline tab to score against."
             return
         }
-        do { try Self.recordRallyScoring(url, ref: "RallyLab Compare tab") } catch { compareStatus = "❌ \(error.localizedDescription)"; return }   // only once a comparison will actually run
+        do { try Self.recordModelRun(url, kind: .rallyScoring, ref: "RallyLab Compare tab") } catch { compareStatus = "❌ \(error.localizedDescription)"; return }   // only once a comparison will actually run
         isComparing = true
         defer { isComparing = false }
         comparisonA = nil
@@ -1034,19 +1040,21 @@ final class RallyLabModel {
 
     // MARK: - Pipeline
 
-    /// Why this video must not be run: it is reserved as final_test in the
-    /// open project (D-002), or the reservations can't be read. nil = go ahead.
-    static func finalTestRefusal(for url: URL) -> String? {
+    /// Why no model or pipeline may be run over this video: it is a withheld recording of the open project —
+    /// the final test, a lineage or legacy holdout, or an alias of one (D-002, D-017) — or the reservations
+    /// can't be read. nil = go ahead. Every model run of the single-video tabs asks it first.
+    static func modelRunRefusal(for url: URL) -> String? {
         guard let rootPath = UserDefaults.standard.string(forKey: "RallyLab.datasetRoot") else { return nil }
-        return finalTestRefusal(for: url, root: URL(fileURLWithPath: rootPath, isDirectory: true))
+        return modelRunRefusal(for: url, root: URL(fileURLWithPath: rootPath, isDirectory: true))
     }
 
     /// The same refusal against the project at `root`.
-    nonisolated static func finalTestRefusal(for url: URL, root: URL) -> String? {
+    nonisolated static func modelRunRefusal(for url: URL, root: URL) -> String? {
         do {
-            // Matched by path, name or content, so a copy of a reserved recording is refused too.
-            guard let match = try ReservedVideos.match(url, root: root), match.reserved else { return nil }
-            return "⛔ \(match.session) is reserved as final_test (D-002) — not scored until promotion."
+            // Matched by path, name or content, so a copy of a withheld recording is refused too.
+            guard let match = try ReservedVideos.match(url, root: root),
+                  let why = ScoringExposure.standing(reserved: match.reserved, withheld: match.withheld) else { return nil }
+            return "⛔ \(match.session) is \(why) — no model is run over it."
         } catch { return "❌ \(error.localizedDescription)" }
     }
 
@@ -1092,17 +1100,17 @@ final class RallyLabModel {
         try TrainingDataExporter.cutRanges(forVideo: url, projectRoots: [root])
     }
 
-    /// Running the pipeline on a project video and scoring it is a use the
-    /// split manifest must know about (D-002); logged as the run starts.
-    static func recordRallyScoring(_ url: URL, ref: String) throws {
+    /// Running a model or the pipeline on a project video is a use the split
+    /// manifest must know about (D-002); logged as the run starts.
+    static func recordModelRun(_ url: URL, kind: ExposureRecord.Kind, ref: String) throws {
         guard let rootPath = UserDefaults.standard.string(forKey: "RallyLab.datasetRoot") else { return }
-        try recordRallyScoring(url, ref: ref, root: URL(fileURLWithPath: rootPath, isDirectory: true))
+        try recordModelRun(url, kind: kind, ref: ref, root: URL(fileURLWithPath: rootPath, isDirectory: true))
     }
 
     /// The same record on the ledger of the project at `root`.
-    nonisolated static func recordRallyScoring(_ url: URL, ref: String, root: URL) throws {
+    nonisolated static func recordModelRun(_ url: URL, kind: ExposureRecord.Kind, ref: String, root: URL) throws {
         guard let match = try ReservedVideos.match(url, root: root) else { return }   // not a project video
-        try ExposureLog.record(videos: [match.session], kind: .rallyScoring, ref: ref, note: nil, in: root)
+        try ExposureLog.record(videos: [match.session], kind: kind, ref: ref, note: nil, in: root)
     }
 
     /// Runs the real VideoProcessor (YOLO → Kalman → ballistics → decider →
@@ -1111,10 +1119,10 @@ final class RallyLabModel {
     func runPipeline() async {
         guard let url = videoURL else { return }
         guard !isProcessing, !exportingDebugVideo else { return }
-        if let refusal = Self.finalTestRefusal(for: url) { status = refusal; return }
+        if let refusal = Self.modelRunRefusal(for: url) { status = refusal; return }
         refreshCuts()
         if let cutsProblem { status = cutsProblem; return }
-        do { try Self.recordRallyScoring(url, ref: "RallyLab Pipeline tab") } catch { status = "❌ \(error.localizedDescription)"; return }
+        do { try Self.recordModelRun(url, kind: .rallyScoring, ref: "RallyLab Pipeline tab") } catch { status = "❌ \(error.localizedDescription)"; return }
 
         let processor = VideoProcessor()
         processor.config = currentConfig()
@@ -1159,10 +1167,10 @@ final class RallyLabModel {
     func exportDebugVideo() async {
         guard let url = videoURL, !isProcessing, !exportingDebugVideo else { return }
         // The same pipeline run as the Pipeline tab's, so the same refusal and the same ledger row (D-002).
-        if let refusal = Self.finalTestRefusal(for: url) { status = refusal; return }
+        if let refusal = Self.modelRunRefusal(for: url) { status = refusal; return }
         refreshCuts()
         if let cutsProblem { status = cutsProblem; return }
-        do { try Self.recordRallyScoring(url, ref: "RallyLab debug video") } catch { status = "❌ \(error.localizedDescription)"; return }
+        do { try Self.recordModelRun(url, kind: .rallyScoring, ref: "RallyLab debug video") } catch { status = "❌ \(error.localizedDescription)"; return }
         exportingDebugVideo = true
         // The marked rallies of the video exported, not whatever's open when it finishes — outside its cut ranges.
         let cuts = self.cuts

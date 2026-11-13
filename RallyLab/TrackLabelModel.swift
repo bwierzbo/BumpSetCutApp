@@ -71,10 +71,9 @@ final class TrackLabelModel {
     @ObservationIgnored private var playTask: Task<Void, Never>?
     @ObservationIgnored private let snapDetector = SnapDetector()
     @ObservationIgnored private let lookAgainHeat = LookAgainHeat()
-    /// Whether a model may run over the open video, once asked (`modelAdmission`): nil inside when it may, else
-    /// why not. Asked before the first model run of an opening and kept until another video is opened, so the
-    /// reservations are not read again on every click.
-    @ObservationIgnored private var modelRefusal: String??
+    /// The detectors' admission over the open video (`modelAdmission`), asked before every model run: it
+    /// follows the reservations as they are then.
+    @ObservationIgnored private var modelsAdmission = ScoringExposure.OpenAdmission(ask: TrackLabelModel.modelAdmission)
 
     /// Frames are read about this often, whatever the video's frame rate —
     /// the same spacing as the multi-frame package.
@@ -156,7 +155,6 @@ final class TrackLabelModel {
         stop()
         trackTask?.cancel()
         sessionName = name
-        modelRefusal = nil
         rallies = session.tracks ?? []
         selectedId = nil
         index = 0
@@ -310,26 +308,21 @@ final class TrackLabelModel {
 
     /// Why no model may run over `name` in the Track tab, or nil once the use is on the ledger. Any session
     /// with its video on this Mac can be opened here, and auto-track, click-to-box and look-again each run a
-    /// detector over its frames — exposure (D-002): a reserved recording is refused, an admitted one recorded
-    /// before the first model runs, and reservations or a ledger that can't be read or written refuse too.
+    /// detector over its frames — exposure (D-002, D-017): a withheld recording (the final test, a lineage or
+    /// legacy holdout, an alias of one) is refused, an admitted one recorded before the first model runs, and
+    /// reservations or a ledger that can't be read or written refuse too. The ball is then placed by hand.
     /// The same admission as a ball path's (`BallPathBuilder.admission`).
     nonisolated static func modelAdmission(of name: String, in datasetRoot: URL) -> String? {
-        do {
-            try ScoringExposure.admit([name], kind: .preTracking, ref: "RallyLab Track tab",
-                                      note: "auto-track, click-to-box and look-again while a person tracks the ball", root: datasetRoot)
-            return nil
-        } catch is ScoringExposure.Reserved {
-            return "⛔ \(name) is reserved as final_test (D-002) — no model is run over it: place the ball by hand."
-        } catch {
-            return "❌ \(name): \(error.localizedDescription)"
-        }
+        ScoringExposure.admission(of: name, kind: .preTracking, ref: "RallyLab Track tab",
+                                  note: "auto-track, click-to-box and look-again while a person tracks the ball", root: datasetRoot,
+                                  otherwise: "no model is run over it: place the ball by hand.")
     }
 
-    /// False, with the reason shown, when no model may run over the open video.
-    private func modelsAdmitted() -> Bool {
+    /// False, with the reason shown, when no model may run over the open video now. Asked before every
+    /// model run, never kept from an earlier one: the video may have become withheld since.
+    func modelsAdmitted() -> Bool {
         guard let sessionName else { return false }
-        let refusal = modelRefusal ?? Self.modelAdmission(of: sessionName, in: sampler.datasetRoot)
-        modelRefusal = .some(refusal)
+        let refusal = modelsAdmission.refusal(of: sessionName, in: sampler.datasetRoot)
         if let refusal { status = refusal }
         return refusal == nil
     }
@@ -460,7 +453,7 @@ final class TrackLabelModel {
         guard let image, let shownIndex, let current = rally?.points[shownIndex], snapping == nil else { return }
         snapping = point
         let model = sampler.prelabelModel
-        // Not admitted (a reserved recording): the box is placed without the detector.
+        // Not admitted (a withheld recording): the box is placed without the detector.
         let holder = modelsAdmitted() ? snapDetector : nil
         let usual = usualWidth()
         let id = selectedId
