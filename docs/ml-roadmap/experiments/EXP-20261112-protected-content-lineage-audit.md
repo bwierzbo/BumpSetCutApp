@@ -1,8 +1,8 @@
 ---
 id: EXP-20261112-protected-content-lineage-audit
-status: planned — the tool is written and tested on synthetic data; the one run happens after review, from the reviewed commit, and its results are added here
+status: done — run once on 2026-11-12 from the reviewed commit `052484a`: all 24 opened, the three D-036 pairs confirmed by the pictures, no other copy proposed; proposals only, nothing changed in the project
 created: 2026-11-13T00:31:22Z
-updated: 2026-11-13T00:31:22Z
+updated: 2026-11-13T03:11:29Z
 decision: D-036; owner authorisation of 2026-11-12, §6 "Controlled Content-Lineage Audit" (recorded verbatim with the D-036 completion record, its own PR)
 roadmap_phase: dataset integrity (D-002, D-009, D-017, D-018)
 pr: feat/protected-content-audit
@@ -11,7 +11,7 @@ issue: n/a
 
 # EXP-20261112-protected-content-lineage-audit — one bounded, logged comparison of the withheld recordings' pictures, to find copies
 
-An identity check. No model is trained, run or scored; no rally mark or label is read; nothing in the project is changed. This record is written before the run.
+An identity check. No model was trained, run or scored; no rally mark or label was read; nothing in the project was changed. Everything above "Results" was written before the run and is unchanged.
 
 ## Why
 
@@ -49,7 +49,36 @@ A mirrored, sped-up or slowed copy, a crop that is not about the centre, an over
 
 ## Results
 
-Not run yet. To be added: the tool's commit, the scope file and access log (SHA-256), which recordings were opened and when, each proposal with its evidence, the third pair's result, what was not read.
+Run on 2026-11-12 (evening, MST) with `scripts/content_lineage/protected_audit.py` at commit `052484a` (`protected_audit.py` SHA-256 `ec9c80745663…`, `audit.py` `48e2ef545661…`), the tool as Codex had reviewed it (PR #176), on live Scratch after the D-036 correction (project.json `bc6a5fccdb55e3f3`, manifest `fb6b540cb2bc0576`). Cut history followed through Test1's `project.json`. Signatures of the ordinary recordings came from the prototype's cache where the file's SHA-256 matched.
+
+### What was opened
+
+All 24 recordings of the scope, each once in the run that completed: first `open` line 2026-11-13T01:52:27Z, last `read` line 02:26:40Z, `done` 03:08:38Z. Every one was read to its end (1,032 to 1,200 samples; the file's SHA-256 is on its `read` line). None was left closed; the scope held no final-test recording (the project has none).
+
+Two earlier attempts the same evening stopped on a stalled network share and are on the same log, which is appended to and never rewritten: the first (01:19Z) logged the `open` of `bch_extra_self_05` and read nothing; the second (01:34Z) read `bch_extra_self_05`, logged `bch_extra_self_10` as `failed` (a read time-out) and stopped during `bch_extra_self_18`. So over the three attempts `bch_extra_self_05` has three `open` lines, `bch_extra_self_10` and `bch_extra_self_18` two each, and the other 21 one each: 28 `open`, 25 `read`, 1 `failed`. The share was remounted over the local network between the second and third attempts; nothing about the tool or the scope changed.
+
+One more access to a protected file that evening is not on that log, because it was not this tool's: while diagnosing the stalled share, a raw read of 8 MB at four offsets of `bch_extra_self_30` was attempted with `dd` to `/dev/null`. Every attempt stalled and returned nothing; nothing was decoded or kept. It is recorded here so the account is complete.
+
+### What the pictures say
+
+| Pair | Relation proposed | Evidence |
+|---|---|---|
+| `grs_extra_self_06` · `grs_ele_sun_land_self_01` (`IMG_0823`) | `re_encoded_duplicate` | offset 0.0 s, 300 s shared, 410 of 410 informative samples match (score 1.0), both 1920×1080 |
+| `grs_extra_self_12` · `grs_sid_sun_port_self_01` (`IMG_0822`) | `re_encoded_duplicate` | offset 0.0 s, 300 s shared, 219 of 219 (1.0) |
+| `bch_extra_self_18` · `bch_tri_sun_land_self_01_v4` (`IMG_0612`) | `re_encoded_duplicate` | offset 0.0 s, 300 s shared, 684 of 684 (1.0) |
+
+- **The third D-036 pair is confirmed by the pictures.** It had rested on cut history and file fingerprints.
+- **No other copy was proposed** for any of the 24: not among the 24, and not against the 142 ordinary recordings that were read. The three cut-history pairs with a protected member are exactly the three above; the pictures agree with each.
+- 322 `similar_scene` relations (285 between a protected and an ordinary recording, 37 between two protected ones): the framing looks alike and the motion matches nowhere — the same court from the same spot at another time. Not copies; listed in the output for completeness.
+- Not compared: `grs_gnd_shade_land_self_02` (ordinary, train; its file on the share does not decode). Its re-fetched copy, read on the Mac, was compared afterwards with the cached signatures of all 24 protected and the ordinary recordings — no file reopened — and matched none (`~/Movies/RallyLab/Reports/recover-grs_gnd_shade_land_self_02-20261112/signature-comparison.json`).
+
+### What this does and does not establish
+
+Within Scratch, no recording is a full or partial copy of a withheld recording by motion signature except the three train copies D-036 already withholds. The limits stated before the run stand: a mirrored, re-timed, off-centre-cropped, heavily overlaid or motionless copy would not be recognised, and a copy outside this project was not looked for. No identity was changed: the three proposals were already confirmed by the owner (D-036, D-037); there is nothing new to confirm.
+
+### Evidence
+
+`~/Movies/RallyLab/Reports/protected-content-audit-20261112/`: `scope.json` (`74cf13e76bdbb01f`), `access-log.jsonl` (`37244bf6e9bbcc5e`), `protected-content-lineage-proposals.json` (`c6cba649429a43e5`), `run3.log` (`7e28e403d083ae10`), `signatures-protected/` (24 files; motion masks and average hashes, no picture), `SHA256SUMS`.
 
 ## Tests
 
