@@ -814,6 +814,23 @@ final class LabelerModel: ReviewStore {
         flushInFlight = nil
     }
 
+    /// A recording's access by its id, as known at the moment of asking. One whose row is gone from what the
+    /// server serves is not known.
+    private func accessNow(_ videoId: UUID) -> LabelAccess {
+        snapshot.videos.first { $0.id == videoId }.map { access(for: $0) } ?? LabelAccess(withheld: nil, byHand: snapshot.lead)
+    }
+
+    /// Of the tracked rallies a request is about to carry, the ones that may go now: not a recording closed to
+    /// this account, and not a rally the server does not have that a model found the ball in while its recording
+    /// is withheld or not known not to be (TrackedRally.mayGoUp — the Mac's sync holds the same).
+    private func tracksThatMayGo(_ rows: [LabelTrack]) -> [LabelTrack] {
+        let onServer = Set(snapshot.tracks.map(\.id))
+        return rows.filter { t in
+            let access = accessNow(t.videoId)
+            return access.offersMarking && t.rally.mayGoUp(new: !onServer.contains(t.id), access: access)
+        }
+    }
+
     private func flushOnce() async {
         guard !outbox.isEmpty else { return }
         // What may go, judged when it is sent — every send here suspends, and the list can change under the ones
@@ -821,10 +838,6 @@ final class LabelerModel: ReviewStore {
         // list gone) stay on the phone, unsent: the server refuses them, and one refused row would hold back
         // every other. And a rally the server does not have that a model found the ball in stays here while its
         // recording is withheld or not known not to be (TrackedRally.mayGoUp — the Mac's sync holds the same).
-        // A recording whose row is gone from what the server serves is not known.
-        func accessNow(_ videoId: UUID) -> LabelAccess {
-            snapshot.videos.first { $0.id == videoId }.map { access(for: $0) } ?? LabelAccess(withheld: nil, byHand: snapshot.lead)
-        }
         var heldBack = 0
         for (id, times) in outbox.times {
             guard accessNow(id).offersMarking else { heldBack += 1; continue }
@@ -937,28 +950,28 @@ final class LabelerModel: ReviewStore {
                 break
             }
         }
-        let onServer = Set(snapshot.tracks.map(\.id))
-        let tracks = outbox.tracks.values.filter { t in
-            let access = accessNow(t.videoId)
-            return access.offersMarking && t.rally.mayGoUp(new: !onServer.contains(t.id), access: access)
-        }
-        heldBack += outbox.tracks.count - tracks.count
-        if heldBack > 0 { syncProblem = "\(heldBack) edit\(heldBack == 1 ? "" : "s") of a recording that is withheld, or not open to labeling here now, kept on this phone, not sent." }
+        // Tracked rallies go as several requests (LabelingClient.save), each suspending: what may go is asked for
+        // each request when it is made (`tracksThatMayGo`), and only the rallies the server took leave the outbox.
+        let tracks = Array(outbox.tracks.values)
+        var sendFailed = false
         if !tracks.isEmpty {
-            do {
-                try await client.save(tracks)
-                for t in tracks where outbox.tracks[t.id] == t {
-                    outbox.tracks[t.id] = nil
-                    settling.tracks[t.id] = t
-                    snapshot.tracks.removeAll { $0.id == t.id }
-                    snapshot.tracks.append(t)
-                }
-                isOffline = false
-            } catch {
+            let outcome = await client.save(tracks) { [weak self] rows in await self?.tracksThatMayGo(rows) ?? [] }
+            for t in tracks where outcome.sent.contains(t.id) && outbox.tracks[t.id] == t {
+                outbox.tracks[t.id] = nil
+                settling.tracks[t.id] = t
+                snapshot.tracks.removeAll { $0.id == t.id }
+                snapshot.tracks.append(t)
+            }
+            if let failure = outcome.failure {
                 isOffline = true
-                syncProblem = Self.describe("Couldn't send \(tracks.count) tracked rall\(tracks.count == 1 ? "y" : "ies")", error)
+                sendFailed = true
+                syncProblem = Self.describe("Couldn't send \(tracks.count - outcome.sent.count) tracked rall\(tracks.count - outcome.sent.count == 1 ? "y" : "ies")", failure)
+            } else {
+                isOffline = false
+                heldBack += tracks.count - outcome.sent.count
             }
         }
+        if heldBack > 0, !sendFailed { syncProblem = "\(heldBack) edit\(heldBack == 1 ? "" : "s") of a recording that is withheld, or not open to labeling here now, kept on this phone, not sent." }
         persist()
     }
 

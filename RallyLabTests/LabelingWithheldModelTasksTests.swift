@@ -550,6 +550,147 @@ final class LabelingWithheldModelTasksTests: XCTestCase {
         XCTAssertFalse(server.uploads.contains(ballPath(later)), "nor its ball path")
     }
 
+    // MARK: - A send made of several requests asks before each (the real LabelingClient.save)
+
+    /// The server as the client's transport sees it: every request's rows recorded, the first request's reply
+    /// held until released, and a status to answer a given request with.
+    private final class StubServer: @unchecked Sendable {
+        private let lock = NSLock()
+        private var seen: [[UUID]] = []
+        private let first = Latch()
+        var failAt: Int?
+
+        var requests: [[UUID]] { lock.lock(); defer { lock.unlock() }; return seen }
+        func release() { first.open() }
+
+        func answer(_ request: URLRequest) async throws -> (Data, URLResponse) {
+            let rows = (try? JSONSerialization.jsonObject(with: request.httpBody ?? Data())) as? [[String: Any]] ?? []
+            lock.lock()
+            seen.append(rows.compactMap { ($0["id"] as? String).flatMap(UUID.init(uuidString:)) })
+            let n = seen.count
+            lock.unlock()
+            if n == 1 { try await first.wait() }
+            let status = n == failAt ? 500 : 200
+            return (Data("[]".utf8), HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
+        }
+    }
+
+    /// What the phone knows while a send is on its way, and its send-time rule (LabelerModel.tracksThatMayGo).
+    @MainActor private final class Outbox {
+        var withheld: Set<UUID> = []
+        func mayGo(_ rows: [LabelTrack]) -> [LabelTrack] {
+            rows.filter { $0.rally.mayGoUp(new: true, access: LabelAccess(withheld: withheld.contains($0.videoId), byHand: true)) }
+        }
+    }
+
+    func testEachRequestOfATrackSaveAsksAgainAndOnlyWhatWentIsReported() async throws {
+        let server = StubServer()
+        let client = LabelingClient(transport: { try await server.answer($0) }, accessToken: "test")
+        let outbox = Outbox()
+        // Two recordings, each with a pre-tracked rally and one tracked with the detector's picks: rows with
+        // different fields, so the client sends them as two requests.
+        let recording = UUID(), other = UUID()
+        let tracks = [LabelTrack(rally("machine"), videoId: recording), LabelTrack(rally("assisted"), videoId: recording),
+                      LabelTrack(rally("machine"), videoId: other), LabelTrack(rally("assisted"), videoId: other)]
+        let saving = Task { await client.save(tracks) { rows in await outbox.mayGo(rows) } }
+        while server.requests.isEmpty { await Task.yield() }
+        // The first request is on its way: a pull withholds one recording.
+        outbox.withheld = [recording]
+        server.release()
+        let outcome = await saving.value
+        XCTAssertNil(outcome.failure)
+        let requests = server.requests
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertEqual(requests[0].count, 2, "the first request went as it was asked for: one rally of each recording")
+        let held = try XCTUnwrap(tracks.first { $0.videoId == recording && !requests[0].contains($0.id) })
+        XCTAssertEqual(requests[1], tracks.filter { $0.videoId == other && !requests[0].contains($0.id) }.map(\.id),
+                       "the second request carries only the rally of the recording still open")
+        XCTAssertEqual(outcome.sent, Set(tracks.map(\.id)).subtracting([held.id]), "what went is what is reported")
+        XCTAssertFalse(outcome.sent.contains(held.id), "the rally held at its request stays with the caller")
+    }
+
+    func testARequestWithNothingLeftIsNotMadeAndAFailureReportsWhatWentBeforeIt() async throws {
+        let recording = UUID()
+        let tracks = [LabelTrack(rally("machine"), videoId: recording), LabelTrack(rally("assisted"), videoId: recording)]
+        // Withheld during the first request: the second would carry nothing, and is not made.
+        let server = StubServer()
+        let client = LabelingClient(transport: { try await server.answer($0) }, accessToken: "test")
+        let outbox = Outbox()
+        let saving = Task { await client.save(tracks) { rows in await outbox.mayGo(rows) } }
+        while server.requests.isEmpty { await Task.yield() }
+        outbox.withheld = [recording]
+        server.release()
+        let outcome = await saving.value
+        XCTAssertEqual(server.requests.count, 1)
+        XCTAssertEqual(outcome.sent, Set(server.requests[0]))
+        XCTAssertEqual(outcome.sent.count, 1)
+        // The second request refused by the server: the first one's rows are reported as sent, the rest are not.
+        let failing = StubServer()
+        failing.failAt = 2
+        failing.release()
+        let outcome2 = await LabelingClient(transport: { try await failing.answer($0) }, accessToken: "test").save(tracks) { $0 }
+        XCTAssertEqual(failing.requests.count, 2)
+        XCTAssertEqual(outcome2.sent, Set(failing.requests[0]))
+        XCTAssertNotNil(outcome2.failure)
+        // Nothing withheld: both requests, everything sent.
+        let open = StubServer()
+        open.release()
+        let outcome3 = await LabelingClient(transport: { try await open.answer($0) }, accessToken: "test").save(tracks) { $0 }
+        XCTAssertEqual(outcome3.sent, Set(tracks.map(\.id)))
+        XCTAssertNil(outcome3.failure)
+    }
+
+    // MARK: - A copy made again: the old one goes only once the row names the new one
+
+    private func remakingSync() -> LabelingSync {
+        LabelingSync(projects: projects, client: server, pendingDirectory: base.appendingPathComponent("pending-remake"),
+                     smallCopy: { _, out in try Data("a smaller copy".utf8).write(to: out) })
+    }
+
+    private func oldCopy(of name: String) throws -> String {
+        let i = try XCTUnwrap(server.videos.firstIndex { $0.sessionName == name })
+        server.videos[i].clipPath = "rallylab/P/\(name)-v1.mp4"
+        return server.videos[i].clipPath!
+    }
+
+    func testARecordingWithheldWhileItsCopyIsRemadeKeepsItsRowAndTheCopyTheRowNames() async throws {
+        try makeProject(validation: nil)
+        let old = try oldCopy(of: train)
+        let new = rows[train]!.clipPath!
+        let sync = remakingSync()
+        server.hold("upload")   // the new copy's upload is on its way back
+        let recording = train
+        let round = Task { await sync.sync(videos: true, remaking: { $0 == recording }) }
+        let parked = await server.arrived()
+        XCTAssertTrue(parked, "\(server.calls)")
+        XCTAssertEqual(server.uploads, [new])
+        try withhold([train])
+        server.release()
+        let synced = await round.value
+        XCTAssertTrue(synced, sync.status)
+        XCTAssertFalse(server.removed.contains(old), "the copy the row names is still there")
+        XCTAssertEqual(server.videos.first { $0.sessionName == train }?.clipPath, old, "and the row still names it")
+        XCTAssertFalse(server.savedVideos.contains { $0.sessionName == train }, "the row was not saved")
+        XCTAssertEqual(server.removed, [])
+        // What is left behind is the new copy, which no row names.
+        XCTAssertTrue(server.uploads.contains(new))
+        XCTAssertFalse(server.videos.contains { $0.clipPath == new })
+    }
+
+    func testACopyRemadeForAnOpenRecordingReplacesTheOldOneAfterItsRowIsSaved() async throws {
+        try makeProject(validation: nil)
+        let old = try oldCopy(of: train)
+        let new = rows[train]!.clipPath!
+        let sync = remakingSync()
+        let recording = train
+        let synced = await sync.sync(videos: true, remaking: { $0 == recording })
+        XCTAssertTrue(synced, sync.status)
+        XCTAssertEqual(server.videos.first { $0.sessionName == train }?.clipPath, new)
+        XCTAssertEqual(server.removed, [old])
+        let removal = try XCTUnwrap(server.calls.firstIndex(of: "remove"))
+        XCTAssertEqual(server.calls[removal - 1], "save(video)", "the old copy is removed right after the row naming the new one is saved, not before")
+    }
+
     // MARK: - Model work asks before every unit; what comes back late is dropped (ModelLeave)
 
     func testTheLeaveIsWhatTheDeviceKnowsNowFromAnyThread() async {
