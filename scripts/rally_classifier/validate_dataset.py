@@ -105,6 +105,39 @@ def closure_sha256(names, source_ids, fingerprints) -> str:
     return hashlib.sha256(canon.encode("utf-8")).hexdigest()
 
 
+def load_manifest(dataset_dir: str) -> dict:
+    with open(os.path.join(dataset_dir, "dataset-manifest.json"), "r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def read_steps(dataset_dir: str, rec: dict) -> list:
+    """A recording's steps, in file order. For a dataset `validate` has passed: it checks nothing itself."""
+    with open(os.path.join(dataset_dir, rec["stepsFile"]), "r", encoding="utf-8") as fh:
+        return [json.loads(line) for line in fh]
+
+
+def read_baseline(dataset_dir: str, rec: dict) -> dict:
+    """A recording's stored decider output: {variant name: [clip]} (contract §3a)."""
+    with open(os.path.join(dataset_dir, rec["baselineFile"]), "r", encoding="utf-8") as fh:
+        return json.load(fh)["variants"]
+
+
+def dataset_identity(dataset_dir: str) -> dict:
+    """The dataset's name (its folder's), the SHA-256 of its manifest and its digest (contract §1): the SHA-256
+    over one `<sha256>  ./<relative path>` line per file except the manifest, in byte order of the path — the
+    registry's canonical directory digest (`DatasetSplitManifest.canonicalDigest`)."""
+    paths = []
+    for root, _, files in os.walk(dataset_dir):
+        for name in files:
+            rel = os.path.relpath(os.path.join(root, name), dataset_dir).replace(os.sep, "/")
+            if rel != "dataset-manifest.json":
+                paths.append(rel)
+    lines = "".join(f"{sha256_file(os.path.join(dataset_dir, rel))}  ./{rel}\n" for rel in sorted(paths, key=lambda q: q.encode("utf-8")))
+    return {"name": os.path.basename(os.path.abspath(dataset_dir)),
+            "manifestSha256": sha256_file(os.path.join(dataset_dir, "dataset-manifest.json")),
+            "digest": hashlib.sha256(lines.encode("utf-8")).hexdigest()}
+
+
 def feature_schema() -> dict:
     return {"version": FEATURE_VERSION,
             "features": [{"name": n, "nullable": nullable, "kind": kind, "lookaheadSec": la} for n, nullable, kind, la in FEATURES]}
@@ -753,23 +786,27 @@ def _synthetic_baseline(rng: random.Random, rec: dict, short_pair=None) -> dict:
     return {"recordingId": rec["recordingId"], "variants": out}
 
 
-def write_synthetic(out_dir: str, seed: int = 0) -> str:
-    """Write a complete, valid v1 dataset of four recordings in two groups (two folds)."""
+SYNTHETIC_SPECS = [
+    dict(rid="syn_bch_a", group="g-syn-a", split="train", fold=0, surface="beach", recording_type="continuous", negatives="standard",
+         coverage="declared_complete", rallies=[(5, 12), (20, 31), (40, 48)], excluded=[(34, 36, "missedServe")],
+         cuts=[(0.00833, 0.01667)], gap_at=15.0),   # a cut between two processed frames (ticks 5–10): the segment still breaks
+    dict(rid="syn_bch_a_v2", group="g-syn-a", split="train", fold=0, surface="beach", recording_type="continuous", negatives="standard",
+         coverage="declared_complete", rallies=[(8, 14), (24, 33)], cuts=[(0, 3)], tb=[(50, 55, "replay", "proposed")]),
+    dict(rid="syn_grs_b", group="g-syn-b", split="tune", fold=1, surface="grass", recording_type="edited", negatives="restricted",
+         coverage="declared_complete", rallies=[(6, 15), (22, 30)], restricted_reasons=["edited recording: temporal windows only within confirmed continuous spans"]),
+    dict(rid="syn_ind_c", group="g-syn-c", split="dev_val", fold=1, surface="indoor", recording_type="continuous", negatives="standard",
+         coverage="stage1_complete", rallies=[(4, 9), (18, 29)], nra=[(12, 15)], net=False,
+         short_pair=[(40.0, 41.5), (43.5, 45.0)]),   # two short raws: r0 joins them (padded gap 1.0 s ≤ 1.3513), r0_prime (join 0, post-roll 1.0: gap 0.5 s) does not
+]
+
+
+def write_synthetic(out_dir: str, seed: int = 0, specs=None) -> str:
+    """Write a complete, valid v1 dataset: by default four recordings in three groups (`SYNTHETIC_SPECS`);
+    `specs` replaces them (each a `_synthetic_recording` argument set, plus an optional `short_pair`)."""
+    specs = SYNTHETIC_SPECS if specs is None else specs
     rng = random.Random(seed)
     os.makedirs(os.path.join(out_dir, "steps"), exist_ok=False)
     os.makedirs(os.path.join(out_dir, "baseline"))
-    specs = [
-        dict(rid="syn_bch_a", group="g-syn-a", split="train", fold=0, surface="beach", recording_type="continuous", negatives="standard",
-             coverage="declared_complete", rallies=[(5, 12), (20, 31), (40, 48)], excluded=[(34, 36, "missedServe")],
-             cuts=[(0.00833, 0.01667)], gap_at=15.0),   # a cut between two processed frames (ticks 5–10): the segment still breaks
-        dict(rid="syn_bch_a_v2", group="g-syn-a", split="train", fold=0, surface="beach", recording_type="continuous", negatives="standard",
-             coverage="declared_complete", rallies=[(8, 14), (24, 33)], cuts=[(0, 3)], tb=[(50, 55, "replay", "proposed")]),
-        dict(rid="syn_grs_b", group="g-syn-b", split="tune", fold=1, surface="grass", recording_type="edited", negatives="restricted",
-             coverage="declared_complete", rallies=[(6, 15), (22, 30)], restricted_reasons=["edited recording: temporal windows only within confirmed continuous spans"]),
-        dict(rid="syn_ind_c", group="g-syn-c", split="dev_val", fold=1, surface="indoor", recording_type="continuous", negatives="standard",
-             coverage="stage1_complete", rallies=[(4, 9), (18, 29)], nra=[(12, 15)], net=False,
-             short_pair=[(40.0, 41.5), (43.5, 45.0)]),   # two short raws: r0 joins them (padded gap 1.0 s ≤ 1.3513), r0_prime (join 0, post-roll 1.0: gap 0.5 s) does not
-    ]
     recordings = []
     for spec in specs:
         rec, steps = _synthetic_recording(rng, **{k: v for k, v in spec.items() if k != "short_pair"})
