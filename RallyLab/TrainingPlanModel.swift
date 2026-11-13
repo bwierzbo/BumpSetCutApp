@@ -3,8 +3,12 @@
 //  RallyLab
 //
 //  Runs the training plan (Labeler/Shared/TrainingPlan.swift) on the Mac:
-//  export and train a round on the desktop, carry on with a stopped one,
-//  and keep what was trained in the dataset's training_plan.json.
+//  train a round on the desktop, carry on with a stopped one, and keep what
+//  was trained in the dataset's training_plan.json. A round trains from the
+//  project's newest lineage package (`--package-l2`, D-018) — the only kind
+//  the trainer accepts; the plan exports nothing itself, and a round that
+//  has no such package, or can't start, is refused before anything is
+//  recorded.
 //
 
 import Foundation
@@ -40,8 +44,8 @@ extension TrainingPlan.Run {
     }
 }
 
-/// Runs the plan: export and train a round, carry on with a round that
-/// was stopped, and keep what was trained.
+/// Runs the plan: train a round, carry on with a round that was stopped,
+/// and keep what was trained.
 @MainActor
 @Observable
 final class TrainingPlanModel {
@@ -77,26 +81,34 @@ final class TrainingPlanModel {
 
     func scores(_ name: String) -> RunScores? { lab.runScores(name) }
 
-    /// Package every tracked rally and reviewed frame, then train the
-    /// round's runs on the desktop one after another, bringing each back.
-    func exportAndTrain(_ round: TrainingPlan.Round, progress: PlanProgress) {
+    /// Train the round's runs on the desktop one after another, bringing each back, from the project's newest
+    /// lineage package. Refused — with the reason in `status`, nothing exported and no round recorded — when
+    /// there is no lineage package (HeatmapLab.trainingRefusal) or the first run can't start (a withheld closure
+    /// that can't be written, a package the desktop check refuses): a round is on record only once a run of it
+    /// is training.
+    func train(_ round: TrainingPlan.Round, progress: PlanProgress) {
         guard !isRunning, !library.isBusy, !lab.desktopBusy else { return }
+        lab.reload()
+        guard let package = lab.lineagePackage else {
+            status = "Round \(round.number) not started: no lineage package in this project's exports. " + HeatmapLab.lineagePackageHowTo
+            return
+        }
+        guard let first = round.runs.first else { return }
         isRunning = true
-        let before = library.lastMultiFramePackage?.output
-        library.exportMultiFramePackage()
         Task {
             defer { isRunning = false }
-            status = "Exporting the multi-frame package…"
-            while library.isBusy { try? await Task.sleep(nanoseconds: 300_000_000) }
-            guard let zip = library.lastMultiFramePackage?.output, zip != before else {
-                status = "The export didn't finish: \(library.status)"
+            lab.desktopBusy = true
+            status = "Round \(round.number): \(first.title) (1 of \(round.runs.count))"
+            let started = await lab.startDesktopRun(package: package, arguments: first.desktopArguments)
+            lab.desktopBusy = false
+            guard let started else {
+                status = "Round \(round.number) not started: \(lab.desktopLine)"
                 return
             }
-            lab.reload()
-            let record = TrainedRound(round: round.number, date: Date(),
-                                      package: zip.deletingPathExtension().lastPathComponent,
+            var record = TrainedRound(round: round.number, date: Date(), package: package.lastPathComponent,
                                       frames: progress.surfaces.mapValues(\.frames),
                                       runs: round.runs.map { TrainedRound.RunState(run: $0) })
+            record.runs[0].name = started
             history.append(record)
             save()
             await train(round: round.number)

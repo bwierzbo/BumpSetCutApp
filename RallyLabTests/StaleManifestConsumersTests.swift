@@ -286,6 +286,72 @@ final class StaleManifestConsumersTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: cached), Data("a cached pass".utf8))
     }
 
+    // MARK: - Training from a package (the Plan page, the Models tab)
+
+    /// A package folder in the project's exports: a plain multi-frame export, or with `lineage` the record a
+    /// lineage package carries.
+    private func package(_ name: String, lineage: Bool = false) throws -> URL {
+        let folder = root.appendingPathComponent("exports/\(name)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data(#"{"clip":"t1","split":"train"}"#.utf8).write(to: folder.appendingPathComponent("windows.jsonl"))
+        if lineage { try Data("{}".utf8).write(to: folder.appendingPathComponent(LineagePackage.recordFile)) }
+        return folder
+    }
+
+    private func planModel() -> TrainingPlanModel {
+        let plan = TrainingPlanModel(library: ModelLibrary(sampler: SamplerModel(defaults: defaults, root: root)))
+        plan.reload()
+        return plan
+    }
+
+    private var exports: [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("exports").path)) ?? []).sorted()
+    }
+
+    /// Codex on #180: the Plan page exported a plain multi-frame package, recorded the round, and only then met
+    /// the trainer's refusal. A round now trains from a lineage package or is refused first.
+    func testAPlanRoundWithoutALineagePackageIsRefusedBeforeAnythingIsExportedOrRecorded() async throws {
+        try writeProject(cards); try writeValidation(); try writeManifest()
+        let plain = try package("P-multiframe-20261112-0900")
+        let plan = planModel()
+        let round = TrainingPlan.rounds[0]
+        plan.train(round, progress: PlanProgress(videos: [], round: round))
+        XCTAssertFalse(plan.isRunning, "refused at once: nothing to wait for")
+        XCTAssertTrue(plan.status.contains("Round 1 not started") && plan.status.contains("--package-l2") && plan.status.contains("D-018"), plan.status)
+        XCTAssertTrue(plan.history.isEmpty, "no round recorded")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("training_plan.json").path))
+        XCTAssertEqual(exports, ["P-multiframe-20261112-0900"], "nothing exported")
+        XCTAssertFalse(plan.library.isBusy); XCTAssertNil(plan.library.lastMultiFramePackage)
+        // The same rule wherever a package is handed to the desktop: the Models tab, a round carried on.
+        let lab = plan.library.heatmaps
+        let started = await lab.startDesktopRun(package: plain, arguments: ["--size", "512"])
+        XCTAssertNil(started)
+        XCTAssertTrue(lab.desktopLine.contains("P-multiframe-20261112-0900 is not a lineage package") && lab.desktopLine.contains("--package-l2"), lab.desktopLine)
+        lab.reload()
+        lab.trainOnDesktop(size: 512)
+        XCTAssertFalse(lab.desktopBusy)
+        XCTAssertTrue(lab.desktopLine.contains("No lineage package"), lab.desktopLine)
+    }
+
+    func testAPlanRoundThatCannotStartIsNotRecordedAndALineagePackageIsTheOneChosen() async throws {
+        // No split manifest: the withheld closure can't be written, so nothing may start (and nothing here reaches the desktop).
+        try writeProject(cards); try writeValidation()
+        _ = try package("P-val-multiframe-20261112-0900")            // a test set: later in the list by name, not a lineage package
+        let lineage = try package("P-L2-multiframe-20261021-1917", lineage: true)
+        let plan = planModel()
+        plan.library.heatmaps.reload()
+        XCTAssertEqual(plan.library.heatmaps.lineagePackage?.lastPathComponent, "P-L2-multiframe-20261021-1917")
+        XCTAssertNil(HeatmapLab.trainingRefusal(package: lineage))
+        let round = TrainingPlan.rounds[0]
+        plan.train(round, progress: PlanProgress(videos: [], round: round))
+        while plan.isRunning { try await Task.sleep(nanoseconds: 20_000_000) }
+        XCTAssertTrue(plan.status.contains("Round 1 not started") && plan.status.contains("No split manifest"), plan.status)
+        XCTAssertTrue(plan.history.isEmpty, "a round that did not start is not on record")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("training_plan.json").path))
+        XCTAssertFalse(plan.library.heatmaps.desktopBusy)
+        XCTAssertEqual(exports, ["P-L2-multiframe-20261021-1917", "P-val-multiframe-20261112-0900"])
+    }
+
     // MARK: - The net dataset
 
     private func closure(names: [String] = ["l"], sourceIds: [String] = [], fingerprints: [String] = []) -> X.Withheld {

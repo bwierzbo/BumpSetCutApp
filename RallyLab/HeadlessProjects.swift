@@ -16,9 +16,10 @@
 //                                                           --labels-only: rally times, tracks, reviews, plan — no videos;
 //                                                           --remake-copies [names…]: those videos' older phone copies
 //                                                           made again, no names every video's)
-//    RallyLab --project v3 --train-round                   (the training plan's next round, as Plan's button: export,
-//                                                           train its runs on the desktop, bring each back; then the
-//                                                           phone gets the plan)
+//    RallyLab --project v3 --train-round                   (the training plan's next round, as Plan's button: train its
+//                                                           runs on the desktop from the newest lineage package
+//                                                           (--package-l2), bring each back; then the phone gets the
+//                                                           plan. Refused, nothing recorded, without such a package)
 //    RallyLab --project v3 --repull-all                    (sample every video's cut again, e.g. after
 //                                                           changing frames per rally — nothing re-downloaded;
 //                                                           videos with tracked rallies or reviewed frames are kept)
@@ -411,7 +412,7 @@ enum HeadlessProjects {
                 guard let round = plan.currentRound else { log("Every round is trained."); exit(0) }
                 let progress = PlanProgress(videos: projects.sampler.sessions.map(PlanVideo.init(session:)), round: round)
                 log("Round \(round.number): \(progress.frames) frames (\(progress.surfaces.map { "\($0.key) \($0.value.frames)" }.sorted().joined(separator: ", ")))")
-                plan.exportAndTrain(round, progress: progress)
+                plan.train(round, progress: progress)
                 var said = ""
                 while plan.isRunning || library.isBusy {
                     let now = [plan.status, library.heatmaps.desktopLine].joined(separator: " · ")

@@ -299,11 +299,28 @@ final class HeatmapLab {
 
     private static let desktopScript = converter.deletingLastPathComponent().appendingPathComponent("desktop.sh")
 
-    /// Send the newest multi-frame package to the desktop, train there, follow
+    /// Why `package` is not trained from, or nil: a model trains only from a lineage package — the folder
+    /// `RallyLab --project <name> --package-l2` writes, whose record (l2-manifest.json, there only when the
+    /// preflight passed) names every recording with its identities (D-018). A plain multi-frame export does not
+    /// say what its recordings are, so the trainer can't hold it against the withheld closure and refuses it;
+    /// this says so before anything is exported for it, recorded or sent.
+    static func trainingRefusal(package: URL) -> String? {
+        guard !FileManager.default.fileExists(atPath: package.appendingPathComponent(LineagePackage.recordFile).path) else { return nil }
+        return "\(package.lastPathComponent) is not a lineage package (no \(LineagePackage.recordFile)), so it is not trained from. " + lineagePackageHowTo
+    }
+
+    static let lineagePackageHowTo = "A model trains only from a package written by `RallyLab --project <name> --package-l2` "
+        + "whose preflight passed (D-018): write one (RallyLab closed; it reads every eligible video), then train from it here."
+
+    /// The newest lineage package in the dataset's exports, nil when there is none.
+    var lineagePackage: URL? { packages.first { Self.trainingRefusal(package: $0) == nil } }
+
+    /// Send the newest lineage package to the desktop, train there, follow
     /// it, bring the model back, add it and score it — all from here.
     func trainOnDesktop(size: Int) {
-        guard !desktopBusy, let package = packages.first else {
-            if packages.isEmpty { status = "Export a multi-frame package first." }
+        guard !desktopBusy else { return }
+        guard let package = lineagePackage else {
+            desktopLine = "No lineage package in this project's exports. " + Self.lineagePackageHowTo
             return
         }
         desktopBusy = true
@@ -322,6 +339,10 @@ final class HeatmapLab {
     /// recording or does not say what it holds — so nothing starts when the closure can't be written
     /// (a split manifest that is not current, reservations that can't be read).
     func startDesktopRun(package: URL, arguments: [String]) async -> String? {
+        if let why = Self.trainingRefusal(package: package) {
+            desktopLine = why
+            return nil
+        }
         let root = sampler.datasetRoot
         let closure = FileManager.default.temporaryDirectory.appendingPathComponent("withheld-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: closure) }
