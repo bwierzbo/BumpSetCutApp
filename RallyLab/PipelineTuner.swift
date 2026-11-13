@@ -106,6 +106,8 @@ enum PipelineTuner {
 
     struct ValidationSet: Codable {
         var tune: [String]
+        /// The legacy holdout (D-017): no pool of the tuner's any more, and withheld with every alias from every
+        /// routine model run and package, like the lists below (`ScoringExposure.Closures`; owner, 2026-11-12 §5C).
         var holdout: [String]
         /// Recordings reserved as the independent final test (D-002): never
         /// packaged, scored or tuned on until promotion. Absent in older files.
@@ -163,14 +165,6 @@ enum PipelineTuner {
             guard let data = try? Data(contentsOf: file),
                   let set = try? JSONDecoder().decode(ValidationSet.self, from: data) else { throw ReservationError.unreadable(file) }
             return set
-        }
-
-        /// Sessions that must stay out of every package, score run, tuning
-        /// and pre-tracking (D-002): the listed names and their aliases (same
-        /// file or confirmed identity under another session name). Fails
-        /// closed: unreadable file → throws.
-        static func finalTestNames(in datasetRoot: URL) throws -> Set<String> {
-            try ReservedVideos.reservedNames(in: datasetRoot)
         }
 
         static func load(from datasetRoot: URL) -> ValidationSet? {
@@ -407,17 +401,12 @@ enum PipelineTuner {
             log("❌ No \(dir.lastPathComponent)/validation.json (lists the tune videos).")
             return false
         }
-        let reserved: Set<String>
-        do { reserved = try ReservedVideos.reservedNames(in: sampler.datasetRoot) } catch {
+        let closures: ScoringExposure.Closures
+        do { closures = try ScoringExposure.Closures(in: sampler.datasetRoot) } catch {
             log("❌ \(error.localizedDescription)")
             return false
         }
-        let withheld: Set<String>
-        do { withheld = try ReservedVideos.lineageWithheldNames(in: sampler.datasetRoot) } catch {
-            log("❌ \(error.localizedDescription)")
-            return false
-        }
-        guard let names = eligible(set, reserved: reserved, withheld: withheld, log: log) else { return false }
+        guard let names = eligible(set, reserved: closures.reserved, withheld: closures.withheld, log: log) else { return false }
         let tune = videos(names, sampler: sampler, log: log)
         log("Tune: \(tune.count) of \(names.count) eligible videos — searched on and reported on; nothing is held out here (a held-out evaluation is --retune-decider's, from a plan)")
         guard tune.count >= 2 else { log("❌ Mark every rally in at least 2 tune videos first."); return false }

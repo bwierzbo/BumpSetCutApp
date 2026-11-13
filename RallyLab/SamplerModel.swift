@@ -252,6 +252,10 @@ final class SamplerModel {
     /// the canvas to show a ring while it looks.
     private(set) var snapping: CGPoint?
     @ObservationIgnored private let snapDetector = SnapDetector()
+    /// Whether the click-to-box detector may run over a session's frames, once asked (`snapAdmission`): the
+    /// session and dataset it was asked for, and why not (nil: it may). Kept until another session is boxed in,
+    /// so the reservations are not read again on every click.
+    @ObservationIgnored private var snapAsked: (session: String, root: URL, refusal: String?)?
     /// Frames already checked for balls that stayed put, this session.
     @ObservationIgnored private var heldChecked: Set<UUID> = []
     private var loadTask: Task<Void, Never>?
@@ -474,21 +478,35 @@ final class SamplerModel {
 
     private static let rallyShare = 0.5
 
-    /// Why a new file may not be sampled into the dataset at `root`: it is a reserved recording of that
-    /// project (D-002) — by path, by name or by content (`ReservedVideos.match`), so a copy dropped in or
-    /// passed to `--sample` under another name is refused before the pipeline runs over it. nil for any
-    /// other file, and for a dataset that is no project (it has no reservations). Throws when the project's
-    /// reservations, cards or sessions can't be read: the file is then not cleared (fails closed).
+    /// Why a new file may not be sampled into the dataset at `root`: it is a withheld recording of that project —
+    /// the final test, a lineage or legacy holdout, or an alias of one (D-002, D-017) — by path, by name or by
+    /// content (`ReservedVideos.match`), so a copy dropped in or passed to `--sample` under another name is
+    /// refused before the pipeline and the pre-label model run over it. nil for any other file, and for a
+    /// dataset that is no project (it has no reservations). Throws when the project's reservations, cards or
+    /// sessions can't be read: the file is then not cleared (fails closed).
     nonisolated static func ingestRefusal(of video: URL, root: URL) throws -> String? {
-        guard let match = try ReservedVideos.match(video, root: root), match.reserved else { return nil }
-        return "\(video.lastPathComponent) is \(match.session), reserved as final_test (D-002) — not sampled."
+        guard let match = try ReservedVideos.match(video, root: root),
+              let why = ScoringExposure.standing(reserved: match.reserved, withheld: match.withheld) else { return nil }
+        return "\(video.lastPathComponent) is \(match.session), \(why) — not sampled."
+    }
+
+    /// The same refusal for a project clip — the project's own recording, sampled under its card's name (a new
+    /// cut, a re-pull, a move): its card is in the withheld closure, listed or as an alias. `ProjectsModel.repull`
+    /// and `moveVideo` ask it before anything of the session is touched; the ingest asks it again.
+    nonisolated static func ingestRefusal(ofClip name: String, root: URL) throws -> String? {
+        try ScoringExposure.Closures(in: root).standing(of: name).map {
+            "\(name) is \($0) — not sampled: the pipeline and the pre-label model are not run over it."
+        }
     }
 
     private func ingestVideo(_ job: IngestJob, name: String, split: String, root: URL) async throws -> [FrameRecord] {
         let video = job.url
-        // A new file only: a project clip (queued under its card's name by the Projects tab) is the project's
-        // own recording being given its session, not a copy coming in under another name.
-        if job.sessionName == nil, let why = try Self.ingestRefusal(of: video, root: root) { throw IngestError.reserved(why) }
+        // Sampling runs the pipeline and the pre-label model over the video: refused for a withheld recording,
+        // a project clip (queued under its card's name by the Projects tab) told by that name, a new file by
+        // path, name or content.
+        if let why = try job.sessionName.map({ try Self.ingestRefusal(ofClip: $0, root: root) }) ?? Self.ingestRefusal(of: video, root: root) {
+            throw IngestError.withheld(why)
+        }
         let labelsURL = video.deletingPathExtension().appendingPathExtension("rallylabels.json")
         let labeled: [LabeledRally] = preferHandLabels
             ? ((try? Data(contentsOf: labelsURL)).flatMap { try? JSONDecoder().decode([LabeledRally].self, from: $0) } ?? [])
@@ -574,10 +592,10 @@ final class SamplerModel {
 
     enum IngestError: LocalizedError {
         case unreadable, nothingToSample, noImages
-        case reserved(String)
+        case withheld(String)
         var errorDescription: String? {
             switch self {
-            case .reserved(let why): return why
+            case .withheld(let why): return why
             case .unreadable: return "Couldn't read the video."
             case .nothingToSample: return "No rallies found and no random frames requested."
             case .noImages: return "No JPEG or PNG files in the folder."
@@ -1040,19 +1058,36 @@ final class SamplerModel {
         status = "Showing the detector's guesses everywhere again."
     }
 
+    /// Why the click-to-box detector may not run over `name`'s frames in the Sampler's review, or nil once the
+    /// use is on the ledger. Any session can be reviewed here, and a click runs the pre-label model over its
+    /// frame — exposure (D-002, D-017): a withheld recording (the final test, a lineage or legacy holdout, an
+    /// alias of one) is refused, an admitted one recorded before the model runs, and reservations or a ledger
+    /// that can't be read or written refuse too. The box is then placed without the model. The same admission
+    /// as the Track tab's (`TrackLabelModel.modelAdmission`).
+    nonisolated static func snapAdmission(of name: String, in datasetRoot: URL) -> String? {
+        ScoringExposure.admission(of: name, kind: .preTracking, ref: "RallyLab Sampler review",
+                                  note: "click-to-box while a person reviews sampled frames", root: datasetRoot,
+                                  otherwise: "no model is run over it: the box is placed without one.")
+    }
+
     /// Click on a ball: find it (BallSnapper) and box it as a volleyball.
     /// `point` is top-left normalised in the frame.
     func snapBox(at point: CGPoint) {
-        guard let sample = selected, snapping == nil else { return }
+        guard let sample = selected, let session = currentSession, snapping == nil else { return }
+        if snapAsked?.session != session.name || snapAsked?.root != datasetRoot {
+            snapAsked = (session.name, datasetRoot, Self.snapAdmission(of: session.name, in: datasetRoot))
+        }
+        let refusal = snapAsked?.refusal
         snapping = point
         let url = store.currentImageURL(for: sample.record)
         let model = prelabelModel
         let usual = usualBallWidth()
-        let holder = snapDetector
+        // Not admitted (a withheld recording): the box is placed without the detector.
+        let holder = refusal == nil ? snapDetector : nil
         Task {
             let result = await Task.detached(priority: .userInitiated) { () -> BallSnapper.Result? in
                 guard let image = SamplerImageTools.loadImage(url, maxPixelSize: 8192) else { return nil }
-                return BallSnapper.snap(at: point, in: image, detector: holder.detector(for: model), usualSize: usual)
+                return BallSnapper.snap(at: point, in: image, detector: holder?.detector(for: model), usualSize: usual)
             }.value
             snapping = nil
             guard let result, selectedId == sample.id else { return }
@@ -1062,6 +1097,7 @@ final class SamplerModel {
             case .outline: status = "Boxed the ball from its outline."
             case .guess: status = "Couldn't find the ball's edge — placed a ball-sized box to adjust."
             }
+            if let refusal { status += " " + refusal }
         }
     }
 

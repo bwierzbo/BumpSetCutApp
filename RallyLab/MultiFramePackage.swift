@@ -452,9 +452,9 @@ enum MultiFramePackage {
                             now: Date, note: (@Sendable (String) -> Void)?,
                             progress: @escaping @Sendable (Int, Int) -> Void) async throws -> (output: URL, summary: Summary) {
         let fm = FileManager.default
-        // Final-test recordings (D-002) never enter a package, train or val.
-        let finalTest = try PipelineTuner.ValidationSet.finalTestNames(in: store.root)
-        let sessions = sessions.filter { !finalTest.contains($0.name) }
+        // No withheld recording — the final test, a lineage or legacy holdout, an alias of one (D-002, D-017) —
+        // enters a package, train or val.
+        let sessions = try ScoringExposure.Closures(in: store.root).admitted(sessions)
         let all: [(VideoSession, [FrameRecord])] = sessions.map { ($0, Self.reviewedFrames($0)) }.filter { Self.contributes($0.0) }
         let reviewed = valOnly ? all.filter { $0.0.split == "val" } : all
         guard !reviewed.isEmpty else { throw PackageError.nothingReviewed }

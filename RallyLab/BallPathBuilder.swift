@@ -60,7 +60,7 @@ final class BallPathBuilder {
     private(set) var finished = 0
     private var waiting: [Queued] = []
     private var failed: Set<Job> = []
-    /// Videos the pipeline was not run over, and why (reserved as final_test, or the ledger refused).
+    /// Videos the pipeline was not run over, and why (withheld — the final test, a lineage or legacy holdout, an alias of one — or the ledger refused).
     private var refused: [Job: String] = [:]
     private var running = false
 
@@ -107,17 +107,12 @@ final class BallPathBuilder {
     }
 
     /// Why `name` may not get a ball path, or nil once its run is admitted and on the ledger.
-    /// Running the pipeline over a video is exposure (D-002): a reserved recording is refused, and
-    /// the run is recorded before it starts; a ledger that cannot be read or written refuses too.
+    /// Running the pipeline over a video is exposure (D-002, D-017): a withheld recording — the final test, a
+    /// lineage or legacy holdout, an alias of one — is refused, and the run is recorded before it starts; a
+    /// ledger that cannot be read or written refuses too. The marking itself goes on without the snap.
     nonisolated static func admission(of name: String, in datasetRoot: URL) -> String? {
-        do {
-            try ScoringExposure.admit([name], kind: .ballPath, ref: "BallPathBuilder", note: "ball path for marking (Label / Live-tag)", root: datasetRoot)
-            return nil
-        } catch is ScoringExposure.Reserved {
-            return "\(name) is reserved as final_test (D-002) — the pipeline is not run over it, so presses don't snap."
-        } catch {
-            return "\(name): \(error.localizedDescription)"
-        }
+        ScoringExposure.admission(of: name, kind: .ballPath, ref: "BallPathBuilder", note: "ball path for marking (Label / Live-tag)", root: datasetRoot,
+                                  otherwise: "the pipeline is not run over it, so presses don't snap.")
     }
 
     private func run() async {

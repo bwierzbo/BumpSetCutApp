@@ -35,17 +35,12 @@ enum ServeReport {
             log("❌ \(error.localizedDescription)")
             return false
         }
-        let reserved: Set<String>
-        do { reserved = try ReservedVideos.reservedNames(in: sampler.datasetRoot) } catch {
+        let closures: ScoringExposure.Closures
+        do { closures = try ScoringExposure.Closures(in: sampler.datasetRoot) } catch {
             log("❌ \(error.localizedDescription)")
             return false
         }
-        let withheld: Set<String>
-        do { withheld = try ReservedVideos.lineageWithheldNames(in: sampler.datasetRoot) } catch {
-            log("❌ \(error.localizedDescription)")
-            return false
-        }
-        guard let names = PipelineTuner.eligible(set, reserved: reserved, withheld: withheld, log: log) else { return false }
+        guard let names = PipelineTuner.eligible(set, reserved: closures.reserved, withheld: closures.withheld, log: log) else { return false }
         let videos = PipelineTuner.videos(names, sampler: sampler, log: log)
         let base = PipelineTuner.Settings(config: ProcessorConfig())
         let threshold = base.config.heatmapModel.flatMap { HeatmapBallDetector(modelURL: $0) }.map { Double($0.threshold) } ?? 0.5

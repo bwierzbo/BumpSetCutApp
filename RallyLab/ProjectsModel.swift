@@ -885,17 +885,31 @@ final class ProjectsModel {
         save()
     }
 
+    /// Why the project's own clip `videoId` may not be sampled (again), or nil: sampling runs the pipeline and the
+    /// pre-label model over it, which a withheld recording — the final test, a lineage or legacy holdout, an alias
+    /// of one (D-002, D-017) — is never given (`SamplerModel.ingestRefusal(ofClip:)`). Reservations or a project
+    /// that can't be read refuse too. Asked before a re-pull or a move touches the session or the footage.
+    private func samplingRefusal(_ videoId: String) -> String? {
+        guard let dir = projectDir else { return nil }
+        do { return try SamplerModel.ingestRefusal(ofClip: DatasetStore.safeName(videoId), root: dir) } catch {
+            return "\(videoId): \(error.localizedDescription)"
+        }
+    }
+
     /// Sample a video's cut again at its current frames per rally. Its frames,
-    /// reviewed or not, are replaced; the footage isn't re-cut.
-    func repull(_ videoId: String, in clipId: String) {
+    /// reviewed or not, are replaced; the footage isn't re-cut. False when it was refused (`status` says why).
+    @discardableResult
+    func repull(_ videoId: String, in clipId: String) -> Bool {
         guard let clip = project?.clips.first(where: { $0.id == clipId }),
-              let video = clip.videos.first(where: { clip.videoId(of: $0) == videoId }) else { return }
+              let video = clip.videos.first(where: { clip.videoId(of: $0) == videoId }) else { return false }
+        if let why = samplingRefusal(videoId) { status = "⛔ " + why; return false }
         // The recording's cut ranges (D-030) are the owner's marks, not the sample: they stay with the re-pull.
         let cuts = session(named: videoId)?.cuts
         if let old = session(named: videoId) { sampler.deleteSession(old) }
         sampler.enqueueClip(URL(fileURLWithPath: video.clipFile), sessionName: DatasetStore.safeName(videoId),
                             split: clip.split, framesPerRally: video.frames ?? project?.framesPerRally, cuts: cuts)
         status = "\(videoId): re-pulling \(video.frames ?? project?.framesPerRally ?? 0) frames per rally…"
+        return true
     }
 
     /// Remove one video from a clip, with its cut footage and frames.
@@ -914,12 +928,14 @@ final class ProjectsModel {
     /// Put a video on a different card. Its existing cut is copied across
     /// (nothing is downloaded again) and sampled there at the same frames
     /// per rally; it leaves this card only once that worked. Frames already
-    /// reviewed are re-pulled, so they need reviewing again.
+    /// reviewed are re-pulled, so they need reviewing again. A withheld
+    /// recording stays where it is: a move samples it again (`samplingRefusal`).
     func moveVideo(_ videoId: String, from clipId: String, to targetId: String) {
         guard targetId != clipId, !moving.contains(videoId),
               let clip = project?.clips.first(where: { $0.id == clipId }),
               let video = clip.videos.first(where: { clip.videoId(of: $0) == videoId }),
               project?.clips.contains(where: { $0.id == targetId }) == true else { return }
+        if let why = samplingRefusal(videoId) { status = "⛔ " + why; return }
         moving.insert(videoId)
         var newId: String?   // set below; the completion runs later on the main actor
         let started = addVideo(to: targetId, source: video.clipFile, start: 0, length: video.length + 1,

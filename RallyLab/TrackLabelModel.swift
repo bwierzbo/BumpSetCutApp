@@ -310,19 +310,14 @@ final class TrackLabelModel {
 
     /// Why no model may run over `name` in the Track tab, or nil once the use is on the ledger. Any session
     /// with its video on this Mac can be opened here, and auto-track, click-to-box and look-again each run a
-    /// detector over its frames — exposure (D-002): a reserved recording is refused, an admitted one recorded
-    /// before the first model runs, and reservations or a ledger that can't be read or written refuse too.
+    /// detector over its frames — exposure (D-002, D-017): a withheld recording (the final test, a lineage or
+    /// legacy holdout, an alias of one) is refused, an admitted one recorded before the first model runs, and
+    /// reservations or a ledger that can't be read or written refuse too. The ball is then placed by hand.
     /// The same admission as a ball path's (`BallPathBuilder.admission`).
     nonisolated static func modelAdmission(of name: String, in datasetRoot: URL) -> String? {
-        do {
-            try ScoringExposure.admit([name], kind: .preTracking, ref: "RallyLab Track tab",
-                                      note: "auto-track, click-to-box and look-again while a person tracks the ball", root: datasetRoot)
-            return nil
-        } catch is ScoringExposure.Reserved {
-            return "⛔ \(name) is reserved as final_test (D-002) — no model is run over it: place the ball by hand."
-        } catch {
-            return "❌ \(name): \(error.localizedDescription)"
-        }
+        ScoringExposure.admission(of: name, kind: .preTracking, ref: "RallyLab Track tab",
+                                  note: "auto-track, click-to-box and look-again while a person tracks the ball", root: datasetRoot,
+                                  otherwise: "no model is run over it: place the ball by hand.")
     }
 
     /// False, with the reason shown, when no model may run over the open video.
@@ -460,7 +455,7 @@ final class TrackLabelModel {
         guard let image, let shownIndex, let current = rally?.points[shownIndex], snapping == nil else { return }
         snapping = point
         let model = sampler.prelabelModel
-        // Not admitted (a reserved recording): the box is placed without the detector.
+        // Not admitted (a withheld recording): the box is placed without the detector.
         let holder = modelsAdmitted() ? snapDetector : nil
         let usual = usualWidth()
         let id = selectedId
