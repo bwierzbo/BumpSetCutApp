@@ -179,6 +179,66 @@ extension TrackedRally {
     }
 }
 
+/// How one rally's track is worked on, by what its recording's access allows (LabelAccess; D-036 §5C/§5E).
+/// The detectors of a tracking session are reached only through `models`, and a person's fix is applied only
+/// through `fixed` — so a recording no model may run over gets no detector and no solve, whoever opens it and
+/// from wherever.
+enum TrackWork: Equatable, Sendable {
+    /// The detector proposes, the solver links it up; every fix re-solves the rest.
+    case assisted
+    /// A rally tracked before, of a recording no model may run over now, on a device where annotation by hand
+    /// goes on: its frames and the boxes it has are shown, and a person moves, confirms or hides the ball frame
+    /// by frame. Nothing is found, solved or re-solved; the reason is shown.
+    case byHand(String)
+    /// Not opened at all, with the reason.
+    case refused(String)
+
+    /// Before a session has asked what its recording's access is: no model, no work.
+    static let unchecked = TrackWork.refused("This recording has not been checked against its project's withheld list yet.")
+
+    /// `existingTrack`: the rally has frames tracked before. A rally with none can only be tracked with the
+    /// detectors, so it opens only where they may run.
+    init(access: LabelAccess, existingTrack: Bool) {
+        guard let why = access.modelRefusal else { self = .assisted; return }
+        self = existingTrack && access.offersMarking ? .byHand(why) : .refused(why)
+    }
+
+    /// Why no detector may run in this session, or nil when one may.
+    var modelRefusal: String? {
+        switch self {
+        case .assisted: return nil
+        case .byHand(let why), .refused(let why): return why
+        }
+    }
+
+    struct ModelsRefused: LocalizedError, Equatable {
+        let reason: String
+        var errorDescription: String? { reason }
+    }
+
+    /// The detectors for one detector-backed operation (finding the ball on the frames, looking again near a fix,
+    /// finding it on more frames): built by `make` only when the work is assisted, refused with the reason
+    /// otherwise — before anything is built.
+    func models<Detectors>(_ make: () throws -> Detectors) throws -> Detectors {
+        if let why = modelRefusal { throw ModelsRefused(reason: why) }
+        return try make()
+    }
+
+    /// A person's fix applied the way this work goes. Assisted: the path is re-solved around it from the
+    /// detector's candidates (`resolve`), and the rally is to be watched again before it is done. By hand: the
+    /// fix is all that changes — no candidate is read, no other frame moves, and a rally that was done stays done.
+    /// Refused: nothing changes.
+    func fixed(_ rally: TrackedRally, resolve: Bool = true, _ fix: (inout TrackedRally) -> Void) -> TrackedRally {
+        if case .refused = self { return rally }
+        var r = rally
+        fix(&r)
+        guard resolve, self == .assisted else { return r }
+        r.points = TrackSolver.solve(r)
+        r.done = false
+        return r
+    }
+}
+
 /// Picks the ball in play through a rally's frames.
 enum TrackSolver {
 

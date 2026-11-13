@@ -137,11 +137,12 @@ struct TrackTaskView: View {
 
     var body: some View {
         Group {
-            if let why = model.access(for: video).modelRefusal {
-                // Before the rally is trimmed or its clip fetched: tracking would run the detectors over it.
-                ContentUnavailableView("Not tracked on this phone", systemImage: "hand.raised", description: Text(why))
-            } else if let track = model.unfinishedTrack(of: span, in: video) {
+            if let track = model.unfinishedTrack(of: span, in: video) {
+                // A rally begun before: its session decides how it opens (by hand where no model may run).
                 TrackReviewView(model: model, video: video, track: track)
+            } else if let why = model.access(for: video).modelRefusal {
+                // Before the rally is trimmed or its clip fetched: tracking it would run the detectors over it.
+                ContentUnavailableView("Not tracked on this phone", systemImage: "hand.raised", description: Text(why))
             } else if let trimmed, clip != nil {
                 TrackReviewView(model: model, video: video, span: trimmed, found: found)
             } else if trimmed != nil, let failure {

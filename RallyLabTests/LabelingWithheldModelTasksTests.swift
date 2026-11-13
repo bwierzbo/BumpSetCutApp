@@ -15,7 +15,10 @@
 //    model found the ball in for it, and none at all when the closure can't
 //    be read;
 //  - what was there stays and keeps syncing: the rows the server already
-//    has, the rallies a person tracked by hand, the lead's rally marks.
+//    has, the rallies a person tracked by hand, the lead's rally marks;
+//  - a rally tracked before opens again by hand for the lead (TrackWork):
+//    no detector is built, nothing is solved, a fix changes its frame only
+//    and syncs like any correction — and not at all for an ordinary labeler.
 //
 //  A project on disk (a lineage holdout, a train copy of it by a confirmed
 //  sourceId, a legacy holdout, an ordinary train recording) against the
@@ -231,6 +234,148 @@ final class LabelingWithheldModelTasksTests: XCTestCase {
         XCTAssertEqual(Set(server.uploads.filter { $0.hasSuffix(".ballpath.json") }), Set(all.map(ballPath)))
         XCTAssertEqual(sentTracks, ids(all, machine, assisted, byHand))
         XCTAssertFalse(sync.status.contains("kept on this Mac"), sync.status)
+    }
+
+    // MARK: - A rally tracked before, opened again (TrackWork)
+
+    private let withheldLead = LabelAccess(withheld: true, byHand: true), unknownLead = LabelAccess(withheld: nil, byHand: true)
+    private let withheldLabeler = LabelAccess(withheld: true, byHand: false), unknownLabeler = LabelAccess(withheld: nil, byHand: false)
+
+    func testAnExistingRallyOfAWithheldRecordingOpensByHandForTheLeadAndANewOneNotAtAll() {
+        // No model is kept from the recording: assisted, a rally tracked before or not.
+        XCTAssertEqual(TrackWork(access: .open, existingTrack: true), .assisted)
+        XCTAssertEqual(TrackWork(access: .open, existingTrack: false), .assisted)
+        // Withheld, or not known not to be: the lead opens what was tracked before by hand, with the reason.
+        for access in [withheldLead, unknownLead] {
+            XCTAssertEqual(TrackWork(access: access, existingTrack: true), .byHand(access.modelRefusal!), "\(access)")
+            XCTAssertEqual(TrackWork(access: access, existingTrack: false), .refused(access.modelRefusal!), "a rally not tracked yet needs the detectors: \(access)")
+        }
+        // An ordinary labeler: nothing opens.
+        for access in [withheldLabeler, unknownLabeler] {
+            XCTAssertEqual(TrackWork(access: access, existingTrack: true), .refused(access.modelRefusal!), "\(access)")
+            XCTAssertEqual(TrackWork(access: access, existingTrack: false), .refused(access.modelRefusal!), "\(access)")
+        }
+        XCTAssertNil(TrackWork.assisted.modelRefusal)
+        XCTAssertNotNil(TrackWork.unchecked.modelRefusal, "a session that has not asked yet runs no model")
+    }
+
+    func testNoDetectorIsEverBuiltForARallyWorkedOnByHandOrRefused() throws {
+        // Stands in for the phone's detectors: counts how often one was built.
+        var built = 0
+        struct Detectors {}
+        func make() -> Detectors { built += 1; return Detectors() }
+        for access in [withheldLead, unknownLead, withheldLabeler, unknownLabeler] {
+            for existing in [true, false] {
+                let work = TrackWork(access: access, existingTrack: existing)
+                // The three detector-backed operations: finding the ball on the frames, looking again, more frames.
+                for _ in 0..<3 {
+                    XCTAssertThrowsError(try work.models(make), "\(work)") { error in
+                        XCTAssertEqual(error as? TrackWork.ModelsRefused, TrackWork.ModelsRefused(reason: access.modelRefusal!))
+                        XCTAssertEqual(error.localizedDescription, access.modelRefusal, "the reason is what is shown")
+                    }
+                }
+            }
+        }
+        XCTAssertThrowsError(try TrackWork.unchecked.models(make))
+        XCTAssertEqual(built, 0, "refused before anything is built")
+        _ = try TrackWork(access: .open, existingTrack: true).models(make)
+        XCTAssertEqual(built, 1, "a recording no model is kept from is unchanged")
+    }
+
+    /// A rally a person finished whose frame 3 the solver would take from the detector's candidate if it ran.
+    private func rallyTheSolverWouldChange() -> TrackedRally {
+        var r = rally("assisted")
+        r.points[3] = TrackPoint(time: r.points[3].time, state: .unknown, origin: .auto, box: nil)
+        return r
+    }
+
+    private let moved = TrackCandidate(rect: CGRect(x: 0.6, y: 0.5, width: 0.03, height: 0.03), confidence: 1)
+
+    private func place(_ box: TrackCandidate, at i: Int) -> (inout TrackedRally) -> Void {
+        { r in r.points[i].state = .visible; r.points[i].origin = .user; r.points[i].box = box; r.points[i].reviewed = false }
+    }
+
+    func testAFixByHandChangesItsFrameOnlyAndNothingIsSolved() {
+        let before = rallyTheSolverWouldChange()
+        let byHand = TrackWork(access: withheldLead, existingTrack: true).fixed(before, place(moved, at: 1))
+        XCTAssertEqual(byHand.points[1].box, moved)
+        XCTAssertEqual(byHand.points[1].origin, .user)
+        for i in before.points.indices where i != 1 { XCTAssertEqual(byHand.points[i], before.points[i], "frame \(i) is as it was") }
+        XCTAssertEqual(byHand.points[3].state, .unknown, "the detector's candidate on frame 3 was not taken")
+        XCTAssertEqual(byHand.candidates, before.candidates)
+        XCTAssertTrue(byHand.done, "a finished rally stays finished")
+        // The same when the state is not known; nothing at all when the work is refused.
+        XCTAssertEqual(TrackWork(access: unknownLead, existingTrack: true).fixed(before, place(moved, at: 1)), byHand)
+        XCTAssertEqual(TrackWork(access: withheldLabeler, existingTrack: true).fixed(before, place(moved, at: 1)), before)
+        // A recording no model is kept from: the fix re-solves the rest, as before.
+        let assisted = TrackWork.assisted.fixed(before) { $0.points[1].origin = .user }
+        XCTAssertEqual(assisted.points[1].origin, .user)
+        XCTAssertEqual(assisted.points[3].state, .visible, "re-solved from the candidates")
+        XCTAssertFalse(assisted.done, "to be watched again")
+    }
+
+    func testWorkByHandNeverAddsWhatAModelFound() {
+        let work = TrackWork(access: withheldLead, existingTrack: true)
+        func modelFrames(_ r: TrackedRally) -> Int { r.points.filter { $0.origin == .auto && $0.box != nil }.count }
+        // Every fix a person can make: the ball is here, the pick is right, the ball is hidden.
+        var r = rallyTheSolverWouldChange()
+        var seen = modelFrames(r)
+        let fixes: [(inout TrackedRally) -> Void] = [place(moved, at: 3), { $0.points[0].origin = .user },
+                                                    { $0.points[2].state = .hidden; $0.points[2].origin = .user; $0.points[2].box = nil }]
+        for fix in fixes {
+            r = work.fixed(r, fix)
+            XCTAssertLessThan(modelFrames(r), seen + 1, "a fix by hand never adds a frame a model found")
+            seen = modelFrames(r)
+        }
+        XCTAssertTrue(r.carriesModelOutput, "frames 1 and 4 are still the detector's picks")
+        r = work.fixed(r) { $0.points[1].origin = .user }
+        r = work.fixed(r) { $0.points[4].origin = .user }
+        XCTAssertFalse(r.carriesModelOutput, "every frame confirmed or placed by a person: by hand")
+        // A pre-tracked rally stays a model's, whatever is fixed in it.
+        var machine = rally("machine")
+        for i in machine.points.indices { machine = work.fixed(machine) { $0.points[i].origin = .user } }
+        XCTAssertTrue(machine.carriesModelOutput)
+    }
+
+    func testACorrectionByHandOnAWithheldRecordingsExistingRallySyncsBothWays() async throws {
+        try makeProject()
+        let work = TrackWork(access: withheldLead, existingTrack: true)
+        guard case .byHand = work else { return XCTFail("\(work)") }
+        // Both rallies went up before their recordings were withheld.
+        func onServer(_ name: String) throws -> LabelTrack {
+            let local = try XCTUnwrap(projects.session(named: name)?.tracks?.first { $0.id == machine[name] })
+            var row = LabelTrack(local, videoId: rows[name]!.id)
+            row.updatedAt = Date(timeIntervalSince1970: 1_700_000_000)
+            server.tracks[row.id] = row
+            server.stamps.append(LabelingClient.TrackStamp(id: row.id, videoId: row.videoId, deleted: false, updatedAt: row.updatedAt))
+            return row
+        }
+        let copyRow = try onServer(copy), lineageRow = try onServer(lineage)
+        // On the phone, the lead moves the ball on frame 2 of the copy's rally, by hand, and it is saved.
+        var corrected = LabelTrack(work.fixed(copyRow.rally, place(moved, at: 2)), videoId: copyRow.videoId)
+        corrected.updatedAt = Date()
+        server.tracks[corrected.id] = corrected
+        server.stamps.removeAll { $0.id == corrected.id }
+        server.stamps.append(LabelingClient.TrackStamp(id: corrected.id, videoId: corrected.videoId, deleted: false, updatedAt: corrected.updatedAt))
+        // On the Mac, a frame of the lineage holdout's rally is hidden by hand.
+        var tracks = try XCTUnwrap(projects.session(named: lineage)?.tracks)
+        let i = try XCTUnwrap(tracks.firstIndex { $0.id == lineageRow.id })
+        tracks[i] = work.fixed(tracks[i]) { $0.points[0].state = .hidden; $0.points[0].origin = .user; $0.points[0].box = nil }
+        tracks[i].updatedAt = Date()
+        projects.sampler.setTracks(tracks, session: lineage)
+
+        let synced = await sync.sync(videos: false)
+        XCTAssertTrue(synced, sync.status)
+        let here = try XCTUnwrap(projects.session(named: copy)?.tracks?.first { $0.id == copyRow.id })
+        XCTAssertEqual(here.points[2].box, moved, "the phone's correction came down")
+        XCTAssertEqual(here.points[2].origin, .user)
+        let there = try XCTUnwrap(server.tracks[lineageRow.id])
+        XCTAssertEqual(there.points.points[0].state, .hidden, "the Mac's correction went up")
+        XCTAssertEqual(there.points.points[0].origin, .user)
+        // And nothing a model found went up with them: the rallies the server never had stay held.
+        XCTAssertTrue(sentTracks.isDisjoint(with: ids(withheld, assisted)))
+        XCTAssertFalse(sentTracks.contains(machine[holdout]!))
+        XCTAssertTrue(sync.status.contains("kept on this Mac, not published"), sync.status)
     }
 
     // MARK: - What a model found the ball in

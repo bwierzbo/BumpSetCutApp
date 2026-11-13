@@ -9,6 +9,13 @@
 //  You only look at the frames worth a look; every fix re-solves the rest,
 //  then looks again near it for a ball the first pass missed.
 //
+//  A rally tracked before, of a recording its project now withholds from
+//  every model (or whose state isn't known), opens by hand for a lead
+//  (TrackWork.byHand): its frames and its boxes, each fix changing that
+//  frame only — no detector is built, nothing is solved, and looking again
+//  and reading more frames are off, with the reason on screen. A rally not
+//  tracked yet doesn't open there at all.
+//
 
 import AVFoundation
 import CoreGraphics
@@ -47,6 +54,16 @@ final class TrackSession {
     private var keptPoints: [TrackPoint] = []
     /// Searching near your last fix (TrackFinder.lookAgain).
     private(set) var isLookingAgain = false
+    /// How this rally is worked on: with the detectors, by hand, or not at all — by what its recording's access
+    /// allows, asked in `prepare` and again before more frames are read. Every detector here is built through
+    /// `work.models`, every fix applied through `work.fixed`.
+    private(set) var work = TrackWork.unchecked
+
+    /// Why this rally is worked on by hand, when it is: shown, and the detector-backed controls are off.
+    var byHandReason: String? {
+        if case .byHand(let why) = work { return why }
+        return nil
+    }
     @ObservationIgnored private let lookAgainDetector = LookAgainDetector()
     @ObservationIgnored private let lookAgainHeat = LookAgainHeat()
 
@@ -97,25 +114,33 @@ final class TrackSession {
     // MARK: - Preparing
 
     func prepare() async {
-        guard await modelsAdmitted() else { return }
+        guard await decideWork() != nil else { return }
         await read()
     }
 
-    /// Tracking runs the ball detectors over the rally (when its frames are read, and again near every fix): never
-    /// over a recording its project withholds from every model, whoever is signed in, nor over one whose state
-    /// can't be checked now. False, with the reason on screen, when they may not run.
-    private func modelsAdmitted() async -> Bool {
-        guard let why = await model.modelTaskRefusal(for: video) else { return true }
-        phase = .failed(why)
-        return false
+    /// Asks what the recording's access is now (the withheld list fetched again; not fetched = not known) and
+    /// sets how the rally is worked on. Tracking runs the ball detectors — when the frames are read, and again
+    /// near every fix — so it is assisted only for a recording no model is kept from, whoever is signed in; a
+    /// rally tracked before opens by hand where annotation by hand goes on; anything else is refused, with the
+    /// reason on screen. Returns nil when refused.
+    private func decideWork() async -> TrackWork? {
+        work = TrackWork(access: await model.modelAccess(for: video), existingTrack: !rally.points.isEmpty)
+        if case .refused(let why) = work {
+            phase = .failed(why)
+            return nil
+        }
+        return work
     }
 
     private func read() async {
-        // Left part way through: its frames and candidates are on the phone.
+        let assisted = work == .assisted
+        // Left part way through: its frames and candidates are on the phone. By hand, the frames only.
         if !rally.points.isEmpty, let kept = LocalStore.tracking(rally.id, times: rally.points.map(\.time)) {
             frames = kept.frames
-            rally.candidates = kept.candidates
-            rally.points = TrackSolver.solve(rally)
+            if assisted {
+                rally.candidates = kept.candidates
+                rally.points = TrackSolver.solve(rally)
+            }
             let left = LocalStore.position(rally.id).flatMap { t in rally.points.firstIndex { abs($0.time - t) < 0.002 } }
             index = left ?? toCheck.first ?? 0
             phase = .reviewing
@@ -140,20 +165,27 @@ final class TrackSession {
             }
             // An existing track's own frame times win (they're what was labeled).
             let wanted = rally.points.map(\.time)
-            phase = .preparing("Finding the ball on \(wanted.count) frames…", 0)
-            let found = try await Self.detect(asset: asset, times: wanted) { done in
+            let what = assisted ? "Finding the ball on \(wanted.count) frames…" : "Reading \(wanted.count) frames…"
+            phase = .preparing(what, 0)
+            let found = try await Self.readFrames(asset: asset, times: wanted, work: work) { done in
                 Task { @MainActor [weak self] in
-                    self?.phase = .preparing("Finding the ball on \(wanted.count) frames…", Double(done) / Double(wanted.count))
+                    self?.phase = .preparing(what, Double(done) / Double(wanted.count))
                 }
             }
             frames = found.frames
-            rally.candidates = found.candidates
-            rally.points = TrackSolver.solve(rally)
+            if assisted {
+                rally.candidates = found.candidates
+                rally.points = TrackSolver.solve(rally)
+            }
             let left = LocalStore.position(rally.id).flatMap { t in rally.points.firstIndex { abs($0.time - t) < 0.002 } }
             index = left ?? toCheck.first ?? 0
             phase = .reviewing
-            let id = rally.id, candidates = rally.candidates
-            Task.detached(priority: .utility) { LocalStore.saveTracking(id, times: wanted, frames: found.frames, candidates: candidates) }
+            // Kept for coming back to an assisted rally; a rally worked on by hand has no candidates to keep, and
+            // an empty set must not stand in for them if its recording is opened to the models again.
+            if assisted {
+                let id = rally.id, candidates = rally.candidates
+                Task.detached(priority: .utility) { LocalStore.saveTracking(id, times: wanted, frames: found.frames, candidates: candidates) }
+            }
         } catch {
             phase = .failed(error.localizedDescription)
         }
@@ -189,19 +221,26 @@ final class TrackSession {
         var candidates: [[TrackCandidate]]
     }
 
-    /// Every frame read once, in order: YOLO's candidates and the frame for
-    /// the multi-frame model, then the multi-frame model's peaks merged in.
-    private static func detect(asset: AVURLAsset, times: [Double],
-                               progress: @escaping @Sendable (Int) -> Void) async throws -> Found {
+    /// Every frame read once, in order. Assisted: YOLO's candidates and the
+    /// frame for the multi-frame model, then the multi-frame model's peaks
+    /// merged in. By hand: the frames only — the detectors are built through
+    /// `work.models`, so none is for a recording no model may run over, and
+    /// no candidate comes back.
+    private static func readFrames(asset: AVURLAsset, times: [Double], work: TrackWork,
+                                   progress: @escaping @Sendable (Int) -> Void) async throws -> Found {
         try await Task.detached(priority: .userInitiated) {
-            let yolo = YOLODetector(modelName: "ball_v2_small", computeUnits: .cpuAndNeuralEngine)
-            yolo.minConfidence = candidateConfidence
-            yolo.suppressesStaticObjects = false
-            // Portrait frames letterboxed, as the pipeline does: stretched into
-            // the square input the ball goes oval and is mostly missed.
-            yolo.adaptiveLetterbox = true
-            let heat = Bundle.main.url(forResource: "ball_heat", withExtension: "mlmodelc")
-                .flatMap { HeatmapBallDetector(modelURL: $0, computeUnits: .cpuAndNeuralEngine) }
+            let models = try? work.models { () -> (yolo: YOLODetector, heat: HeatmapBallDetector?) in
+                let yolo = YOLODetector(modelName: "ball_v2_small", computeUnits: .cpuAndNeuralEngine)
+                yolo.minConfidence = candidateConfidence
+                yolo.suppressesStaticObjects = false
+                // Portrait frames letterboxed, as the pipeline does: stretched into
+                // the square input the ball goes oval and is mostly missed.
+                yolo.adaptiveLetterbox = true
+                let heat = Bundle.main.url(forResource: "ball_heat", withExtension: "mlmodelc")
+                    .flatMap { HeatmapBallDetector(modelURL: $0, computeUnits: .cpuAndNeuralEngine) }
+                return (yolo, heat)
+            }
+            let heat = models?.heat
             let generator = AVAssetImageGenerator(asset: asset)
             generator.appliesPreferredTrackTransform = true
             generator.requestedTimeToleranceBefore = .zero
@@ -219,7 +258,9 @@ final class TrackSession {
                     // Each frame's buffers drained before the next: hundreds of
                     // frames otherwise pile up past what iOS allows an app.
                     autoreleasepool {
-                        found[i] = yolo.detect(in: image, at: .zero).map { TrackCandidate(rect: $0.bbox, confidence: Double($0.confidence)) }
+                        if let yolo = models?.yolo {
+                            found[i] = yolo.detect(in: image, at: .zero).map { TrackCandidate(rect: $0.bbox, confidence: Double($0.confidence)) }
+                        }
                         grays[i] = heat?.frame(image)
                         frames[i] = UIImage(cgImage: image).jpegData(compressionQuality: 0.8) ?? Data()
                     }
@@ -237,7 +278,7 @@ final class TrackSession {
                 try await read(missed)
             }
             if let heat { TrackFinder.addHeatmapCandidates(heat, grays: grays, to: &found) }
-            return Found(frames: frames, candidates: found)
+            return Found(frames: frames, candidates: models == nil ? [] : found)
         }.value
     }
 
@@ -272,24 +313,39 @@ final class TrackSession {
     /// either side, then re-solve with what's found. In the background: you
     /// can keep going, and a newer edit wins over a stale result.
     private func lookAgain(from fix: Int) {
-        let snapshot = rally, frames = frames, holder = lookAgainDetector, heatHolder = lookAgainHeat
+        guard stillAssisted() else { return }
+        let snapshot = rally, frames = frames, holder = lookAgainDetector, heatHolder = lookAgainHeat, work = work
         isLookingAgain = true
         Task {
             let added = await Task.detached(priority: .userInitiated) { () -> [Int: [TrackCandidate]] in
-                guard let detector = holder.detector else { return [:] }
-                let heat = heatHolder.detector(for: Bundle.main.url(forResource: "ball_heat", withExtension: "mlmodelc"))
+                let models = try? work.models {
+                    (yolo: holder.detector, heat: heatHolder.detector(for: Bundle.main.url(forResource: "ball_heat", withExtension: "mlmodelc")))
+                }
+                guard let detector = models?.yolo else { return [:] }
+                let heat = models?.heat
                 return TrackFinder.lookAgain(from: fix, in: snapshot, detector: detector, heat: heat) { i in
                     autoreleasepool { frames.indices.contains(i) ? UIImage(data: frames[i])?.cgImage : nil }
                 }
             }.value
             isLookingAgain = false
-            guard !added.isEmpty, rally.id == snapshot.id, rally.candidates.count == snapshot.candidates.count else { return }
+            guard !added.isEmpty, self.work == .assisted, rally.id == snapshot.id, rally.candidates.count == snapshot.candidates.count else { return }
             for (k, found) in added { rally.candidates[k] += found }
             rally.points = TrackSolver.solve(rally)
             save()
             let id = rally.id, candidates = rally.candidates
             Task.detached(priority: .utility) { LocalStore.saveCandidates(id, candidates) }
         }
+    }
+
+    /// Whether the detectors may still run in this session. A list pulled since the rally was opened may have
+    /// withheld its recording: from then on it goes on by hand (or closes, for an account it is closed to).
+    private func stillAssisted() -> Bool {
+        guard work == .assisted else { return false }
+        let access = model.access(for: video)
+        guard access != .open else { return true }
+        work = TrackWork(access: access, existingTrack: !rally.points.isEmpty)
+        if case .refused(let why) = work { phase = .failed(why) }
+        return false
     }
 
     /// The ball can't be seen on this frame.
@@ -329,10 +385,11 @@ final class TrackSession {
     }
 
     /// More frames before or after (the rally runs past what was read):
-    /// your points stay, the rest is found again.
+    /// your points stay, the rest is found again — by the detectors, so only
+    /// in an assisted session (a rally worked on by hand keeps its frames).
     func extend(before: Double = 0, after: Double = 0) async {
-        // Asked before anything of the rally is cleared: refused, it stays as it was saved.
-        guard await modelsAdmitted() else { return }
+        // Asked before anything of the rally is cleared: not assisted, it stays as it was saved.
+        guard await decideWork() == .assisted else { return }
         keptPoints = rally.points.filter { $0.origin == .user }
         rally.start = max(0, rally.start - before)
         rally.end = min(video.duration, rally.end + after)
@@ -378,11 +435,7 @@ final class TrackSession {
         guard rally.points.indices.contains(index) else { return }
         undoStack.append(rally)
         if undoStack.count > 50 { undoStack.removeFirst() }
-        edit(&rally)
-        if resolve {
-            rally.points = TrackSolver.solve(rally)
-            rally.done = false
-        }
+        rally = work.fixed(rally, resolve: resolve, edit)
         save()
     }
 

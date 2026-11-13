@@ -389,12 +389,12 @@ final class LabelerModel: ReviewStore {
         return LabelAccess(withheld: listed, byHand: snapshot.lead)
     }
 
-    /// Why no task that runs a model over this recording may start now, or nil. Asked right before the detectors
-    /// load (TrackSession.prepare): the project's withheld list is fetched again first, so a recording the Mac
-    /// withheld since the last pull is refused, and a list that cannot be fetched now is not known — nothing runs
-    /// (fail closed), with the reason to show.
-    func modelTaskRefusal(for video: LabelVideo) async -> String? {
-        guard let project = video.project else { return nil }
+    /// The recording's access as the server has it now, for an operation about to run a model over it
+    /// (TrackSession: opening a rally, finding the ball on more frames): the project's withheld list is fetched
+    /// again first, so a recording the Mac withheld since the last pull is known as withheld, and a list that
+    /// cannot be fetched now is not known — no model runs then (fail closed).
+    func modelAccess(for video: LabelVideo) async -> LabelAccess {
+        guard let project = video.project else { return .open }
         do {
             let (listed, names) = try await client.withheld(project: project)
             let list = listed ? names.sorted() : nil
@@ -404,9 +404,9 @@ final class LabelerModel: ReviewStore {
                 LocalStore.saveInBackground(snapshot, "snapshot.json") {}
             }
         } catch {
-            return LabelAccess(withheld: nil, byHand: snapshot.lead).modelRefusal
+            return LabelAccess(withheld: nil, byHand: snapshot.lead)
         }
-        return access(for: video).modelRefusal
+        return access(for: video)
     }
 
     /// The server rows that describe their recording's published original; every other row is left out (the
