@@ -8,8 +8,9 @@
 //  admission, the per-recording admissions of the Label, Track and Sampler
 //  tabs, the score against YOLO and the test-set scoring, the render,
 //  pre-tracking and its check, the detector evaluation, both packages, the
-//  single-video tabs, and the sampling of a new file or of the project's
-//  own clip. Refused before any model runs and with no ledger row; an
+//  single-video tabs, the sampling of a new file or of the project's own
+//  clip, and the project dataset (images/, labels/) the Sampler writes.
+//  Refused before any model runs and with no ledger row; an
 //  ordinary recording is still admitted and recorded; and marking, typing
 //  and boxing a withheld recording by hand still work.
 //
@@ -324,6 +325,77 @@ final class WithheldClosureModelRunsTests: XCTestCase {
         XCTAssertEqual(try ledger(), ["t rally_scoring RallyLab FSM tab", "t net_proposal RallyLab Net tab"])
     }
 
+    // MARK: - The project dataset (images/, labels/, data.yaml)
+
+    private func inDataset(_ file: String) -> Bool { FileManager.default.fileExists(atPath: root.appendingPathComponent(file).path) }
+    private func parked(_ file: String) -> Bool { FileManager.default.fileExists(atPath: root.appendingPathComponent("excluded/\(file)").path) }
+    private func label(_ file: String) -> String { file.replacingOccurrences(of: "images/", with: "labels/").replacingOccurrences(of: ".jpg", with: ".txt") }
+
+    func testTheProjectDatasetLeavesOutEveryFrameOfAWithheldRecording() throws {
+        try makeProject()
+        let store = DatasetStore(root: root)
+        // As in the live project: an unreviewed frame parked under excluded/ for a train recording that is
+        // now withheld (`g`), for the lineage holdout (`l`) and for an ordinary train recording (`t`).
+        for name in ["g", "l", "t"] {
+            var session = try session(name)
+            let frame = FrameRecord(id: UUID(), file: "images/train/\(name)_1.jpg", time: 2, source: "rally:0", boxes: [], keep: true, reviewed: false)
+            try writeJPEG(to: root.appendingPathComponent("excluded/\(frame.file)"))
+            session.frames.append(frame)
+            try store.save(session)
+        }
+        let withheldFiles = ["images/train/l_0.jpg", "images/train/l_1.jpg", "images/train/a_0.jpg", "images/val/h_0.jpg", "images/train/g_0.jpg", "images/train/g_1.jpg"]
+        func assertWithheldOut(_ when: String) {
+            for file in withheldFiles {
+                XCTAssertFalse(inDataset(file), "\(when): \(file) is in the dataset")
+                XCTAssertFalse(inDataset(label(file)), "\(when): \(file) has a label")
+                XCTAssertTrue(parked(file), "\(when): \(file) is kept under excluded/ for review")
+            }
+        }
+
+        // "Every kept frame": the parked frames come back into images/ — except a withheld recording's.
+        let sampler = sampler()
+        sampler.reviewedOnly = false
+        sampler.writeDataset()
+        XCTAssertTrue(sampler.status.hasPrefix("Wrote 3 labels"), sampler.status)
+        assertWithheldOut("every kept frame")
+        for file in ["images/train/t_0.jpg", "images/train/t_1.jpg", "images/val/v_0.jpg"] {
+            XCTAssertTrue(inDataset(file), file)
+            XCTAssertTrue(inDataset(label(file)), file)
+        }
+        XCTAssertTrue(inDataset("data.yaml"))
+
+        // Reviewed frames only: the same for the withheld; the ordinary recording's unreviewed frame is parked again.
+        sampler.reviewedOnly = true
+        sampler.writeDataset()
+        XCTAssertTrue(sampler.status.hasPrefix("Wrote 2 labels"), sampler.status)
+        assertWithheldOut("reviewed only")
+        XCTAssertTrue(inDataset("images/train/t_0.jpg"))
+        XCTAssertTrue(parked("images/train/t_1.jpg"))
+
+        // The one writer refuses on its own, whoever calls it (a review edit, a cut, an ingest).
+        let h = try XCTUnwrap(try session("h").frames.first), t = try XCTUnwrap(try session("t").frames.first)
+        XCTAssertFalse(try store.writeLabel(for: h, of: "h", reviewedOnly: false))
+        XCTAssertTrue(try store.writeLabel(for: t, of: "t", reviewedOnly: false))
+        assertWithheldOut("written directly")
+
+        // Reservations that can't be read: nothing is written or moved.
+        try writeValidation(#"{"tune":[],"holdout":["h"]"#)
+        sampler.reviewedOnly = false
+        sampler.writeDataset()
+        XCTAssertTrue(sampler.status.hasPrefix("Couldn't write the dataset"), sampler.status)
+        XCTAssertThrowsError(try store.writeLabel(for: t, of: "t", reviewedOnly: false))
+        assertWithheldOut("reservations unreadable")
+        XCTAssertTrue(parked("images/train/t_1.jpg"), "not brought back while the reservations are unknown")
+
+        // The reservations as they are now, not as they were: with the legacy holdout no longer listed, it and
+        // its alias are ordinary recordings again and their frames come back; the lineage holdout's do not.
+        try writeValidation(#"{"tune":[],"holdout":[],"finalTest":[],"lineageHoldout":["l"]}"#)
+        sampler.writeDataset()
+        XCTAssertTrue(sampler.status.hasPrefix("Wrote 6 labels"), sampler.status)
+        for file in ["images/val/h_0.jpg", "images/train/g_0.jpg", "images/train/g_1.jpg"] { XCTAssertTrue(inDataset(file), file) }
+        for file in ["images/train/l_0.jpg", "images/train/l_1.jpg", "images/train/a_0.jpg"] { XCTAssertFalse(inDataset(file), file) }
+    }
+
     // MARK: - Sampling: a new file, and the project's own clip
 
     func testSamplingRefusesTheLegacyHoldoutAsANewFileAndAsAProjectClip() async throws {
@@ -409,6 +481,10 @@ final class WithheldClosureModelRunsTests: XCTestCase {
         sampler.snapBox(at: CGPoint(x: 0.5, y: 0.5))
         while sampler.snapping != nil { try await Task.sleep(nanoseconds: 20_000_000) }
         XCTAssertEqual(try session("h").frames.first?.boxes.count, 1, "the box is placed and saved")
+        XCTAssertFalse(inDataset("images/val/h_0.jpg"), "the edit does not write the holdout's frame into the project dataset")
+        XCTAssertFalse(inDataset("labels/val/h_0.txt"))
+        XCTAssertTrue(parked("images/val/h_0.jpg"), "it is parked, where review still finds it")
+        XCTAssertNotNil(sampler.selected)
         XCTAssertTrue(sampler.status.contains("h is \(withheldPhrase)"), sampler.status)
         XCTAssertFalse(sampler.status.contains("(detector"), "placed from the outline or as a ball-sized box: \(sampler.status)")
         XCTAssertFalse(ledgerExists, "no model ran, so nothing is recorded")

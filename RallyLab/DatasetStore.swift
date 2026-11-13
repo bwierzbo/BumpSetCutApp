@@ -247,10 +247,18 @@ final class DatasetStore: @unchecked Sendable {
     /// moved aside too.
     /// `inCut`: the frame lies inside one of its recording's cut ranges (not footage; D-030) —
     /// parked like a discarded one, and back when the cut goes.
-    func writeLabel(for frame: FrameRecord, reviewedOnly: Bool, inCut: Bool = false) throws {
+    /// `session`: the recording the frame is of. A frame of a withheld recording — the final test, a
+    /// lineage or legacy holdout, an alias of one (D-002, D-017; owner, 2026-11-12 §5C) — is never in the
+    /// dataset a trainer is pointed at, whatever the options: parked the same way, where review still
+    /// finds it (`currentImageURL`). Every writer comes through here, so none can put one back. Throws,
+    /// with nothing written or moved, when the reservations or the project can't be read (fails closed).
+    /// Returns whether the frame is in the dataset now.
+    @discardableResult
+    func writeLabel(for frame: FrameRecord, of session: String, reviewedOnly: Bool, inCut: Bool = false) throws -> Bool {
+        let withheld = try ScoringExposure.Closures.current(in: root).withheld.contains(session)
         let labelURL = root.appendingPathComponent(frame.labelFile)
         let imageURL = root.appendingPathComponent(frame.file)
-        let excluded = !frame.keep || (reviewedOnly && !frame.reviewed) || inCut
+        let excluded = !frame.keep || (reviewedOnly && !frame.reviewed) || inCut || withheld
         let parkedURL = parkedImageURL(for: frame)
 
         if excluded {
@@ -260,7 +268,7 @@ final class DatasetStore: @unchecked Sendable {
                 try? fm.removeItem(at: parkedURL)
                 try fm.moveItem(at: imageURL, to: parkedURL)
             }
-            return
+            return false
         }
 
         if fm.fileExists(atPath: parkedURL.path), !fm.fileExists(atPath: imageURL.path) {
@@ -269,6 +277,7 @@ final class DatasetStore: @unchecked Sendable {
         let lines = frame.boxes.map { DatasetStore.yoloLine($0.rect) }
         try (lines.joined(separator: "\n") + (lines.isEmpty ? "" : "\n"))
             .write(to: labelURL, atomically: true, encoding: .utf8)
+        return true
     }
 
     /// Excluded frames keep their image under `excluded/` so un-discarding
@@ -286,10 +295,11 @@ final class DatasetStore: @unchecked Sendable {
     func writeDataYAML() throws {
         let text = """
         # Written by RallyLab's Sampler. Whole videos are assigned to train or val.
-        # NOT a model-lineage dataset (D-017/D-018): this folder knows nothing of reserved
-        # recordings (final test, candidates, lineage holdout, legacy holdout) and may hold their
-        # frames under images/ or excluded/. Unsupported for L2 training. A lineage trains only
-        # from a package written by `RallyLab --project <name> --package-l2` with a passing preflight.
+        # NOT a model-lineage dataset (D-017/D-018). RallyLab keeps the frames of withheld
+        # recordings (final test, candidates, lineage holdout, legacy holdout, their aliases) out
+        # of images/ and labels/ whenever it writes them — they are parked under excluded/ — but
+        # nothing audits this folder: unsupported for L2 training. A lineage trains only from a
+        # package written by `RallyLab --project <name> --package-l2` with a passing preflight.
         path: \(root.path)
         train: images/train
         val: images/val

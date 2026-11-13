@@ -149,6 +149,31 @@ enum ScoringExposure {
         func admitted(_ sessions: [VideoSession]) -> [VideoSession] {
             sessions.filter { !withheld.contains($0.name) }
         }
+
+        /// The closures of validation.json and project.json as they are now, read again only when either file
+        /// has changed (size, modification time, or there or not) — for a caller that asks once per frame (the
+        /// project dataset's writer, `DatasetStore.writeLabel`). A read that throws is never kept: unreadable
+        /// reservations throw on every call (fails closed).
+        static func current(in root: URL) throws -> Closures {
+            let files = [PipelineTuner.ValidationSet.file(in: root), root.appendingPathComponent("project.json")]
+            let stamp = files.map { file -> String in
+                guard let a = try? FileManager.default.attributesOfItem(atPath: file.path) else { return "none" }
+                return "\(a[.size] as? UInt64 ?? 0)@\((a[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate ?? 0)"
+            }
+            let key = root.standardizedFileURL.path
+            keptLock.lock()
+            let hit = kept[key]
+            keptLock.unlock()
+            if let hit, hit.stamp == stamp { return hit.closures }
+            let closures = try Closures(in: root)
+            keptLock.lock()
+            kept[key] = (stamp, closures)
+            keptLock.unlock()
+            return closures
+        }
+
+        private static let keptLock = NSLock()
+        nonisolated(unsafe) private static var kept: [String: (stamp: [String], closures: Closures)] = [:]
     }
 
     /// What keeps a recording from every routine model run, worded to follow "<name> is": the final test named

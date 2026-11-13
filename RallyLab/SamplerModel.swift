@@ -324,22 +324,21 @@ final class SamplerModel {
     }
 
     /// Rewrites every label file under the current policy and refreshes
-    /// data.yaml — the one step before training.
+    /// data.yaml — the one step before training. Whatever the policy, no frame of a
+    /// withheld recording is in what it writes (`DatasetStore.writeLabel`).
     func writeDataset() {
         do {
             try store.prepare()
             var written = 0
             for session in sessions {
                 let cuts = session.cutRanges
-                for frame in session.frames {
-                    let inCut = cuts.contains(frame.time)
-                    try store.writeLabel(for: frame, reviewedOnly: reviewedOnly, inCut: inCut)
-                    if frame.keep, !(reviewedOnly && !frame.reviewed), !inCut { written += 1 }
+                for frame in session.frames where try store.writeLabel(for: frame, of: session.name, reviewedOnly: reviewedOnly, inCut: cuts.contains(frame.time)) {
+                    written += 1
                 }
             }
             try store.writeDataYAML()
             reloadSessions()
-            status = "Wrote \(written) labels and data.yaml (\(reviewedOnly ? "reviewed frames only" : "every kept frame"))."
+            status = "Wrote \(written) labels and data.yaml (\(reviewedOnly ? "reviewed frames only" : "every kept frame"); no frame of a withheld recording)."
         } catch {
             status = "Couldn't write the dataset: \(error.localizedDescription)"
         }
@@ -443,7 +442,7 @@ final class SamplerModel {
         if let cuts = job.cuts, !cuts.isEmpty { session.cuts = cuts }
         try store.save(session)
         let ranges = session.cutRanges
-        for frame in records { try store.writeLabel(for: frame, reviewedOnly: reviewedOnly, inCut: ranges.contains(frame.time)) }
+        for frame in records { try store.writeLabel(for: frame, of: name, reviewedOnly: reviewedOnly, inCut: ranges.contains(frame.time)) }
         try store.writeDataYAML()
         return session
     }
@@ -1251,7 +1250,7 @@ final class SamplerModel {
         }
         saveSession(session)
         do {
-            try store.writeLabel(for: record, reviewedOnly: reviewedOnly, inCut: session.cutRanges.contains(record.time))
+            try store.writeLabel(for: record, of: session.name, reviewedOnly: reviewedOnly, inCut: session.cutRanges.contains(record.time))
         } catch {
             status = "Couldn't save: \(error.localizedDescription)"
         }
@@ -1293,7 +1292,7 @@ final class SamplerModel {
         guard let session = sessions.first(where: { $0.name == name }) else { return }
         let ranges = session.cutRanges
         do {
-            for frame in session.frames { try store.writeLabel(for: frame, reviewedOnly: reviewedOnly, inCut: ranges.contains(frame.time)) }
+            for frame in session.frames { try store.writeLabel(for: frame, of: name, reviewedOnly: reviewedOnly, inCut: ranges.contains(frame.time)) }
         } catch {
             status = "Couldn't park the frames inside the cuts: \(error.localizedDescription)"
         }
