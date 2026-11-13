@@ -114,6 +114,10 @@ struct VideoSession: Codable, Identifiable, Equatable {
     /// sync. nil: not set aside.
     var backlogReason: String? = nil
     var backlogAt: Date? = nil
+    /// Why the session was made with no sampled frames: it was registered for a withheld card, so no
+    /// pipeline or detector ran over the recording and nothing was pre-labeled (`SamplerModel.admission`).
+    /// nil: made by the ordinary ingest.
+    var notSampled: String? = nil
 
     /// The cut ranges as every consumer reads them: normalised.
     var cutRanges: [CutRange] { (cuts ?? []).normalised() }
@@ -205,6 +209,11 @@ final class DatasetStore: @unchecked Sendable {
             try? fm.removeItem(at: root.appendingPathComponent(frame.labelFile))
         }
         try? fm.removeItem(at: sessionURL(session.name))
+    }
+
+    /// Whether a session file of this name is there — one that can't be read is there too.
+    func hasSession(named name: String) -> Bool {
+        fm.fileExists(atPath: sessionURL(name).path)
     }
 
     private func sessionURL(_ name: String) -> URL {

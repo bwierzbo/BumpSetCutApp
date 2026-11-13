@@ -154,6 +154,8 @@ enum ClipProgress: Equatable {
     case busy(stage: String, overall: Double?)
     case failed(String)
     case pulled(frames: Int, reviewed: Int)
+    /// In the dataset with no sampled frames, and why: a withheld card's session (`VideoSession.notSampled`).
+    case registered(String)
 
     /// Cutting is the first 15% of a video's progress, sampling the rest —
     /// roughly how the time splits for a 5-minute clip.
@@ -509,7 +511,7 @@ final class ProjectsModel {
             try await Task.sleep(nanoseconds: 500_000_000)
             if let opening { try require(opening) }
             switch progress(ofVideo: videoId) {
-            case .pulled: return true
+            case .pulled, .registered: return true
             case .failed: return false
             case .busy: continue
             case .notStarted:
@@ -545,6 +547,7 @@ final class ProjectsModel {
             }
         }
         if let session = session(named: videoId) {
+            if let why = session.notSampled { return .registered(why) }
             return .pulled(frames: session.frames.count, reviewed: session.reviewedCount)
         }
         return .notStarted
@@ -552,11 +555,12 @@ final class ProjectsModel {
 
     /// The clip's videos taken together: busy while any is (their progress
     /// averaged), failed while any failure is unresolved, otherwise their
-    /// frames summed.
+    /// frames summed — or registered, when none of them was sampled.
     func progress(of clip: PlannedClip) -> ClipProgress {
         var busy: [(stage: String, overall: Double?)] = []
         var failure: String?
         var pulled: (frames: Int, reviewed: Int)?
+        var registered: String?
         for _ in 0..<(importing[clip.id] ?? 0) { busy.append(("Importing from Photos", nil)) }
         for progress in videoIds(of: clip).map(progress(ofVideo:)) {
             switch progress {
@@ -564,6 +568,7 @@ final class ProjectsModel {
             case .failed(let why): failure = failure ?? why
             case .pulled(let frames, let reviewed):
                 pulled = ((pulled?.frames ?? 0) + frames, (pulled?.reviewed ?? 0) + reviewed)
+            case .registered(let why): registered = registered ?? why
             case .notStarted: break
             }
         }
@@ -575,6 +580,7 @@ final class ProjectsModel {
         }
         if let failure { return .failed(failure) }
         if let pulled { return .pulled(frames: pulled.frames, reviewed: pulled.reviewed) }
+        if let registered { return .registered(registered) }
         return .notStarted
     }
 
@@ -888,7 +894,8 @@ final class ProjectsModel {
     /// Why the project's own clip `videoId` may not be sampled (again), or nil: sampling runs the pipeline and the
     /// pre-label model over it, which a withheld recording — the final test, a lineage or legacy holdout, an alias
     /// of one (D-002, D-017) — is never given (`SamplerModel.ingestRefusal(ofClip:)`). Reservations or a project
-    /// that can't be read refuse too. Asked before a re-pull or a move touches the session or the footage.
+    /// that can't be read refuse too. Asked before a move touches the session or the footage (a re-pull asks
+    /// `SamplerModel.admission`, which also gives a withheld card that has no session its one).
     private func samplingRefusal(_ videoId: String) -> String? {
         guard let dir = projectDir else { return nil }
         do { return try SamplerModel.ingestRefusal(ofClip: DatasetStore.safeName(videoId), root: dir) } catch {
@@ -897,18 +904,34 @@ final class ProjectsModel {
     }
 
     /// Sample a video's cut again at its current frames per rally. Its frames,
-    /// reviewed or not, are replaced; the footage isn't re-cut. False when it was refused (`status` says why).
+    /// reviewed or not, are replaced; the footage isn't re-cut. The ingest's own decision
+    /// (`SamplerModel.admission`) is asked first, before the session a re-pull deletes is touched: a
+    /// withheld card that has its session keeps it — sampling it again is refused — as does a video
+    /// whose standing can't be read, or whose file is a withheld recording under another card's name.
+    /// A withheld card with no session is given one, registered without a model run. False when
+    /// nothing was queued (`status` says why).
     @discardableResult
     func repull(_ videoId: String, in clipId: String) -> Bool {
         guard let clip = project?.clips.first(where: { $0.id == clipId }),
               let video = clip.videos.first(where: { clip.videoId(of: $0) == videoId }) else { return false }
-        if let why = samplingRefusal(videoId) { status = "⛔ " + why; return false }
+        let file = URL(fileURLWithPath: video.clipFile), name = DatasetStore.safeName(videoId)
+        let admission: SamplerModel.Admission
+        do {
+            admission = try SamplerModel.admission(of: file, card: name, hasSession: sampler.store.hasSession(named: name), root: sampler.datasetRoot)
+        } catch let refusal as SamplerModel.IngestError {
+            status = "⛔ " + refusal.localizedDescription
+            return false
+        } catch {
+            status = "⛔ \(videoId): \(error.localizedDescription)"
+            return false
+        }
         // The recording's cut ranges (D-030) are the owner's marks, not the sample: they stay with the re-pull.
         let cuts = session(named: videoId)?.cuts
         if let old = session(named: videoId) { sampler.deleteSession(old) }
-        sampler.enqueueClip(URL(fileURLWithPath: video.clipFile), sessionName: DatasetStore.safeName(videoId),
-                            split: clip.split, framesPerRally: video.frames ?? project?.framesPerRally, cuts: cuts)
-        status = "\(videoId): re-pulling \(video.frames ?? project?.framesPerRally ?? 0) frames per rally…"
+        sampler.enqueueClip(file, sessionName: name, split: clip.split, framesPerRally: video.frames ?? project?.framesPerRally, cuts: cuts)
+        status = admission == .sampled
+            ? "\(videoId): re-pulling \(video.frames ?? project?.framesPerRally ?? 0) frames per rally…"
+            : "\(videoId): registering without sampling — a withheld recording is given its session, and no model is run over it…"
         return true
     }
 

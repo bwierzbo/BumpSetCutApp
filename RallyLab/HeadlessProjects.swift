@@ -655,6 +655,9 @@ enum HeadlessProjects {
             case .pulled(let frames, _):
                 log("✅ \(videoId): \(frames) frames sampled into the dataset")
                 return true
+            case .registered(let why):
+                log("✅ \(videoId): in the dataset — \(why)")
+                return true
             case .notStarted:
                 notStarted += 1
                 if notStarted < 20 || projects.sampler.isIngesting || !projects.sampler.queue.isEmpty { continue }
@@ -713,7 +716,9 @@ enum HeadlessProjects {
             while projects.sampler.isIngesting || !projects.sampler.queue.allSatisfy(\.isFinished) {
                 try? await Task.sleep(nanoseconds: 500_000_000)
             }
-            let frames = projects.session(named: videoId)?.frames.count ?? 0
+            let session = projects.session(named: videoId)
+            if let why = session?.notSampled { log("✅ \(videoId): \(why)"); continue }
+            let frames = session?.frames.count ?? 0
             log(frames > 0 ? "✅ \(videoId): \(frames) frames" : "❌ \(videoId): \(projects.sampler.status)")
         }
         return true
