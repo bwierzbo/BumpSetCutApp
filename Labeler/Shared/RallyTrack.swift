@@ -163,6 +163,9 @@ extension TrackedRally {
     var isForReview: Bool { done || (isMachine && isRally == true) }
     /// A pre-tracked rally nobody has said is or isn't a rally yet.
     var awaitsRallyCheck: Bool { isMachine && isRally == nil }
+    /// A model found the ball somewhere in it: pre-tracked, or a frame whose box is a detector's candidate the
+    /// solver chose (not a box a person placed or confirmed).
+    var carriesModelOutput: Bool { isMachine || points.contains { $0.origin == .auto && $0.box != nil } }
 
     /// Frames with a decided label (the ball, or hidden): what training gets.
     var labeledFrames: Int { points.filter { $0.state != .unknown }.count }

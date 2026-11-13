@@ -141,6 +141,15 @@ actor LabelingClient {
         return !rows.isEmpty
     }
 
+    /// Whether this account is a lead (public.labelers.lead; an account reads its own row). The server's protection
+    /// of withheld recordings exempts a lead, so the app's own rule has to know one (LabelAccess).
+    func isLead() async throws -> Bool {
+        struct Row: Decodable { let lead: Bool }
+        guard let userId else { return false }
+        let rows: [Row] = try await get("labelers", query: "select=lead&user_id=eq.\(userId.uuidString.lowercased())")
+        return rows.first?.lead ?? false
+    }
+
     private func token(grant: String, body: [String: String]) async throws {
         var request = URLRequest(url: base.appending(path: "auth/v1/token").appending(queryItems: [.init(name: "grant_type", value: grant)]))
         request.httpMethod = "POST"

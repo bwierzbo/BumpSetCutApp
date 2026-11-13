@@ -137,7 +137,10 @@ struct TrackTaskView: View {
 
     var body: some View {
         Group {
-            if let track = model.unfinishedTrack(of: span, in: video) {
+            if let why = model.access(for: video).modelRefusal {
+                // Before the rally is trimmed or its clip fetched: tracking would run the detectors over it.
+                ContentUnavailableView("Not tracked on this phone", systemImage: "hand.raised", description: Text(why))
+            } else if let track = model.unfinishedTrack(of: span, in: video) {
                 TrackReviewView(model: model, video: video, track: track)
             } else if let trimmed, clip != nil {
                 TrackReviewView(model: model, video: video, span: trimmed, found: found)
@@ -164,7 +167,7 @@ struct TrackTaskView: View {
             }
         }
         .task {
-            guard playback == nil, model.unfinishedTrack(of: span, in: video) == nil else { return }
+            guard playback == nil, model.access(for: video) == .open, model.unfinishedTrack(of: span, in: video) == nil else { return }
             // Trimmed before and left before tracking began: straight to tracking.
             if trimmed == nil { trimmed = LocalStore.trim(of: span, in: video) }
             do {

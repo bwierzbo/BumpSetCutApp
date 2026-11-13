@@ -97,6 +97,20 @@ final class TrackSession {
     // MARK: - Preparing
 
     func prepare() async {
+        guard await modelsAdmitted() else { return }
+        await read()
+    }
+
+    /// Tracking runs the ball detectors over the rally (when its frames are read, and again near every fix): never
+    /// over a recording its project withholds from every model, whoever is signed in, nor over one whose state
+    /// can't be checked now. False, with the reason on screen, when they may not run.
+    private func modelsAdmitted() async -> Bool {
+        guard let why = await model.modelTaskRefusal(for: video) else { return true }
+        phase = .failed(why)
+        return false
+    }
+
+    private func read() async {
         // Left part way through: its frames and candidates are on the phone.
         if !rally.points.isEmpty, let kept = LocalStore.tracking(rally.id, times: rally.points.map(\.time)) {
             frames = kept.frames
@@ -317,6 +331,8 @@ final class TrackSession {
     /// More frames before or after (the rally runs past what was read):
     /// your points stay, the rest is found again.
     func extend(before: Double = 0, after: Double = 0) async {
+        // Asked before anything of the rally is cleared: refused, it stays as it was saved.
+        guard await modelsAdmitted() else { return }
         keptPoints = rally.points.filter { $0.origin == .user }
         rally.start = max(0, rally.start - before)
         rally.end = min(video.duration, rally.end + after)
@@ -325,7 +341,7 @@ final class TrackSession {
         frames = []
         undoStack = []
         phase = .preparing("Reading more frames…", 0)
-        await prepare()
+        await read()
         save()
     }
 
