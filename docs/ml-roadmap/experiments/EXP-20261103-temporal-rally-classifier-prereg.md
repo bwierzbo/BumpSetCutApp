@@ -1,8 +1,8 @@
 ---
 id: EXP-20261103-temporal-rally-classifier-prereg
-status: proposed — not approved, not run; conditional on the data-readiness gate (§2a)
+status: proposed — not approved, not run; the dataset is exported and validated (`rc-v1-20261112`), the folds are drawn and frozen, the trainer is written (PR #178) and its dry run passes; what the owner still has to decide is in §11 (updated 2026-11-13)
 created: 2026-11-03T19:05:00Z
-updated: 2026-11-03T19:05:00Z
+updated: 2026-11-13T08:44:57Z
 approved_by: not yet
 decision: D-001 (approved production candidate), D-007 (objective), D-021 (scoring contract), D-010, D-017, D-018 (preregistration before training, applied to this model), D-031 (eligibility); D-029 (proposed, PR #132) names this direction
 roadmap_phase: Phase 8 (learned temporal classifier vs FSM; no longer approval-gated, D-001), after the measurement phases
@@ -133,3 +133,114 @@ Tables per surface (beach / grass / indoor), per recording group (18) and pooled
 - [ ] Owner approved this preregistration on `<date>` (quote the authorisation).
 - [ ] Dataset validated (name, digest, validator report pasted in §2).
 - [ ] Training started on `<date>`; no protected recording evaluated.
+
+## 11. Update of 2026-11-13: the dataset, the frozen folds, readiness, and what needs the owner's decision
+
+Written on the owner's authorisation of 2026-11-12 (§11, [verbatim](../../decisions/2026-11-12-d036-completion-authorization.md)): "Update the existing experiment … Use the actual corrected dataset rather than the old provisional 34-recording estimate." Sections 1–10 above stand as proposed on 2026-11-03 and are not rewritten; where this section differs from them it says so and asks for the amendment. **Nothing was trained, tuned, calibrated or scored.** The only programs run on the dataset were the validator, the fold draw and the trainer's dry run, which fits nothing.
+
+### 11.1 The dataset (fills §2 and §9)
+
+| Field | Value |
+|---|---|
+| Dataset | `rc-v1-20261112` (`rally_classifier_dataset_v1`, `rcf_v1`, `rally_activity_truth_v1`, `boundaryIgnoreSec` 0.5) · manifest SHA-256 `eaa95c08d2fd010b75cca1b88b9c52b487206f34561f70515efc45553911af74` · digest `1b1e68986311e7cef4e02a04dd248259d07aef03ebbd567a39464c0e414a180f` |
+| Where | `~/Movies/RallyLab/Datasets/rally-classifier/rc-v1-20261112` on the Mac (74 MB). `rc-v1-20261108` is preserved unchanged on the staging share |
+| Export | `RallyLab --project Scratch --export-rally-classifier-dataset rc-v1-20261112`, code `284a8d1` (`main` after PRs #172–#175), executable SHA-256 `a5108de154716f30…`; started 2026-11-13T03:09Z, stopped once on a video read failure after 8 recordings (the share), resumed with `--resume` (those 8 kept by the journal, their files re-hashed), finished 08:36Z. Report `Scratch/manifests/rally-classifier/20261113-042226-export.{md,json}` |
+| Split manifest at export | project.json `bc6a5fccdb55e3f3…` · sessions `91a398ca88617f77…` · validation.json `cc22cd32c5f7aee5…` · manifest.json `6e71f352fc925600…`; audit 0 hard findings |
+| Withheld closure | 24 names, 8 confirmed sourceIds, 45 fingerprints (`closureSha256` `ff4f7f7b89bcd724…`; file `20261113-042226-closure.json`, SHA-256 `cb166a46612a0564…`): the 16 lineage holdouts, their 3 train copies (D-036, applied 2026-11-12) and the 5 legacy holdouts. No withheld recording was read, decoded or scored by the export |
+| Validator | `python3 scripts/rally_classifier/validate_dataset.py <dataset> --withheld <closure.json>` → `OK: 0 error(s), 0 warning(s)`; 49 recordings, 25 groups |
+| Detector | `ball_heat` — the bundled L1 `scratch_768_1014`. The manifest records the compiled model's digest in this build, `3fed1407533a5484`; that digest differs from build to build (`rc-v1-20261108` recorded `d4aeac1583ab4cec`) and is not a stable model identity. The model files are unchanged between the two export commits, and every steps file of the two datasets is byte-identical (below) |
+| Pipeline config | SHA-256 `5be93ef689c9e95de2b0164bfb2232ca1ff44af551b50636c5b2f289bd02ef87` (unchanged) |
+| Baseline | `EvidenceReplayer.decidedRallies`: `r0` (join 1.3513, min 2.6131, pre-roll 2, post-roll 0.5, serve-primed start; config `5be93ef6…`) and `r0_prime` (join 0, min 1.5, pre-roll 2, post-roll 1; config `6251c4da…`) — 588 and 677 stored clips |
+| Recordings | **49** (beach 18, grass 14, indoor 17): **31 continuous** (standard: negatives usable) and **18 edited** (`restrictedUse`: positives only, no full-video negatives), each type confirmed by a person (D-032, D-033). 736 truth rallies; 73 missed-serve marks as excluded spans; 17 recordings carry cut ranges; no time-breaking span; no Stage 1 record (`NON_RALLY_ACTIVITY` 0) |
+| Steps | 439,277: `ACTIVE_RALLY` 172,746 · `NON_RALLY` 170,171 · `TRANSITION` 45,374 · `UNKNOWN` 36,556 · `EXCLUDED` 14,430. Positive time 5,793.8 s; valid negative time 5,674.9 s |
+| Left out | 94 project recordings: 90 whose pass is not complete, 4 whose marks overlap a cut range or each other. The three train copies are no longer candidates (withheld) |
+| Ledger | 49 `training_package` rows, ref `--export-rally-classifier-dataset rc-v1-20261112`, written by the exporter after validation (ledger now 836 rows) |
+
+**Against `rc-v1-20261108`.** The same 49 recordings, the same 25 groups and splits (train 38, dev_val 5, tune 6), and **every steps file and every baseline file byte-identical** (so the digest is the same). What differs is the record: the withheld closure (21 → 24 names, 5 → 8 sourceIds, 42 → 45 fingerprints), the split-manifest hashes, the code and executable, the build's detector digest, a confirmed `sourceId` on two recordings (`bch_extra_self_04` `IMG_3606`, `bch_gnd_ovc_land_self_01` `IMG_0080`), and the new ledger rows. Evidence was not reused from the older dataset: the supported `--resume` requires the same dataset name, code and executable, and no reviewed operation exists that would vouch for evidence across them; the detector was run again over all 49, and the identical bytes show that PRs #172–#175 changed nothing in the evidence.
+
+**No duplicate crosses a fold.** No pair of D-036 has both members in the dataset (one member each of `IMG_0080`, `IMG_0492`, `IMG_3606`). The content audit of the protected recordings ([EXP-20261112](EXP-20261112-protected-content-lineage-audit.md)) found no copy of a withheld recording among the dataset's recordings.
+
+### 11.2 The folds (replaces §2 "Recording groups and folds" and §9 "Fold draw" — amendment A1, A2)
+
+Drawn once with `scripts/rally_classifier/folds.py` (PR #178; procedure `fold_draw_v1`, seed 20261103, the 6th shuffle, `--stratify every-fold`, rally balance ±25 %) from the manifest's `groupId`, and frozen as [`EXP-20261103-temporal-rally-classifier-prereg.folds-rc-v1-20261112.plan.json`](EXP-20261103-temporal-rally-classifier-prereg.folds-rc-v1-20261112.plan.json) (SHA-256 `b5e4b4ef3c6ce1cdd7c5d24a7284a1a66f82e05b02d332d93cc5301884355c9d`). The file names the dataset, its manifest SHA-256 and digest; the trainer refuses it for any other dataset, and re-derives the draw so an edited file is refused. The dataset itself carries no fold. Every one of the 49 recordings is scored once, out of fold: the dataset's `train` / `dev_val` / `tune` are historical roles and play no part.
+
+| Fold | Groups (beach / grass / indoor) | Recordings (restricted) | Rallies | Positive s | Valid negative s | Groups with valid negatives | Standard recordings: n, rallies |
+|---|---|---|---|---|---|---|---|
+| 0 | 5 (2 / 1 / 2) | 13 (6) | 170 | 1,947.7 | 1,032.8 | 2 | 7, 80 |
+| 1 | 5 (2 / 1 / 2) | 8 (3) | 121 | 814.2 | 1,036.4 | 4 | 5, 47 |
+| 2 | 5 (1 / 2 / 2) | 8 (2) | 124 | 921.9 | 1,031.5 | 4 | 6, 77 |
+| 3 | 5 (1 / 2 / 2) | 8 (4) | 154 | 854.3 | 862.9 | 4 | 4, 43 |
+| 4 | 5 (1 / 1 / 3) | 12 (3) | 167 | 1,255.6 | 1,711.4 | 4 | 9, 93 |
+| all | 25 (7 / 7 / 11) | 49 (18) | 736 | 5,793.8 | 5,674.9 | 18 | 31, 340 |
+
+Groups, by their first recording — fold 0: `bch_ele_sun_port_self_03`, `bch_onl_ovc_land_onl_02`, `grs_hnd_shade_port_self_02`, `ind_ele_bright_land_self_01`, `ind_onl_bright_land_onl_01`; fold 1: `bch_extra_self_12`, `bch_gnd_ovc_land_self_01`, `grs_tri_sun_land_self_01`, `ind_extra_self_08`, `ind_gnd_bright_land_self_01`; fold 2: `bch_gnd_sun_land_self_02_v3`, `grs_ele_sun_land_self_01_v2`, `grs_onl_sun_land_onl_04`, `ind_ele_dim_land_self_02`, `ind_tri_bright_land_self_01_v3`; fold 3: `bch_extra_self_04`, `grs_ele_dusk_port_self_03`, `grs_gnd_sun_land_self_01`, `ind_gnd_bright_port_self_03`, `ind_hnd_dim_land_self_02`; fold 4: `bch_ele_ovc_land_self_02`, `grs_extra_self_04`, `ind_ele_dim_land_self_04`, `ind_extra_self_07`, `ind_tri_dim_port_self_02`.
+
+Five folds are feasible: every fold holds every surface and five groups, and the rally counts (121–170, mean 147) are within ±25 %. The restricted recordings are a large part of the pool (18 of 49, 396 of 736 rallies) and are reported apart; the headline tables rest on the 31 standard recordings and their 340 rallies — per fold 43 to 93 rallies, and in fold 3 only four standard recordings.
+
+### 11.3 The data-readiness gate (§2a) as it stands
+
+| Gate | State on 2026-11-13 |
+|---|---|
+| G1 confirmed `recordingType` for every candidate | **met**: 49 of 49 (31 continuous, 18 edited), confirmed in the marking pass (D-032, D-033) |
+| G2 scanner-flagged recordings | settled by G1: `bch_ele_sun_port_self_03` edited (7 cut ranges, restricted), `grs_ele_dusk_port_self_03` continuous and its `_v2` edited; `grs_ele_shade_land_self_02` is not in the dataset (its pass is not complete) |
+| G3 the exporter | **met** (on `main`) |
+| G4 fresh split manifest and audit, 0 hard findings | **met** at the export |
+| G5 validator 0 errors with the external closure | **met** |
+| G6 "at least 12 of the 18 groups contribute negatives" | 18 of 25 groups contribute valid negatives (72 %); every fold has at least two such groups (fold 0 has two, the others four). Met as a count and as the same fraction; the wording needs restating for 25 groups (amendment A3) |
+| G7 (proposed on PR #138, not adopted): every recording that supplies `NON_RALLY` steps is audited for coverage | **not met — the negative-coverage audit has not been run.** Every recording's `coverage.state` is `declared_complete` with no verified coverage: the 5,674.9 s of negatives are "the owner declared the pass complete on a continuous recording", not "a second look found no unmarked rally" |
+
+### 11.4 The trainer and its dry run
+
+The trainer is `scripts/rally_classifier/{folds,features,decode,evaluate,tcn,train}.py` on PR #178 (described in `docs/ml-roadmap/RALLY_CLASSIFIER_TRAINER.md` there; synthetic tests only). Its dry run on this dataset — validation against the closure, the folds file's identity, the SegmentBuilder-port parity check, feature extraction, the per-fold counts; **no fit, no score** — was made on 2026-11-13 for R1 and R2:
+
+- The digest it computes equals the exporter's.
+- The parity check required by §5 first **failed on 14 of 1,265 stored clips** (each a clip reaching the end of a recording): the port clamped to the duration rounded to a tick where the builder truncates. Fixed in the port; all 1,265 (r0 588, r0_prime 677) are now rebuilt exactly.
+- 42 inputs for R1; 439,277 steps. Every training side has both classes; every nested fold holds fully marked recordings; **0 problems** for both candidates.
+
+| Outer fold | Nested fold | Test recordings / rallies | Training + / − steps | Nested + / − steps | Fully marked recordings in the nested fold |
+|---|---|---|---|---|---|
+| 0 | 1 | 13 / 170 | 115,333 / 139,204 | 24,419 / 31,070 | 5 |
+| 1 | 2 | 8 / 121 | 148,327 / 139,101 | 27,651 / 30,942 | 6 |
+| 2 | 3 | 8 / 124 | 145,095 / 139,229 | 25,615 / 25,869 | 4 |
+| 3 | 4 | 8 / 154 | 147,131 / 144,302 | 37,648 / 51,323 | 9 |
+| 4 | 0 | 12 / 167 | 135,098 / 118,848 | 57,413 / 30,967 | 7 |
+
+Trainer command (replaces §4's placeholder; amendment A11): `python3 scripts/rally_classifier/train.py <dataset> --folds-file <folds file> --withheld <closure.json> --candidate {r1,r2} --net {present,ablated} --seed 20261103 --out <run>`; R2's H2 needs `--r1-run <run>`. Script hashes go in §9 when PR #178 is merged.
+
+### 11.5 Amendments this record needs before it can be approved
+
+Each is a place where §§1–10 cannot be run as written, or where the owner's requirements of 2026-11-12 differ from them. The trainer implements the reading given; the owner accepts it or changes it.
+
+| # | §§ | As written | Proposed |
+|---|---|---|---|
+| A1 | §2, §9 | the fold draw "is written into the dataset manifest (`fold` per recording)" | the folds live in their own frozen file tied to the dataset's digest (owner, 2026-11-12); the dataset is never edited |
+| A2 | §2 | the procedure is described in a sentence, and its demonstration draw has folds of 3–5 groups | the exact procedure `fold_draw_v1` (the deal carries on across surfaces; re-shuffle until every fold holds every surface and the rally counts balance); 25 groups → five folds of five |
+| A3 | §2a G6 | "at least 12 of the 18 groups contribute negatives" | at least two-thirds of the groups, and at least two groups with valid negatives in every fold (today 18 of 25; 2, 4, 4, 4, 4) |
+| A4 | §2 | 34 recordings, 18 groups, 561 rallies; restricted = two handheld and three scanner-flagged recordings | 49 recordings, 25 groups, 736 rallies; `restrictedUse` is what `TrainingEligibility` says — the 18 **edited** recordings. The continuous handheld recording `grs_hnd_shade_port_self_02` is standard in the dataset: accept, or have handheld recordings reported apart as §2 said |
+| A5 | §3 R1 | "full-batch gradient descent" with no step size or iteration count | Newton's method to the unique minimum of the same penalised, class-balanced loss (deterministic) |
+| A6 | §3 R2 | "±63-cell margins so every cell is scored once" with a 300-cell hop | a 150-cell margin (the only one under which a 600-cell window with a 300-cell hop scores every cell once) |
+| A7 | §6 | six per-rally classes (preserved / clipped / merged / split / partial / missed) | the four the reference scorecard defines, or the scorecard is extended first in its own reviewed change |
+| A8 | §5 | the decode point is the one minimising dead time "subject to recall ≥ R0's on the nested fold" | plus stated fallbacks when no grid point reaches R0's recall, or the nested fold has no fully marked recording (the dry run found neither case in this draw) |
+| A9 | §5 | temperature scaling alone | as written; noted that it cannot remove the bias class balancing gives R1 — add a bias term only if the owner asks |
+| A10 | §3, §5 | the stored R0 clips passed the pipeline's above-net rule; a candidate's decoded clips cannot be given it by the trainer | stated in every report as a known asymmetry in R0's favour, or a baseline variant without the rule is exported |
+| A11 | §4 | `train.py … --folds 5` | the command of §11.4: `--folds-file` and `--withheld` are required; no R3 |
+| A12 | §5, §10 | the winner and the keep / revert / need-data reading | read from the four runs' reports by hand; the trainer evaluates H1 and H2 as worded and does not compute the verdict |
+| A13 | §2 "Not claimed" | "26 of the 34 carry decider-selection or acceptance exposure" | of the 49: 44 have a detector training-package row on the ledger (`Scratch-multiframe-20261016-2018`, `Scratch-L2-multiframe-20261021-1917`); the five album recordings (`bch_extra_self_04`, `bch_extra_self_12`, `grs_extra_self_04`, `ind_extra_self_07`, `ind_extra_self_08`) have none; which recordings the shipped detector `scratch_768_1014` itself trained on is not on record (its package is gone), so its exposure to any of the 49 is unknown, not cleared; 24 carry `rally_scoring` rows. Development evidence only, as before |
+
+### 11.6 The open data-readiness decisions (PR #138, still unmerged)
+
+| Decision | State | Recommendation |
+|---|---|---|
+| D5 route for footage-type confirmation | settled in practice: types are confirmed in the marking pass on the Mac and the phone (D-032, D-033); 49 confirmed | none needed |
+| D6 coverage-audit sample; D8 contract amendment `coverage.audit` and gate G7 | **open.** No audit has been run; the protocol and its draw tool are on PR #138 | decide before approving: either run stage 1 (12 recordings, 4 per surface, every unmarked interval watched once by a person, about two hours) so the negatives rest on more than the declaration, or approve the first run with G7 explicitly waived and "negatives declared, not audited" as a stated limitation of its dead-time and false-clip numbers |
+| D10 an edited recording's time outside its cuts as negatives | not assumed: the 18 edited recordings supply positives only | keep |
+| D7 new final-test footage; D9 marking it while reserved | **open.** Nothing acquired. Needed before any production claim, not before this development experiment | plan it alongside; PR #181 keeps by-hand marking of a reserved recording open to the lead |
+| The lineage holdout as a later test | three of the 16 are exposed (D-036, D-037); three others now carry the owner's rally marks; `grs_ele_sun_land_self_01_v2` and `_v3` in this dataset are other stretches from the same outing as a withheld recording | no holdout is described as pristine; §8 stands |
+
+### 11.7 What remains before training can begin
+
+1. The owner merges PR #178 (the trainer) and this update; the script hashes then go into §9.
+2. The owner decides the amendments A1–A13 (accept as proposed, or change).
+3. The owner decides the negative-coverage question (D6/D8/G7): audit first, or waive with the limitation stated.
+4. The owner approves this preregistration (the checklist under "Approval"), quoting the authorisation. Until then no model is trained, tuned, calibrated or scored.
+
