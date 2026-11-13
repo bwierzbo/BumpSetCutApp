@@ -180,9 +180,13 @@ extension TrackedRally {
 }
 
 /// How one rally's track is worked on, by what its recording's access allows (LabelAccess; D-036 §5C/§5E).
-/// The detectors of a tracking session are reached only through `models`, and a person's fix is applied only
-/// through `fixed` — so a recording no model may run over gets no detector and no solve, whoever opens it and
-/// from wherever.
+///
+/// A session keeps the work it was given when it last asked the server (`init(access:existingTrack:)`), but that
+/// is never what an operation runs under: the list may have changed since. Every operation that builds a
+/// detector, takes a detector's candidates, solves or applies a fix gets a `Now` — the kept work reconciled with
+/// the access known at that moment (`now(access:existingTrack:)`) — and there is no other way to those
+/// operations. So a recording withheld while its rally is open gets frame-only fixes from the very next one,
+/// whoever opened it and whichever control is pressed.
 enum TrackWork: Equatable, Sendable {
     /// The detector proposes, the solver links it up; every fix re-solves the rest.
     case assisted
@@ -211,31 +215,70 @@ enum TrackWork: Equatable, Sendable {
         }
     }
 
+    /// This work against the access known now. It only ever narrows: assisted work goes by hand (or is refused)
+    /// once the recording is withheld or its state is not known; work by hand stays by hand — its candidates are
+    /// gone — until the session asks the server again; refused stays refused.
+    func reconciled(with access: LabelAccess, existingTrack: Bool) -> TrackWork {
+        let allowed = TrackWork(access: access, existingTrack: existingTrack)
+        switch (self, allowed) {
+        case (.refused, _): return self
+        case (_, .refused), (.assisted, _), (.byHand, .byHand): return allowed
+        case (.byHand, .assisted): return self
+        }
+    }
+
+    /// Narrows this work to what `access` allows now and hands back the only thing the model-backed operations
+    /// can be reached through.
+    mutating func now(access: LabelAccess, existingTrack: Bool) -> Now {
+        self = reconciled(with: access, existingTrack: existingTrack)
+        return Now(work: self)
+    }
+
     struct ModelsRefused: LocalizedError, Equatable {
         let reason: String
         var errorDescription: String? { reason }
     }
 
-    /// The detectors for one detector-backed operation (finding the ball on the frames, looking again near a fix,
-    /// finding it on more frames): built by `make` only when the work is assisted, refused with the reason
-    /// otherwise — before anything is built.
-    func models<Detectors>(_ make: () throws -> Detectors) throws -> Detectors {
-        if let why = modelRefusal { throw ModelsRefused(reason: why) }
-        return try make()
-    }
+    /// A session's work reconciled with its recording's access at one moment: made only by `now`, used for the
+    /// operation at hand, never kept for the next.
+    struct Now: Equatable, Sendable {
+        let work: TrackWork
 
-    /// A person's fix applied the way this work goes. Assisted: the path is re-solved around it from the
-    /// detector's candidates (`resolve`), and the rally is to be watched again before it is done. By hand: the
-    /// fix is all that changes — no candidate is read, no other frame moves, and a rally that was done stays done.
-    /// Refused: nothing changes.
-    func fixed(_ rally: TrackedRally, resolve: Bool = true, _ fix: (inout TrackedRally) -> Void) -> TrackedRally {
-        if case .refused = self { return rally }
-        var r = rally
-        fix(&r)
-        guard resolve, self == .assisted else { return r }
-        r.points = TrackSolver.solve(r)
-        r.done = false
-        return r
+        fileprivate init(work: TrackWork) { self.work = work }
+
+        /// The detectors for one detector-backed operation (finding the ball on the frames, looking again near a
+        /// fix, finding it on more frames): built by `make` only when the work is assisted, refused with the
+        /// reason otherwise — before anything is built.
+        func models<Detectors>(_ make: () throws -> Detectors) throws -> Detectors {
+            if let why = work.modelRefusal { throw ModelsRefused(reason: why) }
+            return try make()
+        }
+
+        /// The detector's candidates (just found, kept from before, or with what looking again added) taken into
+        /// the rally and its path solved through them — when the work is assisted. Otherwise none is taken: the
+        /// rally's frames stay as they are and it holds no candidates.
+        func taking(_ candidates: [[TrackCandidate]], into rally: TrackedRally) -> TrackedRally {
+            var r = rally
+            guard work == .assisted else { r.candidates = []; return r }
+            r.candidates = candidates
+            r.points = TrackSolver.solve(r)
+            return r
+        }
+
+        /// A person's fix applied the way the work goes. Assisted: the path is re-solved around it from the
+        /// detector's candidates (`resolve`), and the rally is to be watched again before it is done. By hand:
+        /// the fix is all that changes — no candidate is read (the rally holds none from here on), no other
+        /// frame moves, and a rally that was done stays done. Refused: nothing changes.
+        func fixed(_ rally: TrackedRally, resolve: Bool = true, _ fix: (inout TrackedRally) -> Void) -> TrackedRally {
+            if case .refused = work { return rally }
+            var r = rally
+            fix(&r)
+            guard work == .assisted else { r.candidates = []; return r }
+            guard resolve else { return r }
+            r.points = TrackSolver.solve(r)
+            r.done = false
+            return r
+        }
     }
 }
 

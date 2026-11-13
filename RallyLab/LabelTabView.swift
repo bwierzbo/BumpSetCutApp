@@ -33,11 +33,15 @@ struct LabelTabView: View {
     /// to be withheld.
     @State private var withheld: (opening: ProjectsModel.Opening, names: Set<String>?)?
 
-    /// Read when the project opens and each time the tab comes to the front.
+    /// Read when the project opens and each time the tab comes to the front — for the queue shown. A track task
+    /// never opens under that read: the closure is read again for the job at hand first (`checkedTrack`).
     private struct WithheldRead: Equatable {
         let opening: ProjectsModel.Opening?
         let front: Bool
     }
+    /// The track job the closure was read again for, under the opening it was read in: only that job opens, and
+    /// only under the closure as it was then. Any other job, or the same one opened again, reads it again.
+    @State private var checkedTrack: (job: LabelQueue.Job, opening: ProjectsModel.Opening)?
 
     enum Page: String { case next, review, coverage, plan }
 
@@ -66,6 +70,8 @@ struct LabelTabView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // A job closed or another opened: the next track job reads the closure again.
+        .onChange(of: active) { _, _ in checkedTrack = nil }
         .task(id: WithheldRead(opening: projects.opening, front: isActive)) {
             guard isActive, let opening = projects.opening else { return }
             withheld = (opening, await LabelingSync.withheldClosure(root: opening.root))
@@ -115,8 +121,17 @@ struct LabelTabView: View {
     private func job(_ job: LabelQueue.Job, _ session: VideoSession) -> some View {
         switch job {
         case .track(_, let rally):
-            // Wherever the job came from (the queue never offers it; Coverage and Plan open one directly).
-            if let why = LabelQueue.refusal(of: job, access: access(of: session)) {
+            // Wherever the job came from (the queue never offers it; Coverage and Plan open one directly), and
+            // whatever the closure was when the queue was drawn: it is read again before this job opens.
+            if checkedTrack?.job != job || checkedTrack?.opening != projects.opening {
+                ProgressView("Checking the project's withheld recordings…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .task {
+                        guard let opening = projects.opening else { return }
+                        withheld = (opening, await LabelingSync.withheldClosure(root: opening.root))
+                        checkedTrack = (job, opening)
+                    }
+            } else if let why = LabelQueue.refusal(of: job, access: access(of: session)) {
                 VStack(spacing: 0) {
                     LabelTaskHeader(title: "No track task", subtitle: session.name, onClose: { active = nil }) { EmptyView() }
                     Divider()

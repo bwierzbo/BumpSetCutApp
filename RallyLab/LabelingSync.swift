@@ -603,8 +603,8 @@ final class LabelingSync {
     /// A ball path is the pipeline's output over its recording: none goes up
     /// for a recording the project withholds from every model (D-036 §5C/§5E)
     /// — from the lead's account either, which the server does not stop. The
-    /// closure is the captured project's, read only when a path is waiting;
-    /// when it can't be read no path goes up (fail closed, with a note). A
+    /// closure is the captured project's, read again before every path that
+    /// is waiting; when it can't be read no path goes up (fail closed, with a note). A
     /// path sent before its recording was withheld stays on the server as it is.
     private func publishBallPaths(_ opening: ProjectsModel.Opening) async throws -> String? {
         let root = opening.root
@@ -623,9 +623,7 @@ final class LabelingSync {
             return !sent.contains(path) && FileManager.default.fileExists(atPath: local.path) ? (name, path, local) : nil
         }
         guard !waiting.isEmpty else { return nil }
-        guard let withheld = await Self.withheldClosure(root: root) else {
-            return "ball paths not sent: the withheld closure can't be read, so which recordings no model output may be published for is unknown"
-        }
+        let unreadable = "ball paths not sent: the withheld closure can't be read, so which recordings no model output may be published for is unknown"
         var sentNow = 0
         // What went up is recorded even when the round stops: the uploads are on the server.
         defer {
@@ -636,6 +634,9 @@ final class LabelingSync {
         }
         var kept = 0
         for (name, path, local) in waiting {
+            // The closure as it is now, before each path: an upload suspends, and a recording withheld while the
+            // paths before it went up must not follow them under the closure they were sent under.
+            guard let withheld = await Self.withheldClosure(root: root) else { return unreadable }
             try projects.require(opening)
             guard !withheld.contains(name) else { kept += 1; continue }
             do {
@@ -913,6 +914,9 @@ final class LabelingSync {
         var outgoing: [LabelTrack] = []
         var received = 0
         var held = 0
+        // The new rallies a model found the ball in that the closure just read lets go up, with their recording.
+        var modelRallies: [UUID: String] = [:]
+        var closureLost = false
         // What each session's synced list becomes once the server has this round's batches: its rallies now, plus
         // the rallies deleted here whose tombstones the server has not acknowledged yet.
         var syncedAfter: [(session: String, ids: [UUID], tombstones: [UUID])] = []
@@ -970,9 +974,12 @@ final class LabelingSync {
             }
             var heldHere: Set<UUID> = []
             for i in local.indices where !known.contains(local[i].id) {
-                if local[i].carriesModelOutput, withheld?.contains(name) ?? true {
-                    heldHere.insert(local[i].id)   // model output over a withheld recording (or one not known not to be)
-                    continue
+                if local[i].carriesModelOutput {
+                    if withheld?.contains(name) ?? true {
+                        heldHere.insert(local[i].id)   // model output over a withheld recording (or one not known not to be)
+                        continue
+                    }
+                    modelRallies[local[i].id] = name
                 }
                 local[i] = local[i].with(updatedAt: now)
                 outgoing.append(LabelTrack(local[i], videoId: video.id))   // new here
@@ -994,11 +1001,23 @@ final class LabelingSync {
             syncedAfter.append((name, syncedIds, tombstones))
         }
         var acknowledged: Set<UUID> = []
-        for batch in stride(from: 0, to: outgoing.count, by: 20).map({ Array(outgoing[$0..<min($0 + 20, outgoing.count)]) }) {
+        for (n, all) in stride(from: 0, to: outgoing.count, by: 20).map({ Array(outgoing[$0..<min($0 + 20, outgoing.count)]) }).enumerated() {
+            var batch = all
+            // The first batch goes under the closure just read (nothing has suspended since). Every later one
+            // followed a save: its model rallies go only if the closure, read again, still lets them — a recording
+            // withheld meanwhile keeps them here (the next round holds them like any other).
+            if n > 0, batch.contains(where: { modelRallies[$0.id] != nil }) {
+                let current = await Self.withheldClosure(root: opening.root)
+                let before = batch.count
+                batch.removeAll { t in modelRallies[t.id].map { current?.contains($0) ?? true } ?? false }
+                held += before - batch.count
+                if current == nil { closureLost = true }
+            }
             // Rallies not sent because the opening ended go next time: changed here, they are newer than the
             // server's stamp; new here, the server does not know them; deleted here, they stay on the synced list
             // (written below only once every batch is acknowledged).
             try projects.require(opening)
+            guard !batch.isEmpty else { continue }
             try await client.save(batch)
             acknowledged.formUnion(batch.map(\.id))
         }
@@ -1011,7 +1030,7 @@ final class LabelingSync {
         for entry in syncedAfter {
             projects.sampler.setSyncedTrackIds(entry.ids + entry.tombstones.filter { !acknowledged.contains($0) }, session: entry.session)
         }
-        return (outgoing.count, received, held, modelRallyWaiting && withheld == nil)
+        return (acknowledged.count, received, held, (modelRallyWaiting && withheld == nil) || closureLost)
     }
 
     private static func sameTrack(_ a: TrackedRally, _ b: LabelTrack) -> Bool {

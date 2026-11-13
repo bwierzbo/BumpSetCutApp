@@ -14,7 +14,10 @@
 //  (TrackWork.byHand): its frames and its boxes, each fix changing that
 //  frame only — no detector is built, nothing is solved, and looking again
 //  and reading more frames are off, with the reason on screen. A rally not
-//  tracked yet doesn't open there at all.
+//  tracked yet doesn't open there at all. The same from the moment a
+//  recording is withheld while its rally is open: every operation here runs
+//  under the work as it stands against the list known then (`workNow`),
+//  never under what the session was given when it opened.
 //
 
 import AVFoundation
@@ -54,14 +57,30 @@ final class TrackSession {
     private var keptPoints: [TrackPoint] = []
     /// Searching near your last fix (TrackFinder.lookAgain).
     private(set) var isLookingAgain = false
-    /// How this rally is worked on: with the detectors, by hand, or not at all — by what its recording's access
-    /// allows, asked in `prepare` and again before more frames are read. Every detector here is built through
-    /// `work.models`, every fix applied through `work.fixed`.
-    private(set) var work = TrackWork.unchecked
+    /// The work this session was given when it last asked the server (`decideWork`: on opening, and before more
+    /// frames are read), narrowed since by every `workNow`. Nothing runs under it as it is: the detectors, the
+    /// candidates, the solver and every fix are reached only through `workNow()`.
+    private var work = TrackWork.unchecked
+    /// More frames are being read: the rally's frames are cleared meanwhile, but it is one tracked before.
+    @ObservationIgnored private var extending = false
 
-    /// Why this rally is worked on by hand, when it is: shown, and the detector-backed controls are off.
+    private var isTracked: Bool { !rally.points.isEmpty || extending }
+
+    /// The work as it stands against the recording's access known now (the list as last pulled; a session that
+    /// could not ask the server stays by hand). The one way to a detector, a candidate, a solve or a fix here:
+    /// a recording withheld while its rally is open gets frame-only fixes from the next press on, and a rally
+    /// closed to this account stops, with the reason on screen.
+    private func workNow() -> TrackWork.Now {
+        var narrowed = work
+        let now = narrowed.now(access: model.access(for: video), existingTrack: isTracked)
+        if narrowed != work { work = narrowed }
+        if case .refused(let why) = now.work { phase = .failed(why) }
+        return now
+    }
+
+    /// Why this rally is worked on by hand now, when it is: shown, and the detector-backed controls are off.
     var byHandReason: String? {
-        if case .byHand(let why) = work { return why }
+        if case .byHand(let why) = work.reconciled(with: model.access(for: video), existingTrack: isTracked) { return why }
         return nil
     }
     @ObservationIgnored private let lookAgainDetector = LookAgainDetector()
@@ -124,7 +143,7 @@ final class TrackSession {
     /// rally tracked before opens by hand where annotation by hand goes on; anything else is refused, with the
     /// reason on screen. Returns nil when refused.
     private func decideWork() async -> TrackWork? {
-        work = TrackWork(access: await model.modelAccess(for: video), existingTrack: !rally.points.isEmpty)
+        work = TrackWork(access: await model.modelAccess(for: video), existingTrack: isTracked)
         if case .refused(let why) = work {
             phase = .failed(why)
             return nil
@@ -133,14 +152,12 @@ final class TrackSession {
     }
 
     private func read() async {
-        let assisted = work == .assisted
         // Left part way through: its frames and candidates are on the phone. By hand, the frames only.
         if !rally.points.isEmpty, let kept = LocalStore.tracking(rally.id, times: rally.points.map(\.time)) {
+            let now = workNow()
+            if case .refused = now.work { return }
             frames = kept.frames
-            if assisted {
-                rally.candidates = kept.candidates
-                rally.points = TrackSolver.solve(rally)
-            }
+            rally = now.taking(kept.candidates, into: rally)
             let left = LocalStore.position(rally.id).flatMap { t in rally.points.firstIndex { abs($0.time - t) < 0.002 } }
             index = left ?? toCheck.first ?? 0
             phase = .reviewing
@@ -165,24 +182,28 @@ final class TrackSession {
             }
             // An existing track's own frame times win (they're what was labeled).
             let wanted = rally.points.map(\.time)
-            let what = assisted ? "Finding the ball on \(wanted.count) frames…" : "Reading \(wanted.count) frames…"
+            let launched = workNow()
+            if case .refused = launched.work { return }
+            let what = launched.work == .assisted ? "Finding the ball on \(wanted.count) frames…" : "Reading \(wanted.count) frames…"
             phase = .preparing(what, 0)
-            let found = try await Self.readFrames(asset: asset, times: wanted, work: work) { done in
+            let found = try await Self.readFrames(asset: asset, times: wanted, work: launched,
+                                                  stillAssisted: { [weak self] in await self?.isAssistedNow() ?? false }) { done in
                 Task { @MainActor [weak self] in
                     self?.phase = .preparing(what, Double(done) / Double(wanted.count))
                 }
             }
+            // The list may have changed while the frames were read: what was found is taken only under the work
+            // as it stands now.
+            let now = workNow()
+            if case .refused = now.work { return }
             frames = found.frames
-            if assisted {
-                rally.candidates = found.candidates
-                rally.points = TrackSolver.solve(rally)
-            }
+            rally = now.taking(found.candidates, into: rally)
             let left = LocalStore.position(rally.id).flatMap { t in rally.points.firstIndex { abs($0.time - t) < 0.002 } }
             index = left ?? toCheck.first ?? 0
             phase = .reviewing
             // Kept for coming back to an assisted rally; a rally worked on by hand has no candidates to keep, and
             // an empty set must not stand in for them if its recording is opened to the models again.
-            if assisted {
+            if now.work == .assisted {
                 let id = rally.id, candidates = rally.candidates
                 Task.detached(priority: .utility) { LocalStore.saveTracking(id, times: wanted, frames: found.frames, candidates: candidates) }
             }
@@ -221,12 +242,17 @@ final class TrackSession {
         var candidates: [[TrackCandidate]]
     }
 
+    private func isAssistedNow() -> Bool { workNow().work == .assisted }
+
     /// Every frame read once, in order. Assisted: YOLO's candidates and the
     /// frame for the multi-frame model, then the multi-frame model's peaks
     /// merged in. By hand: the frames only — the detectors are built through
     /// `work.models`, so none is for a recording no model may run over, and
-    /// no candidate comes back.
-    private static func readFrames(asset: AVURLAsset, times: [Double], work: TrackWork,
+    /// no candidate comes back. `stillAssisted` is asked before each frame:
+    /// once the recording is withheld the detectors stop there, the rest of
+    /// the frames are only read, and nothing found comes back.
+    private static func readFrames(asset: AVURLAsset, times: [Double], work: TrackWork.Now,
+                                   stillAssisted: @escaping @Sendable () async -> Bool,
                                    progress: @escaping @Sendable (Int) -> Void) async throws -> Found {
         try await Task.detached(priority: .userInitiated) {
             let models = try? work.models { () -> (yolo: YOLODetector, heat: HeatmapBallDetector?) in
@@ -241,6 +267,7 @@ final class TrackSession {
                 return (yolo, heat)
             }
             let heat = models?.heat
+            var detecting = models != nil
             let generator = AVAssetImageGenerator(asset: asset)
             generator.appliesPreferredTrackTransform = true
             generator.requestedTimeToleranceBefore = .zero
@@ -253,15 +280,16 @@ final class TrackSession {
                 let requests = indices.map { CMTime(seconds: times[$0], preferredTimescale: 600_000) }
                 for await result in generator.images(for: requests) {
                     try Task.checkCancellation()
+                    if detecting, !(await stillAssisted()) { detecting = false }
                     guard let image = try? result.image,
                           let i = indices.first(where: { abs(times[$0] - result.requestedTime.seconds) < 0.0005 }) else { continue }
                     // Each frame's buffers drained before the next: hundreds of
                     // frames otherwise pile up past what iOS allows an app.
                     autoreleasepool {
-                        if let yolo = models?.yolo {
+                        if detecting, let yolo = models?.yolo {
                             found[i] = yolo.detect(in: image, at: .zero).map { TrackCandidate(rect: $0.bbox, confidence: Double($0.confidence)) }
+                            grays[i] = heat?.frame(image)
                         }
-                        grays[i] = heat?.frame(image)
                         frames[i] = UIImage(cgImage: image).jpegData(compressionQuality: 0.8) ?? Data()
                     }
                     done += 1
@@ -277,8 +305,8 @@ final class TrackSession {
                 generator.requestedTimeToleranceAfter = CMTime(seconds: 0.25 / frameRate, preferredTimescale: 600_000)
                 try await read(missed)
             }
-            if let heat { TrackFinder.addHeatmapCandidates(heat, grays: grays, to: &found) }
-            return Found(frames: frames, candidates: models == nil ? [] : found)
+            if detecting, let heat { TrackFinder.addHeatmapCandidates(heat, grays: grays, to: &found) }
+            return Found(frames: frames, candidates: detecting ? found : [])
         }.value
     }
 
@@ -313,12 +341,13 @@ final class TrackSession {
     /// either side, then re-solve with what's found. In the background: you
     /// can keep going, and a newer edit wins over a stale result.
     private func lookAgain(from fix: Int) {
-        guard stillAssisted() else { return }
-        let snapshot = rally, frames = frames, holder = lookAgainDetector, heatHolder = lookAgainHeat, work = work
+        let launched = workNow()
+        guard launched.work == .assisted else { return }
+        let snapshot = rally, frames = frames, holder = lookAgainDetector, heatHolder = lookAgainHeat
         isLookingAgain = true
         Task {
             let added = await Task.detached(priority: .userInitiated) { () -> [Int: [TrackCandidate]] in
-                let models = try? work.models {
+                let models = try? launched.models {
                     (yolo: holder.detector, heat: heatHolder.detector(for: Bundle.main.url(forResource: "ball_heat", withExtension: "mlmodelc")))
                 }
                 guard let detector = models?.yolo else { return [:] }
@@ -328,24 +357,17 @@ final class TrackSession {
                 }
             }.value
             isLookingAgain = false
-            guard !added.isEmpty, self.work == .assisted, rally.id == snapshot.id, rally.candidates.count == snapshot.candidates.count else { return }
-            for (k, found) in added { rally.candidates[k] += found }
-            rally.points = TrackSolver.solve(rally)
+            guard !added.isEmpty, rally.id == snapshot.id, rally.candidates.count == snapshot.candidates.count else { return }
+            // The list may have changed while it looked: what was found is taken only under the work as it stands now.
+            let now = workNow()
+            guard now.work == .assisted else { return }
+            var merged = rally.candidates
+            for (k, found) in added { merged[k] += found }
+            rally = now.taking(merged, into: rally)
             save()
             let id = rally.id, candidates = rally.candidates
             Task.detached(priority: .utility) { LocalStore.saveCandidates(id, candidates) }
         }
-    }
-
-    /// Whether the detectors may still run in this session. A list pulled since the rally was opened may have
-    /// withheld its recording: from then on it goes on by hand (or closes, for an account it is closed to).
-    private func stillAssisted() -> Bool {
-        guard work == .assisted else { return false }
-        let access = model.access(for: video)
-        guard access != .open else { return true }
-        work = TrackWork(access: access, existingTrack: !rally.points.isEmpty)
-        if case .refused(let why) = work { phase = .failed(why) }
-        return false
     }
 
     /// The ball can't be seen on this frame.
@@ -390,6 +412,9 @@ final class TrackSession {
     func extend(before: Double = 0, after: Double = 0) async {
         // Asked before anything of the rally is cleared: not assisted, it stays as it was saved.
         guard await decideWork() == .assisted else { return }
+        let was = (rally: rally, frames: frames, undo: undoStack, index: index)
+        extending = true
+        defer { extending = false }
         keptPoints = rally.points.filter { $0.origin == .user }
         rally.start = max(0, rally.start - before)
         rally.end = min(video.duration, rally.end + after)
@@ -399,6 +424,18 @@ final class TrackSession {
         undoStack = []
         phase = .preparing("Reading more frames…", 0)
         await read()
+        // Not found again after all — its recording was withheld meanwhile, or the frames could not be read: the
+        // rally goes back to what it was (nothing of the new frames is kept), under the work as it stands now.
+        let now = workNow()
+        if phase != .reviewing || now.work != .assisted {
+            let outcome = phase
+            keptPoints = []
+            frames = was.frames
+            undoStack = was.undo
+            rally = now.taking(was.rally.candidates, into: was.rally)
+            index = was.index
+            if case .failed = outcome { phase = outcome } else { phase = .reviewing }
+        }
         save()
     }
 
@@ -433,9 +470,12 @@ final class TrackSession {
 
     private func change(resolve: Bool = true, _ edit: (inout TrackedRally) -> Void) {
         guard rally.points.indices.contains(index) else { return }
+        // Every fix — the ball is here, the pick is right, hidden, done — under the work as it stands now.
+        let now = workNow()
+        if case .refused = now.work { return }
         undoStack.append(rally)
         if undoStack.count > 50 { undoStack.removeFirst() }
-        rally = work.fixed(rally, resolve: resolve, edit)
+        rally = now.fixed(rally, resolve: resolve, edit)
         save()
     }
 

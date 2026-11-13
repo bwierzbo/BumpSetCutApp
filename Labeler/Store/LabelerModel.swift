@@ -472,13 +472,26 @@ final class LabelerModel: ReviewStore {
         return byId.values.filter { !$0.deleted }.sorted { $0.start < $1.start }
     }
 
+    /// The rallies the pipeline found in the recording, as it may be shown them now. A screen holds the row it
+    /// was opened with; the list may have withheld the recording since — so what a model found is read through
+    /// here, by the access known at the moment of use (`shown`), never off a row a view kept.
+    func found(in video: LabelVideo) -> [[Double]] { self.video(video.id)?.ralliesFound ?? [] }
+
+    /// The tracked rallies a marking pass may snap presses to: all of them for a recording no model is kept
+    /// from; otherwise only the ones a person placed every frame of — a model's path over a withheld recording
+    /// is not used.
+    func snapTracks(for video: LabelVideo) -> [TrackedRally] {
+        let all = tracks(for: video).map(\.rally)
+        return access(for: video) == .open ? all : all.filter { !$0.carriesModelOutput }
+    }
+
     /// Found rallies not marked, not said to be no rally, and touching no cut range (not footage; the found rally
     /// itself stays on the video for undo): what review asks about.
     func openFound(in video: LabelVideo) -> [[Double]] {
         let times = rallyTimes(for: video)
         let marked = times.rallies, cuts = times.cutRanges
         let rejected = LocalStore.rejected(video)
-        return video.ralliesFound.filter { f in
+        return found(in: video).filter { f in
             !rejected.contains(LocalStore.key(f)) && !cuts.overlaps(f[0], f[1]) && !marked.contains { min($0.end, f[1]) - max($0.start, f[0]) > 0.3 }
         }
     }
@@ -637,7 +650,7 @@ final class LabelerModel: ReviewStore {
         videos.map { v in
             let times = rallyTimes(for: v)
             return LabelQueue.Video(plan: planVideo(v), nextRally: nextRally(in: v),
-                                    found: v.ralliesFound.count, marked: times.rallies.count, complete: times.complete, backlog: v.isBacklogged,
+                                    found: found(in: v).count, marked: times.rallies.count, complete: times.complete, backlog: v.isBacklogged,
                                     access: access(for: v))
         }
     }

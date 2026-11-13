@@ -132,7 +132,7 @@ struct TrackTaskView: View {
 
     /// The found rally this task started from, if any.
     private var found: [Double]? {
-        video.ralliesFound.first { abs($0[0] - span.start) < 0.05 && abs($0[1] - span.end) < 0.05 }
+        model.found(in: video).first { abs($0[0] - span.start) < 0.05 && abs($0[1] - span.end) < 0.05 }
     }
 
     var body: some View {
