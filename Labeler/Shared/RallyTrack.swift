@@ -163,6 +163,16 @@ extension TrackedRally {
     var isForReview: Bool { done || (isMachine && isRally == true) }
     /// A pre-tracked rally nobody has said is or isn't a rally yet.
     var awaitsRallyCheck: Bool { isMachine && isRally == nil }
+    /// A model found the ball somewhere in it: pre-tracked, or a frame whose box is a detector's candidate the
+    /// solver chose (not a box a person placed or confirmed).
+    var carriesModelOutput: Bool { isMachine || points.contains { $0.origin == .auto && $0.box != nil } }
+
+    /// Whether the rally may go to the server now, from the Mac's sync or the phone's outbox. One the server
+    /// already has keeps syncing (the record made before, and what a person changes in it by hand). A new one
+    /// goes for a recording no model is kept from, or when a person placed every frame of it: a rally a model
+    /// found the ball in is model output, and none is published for a recording that is withheld or not known
+    /// not to be — judged when it is sent, not when it was made.
+    func mayGoUp(new: Bool, access: LabelAccess) -> Bool { !new || access == .open || !carriesModelOutput }
 
     /// Frames with a decided label (the ball, or hidden): what training gets.
     var labeledFrames: Int { points.filter { $0.state != .unknown }.count }
@@ -173,6 +183,109 @@ extension TrackedRally {
     var bounds: LabelRally {
         let m = min(Self.margin, (end - start) / 4)
         return LabelRally(start: start + m, end: end - m)
+    }
+}
+
+/// How one rally's track is worked on, by what its recording's access allows (LabelAccess; D-036 §5C/§5E).
+///
+/// A session keeps the work it was given when it last asked the server (`init(access:existingTrack:)`), but that
+/// is never what an operation runs under: the list may have changed since. Every operation that builds a
+/// detector, takes a detector's candidates, solves or applies a fix gets a `Now` — the kept work reconciled with
+/// the access known at that moment (`now(access:existingTrack:)`) — and there is no other way to those
+/// operations. So a recording withheld while its rally is open gets frame-only fixes from the very next one,
+/// whoever opened it and whichever control is pressed.
+enum TrackWork: Equatable, Sendable {
+    /// The detector proposes, the solver links it up; every fix re-solves the rest.
+    case assisted
+    /// A rally tracked before, of a recording no model may run over now, on a device where annotation by hand
+    /// goes on: its frames and the boxes it has are shown, and a person moves, confirms or hides the ball frame
+    /// by frame. Nothing is found, solved or re-solved; the reason is shown.
+    case byHand(String)
+    /// Not opened at all, with the reason.
+    case refused(String)
+
+    /// Before a session has asked what its recording's access is: no model, no work.
+    static let unchecked = TrackWork.refused("This recording has not been checked against its project's withheld list yet.")
+
+    /// `existingTrack`: the rally has frames tracked before. A rally with none can only be tracked with the
+    /// detectors, so it opens only where they may run.
+    init(access: LabelAccess, existingTrack: Bool) {
+        guard let why = access.modelRefusal else { self = .assisted; return }
+        self = existingTrack && access.offersMarking ? .byHand(why) : .refused(why)
+    }
+
+    /// Why no detector may run in this session, or nil when one may.
+    var modelRefusal: String? {
+        switch self {
+        case .assisted: return nil
+        case .byHand(let why), .refused(let why): return why
+        }
+    }
+
+    /// This work against the access known now. It only ever narrows: assisted work goes by hand (or is refused)
+    /// once the recording is withheld or its state is not known; work by hand stays by hand — its candidates are
+    /// gone — until the session asks the server again; refused stays refused.
+    func reconciled(with access: LabelAccess, existingTrack: Bool) -> TrackWork {
+        let allowed = TrackWork(access: access, existingTrack: existingTrack)
+        switch (self, allowed) {
+        case (.refused, _): return self
+        case (_, .refused), (.assisted, _), (.byHand, .byHand): return allowed
+        case (.byHand, .assisted): return self
+        }
+    }
+
+    /// Narrows this work to what `access` allows now and hands back the only thing the model-backed operations
+    /// can be reached through.
+    mutating func now(access: LabelAccess, existingTrack: Bool) -> Now {
+        self = reconciled(with: access, existingTrack: existingTrack)
+        return Now(work: self)
+    }
+
+    struct ModelsRefused: LocalizedError, Equatable {
+        let reason: String
+        var errorDescription: String? { reason }
+    }
+
+    /// A session's work reconciled with its recording's access at one moment: made only by `now`, used for the
+    /// operation at hand, never kept for the next.
+    struct Now: Equatable, Sendable {
+        let work: TrackWork
+
+        fileprivate init(work: TrackWork) { self.work = work }
+
+        /// The detectors for one detector-backed operation (finding the ball on the frames, looking again near a
+        /// fix, finding it on more frames): built by `make` only when the work is assisted, refused with the
+        /// reason otherwise — before anything is built.
+        func models<Detectors>(_ make: () throws -> Detectors) throws -> Detectors {
+            if let why = work.modelRefusal { throw ModelsRefused(reason: why) }
+            return try make()
+        }
+
+        /// The detector's candidates (just found, kept from before, or with what looking again added) taken into
+        /// the rally and its path solved through them — when the work is assisted. Otherwise none is taken: the
+        /// rally's frames stay as they are and it holds no candidates.
+        func taking(_ candidates: [[TrackCandidate]], into rally: TrackedRally) -> TrackedRally {
+            var r = rally
+            guard work == .assisted else { r.candidates = []; return r }
+            r.candidates = candidates
+            r.points = TrackSolver.solve(r)
+            return r
+        }
+
+        /// A person's fix applied the way the work goes. Assisted: the path is re-solved around it from the
+        /// detector's candidates (`resolve`), and the rally is to be watched again before it is done. By hand:
+        /// the fix is all that changes — no candidate is read (the rally holds none from here on), no other
+        /// frame moves, and a rally that was done stays done. Refused: nothing changes.
+        func fixed(_ rally: TrackedRally, resolve: Bool = true, _ fix: (inout TrackedRally) -> Void) -> TrackedRally {
+            if case .refused = work { return rally }
+            var r = rally
+            fix(&r)
+            guard work == .assisted else { r.candidates = []; return r }
+            guard resolve else { return r }
+            r.points = TrackSolver.solve(r)
+            r.done = false
+            return r
+        }
     }
 }
 

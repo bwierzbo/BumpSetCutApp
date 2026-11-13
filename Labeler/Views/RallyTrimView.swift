@@ -132,13 +132,17 @@ struct TrackTaskView: View {
 
     /// The found rally this task started from, if any.
     private var found: [Double]? {
-        video.ralliesFound.first { abs($0[0] - span.start) < 0.05 && abs($0[1] - span.end) < 0.05 }
+        model.found(in: video).first { abs($0[0] - span.start) < 0.05 && abs($0[1] - span.end) < 0.05 }
     }
 
     var body: some View {
         Group {
             if let track = model.unfinishedTrack(of: span, in: video) {
+                // A rally begun before: its session decides how it opens (by hand where no model may run).
                 TrackReviewView(model: model, video: video, track: track)
+            } else if let why = model.access(for: video).modelRefusal {
+                // Before the rally is trimmed or its clip fetched: tracking it would run the detectors over it.
+                ContentUnavailableView("Not tracked on this phone", systemImage: "hand.raised", description: Text(why))
             } else if let trimmed, clip != nil {
                 TrackReviewView(model: model, video: video, span: trimmed, found: found)
             } else if trimmed != nil, let failure {
@@ -164,7 +168,7 @@ struct TrackTaskView: View {
             }
         }
         .task {
-            guard playback == nil, model.unfinishedTrack(of: span, in: video) == nil else { return }
+            guard playback == nil, model.access(for: video) == .open, model.unfinishedTrack(of: span, in: video) == nil else { return }
             // Trimmed before and left before tracking began: straight to tracking.
             if trimmed == nil { trimmed = LocalStore.trim(of: span, in: video) }
             do {

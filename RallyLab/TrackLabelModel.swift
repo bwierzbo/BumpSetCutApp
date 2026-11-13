@@ -406,7 +406,8 @@ final class TrackLabelModel {
             if let frames, !frames.has(times[i]) { frames.write(image, time: times[i]) }
             if done % 10 == 0 { await progress(Double(done) / Double(times.count)) }
         }
-        if let heat { TrackFinder.addHeatmapCandidates(heat, grays: grays, to: &found) }
+        // The Track tab asks its admission before the run (modelsAdmitted), not before each window.
+        if let heat { TrackFinder.addHeatmapCandidates(heat, grays: grays, to: &found, whileAllowed: { true }) }
         return found
     }
 
@@ -512,7 +513,8 @@ final class TrackLabelModel {
         Task {
             let added = await Task.detached(priority: .userInitiated) { () -> [Int: [TrackCandidate]] in
                 guard let detector = holder.detector(for: model) else { return [:] }
-                return TrackFinder.lookAgain(from: fix, in: snapshot, detector: detector, heat: heatHolder.detector(for: heatModel)) { i in
+                return TrackFinder.lookAgain(from: fix, in: snapshot, detector: detector, heat: heatHolder.detector(for: heatModel),
+                                             whileAllowed: { true }) { i in
                     frames.read(snapshot.points[i].time)
                 }
             }.value

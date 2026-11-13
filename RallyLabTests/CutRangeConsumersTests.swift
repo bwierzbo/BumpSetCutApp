@@ -229,13 +229,13 @@ final class CutRangeConsumersTests: XCTestCase {
         var begun = SourceRegistryTests.rally(done: false)
         begun.start = 30; begun.end = 40
         session.tracks = [begun]
-        XCTAssertEqual(LabelQueue.Video(session: session).nextRally, begun.bounds, "the begun track first")
+        XCTAssertEqual(LabelQueue.Video.nextRally(in: session), begun.bounds, "the begun track first")
         session.cuts = [cut(35, 52)]
-        let queued = LabelQueue.Video(session: session)
+        let queued = LabelQueue.Video(session: session, access: .open)
         XCTAssertEqual(queued.nextRally?.start, 10, "the begun track and the found rally touch the cut; the 10–20 rally is the task")
         XCTAssertEqual(session.tracks?.count, 1, "the track itself stays")
         session.cuts = [cut(0, 60)]
-        XCTAssertNil(LabelQueue.Video(session: session).nextRally)
+        XCTAssertNil(LabelQueue.Video.nextRally(in: session))
     }
 
     /// A project this Mac remembers that is not there is unknown cuts: the headless lookup throws and the export

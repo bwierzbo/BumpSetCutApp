@@ -49,6 +49,20 @@ actor LabelingClient {
     private let apiKey = Secrets.supabaseAnonKey
     private var accessToken: String?
     private var expiresAt = Date.distantPast
+    /// How a table or auth request reaches the server: URLSession in the apps; a stand-in in tests.
+    private let transport: @Sendable (URLRequest) async throws -> (Data, URLResponse)
+
+    init() {
+        transport = { try await URLSession.shared.data(for: $0) }
+    }
+
+    /// For tests: requests go to `transport` instead of the network, under a token of the test's own (the
+    /// Keychain is never read, nothing is refreshed).
+    init(transport: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse), accessToken: String) {
+        self.transport = transport
+        self.accessToken = accessToken
+        expiresAt = .distantFuture
+    }
     private(set) var userId: UUID?
     /// The signed-in account's email (an Apple relay address for a hidden one).
     private(set) var email: String?
@@ -141,6 +155,15 @@ actor LabelingClient {
         return !rows.isEmpty
     }
 
+    /// Whether this account is a lead (public.labelers.lead; an account reads its own row). The server's protection
+    /// of withheld recordings exempts a lead, so the app's own rule has to know one (LabelAccess).
+    func isLead() async throws -> Bool {
+        struct Row: Decodable { let lead: Bool }
+        guard let userId else { return false }
+        let rows: [Row] = try await get("labelers", query: "select=lead&user_id=eq.\(userId.uuidString.lowercased())")
+        return rows.first?.lead ?? false
+    }
+
     private func token(grant: String, body: [String: String]) async throws {
         var request = URLRequest(url: base.appending(path: "auth/v1/token").appending(queryItems: [.init(name: "grant_type", value: grant)]))
         request.httpMethod = "POST"
@@ -171,6 +194,16 @@ actor LabelingClient {
     /// sooner, when the request needs it good for `lasting` seconds (an
     /// upload of a clip can outlast an hour-long token, and storage checks
     /// it when the upload finishes).
+    /// A transfer's token must outlast it: one that would run out within this long is refreshed first.
+    static let transferLasting: TimeInterval = 45 * 60
+
+    /// The token, refreshed now if it has to be (for a transfer: if it would not last one). A refresh is a
+    /// request of its own, and a caller that checks something right before a send calls this before the check —
+    /// so nothing is awaited between its check and the send but the send itself.
+    func authorize(forTransfer: Bool = false) async throws {
+        _ = try await bearer(lasting: forTransfer ? Self.transferLasting : 0)
+    }
+
     private func bearer(lasting: TimeInterval = 0) async throws -> String {
         if let accessToken, Date().addingTimeInterval(lasting) < expiresAt { return accessToken }
         guard let refresh = Keychain.refreshToken else { throw Failure.notSignedIn }
@@ -394,18 +427,41 @@ actor LabelingClient {
         return "&updated_at=gt.\(f.string(from: since))"
     }
 
-    /// Insert or update tracked rallies, by id.
-    func save(_ tracks: [LabelTrack]) async throws {
-        guard !tracks.isEmpty else { return }
+    /// What a save of tracked rallies did: the rows the server took, and what stopped it if it stopped. Every
+    /// other row — held back by `allowed`, or not reached — is still the caller's to keep and send again.
+    struct TrackSave: Sendable {
+        var sent: Set<UUID> = []
+        var failure: (any Error)?
+    }
+
+    /// Insert or update tracked rallies, by id. They go as several requests (below), each suspending — so what
+    /// may go is asked per request: `allowed` gets the rows of the request about to be made and gives back the
+    /// ones that may go now (the send-time rule, TrackedRally.mayGoUp, by the access known at that moment);
+    /// nothing is awaited between its answer and the request but the request itself. A request with nothing
+    /// left is not made.
+    func save(_ tracks: [LabelTrack], allowed: @Sendable ([LabelTrack]) async -> [LabelTrack]) async -> TrackSave {
+        var outcome = TrackSave()
+        guard !tracks.isEmpty else { return outcome }
         let now = Date()
         let rows = tracks.map { t -> LabelTrack in var t = t; t.updatedAt = t.updatedAt ?? now; return t }
         // A nil field is left out (the server keeps what it has), and a batch
         // whose rows don't all have the same fields is refused ("All object
         // keys must match"): send rows with the same fields together.
         let groups = Dictionary(grouping: rows) { [$0.reviewed != nil, $0.unsure != nil, $0.machine != nil, $0.isRally != nil] }
-        for group in groups.values {
-            let _: [LabelTrack] = try await upsert("label_tracks", group, onConflict: "id")
+        do {
+            for group in groups.values {
+                // The token first — refreshing it is a request of its own, and it must outlast the question (which
+                // may read files) — then the question, then the request.
+                _ = try await bearer(lasting: 300)
+                let going = await allowed(group)
+                guard !going.isEmpty else { continue }
+                let _: [LabelTrack] = try await upsert("label_tracks", going, onConflict: "id")
+                outcome.sent.formUnion(going.map(\.id))
+            }
+        } catch {
+            outcome.failure = error
         }
+        return outcome
     }
 
     func projectStates() async throws -> [LabelProjectState] {
@@ -453,7 +509,7 @@ actor LabelingClient {
         var request = URLRequest(url: base.appending(path: "storage/v1/object/\(Self.bucket)/\(path)"))
         request.httpMethod = "POST"
         request.setValue(apiKey, forHTTPHeaderField: "apikey")
-        request.setValue("Bearer \(try await bearer(lasting: 45 * 60))", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(try await bearer(lasting: Self.transferLasting))", forHTTPHeaderField: "Authorization")
         request.setValue("video/mp4", forHTTPHeaderField: "Content-Type")
         request.setValue("true", forHTTPHeaderField: "x-upsert")
         let delegate = progress.map(TransferProgress.init)
@@ -703,7 +759,7 @@ actor LabelingClient {
     // MARK: - Plumbing
 
     private func send(_ request: URLRequest) async throws -> Data {
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await transport(request)
         try Self.check(data, response)
         return data
     }

@@ -273,8 +273,8 @@ struct OpenButtons: View {
         HStack(spacing: 6) {
             Button("Mark") { open(.review(name)) }
                 .help("Mark the rallies in this recording (the live pass)")
-            Button("Track") { if let s = session, let rally = LabelQueue.Video(session: s).nextRally { open(.track(name, rally)) } }
-                .disabled(session.flatMap { LabelQueue.Video(session: $0).nextRally } == nil)
+            Button("Track") { if let s = session, let rally = LabelQueue.Video.nextRally(in: s) { open(.track(name, rally)) } }
+                .disabled(session.flatMap { LabelQueue.Video.nextRally(in: $0) } == nil)
                 .help("Track the next rally of this recording frame by frame")
             if session?.backlogAt != nil {
                 Button("Put back") { putBack(name) }

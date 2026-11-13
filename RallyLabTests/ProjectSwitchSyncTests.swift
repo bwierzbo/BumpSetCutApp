@@ -1001,6 +1001,7 @@ final class FakeLabeling: LabelingService {
     var userId: UUID? { me }
     func signIn(email: String, password: String) async throws {}
     func signOut() async {}
+    func authorize(forTransfer: Bool) async throws {}
     func isLabeler() async throws -> Bool { true }
 
     func videos() async throws -> [LabelVideo] {
@@ -1043,7 +1044,21 @@ final class FakeLabeling: LabelingService {
         return ids.compactMap { tracks[$0] }
     }
 
-    func save(_ batch: [LabelTrack]) async throws {
+    /// One request per batch here (the real client makes one per group of rows with the same fields): `allowed`
+    /// is asked right before it, a request with nothing left is not made, and a failure — injected, or a reply
+    /// lost to a cancelled hold after the server stored the rows — acknowledges nothing.
+    func save(_ tracks: [LabelTrack], allowed: @Sendable ([LabelTrack]) async -> [LabelTrack]) async -> LabelingClient.TrackSave {
+        let batch = await allowed(tracks)
+        guard !batch.isEmpty else { return LabelingClient.TrackSave() }
+        do {
+            try await store(batch)
+            return LabelingClient.TrackSave(sent: Set(batch.map(\.id)))
+        } catch {
+            return LabelingClient.TrackSave(failure: error)
+        }
+    }
+
+    private func store(_ batch: [LabelTrack]) async throws {
         try begin("save(tracks)")
         for t in batch {
             tracks[t.id] = t
@@ -1178,7 +1193,13 @@ final class FakeLabeling: LabelingService {
         try await park("download")
     }
 
-    func remove(_ path: String) async throws { try begin("remove"); try await park("remove") }
+    var removed: [String] = []
+
+    func remove(_ path: String) async throws {
+        try begin("remove")
+        removed.append(path)
+        try await park("remove")
+    }
 }
 
 /// A wait that ends when opened, or throws `CancellationError` when the waiting task is cancelled.

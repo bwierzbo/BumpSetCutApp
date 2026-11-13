@@ -20,8 +20,12 @@ final class LabelerModel: ReviewStore {
     enum Phase { case starting, signedOut, notLabeler, ready }
 
     private(set) var phase = Phase.starting
-    private(set) var snapshot = LabelSnapshot()
+    private(set) var snapshot = LabelSnapshot() { didSet { publishModelLeave() } }
     private(set) var outbox = Outbox()
+    /// Which recordings no model is kept from, as this phone knows now, for model work running off the main actor
+    /// to ask before every frame and window (ModelLeave): set at every change of the snapshot — the list, the
+    /// rows, the account's role — and nowhere else.
+    @ObservationIgnored let modelLeave = ModelLeave()
     /// Rows the server has accepted whose settlement the snapshot on the phone may not hold yet: they are written
     /// with the outbox until the snapshot write that carries them has completed, so a launch after a kill in between
     /// finds them still owed and sends them again (each send is a repeat the server takes as is) instead of loading
@@ -47,6 +51,11 @@ final class LabelerModel: ReviewStore {
     init() {
         snapshot = LocalStore.load(LabelSnapshot.self, "snapshot.json") ?? LabelSnapshot()
         outbox = LocalStore.load(Outbox.self, "outbox.json") ?? Outbox()
+        publishModelLeave()
+    }
+
+    private func publishModelLeave() {
+        modelLeave.set(open: Set(snapshot.videos.filter { access(for: $0) == .open }.map(\.id)))
     }
 
     // MARK: - Session
@@ -151,6 +160,9 @@ final class LabelerModel: ReviewStore {
             }
             account = await client.email
             guard try await client.isLabeler() else { phase = .notLabeler; return }
+            // The server's protection of withheld recordings exempts a lead: what a lead's phone may do with one is
+            // this app's own rule (`access`).
+            loaded.lead = try await client.isLead()
             snapshot = loaded
             quarantineUnreviewable()
             lastPull = started
@@ -257,10 +269,21 @@ final class LabelerModel: ReviewStore {
     // MARK: - Reading (local edits over what was loaded)
 
     /// The server's rows with this phone's unsent backlog changes on them: a skip or a put-back still in the
-    /// outbox shows and rules the queue however the rows were loaded or pulled since.
-    var videos: [LabelVideo] { snapshot.videos.filter { $0.clipPath != nil }.map(withPendingBacklog) }
+    /// outbox shows and rules the queue however the rows were loaded or pulled since. A recording closed to this
+    /// account (`access`: withheld, or not known not to be, for an ordinary labeler) is not among them — the
+    /// server stops serving its row at the next reload; the rows kept on the phone must not offer it until then.
+    var videos: [LabelVideo] { snapshot.videos.filter { $0.clipPath != nil && access(for: $0).offersMarking }.map(shown) }
 
-    func video(_ id: UUID) -> LabelVideo? { snapshot.videos.first { $0.id == id }.map(withPendingBacklog) }
+    func video(_ id: UUID) -> LabelVideo? { snapshot.videos.first { $0.id == id }.map(shown) }
+
+    /// A row as the app shows it: this phone's unsent backlog change on it, and — for a recording no model may run
+    /// over (`access`) — without the rallies the pipeline found in it. They are a model's output: the snapshot and
+    /// the server keep them as they were; they are not offered to confirm, to track or on the timeline.
+    private func shown(_ row: LabelVideo) -> LabelVideo {
+        var r = withPendingBacklog(row)
+        if access(for: row) != .open { r.ralliesFound = [] }
+        return r
+    }
 
     private func withPendingBacklog(_ row: LabelVideo) -> LabelVideo {
         guard let change = outbox.backlog[row.id] else { return row }
@@ -363,6 +386,38 @@ final class LabelerModel: ReviewStore {
         return !list.contains(session)
     }
 
+    /// What may be done with the recording on this phone (LabelAccess; D-036 §5C/§5E), by the project's withheld
+    /// list as last loaded. The phone has no validation.json: the list is what the server serves, published by the
+    /// Mac's sync — a project without one, or one not loaded yet, is not known. Withheld or not known: no task
+    /// that runs a model or shows what one found, for any account; marking by hand stays for a lead, nothing is
+    /// offered to an ordinary labeler. A phone upload RallyLab has not pulled in is in no project and on no list
+    /// (the server's rule, migration 049).
+    func access(for video: LabelVideo) -> LabelAccess {
+        guard let project = video.project else { return .open }
+        let listed = video.sessionName.flatMap { session in snapshot.withheld[project].map { $0.contains(session) } }
+        return LabelAccess(withheld: listed, byHand: snapshot.lead)
+    }
+
+    /// The recording's access as the server has it now, for an operation about to run a model over it
+    /// (TrackSession: opening a rally, finding the ball on more frames): the project's withheld list is fetched
+    /// again first, so a recording the Mac withheld since the last pull is known as withheld, and a list that
+    /// cannot be fetched now is not known — no model runs then (fail closed).
+    func modelAccess(for video: LabelVideo) async -> LabelAccess {
+        guard let project = video.project else { return .open }
+        do {
+            let (listed, names) = try await client.withheld(project: project)
+            let list = listed ? names.sorted() : nil
+            if snapshot.withheld[project] != list {
+                snapshot.withheld[project] = list
+                quarantineUnreviewable()
+                LocalStore.saveInBackground(snapshot, "snapshot.json") {}
+            }
+        } catch {
+            return LabelAccess(withheld: nil, byHand: snapshot.lead)
+        }
+        return access(for: video)
+    }
+
     /// The server rows that describe their recording's published original; every other row is left out (the
     /// snapshot keeps the previous one, `keeping`) and its reason recorded.
     private func admit(_ rows: [LabelRallyEvents], videos: [LabelVideo], keeping: [LabelRallyEvents]) -> [LabelRallyEvents] {
@@ -426,13 +481,26 @@ final class LabelerModel: ReviewStore {
         return byId.values.filter { !$0.deleted }.sorted { $0.start < $1.start }
     }
 
+    /// The rallies the pipeline found in the recording, as it may be shown them now. A screen holds the row it
+    /// was opened with; the list may have withheld the recording since — so what a model found is read through
+    /// here, by the access known at the moment of use (`shown`), never off a row a view kept.
+    func found(in video: LabelVideo) -> [[Double]] { self.video(video.id)?.ralliesFound ?? [] }
+
+    /// The tracked rallies a marking pass may snap presses to: all of them for a recording no model is kept
+    /// from; otherwise only the ones a person placed every frame of — a model's path over a withheld recording
+    /// is not used.
+    func snapTracks(for video: LabelVideo) -> [TrackedRally] {
+        let all = tracks(for: video).map(\.rally)
+        return access(for: video) == .open ? all : all.filter { !$0.carriesModelOutput }
+    }
+
     /// Found rallies not marked, not said to be no rally, and touching no cut range (not footage; the found rally
     /// itself stays on the video for undo): what review asks about.
     func openFound(in video: LabelVideo) -> [[Double]] {
         let times = rallyTimes(for: video)
         let marked = times.rallies, cuts = times.cutRanges
         let rejected = LocalStore.rejected(video)
-        return video.ralliesFound.filter { f in
+        return found(in: video).filter { f in
             !rejected.contains(LocalStore.key(f)) && !cuts.overlaps(f[0], f[1]) && !marked.contains { min($0.end, f[1]) - max($0.start, f[0]) > 0.3 }
         }
     }
@@ -591,7 +659,8 @@ final class LabelerModel: ReviewStore {
         videos.map { v in
             let times = rallyTimes(for: v)
             return LabelQueue.Video(plan: planVideo(v), nextRally: nextRally(in: v),
-                                    found: v.ralliesFound.count, marked: times.rallies.count, complete: times.complete, backlog: v.isBacklogged)
+                                    found: found(in: v).count, marked: times.rallies.count, complete: times.complete, backlog: v.isBacklogged,
+                                    access: access(for: v))
         }
     }
 
@@ -745,9 +814,33 @@ final class LabelerModel: ReviewStore {
         flushInFlight = nil
     }
 
+    /// A recording's access by its id, as known at the moment of asking. One whose row is gone from what the
+    /// server serves is not known.
+    private func accessNow(_ videoId: UUID) -> LabelAccess {
+        snapshot.videos.first { $0.id == videoId }.map { access(for: $0) } ?? LabelAccess(withheld: nil, byHand: snapshot.lead)
+    }
+
+    /// Of the tracked rallies a request is about to carry, the ones that may go now: not a recording closed to
+    /// this account, and not a rally the server does not have that a model found the ball in while its recording
+    /// is withheld or not known not to be (TrackedRally.mayGoUp — the Mac's sync holds the same).
+    private func tracksThatMayGo(_ rows: [LabelTrack]) -> [LabelTrack] {
+        let onServer = Set(snapshot.tracks.map(\.id))
+        return rows.filter { t in
+            let access = accessNow(t.videoId)
+            return access.offersMarking && t.rally.mayGoUp(new: !onServer.contains(t.id), access: access)
+        }
+    }
+
     private func flushOnce() async {
         guard !outbox.isEmpty else { return }
+        // What may go, judged when it is sent — every send here suspends, and the list can change under the ones
+        // before it. Edits of a recording closed to this account since they were made (withheld, or its project's
+        // list gone) stay on the phone, unsent: the server refuses them, and one refused row would hold back
+        // every other. And a rally the server does not have that a model found the ball in stays here while its
+        // recording is withheld or not known not to be (TrackedRally.mayGoUp — the Mac's sync holds the same).
+        var heldBack = 0
         for (id, times) in outbox.times {
+            guard accessNow(id).offersMarking else { heldBack += 1; continue }
             do {
                 let saved = try await client.save(times)
                 if outbox.times[id] == times { outbox.times[id] = nil; settling.times[id] = times }
@@ -857,22 +950,28 @@ final class LabelerModel: ReviewStore {
                 break
             }
         }
+        // Tracked rallies go as several requests (LabelingClient.save), each suspending: what may go is asked for
+        // each request when it is made (`tracksThatMayGo`), and only the rallies the server took leave the outbox.
         let tracks = Array(outbox.tracks.values)
+        var sendFailed = false
         if !tracks.isEmpty {
-            do {
-                try await client.save(tracks)
-                for t in tracks where outbox.tracks[t.id] == t {
-                    outbox.tracks[t.id] = nil
-                    settling.tracks[t.id] = t
-                    snapshot.tracks.removeAll { $0.id == t.id }
-                    snapshot.tracks.append(t)
-                }
-                isOffline = false
-            } catch {
+            let outcome = await client.save(tracks) { [weak self] rows in await self?.tracksThatMayGo(rows) ?? [] }
+            for t in tracks where outcome.sent.contains(t.id) && outbox.tracks[t.id] == t {
+                outbox.tracks[t.id] = nil
+                settling.tracks[t.id] = t
+                snapshot.tracks.removeAll { $0.id == t.id }
+                snapshot.tracks.append(t)
+            }
+            if let failure = outcome.failure {
                 isOffline = true
-                syncProblem = Self.describe("Couldn't send \(tracks.count) tracked rall\(tracks.count == 1 ? "y" : "ies")", error)
+                sendFailed = true
+                syncProblem = Self.describe("Couldn't send \(tracks.count - outcome.sent.count) tracked rall\(tracks.count - outcome.sent.count == 1 ? "y" : "ies")", failure)
+            } else {
+                isOffline = false
+                heldBack += tracks.count - outcome.sent.count
             }
         }
+        if heldBack > 0, !sendFailed { syncProblem = "\(heldBack) edit\(heldBack == 1 ? "" : "s") of a recording that is withheld, or not open to labeling here now, kept on this phone, not sent." }
         persist()
     }
 
@@ -944,7 +1043,15 @@ final class LabelerModel: ReviewStore {
 
     /// The pipeline's sightings of the ball over the video, made on the Mac
     /// and sent next to the clip; fetched once and kept.
+    ///
+    /// The path is the pipeline's output over the recording: not fetched for one no model may run over, and not
+    /// handed on when the recording was withheld while it was being fetched (ModelLeave.delivered) — marking
+    /// goes on by hand then, without snapping.
     func ballPath(for video: LabelVideo) async -> [BallPath.Sample]? {
+        await ModelLeave.delivered(if: { access(for: video) == .open }) { await storedBallPath(for: video) } ?? nil
+    }
+
+    private func storedBallPath(for video: LabelVideo) async -> [BallPath.Sample]? {
         let local = LocalStore.ballPath(for: video)
         if let file = BallPathFile.load(local) { return file.samples }
         guard let clip = video.clipPath, !ballPathsMissing.contains(video.id) else { return nil }

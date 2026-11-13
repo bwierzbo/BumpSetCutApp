@@ -28,6 +28,20 @@ struct LabelTabView: View {
     @State private var paths: BallPathBuilder
     /// The task on screen, if any.
     @State private var active: LabelQueue.Job?
+    /// The withheld closure of an opening as last read (the one the sync publishes, LabelingSync.withheldClosure);
+    /// `names` nil when it could not be read. Until it is read for the project open now, no recording is known not
+    /// to be withheld.
+    @State private var withheld: (opening: ProjectsModel.Opening, names: Set<String>?)?
+
+    /// Read when the project opens and each time the tab comes to the front — for the queue shown. A track task
+    /// never opens under that read: the closure is read again for the job at hand first (`checkedTrack`).
+    private struct WithheldRead: Equatable {
+        let opening: ProjectsModel.Opening?
+        let front: Bool
+    }
+    /// The track job the closure was read again for, under the opening it was read in: only that job opens, and
+    /// only under the closure as it was then. Any other job, or the same one opened again, reads it again.
+    @State private var checkedTrack: (job: LabelQueue.Job, opening: ProjectsModel.Opening)?
 
     enum Page: String { case next, review, coverage, plan }
 
@@ -56,6 +70,20 @@ struct LabelTabView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // A job closed or another opened: the next track job reads the closure again.
+        .onChange(of: active) { _, _ in checkedTrack = nil }
+        .task(id: WithheldRead(opening: projects.opening, front: isActive)) {
+            guard isActive, let opening = projects.opening else { return }
+            withheld = (opening, await LabelingSync.withheldClosure(root: opening.root))
+        }
+    }
+
+    /// What the project's withheld closure leaves open for a recording (D-036 §5C/§5E): marking by hand goes on for
+    /// a withheld one here, but it is never a track task — the detector proposes every frame of one. A closure not
+    /// read yet, or unreadable, is not known: no recording gets a track task then.
+    private func access(of session: VideoSession) -> LabelAccess {
+        guard let withheld, withheld.opening == projects.opening, let names = withheld.names else { return LabelAccess(withheld: nil, byHand: true) }
+        return LabelAccess(withheld: names.contains(session.name), byHand: true)
     }
 
     private var pages: some View {
@@ -83,7 +111,7 @@ struct LabelTabView: View {
             case .plan:
                 ProjectPlanView(projects: projects, library: library, phone: phone) { session in
                     active = jobs.first { $0.video == session.name }
-                        ?? LabelQueue.Video(session: session).nextRally.map { .track(session.name, $0) }
+                        ?? LabelQueue.Video.nextRally(in: session).map { .track(session.name, $0) }
                 }
             }
         }
@@ -93,8 +121,27 @@ struct LabelTabView: View {
     private func job(_ job: LabelQueue.Job, _ session: VideoSession) -> some View {
         switch job {
         case .track(_, let rally):
-            LabelTrackTask(session: session, rally: rally, tracker: tracker, marker: marker, isActive: isActive,
-                           onClose: { active = nil }, onDone: next)
+            // Wherever the job came from (the queue never offers it; Coverage and Plan open one directly), and
+            // whatever the closure was when the queue was drawn: it is read again before this job opens.
+            if checkedTrack?.job != job || checkedTrack?.opening != projects.opening {
+                ProgressView("Checking the project's withheld recordings…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .task {
+                        guard let opening = projects.opening else { return }
+                        withheld = (opening, await LabelingSync.withheldClosure(root: opening.root))
+                        checkedTrack = (job, opening)
+                    }
+            } else if let why = LabelQueue.refusal(of: job, access: access(of: session)) {
+                VStack(spacing: 0) {
+                    LabelTaskHeader(title: "No track task", subtitle: session.name, onClose: { active = nil }) { EmptyView() }
+                    Divider()
+                    ContentUnavailableView("Not tracked from here", systemImage: "hand.raised", description: Text(why))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            } else {
+                LabelTrackTask(session: session, rally: rally, tracker: tracker, marker: marker, isActive: isActive,
+                               onClose: { active = nil }, onDone: next)
+            }
         case .review:
             LiveTagView(session: session, marker: marker, review: review, paths: paths, projects: projects, isActive: isActive,
                         onClose: { active = nil }, onDone: next,
@@ -110,7 +157,7 @@ struct LabelTabView: View {
         active = jobs.first { $0 != finished }
     }
 
-    private var queueVideos: [LabelQueue.Video] { sampler.sessions.map(LabelQueue.Video.init(session:)) }
+    private var queueVideos: [LabelQueue.Video] { sampler.sessions.map { LabelQueue.Video(session: $0, access: access(of: $0)) } }
 
     private var jobs: [LabelQueue.Job] { LabelQueue.jobs(queueVideos, round: plan.currentRound) }
 }
@@ -120,16 +167,30 @@ extension LabelQueue.Video {
     /// Sampler (less the ones you said aren't rallies); a rally you started
     /// tracking and didn't finish comes first. None touching a cut range is
     /// a task (the pre-tracker's and the phone's rule; D-030) — the marks
-    /// and tracks themselves stay as they are.
+    /// and tracks themselves stay as they are. `access`: what the project's
+    /// withheld closure leaves open for it (the queue offers no track job
+    /// otherwise).
     @MainActor
-    init(session s: VideoSession) {
+    init(session s: VideoSession, access: LabelAccess) {
+        let (marked, found) = TrackLabelModel.markedAndFound(s)
+        self.init(plan: PlanVideo(session: s), nextRally: Self.nextRally(in: s, marked: marked, found: found), found: found.count,
+                  marked: marked.count, complete: s.ralliesMarked ?? false, backlog: s.backlogAt != nil, access: access)
+    }
+
+    /// The rally of a Mac video to track next, if any.
+    @MainActor
+    static func nextRally(in s: VideoSession) -> LabelRally? {
+        let (marked, found) = TrackLabelModel.markedAndFound(s)
+        return nextRally(in: s, marked: marked, found: found)
+    }
+
+    @MainActor
+    private static func nextRally(in s: VideoSession, marked: [LabelRally], found: [LabelRally]) -> LabelRally? {
         let tracks = s.tracks ?? []
         let cuts = s.cutRanges
-        let (marked, found) = TrackLabelModel.markedAndFound(s)
         let unfinished = tracks.filter(\.isOpen).map(\.bounds).outsideCuts(cuts)
         let open = TrackLabelModel.untracked(marked + found, tracks: tracks).outsideCuts(cuts)
-        self.init(plan: PlanVideo(session: s), nextRally: (unfinished + open).first, found: found.count,
-                  marked: marked.count, complete: s.ralliesMarked ?? false, backlog: s.backlogAt != nil)
+        return (unfinished + open).first
     }
 }
 
@@ -301,7 +362,7 @@ private struct LabelHomeView: View {
         let (title, detail, icon): (String, String, String) = {
             switch job {
             case .review:
-                let found = session.map { LabelQueue.Video(session: $0).found } ?? 0
+                let found = videos.first { $0.plan.name == job.video }?.found ?? 0
                 return ("Mark the rallies", found > 0 ? "Watch at speed, one key per touch · \(found) found rallies confirm as you go"
                             : "Watch at speed, one key per touch", "checklist")
             case .track(_, let r):
