@@ -14,6 +14,11 @@
 //  A video is assigned to train or val as a whole when it's added, so frames
 //  from one game never sit on both sides of the split.
 //
+//  No frame of a withheld recording — the final test, a lineage or legacy
+//  holdout, an alias of one (D-002, D-017) — is written into images/ or
+//  labels/: `writeLabel`, the folder's one writer, parks it under excluded/.
+//  A dataset with no pipeline_tuning/validation.json withholds nothing.
+//
 
 import CoreGraphics
 import Foundation
