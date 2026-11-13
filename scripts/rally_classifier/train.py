@@ -143,6 +143,9 @@ def prepare(dataset_dir: str, folds_file: str, withheld: str | None, net: str) -
         folds_doc = fd.load(folds_file, dataset_dir)
     except fd.FoldsError as e:
         raise Refused(str(e))
+    if folds_doc["folds"] < fd.MIN_FOLDS:
+        raise Refused(f"the folds file holds {folds_doc['folds']} folds: the nested protocol needs at least {fd.MIN_FOLDS} "
+                      "(one held out, one to choose on, the rest to train on)")
     try:
         parity = decode.parity(dataset_dir, manifest)
     except decode.ParityError as e:

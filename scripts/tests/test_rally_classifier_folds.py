@@ -81,6 +81,13 @@ class Draw(unittest.TestCase):
             folds.draw(groups({"beach": 2, "grass": 1}), 5, 20261103, "where-feasible", 1000)
         self.assertIn("3 group(s) cannot fill 5 folds", str(ctx.exception))
 
+    def test_fewer_than_three_folds_is_infeasible(self):
+        # The trainer's nested protocol holds one fold out, chooses on a second and trains on the rest.
+        with self.assertRaises(folds.FoldsError) as ctx:
+            folds.draw(groups({"beach": 4, "grass": 4, "indoor": 4}), 2, 20261103, "every-fold", 1000)
+        self.assertIn("at least 3 folds", str(ctx.exception))
+        self.assertTrue(folds.draw(groups({"beach": 4, "grass": 4, "indoor": 4}), 3, 20261103, "every-fold", 1000))
+
     def test_an_unreachable_balance_is_reported_with_the_closest_attempt(self):
         gs = groups({"beach": 5, "grass": 5, "indoor": 5})
         gs[0]["rallies"] = 500                          # one group outweighs every fold's share

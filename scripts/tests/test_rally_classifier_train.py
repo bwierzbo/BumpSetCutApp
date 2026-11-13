@@ -436,6 +436,18 @@ class Guards(unittest.TestCase):
         _, _, other_folds = make(other_dir, seed=8)
         self.refused("drawn for another dataset", argv(self.dataset, self.closure, other_folds, self.out))
 
+    def test_a_two_fold_file_is_refused_before_the_run_folder_exists(self):
+        # Two folds leave nothing to train on once one is held out and one is chosen on. folds.py no longer draws
+        # them; a file from elsewhere is refused by the trainer itself, before anything is fitted or written.
+        with mock.patch.object(folds, "MIN_FOLDS", 2):
+            two = os.path.join(self.tmp, "two-folds.json")
+            code, _, err = quiet(folds.main, [self.dataset, "--out", two, "--folds", "2", "--withheld", self.closure, "--stratify", "where-feasible"])
+            self.assertEqual(code, 0, err)
+        self.refused("at least 3", argv(self.dataset, self.closure, two, self.out))
+        real = folds.load
+        with mock.patch.object(folds, "load", lambda path, dataset: {**real(self.folds_file, dataset), "folds": 2}):
+            self.refused("the nested protocol needs at least 3")
+
     def test_a_port_that_fails_parity_stops_the_run(self):
         with mock.patch.object(v, "pad_and_merge", lambda raw_spans, settings, duration: []):
             self.refused("does not reproduce")

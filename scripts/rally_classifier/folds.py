@@ -55,6 +55,7 @@ import validate_dataset as v  # noqa: E402
 SCHEMA_VERSION = "rally_classifier_folds_v1"
 PROCEDURE = "fold_draw_v1"
 DEFAULT_FOLDS = 5
+MIN_FOLDS = 3        # an outer fold, a nested fold and at least one fold to train on (the trainer's protocol)
 DEFAULT_SEED = 20261103
 DEFAULT_MAX_SHUFFLES = 1000
 BALANCE_TOLERANCE = 0.25
@@ -119,8 +120,9 @@ def draw(groups: list, folds: int, seed: int, stratify: str, max_shuffles: int) 
     facts = {"folds": folds, "groups": len(order), "groupsPerSurface": per_surface, "rallies": total,
              "seed": seed, "stratify": stratify, "maxShuffles": max_shuffles}
     problems = []
-    if folds < 2:
-        problems.append("at least two folds are needed")
+    if folds < MIN_FOLDS:
+        problems.append(f"at least {MIN_FOLDS} folds are needed: the nested protocol holds one fold out, chooses on a second "
+                        "and trains on the rest")
     if len(order) < folds:
         problems.append(f"{len(order)} group(s) cannot fill {folds} folds")
     if thin and stratify == "every-fold":
