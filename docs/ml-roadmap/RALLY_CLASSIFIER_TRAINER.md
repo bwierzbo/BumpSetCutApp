@@ -2,7 +2,7 @@
 name: rally-classifier-trainer
 status: tooling prepared, synthetic tests only — no model has been trained, tuned, calibrated or scored on a real recording; the owner's training gate is closed
 created: 2026-11-13T01:54:00Z
-updated: 2026-11-13T02:02:07Z
+updated: 2026-11-13T08:43:36Z
 decision: D-001, D-007, D-018 (preregistration before training), D-021 (scoring contract); owner requirements of 2026-11-12 (grouped out-of-fold evaluation over every eligible development recording, folds frozen in their own file)
 ---
 
@@ -127,5 +127,8 @@ R3 (the GRU ablation); the Swift feature extractor, the Core ML conversion and t
 ## 7. Known limits of what was verified
 
 - Every test is synthetic. The synthetic baseline is written by the same `pad_and_merge` the port is, so parity on it cannot fail by itself; the tests therefore also break the port and the fixture on purpose, and check the port against hand-computed cases from the contract.
-- `dataset_identity`'s digest was written from `DatasetSplitManifest.canonicalDigest` and not compared with a digest the exporter printed. The first dry run on a real dataset should show the same digest as the export report; if it does not, stop.
+- **The dry run on the real dataset, 2026-11-13** (`rc-v1-20261112`; validation, fold check, parity and counts — nothing fitted, nothing scored):
+  - `dataset_identity` prints the digest the exporter printed (`1b1e6898…`) and the manifest SHA-256 (`eaa95c08…`).
+  - The first parity run **failed on 14 of 1,265 stored clips**, each one a clip that reaches the end of a recording whose duration is past a half tick: the port clamped to the duration rounded to the nearest tick, and the builder clamps to `CMTimeMakeWithSeconds(duration, 600)`, which truncates (a 300.033 s recording ends at tick 180019). `decode.duration_ticks` now truncates; all 1,265 clips (r0 588, r0_prime 677) are rebuilt exactly. The synthetic tests could not have found this (their durations are whole seconds), which is what the limit above says. The manifest stores the duration to the millisecond, so a recording within a millisecond of a tick boundary could still differ by a tick: the parity check stops the run if one ever does.
+  - Five folds were drawn (25 groups, every surface in every fold); the dry run reports 0 problems for R1 and R2: every training side has both classes, every nested fold has fully marked recordings.
 - Timings on the synthetic set (18 one-minute recordings, this Mac, other work running): dry run about 1 s; R1 8–16 s; R2 about 8 s with one epoch (the tests' budget) and about 110 s at the preregistered 40. On the real dataset R1 should take minutes and R2 tens of minutes on the CPU; neither was measured.

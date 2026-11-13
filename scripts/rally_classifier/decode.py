@@ -27,6 +27,7 @@ must be rebuilt exactly from its own pre-merge raw spans, and one mismatch stops
 from __future__ import annotations
 
 import itertools
+import math
 import os
 import sys
 
@@ -68,6 +69,17 @@ def hysteresis(ticks, p, point: dict, end_tick: int) -> list:
     return out
 
 
+def duration_ticks(rec: dict) -> int:
+    """The recording's end as the builder clamps to it: `SegmentBuilder.finalizeWithRaw(until:)` is given
+    `CMTimeMakeWithSeconds(duration, preferredTimescale: 600)` (EvidenceReplayer.decidedRallies), which truncates —
+    a 300.033 s recording ends at tick 180019, not 180020. On `rc-v1-20261112` this rebuilds all 1,265 stored clips;
+    rounding to the nearest tick misses the 14 that reach the end of a recording whose duration is past the half
+    tick. (The epsilon keeps a duration that is a whole number of ticks from falling one short in floating point.)
+    The manifest stores the duration to the millisecond, so a recording whose true duration lies within a
+    millisecond of a tick boundary could still differ by one tick: the parity check is what catches that."""
+    return math.floor(rec["durationSec"] * v.TIMESCALE + 1e-6)
+
+
 def is_footage(tick: int, rec: dict) -> bool:
     return not any(s["startTick"] <= tick < s["endTick"] for s in rec["cutRanges"] + rec["timeBreakingSpans"])
 
@@ -75,7 +87,7 @@ def is_footage(tick: int, rec: dict) -> bool:
 def raw_intervals(rec: dict, ticks, seg_ranges, p, point: dict, sampling_hz: float) -> tuple:
     """A recording's decoded raw intervals after the raw floor, and how many the floor dropped. `ticks` and `p` are
     the recording's arrays, `seg_ranges` the (start, stop) index ranges of its segments."""
-    duration = round(rec["durationSec"] * v.TIMESCALE)
+    duration = duration_ticks(rec)
     cell = round(v.TIMESCALE / sampling_hz)
     found = []
     for a, b in seg_ranges:
@@ -100,7 +112,7 @@ def finalize_with_raw(raw_spans, settings: dict, duration_ticks: int) -> list:
 
 
 def clips_from(rec: dict, raw: list, settings: dict) -> list:
-    return finalize_with_raw(raw, settings, round(rec["durationSec"] * v.TIMESCALE))
+    return finalize_with_raw(raw, settings, duration_ticks(rec))
 
 
 def parity(dataset_dir: str, manifest: dict) -> dict:
@@ -110,7 +122,7 @@ def parity(dataset_dir: str, manifest: dict) -> dict:
     checked = {name: 0 for name in settings}
     wrong = []
     for rec in manifest["recordings"]:
-        duration = round(rec["durationSec"] * v.TIMESCALE)
+        duration = duration_ticks(rec)
         for name, clips in v.read_baseline(dataset_dir, rec).items():
             for j, clip in enumerate(clips):
                 want = [{"rawSpans": clip["rawSpans"], "startTick": clip["startTick"], "endTick": clip["endTick"]}]

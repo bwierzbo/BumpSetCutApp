@@ -143,6 +143,19 @@ class Port(unittest.TestCase):
         self.assertEqual(spans(decode.finalize_with_raw([(6000, 9000), (10801, 14000)], R0_PRIME, 36000)), [(4800, 9600), (9601, 14600)])
         self.assertEqual(spans(decode.finalize_with_raw([(24000, 24900), (26100, 27000)], R0_PRIME, 36000)), [(23700, 25500), (25800, 27600)])
 
+    def test_a_clip_that_reaches_the_end_is_clamped_to_the_duration_truncated_to_ticks(self):
+        # The builder clamps to CMTimeMakeWithSeconds(duration, 600), which truncates: a 300.033 s recording
+        # (180019.8 ticks) ends at tick 180019. These are stored clips of rc-v1-20261112; rounding gave 180020.
+        r0 = {"prerollSec": 2.0, "postrollSec": 0.5, "joinSec": 1.3513, "minSegmentSec": 2.6131}
+        rec = {"durationSec": 300.033}
+        self.assertEqual(decode.duration_ticks(rec), 180019)
+        self.assertEqual([(c["startTick"], c["endTick"]) for c in decode.clips_from(rec, [(178537, 180019)], r0)], [(178237, 180019)])
+        merged = decode.clips_from(rec, [(166606, 170730), (171831, 176836), (176515, 180019)], r0)
+        self.assertEqual([(c["startTick"], c["endTick"]) for c in merged], [(165406, 180019)])
+        # A whole number of ticks is not pushed one short by floating point, and other fractions truncate.
+        for seconds, ticks in ((300.0, 180000), (299.985, 179991), (300.038, 180022), (299.68, 179808), (0.1, 60)):
+            self.assertEqual(decode.duration_ticks({"durationSec": seconds}), ticks, seconds)
+
     def test_what_the_port_does_not_cover_is_refused(self):
         with self.assertRaises(ValueError):
             decode.finalize_with_raw([(6000, 9000)], {**R0, "prerollSec": 2.0005}, 36000)
