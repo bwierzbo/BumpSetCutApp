@@ -70,11 +70,24 @@ RECORDINGS = {
 }
 
 
+def closure_block(names=("held_out_01",), source_ids=("IMG_HELD",), fingerprints=("fp-held", "content-held")) -> dict:
+    """A withheld closure as RallyLab writes it: the three lists and their hash."""
+    block = {"names": sorted(names), "sourceIds": sorted(source_ids), "fingerprints": sorted(fingerprints)}
+    return {**block, "closureSha256": t.withheld_closure.closure_sha256(block)}
+
+
 class Fixture:
-    def __init__(self, root: Path, withhold: str = None, size=(192, 108)):
+    """An exported net dataset with its provenance, the split manifest it was exported against and the
+    project's current withheld closure (`closure.json`, as `--withheld-closure` writes it) — all of one
+    project state unless a test changes one of them."""
+
+    PROJECT_JSON, SESSIONS, VALIDATION_JSON = "a1" * 32, "b2" * 32, "c3" * 32
+
+    def __init__(self, root: Path, withhold: str = None, size=(192, 108), provenance: bool = True):
         self.root = root
         self.export = root / "net-dataset"
         self.manifest = root / "manifest.json"
+        self.closure = root / "closure.json"
         (self.export / "images").mkdir(parents=True)
         (self.export / "labels").mkdir()
         w, h = size
@@ -92,16 +105,42 @@ class Fixture:
                             "corners": export_corners(t.rect_corners(box)),
                             "proposed": False, "adjusted": False, "reviewedAt": "2026-10-30T00:00:00Z",
                             "image": f"images/{video}.jpg", "imageSHA256": hashlib.sha256(path.read_bytes()).hexdigest(),
-                            "width": img.shape[1], "height": img.shape[0], "fingerprint": fingerprint})
+                            "width": img.shape[1], "height": img.shape[0], "fingerprint": fingerprint,
+                            "contentFingerprint": f"content-{video}"})
             split = "lineage_holdout" if video == withhold else "train"
             videos.append({"video": video, "clipId": card, "surface": surface, "camera": "Elevated", "fingerprint": fingerprint,
                            "sourceId": None, "sessionId": None, "venueId": None, "datasetSplit": "train", "split": split,
                            "reservedAs": "listed" if video == withhold else None, "aliasGroup": None, "ralliesMarked": True,
                            "frames": 10, "reviewedFrames": 10})
         (self.export / "data.yaml").write_text("path: .\ntrain: images\nval: images\nnames:\n  0: net\n")
-        (self.export / "net-dataset.json").write_text(json.dumps({"createdAt": "2026-10-30T00:00:00Z", "project": "Fixture",
-                                                                  "labeled": len(entries), "entries": entries, "skipped": [], "note": ""}))
         self.manifest.write_text(json.dumps({"createdAt": "2026-10-30T00:00:00Z", "videos": videos}))
+        record = {"createdAt": "2026-10-30T00:00:00Z", "project": "Fixture", "labeled": len(entries), "entries": entries, "skipped": [], "note": ""}
+        if provenance:
+            record["splitManifest"] = {"projectJson": self.PROJECT_JSON, "sessions": self.SESSIONS, "validationJson": self.VALIDATION_JSON,
+                                       "manifestJson": t.sha256_file(self.manifest)}
+            record["withheld"] = closure_block()
+        (self.export / "net-dataset.json").write_text(json.dumps(record))
+        self.write_closure()
+
+    def write_closure(self, block: dict = None, project_json: str = None, validation_json: str = None, split_manifest: bool = True) -> None:
+        """The project's closure file as it is now: by default the closure the package was exported
+        against, of the same project.json and validation.json."""
+        state = {**(block or closure_block()), "project": "Fixture", "createdAt": "2026-11-12T00:00:00Z"}
+        if split_manifest:
+            state["splitManifest"] = {"projectJson": project_json or self.PROJECT_JSON, "sessions": "d4" * 32,
+                                      "validationJson": validation_json or self.VALIDATION_JSON, "manifestJson": "e5" * 32}
+        self.closure.write_text(json.dumps(state))
+
+    def edit_record(self, change) -> None:
+        record = json.loads((self.export / "net-dataset.json").read_text())
+        change(record)
+        (self.export / "net-dataset.json").write_text(json.dumps(record))
+
+    def read(self, rows: dict = None):
+        """The package read as the trainer reads it: against this manifest and this closure file."""
+        if rows is None:
+            _, rows = t.load_manifest(self.manifest)
+        return t.read_rallylab_export(self.export, rows, t.sha256_file(self.manifest), t.load_withheld(self.closure))
 
     def relabel(self, video: str, corners: tuple, box: tuple = None) -> None:
         """Give one entry these corners (y down; None removes them) and, unless `box` is
@@ -148,7 +187,7 @@ class DataTests(unittest.TestCase):
     def test_export_reads_every_frame_with_its_group_and_surface(self):
         f = Fixture(self.tmp)
         _, rows = t.load_manifest(f.manifest)
-        samples, info = t.read_rallylab_export(f.export, rows)
+        samples, info = f.read(rows)
         t.group_samples(samples, f.manifest)
         self.assertEqual(len(samples), len(RECORDINGS))
         self.assertEqual(info["entries"], len(RECORDINGS))
@@ -170,7 +209,7 @@ class DataTests(unittest.TestCase):
         tilted = ((0.12, 0.30), (0.92, 0.36), (0.93, 0.44), (0.11, 0.37))
         f.relabel("grs_onl_sun_land_onl_01", tilted)
         _, rows = t.load_manifest(f.manifest)
-        samples, _ = t.read_rallylab_export(f.export, rows)
+        samples, _ = f.read(rows)
         s = {s.video: s for s in samples}["grs_onl_sun_land_onl_01"]
         for a, b in zip(s.corners, tilted):
             self.assertAlmostEqual(a[0], b[0], places=6); self.assertAlmostEqual(a[1], b[1], places=6)
@@ -179,12 +218,12 @@ class DataTests(unittest.TestCase):
         # The YOLO line disagreeing with the corners is an inconsistent export, not a label.
         f.relabel("grs_onl_sun_land_onl_01", tilted, box=(0.47, 0.48, 0.62, 0.06))
         with self.assertRaises(SystemExit) as cm:
-            t.read_rallylab_export(f.export, rows)
+            f.read(rows)
         self.assertIn("grs_onl_sun_land_onl_01: the YOLO box", str(cm.exception))
         # No corners (a box-only label from before) stops the run naming the recording.
         f.relabel("grs_onl_sun_land_onl_01", None)
         with self.assertRaises(SystemExit) as cm:
-            t.read_rallylab_export(f.export, rows)
+            f.read(rows)
         self.assertIn("grs_onl_sun_land_onl_01: no corners", str(cm.exception))
 
     def test_corners_flip_with_the_frame_and_stay_ordered_under_augmentation(self):
@@ -243,7 +282,7 @@ class DataTests(unittest.TestCase):
         f = Fixture(self.tmp, withhold="grs_ele_shade_land_self_02")
         _, rows = t.load_manifest(f.manifest)
         with self.assertRaises(SystemExit) as cm:
-            t.read_rallylab_export(f.export, rows)
+            f.read(rows)
         self.assertIn("grs_ele_shade_land_self_02: withheld", str(cm.exception))
 
     def test_a_recording_missing_from_the_manifest_stops_the_run(self):
@@ -251,7 +290,7 @@ class DataTests(unittest.TestCase):
         _, rows = t.load_manifest(f.manifest)
         del rows["ind_ele_dim_land_self_02"]
         with self.assertRaises(SystemExit) as cm:
-            t.read_rallylab_export(f.export, rows)
+            f.read(rows)
         self.assertIn("ind_ele_dim_land_self_02: not in the manifest", str(cm.exception))
 
     def test_a_fingerprint_or_image_that_changed_stops_the_run(self):
@@ -259,13 +298,119 @@ class DataTests(unittest.TestCase):
         _, rows = t.load_manifest(f.manifest)
         rows["bch_onl_ovc_land_onl_02"]["fingerprint"] = "another file"
         with self.assertRaises(SystemExit) as cm:
-            t.read_rallylab_export(f.export, rows)
+            f.read(rows)
         self.assertIn("bch_onl_ovc_land_onl_02: the export's fingerprint is not the manifest's", str(cm.exception))
         _, rows = t.load_manifest(f.manifest)
         (f.export / "images" / "bch_gnd_ovc_land_self_01.jpg").write_bytes(b"not the frame")
         with self.assertRaises(SystemExit) as cm:
-            t.read_rallylab_export(f.export, rows)
+            f.read(rows)
         self.assertIn("bch_gnd_ovc_land_self_01: bch_gnd_ovc_land_self_01.jpg is not the file the export recorded", str(cm.exception))
+
+    # -- The package, the manifest and the project as it is now (D-036) --
+
+    def refused(self, f: Fixture) -> str:
+        with self.assertRaises(SystemExit) as cm:
+            f.read()
+        return str(cm.exception)
+
+    def test_a_clean_package_with_its_manifest_and_a_current_closure_is_read(self):
+        f = Fixture(self.tmp)
+        samples, info = f.read()
+        self.assertEqual(len(samples), len(RECORDINGS))
+        self.assertEqual(info["splitManifest"]["manifestJson"], t.sha256_file(f.manifest))
+        self.assertEqual(info["closureSha256"], closure_block()["closureSha256"])
+        now = t.load_withheld(f.closure)
+        self.assertEqual(now["record"]["names"], 1)
+        self.assertEqual(now["record"]["createdAt"], "2026-11-12T00:00:00Z")
+        self.assertEqual(len(now["record"]["file_sha256"]), 64)
+        # A closure that shrank since the export (a recording released) holds nothing the package lacks.
+        f.write_closure(closure_block(fingerprints=("fp-held",)))
+        self.assertEqual(len(f.read()[0]), len(RECORDINGS))
+
+    def test_a_package_without_provenance_is_refused(self):
+        f = Fixture(self.tmp, provenance=False)
+        why = self.refused(f)
+        self.assertIn("no provenance (splitManifest, withheld)", why)
+        self.assertIn("export the dataset again", why)
+        # Half a provenance, or one that can't be verified, is none.
+        for change, expect in ((lambda r: r.pop("withheld"), "no provenance"),
+                               (lambda r: r["splitManifest"].pop("manifestJson"), "no splitManifest hashes"),
+                               (lambda r: r["splitManifest"].update(projectJson=""), "no splitManifest hashes"),
+                               (lambda r: r["withheld"].update(names=[]), "the withheld closure is empty"),
+                               (lambda r: r["withheld"]["names"].append("slipped_in_later"), "closureSha256 does not match"),
+                               (lambda r: r["withheld"].pop("fingerprints"), "no withheld closure")):
+            g = Fixture(Path(tempfile.mkdtemp(dir=self.tmp)))
+            g.edit_record(change)
+            self.assertIn(expect, self.refused(g))
+        # An entry that does not say what file it is can't be held against anything.
+        g = Fixture(Path(tempfile.mkdtemp(dir=self.tmp)))
+        g.edit_record(lambda r: r["entries"][2].pop("contentFingerprint"))
+        self.assertIn("bch_onl_ovc_land_onl_02: the package does not say what file it is", self.refused(g))
+
+    def test_a_missing_unreadable_or_empty_closure_file_is_refused(self):
+        f = Fixture(self.tmp)
+        f.closure.unlink()
+        why = self.refused(f)
+        self.assertIn("can't be read", why)
+        self.assertIn("--withheld-closure", why, "the refusal says how to write one")
+        f.closure.write_text("{not json")
+        self.assertIn("can't be read", self.refused(f))
+        f.closure.write_text("[]")
+        self.assertIn("no withheld closure", self.refused(f))
+        f.write_closure(closure_block(names=(), source_ids=(), fingerprints=()))
+        self.assertIn("the withheld closure is empty", self.refused(f))
+        tampered = closure_block()
+        tampered["names"] = []
+        f.write_closure(tampered)
+        self.assertIn("the withheld closure is empty", self.refused(f), "no closure is never 'nothing withheld'")
+        edited = closure_block()
+        edited["fingerprints"].remove("fp-held")
+        f.write_closure(edited)
+        self.assertIn("closureSha256 does not match", self.refused(f))
+        # A closure file that does not say which project state it is of (a rally-classifier export's own closure.json).
+        f.write_closure(split_manifest=False)
+        self.assertIn("no splitManifest hashes (projectJson, validationJson)", self.refused(f))
+
+    def test_a_package_holding_a_recording_withheld_since_the_export_is_refused(self):
+        video = "grs_onl_sun_land_onl_01"
+        cases = {"name": closure_block(names=("held_out_01", video)),
+                 "sourceId": closure_block(source_ids=("IMG_HELD", "IMG_0823")),
+                 "fingerprint": closure_block(fingerprints=("fp-held", "content-held", f"fp-{video}")),
+                 "content": closure_block(fingerprints=("fp-held", "content-held", f"content-{video}"))}
+        for identity, block in cases.items():
+            # The package's own closure is the old one: the export could not have known.
+            f = Fixture(Path(tempfile.mkdtemp(dir=self.tmp)))
+            f.edit_record(lambda r: [e.update(sourceId="IMG_0823") for e in r["entries"] if e["video"] == video])
+            f.write_closure(block)
+            self.assertIn("the export ran against a smaller closure", self.refused(f), identity)
+            # Even with a package whose record carries the larger closure, the entry itself is refused.
+            f.edit_record(lambda r: r.update(withheld=block))
+            why = self.refused(f)
+            self.assertIn(f"{video}: withheld — its {identity} is in the withheld closure", why)
+
+    def test_a_package_from_another_project_state_is_refused(self):
+        # Two recordings confirmed as one after the export: nothing is withheld, but the groups changed.
+        f = Fixture(self.tmp)
+        f.write_closure(project_json="f6" * 32)
+        why = self.refused(f)
+        self.assertIn("project.json changed since net-dataset.json was exported", why)
+        self.assertIn("recording groups", why)
+        f.write_closure(validation_json="f6" * 32)
+        self.assertIn("validation.json changed since net-dataset.json was exported", self.refused(f))
+
+    def test_a_manifest_that_is_not_the_exports_is_refused(self):
+        f = Fixture(self.tmp)
+        manifest = json.loads(f.manifest.read_text())
+        manifest["createdAt"] = "2026-11-12T00:00:00Z"   # written again later: another file, whatever it says
+        f.manifest.write_text(json.dumps(manifest))
+        self.assertIn("--manifest is not the split manifest net-dataset.json was exported against", self.refused(f))
+
+    def test_the_closure_hash_is_the_validators(self):
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "rally_classifier"))
+        import validate_dataset
+        block = {"names": ["b", "a", "é"], "sourceIds": ["youtube:x"], "fingerprints": ["file:2:bb", "file:1:aa"]}
+        self.assertEqual(t.withheld_closure.closure_sha256(block),
+                         validate_dataset.closure_sha256(block["names"], block["sourceIds"], block["fingerprints"]))
 
     def test_yolo_lines_keep_only_the_net_class_and_the_largest_net(self):
         box, count = t.parse_yolo("1 0.5 0.4 0.6 0.05\n0 0.2 0.8 0.03 0.04\n", net_index=1)
@@ -296,7 +441,7 @@ class DataTests(unittest.TestCase):
     def test_split_holds_out_whole_groups_per_surface_and_extras_only_train(self):
         f = Fixture(self.tmp)
         _, rows = t.load_manifest(f.manifest)
-        samples, _ = t.read_rallylab_export(f.export, rows)
+        samples, _ = f.read(rows)
         t.group_samples(samples, f.manifest)
         extra, _ = t.read_extra_folder(f.extra())
         samples += extra
@@ -347,9 +492,9 @@ class DataTests(unittest.TestCase):
          "camera": "End line, elevated (stands/tripod 2m+)", "clip": "grs_onl_sun_land_onl_01",
          "corners": {"bottomLeft": {"x": 0.2, "y": 0.4}, "bottomRight": {"x": 0.85, "y": 0.36},
                      "topLeft": {"x": 0.2, "y": 0.5}, "topRight": {"x": 0.85, "y": 0.45}},
-         "fingerprint": "fp-grs_onl_sun_land_onl_01", "frameHeight": 108, "frameWidth": 192,
+         "contentFingerprint": "file:884148311:0f3a", "fingerprint": "fp-grs_onl_sun_land_onl_01", "frameHeight": 108, "frameWidth": 192,
          "image": "images/grs_onl_sun_land_onl_01.jpg", "imageSHA256": "", "proposed": true,
-         "reviewedAt": "2026-10-31T16:02:10Z", "time": 45.0, "video": "grs_onl_sun_land_onl_01"}
+         "reviewedAt": "2026-10-31T16:02:10Z", "sourceId": "IMG_0080", "time": 45.0, "video": "grs_onl_sun_land_onl_01"}
         """)
         record = json.loads((f.export / "net-dataset.json").read_text())
         for i, e in enumerate(record["entries"]):
@@ -360,7 +505,7 @@ class DataTests(unittest.TestCase):
         # The YOLO line the export writes for it: the corners' bounds, top-down.
         (f.export / "labels" / f"{entry['video']}.txt").write_text("0 0.525000 0.570000 0.650000 0.140000\n")
         _, rows = t.load_manifest(f.manifest)
-        samples, _ = t.read_rallylab_export(f.export, rows)
+        samples, _ = f.read(rows)
         s = {s.video: s for s in samples}[entry["video"]]
         # y-down: the top-left is (0.2, 0.5) from the bottom → 0.5 from the top.
         for a, b in zip(s.corners, ((0.2, 0.5), (0.85, 0.55), (0.85, 0.64), (0.2, 0.6))):
@@ -457,7 +602,7 @@ class TrainingTests(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def train(self, f: Fixture, name: str, extra=(), epochs: int = 3, more=()):
-        argv = [str(f.export), "--manifest", str(f.manifest), "--epochs", str(epochs), "--batch", "4", "--workers", "0",
+        argv = [str(f.export), "--manifest", str(f.manifest), "--withheld", str(f.closure), "--epochs", str(epochs), "--batch", "4", "--workers", "0",
                 "--seed", "1", "--name", name, "--runs", str(self.tmp / "runs"), "--bring-back", str(self.tmp / "bring_back")]
         for e in extra:
             argv += ["--extra", str(e)]
@@ -502,7 +647,7 @@ class TrainingTests(unittest.TestCase):
     def test_augmentation_is_fresh_each_epoch_and_repeatable(self):
         f = Fixture(self.tmp)
         _, rows = t.load_manifest(f.manifest)
-        samples, _ = t.read_rallylab_export(f.export, rows)
+        samples, _ = f.read(rows)
         frames = t.Frames(samples, True, seed=1)
         frames.epoch = 1
         x1, t1, _, _ = frames[0]
@@ -521,6 +666,25 @@ class TrainingTests(unittest.TestCase):
             self.train(f, "withheld")
         self.assertIn("withheld", str(cm.exception))
         self.assertFalse((self.tmp / "runs").exists())
+
+    def test_a_run_records_the_closure_and_a_stale_package_writes_nothing(self):
+        f = Fixture(self.tmp)
+        run = self.train(f, "current", epochs=1)
+        m = json.loads((run / "metrics.json").read_text())
+        self.assertEqual(m["withheld"]["closureSha256"], closure_block()["closureSha256"])
+        self.assertEqual(m["withheld"]["file_sha256"], t.sha256_file(f.closure))
+        self.assertEqual(m["dataset"]["splitManifest"]["manifestJson"], m["manifest_sha256"])
+        # A recording of the package is withheld afterwards: neither a new run nor a score of the old weights.
+        f.write_closure(closure_block(names=("held_out_01", "bch_onl_ovc_land_onl_02")))
+        for more in ([], ["--score-only", str(run / "best.pt"), "--split", str(run / "split.json")]):
+            with self.assertRaises(SystemExit) as cm:
+                self.train(f, "stale", more=more)
+            self.assertIn("smaller closure", str(cm.exception))
+        self.assertFalse((self.tmp / "runs" / "stale").exists())
+        # No closure file at all: argparse refuses the command.
+        with self.assertRaises(SystemExit):
+            t.main([str(f.export), "--manifest", str(f.manifest), "--name", "no-closure", "--runs", str(self.tmp / "runs")])
+        self.assertFalse((self.tmp / "runs" / "no-closure").exists())
 
     def test_a_longer_run_learns_the_band(self):
         """Not a benchmark: twelve frames with a plain bright band are learnable in a few

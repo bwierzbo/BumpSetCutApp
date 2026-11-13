@@ -32,13 +32,14 @@ extension NetLabelsTests {
             NetDatasetExport.Source(video: v, clip: v, camera: "Tripod / corner", url: URL(fileURLWithPath: "/nowhere/\(v).mp4"), fingerprint: fp, cuts: [])
         }
         let labels = ["a_side": Self.label(), "b_ok": Self.label(), "c_refiled": Self.label(fingerprint: "fp-new")]
-        let plan = NetDatasetExport.plan(labels: labels, sources: [src("a_side"), src("b_ok"), src("c_refiled", fp: "fp-new")], withheld: [],
-                                         exclusions: ["a_side": Self.exclusion(), "c_refiled": Self.exclusion("fp-old")])
+        let nothingWithheld = RallyClassifierExporter.Withheld(names: [], sourceIds: [], fingerprints: [])
+        let plan = NetDatasetExport.plan(labels: labels, sources: [src("a_side"), src("b_ok"), src("c_refiled", fp: "fp-new")], withheld: nothingWithheld,
+                                         exclusions: ["a_side": Self.exclusion(), "c_refiled": Self.exclusion("fp-old")], content: { _ in "file:own" })
         XCTAssertEqual(plan.export.map(\.video), ["b_ok", "c_refiled"])
         XCTAssertEqual(plan.skipped, [NetDatasetExport.Skipped(video: "a_side", reason: "side_view")])
         // A labeled recording with no session over it (cuts nil): its cut ranges are unknown, not none — not exported.
         var sessionless = src("b_ok"); sessionless.cuts = nil
-        let noSession = NetDatasetExport.plan(labels: labels, sources: [sessionless], withheld: [])
+        let noSession = NetDatasetExport.plan(labels: labels, sources: [sessionless], withheld: nothingWithheld, content: { _ in "file:own" })
         XCTAssertTrue(noSession.export.isEmpty)
         XCTAssertEqual(noSession.skipped, [NetDatasetExport.Skipped(video: "b_ok", reason: "no_session")])
         // Nor is such a recording chosen for a proposal.

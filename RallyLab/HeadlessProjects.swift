@@ -16,9 +16,10 @@
 //                                                           --labels-only: rally times, tracks, reviews, plan — no videos;
 //                                                           --remake-copies [names…]: those videos' older phone copies
 //                                                           made again, no names every video's)
-//    RallyLab --project v3 --train-round                   (the training plan's next round, as Plan's button: export,
-//                                                           train its runs on the desktop, bring each back; then the
-//                                                           phone gets the plan)
+//    RallyLab --project v3 --train-round                   (the training plan's next round, as Plan's button: train its
+//                                                           runs on the desktop from the newest lineage package
+//                                                           (--package-l2), bring each back; then the phone gets the
+//                                                           plan. Refused, nothing recorded, without such a package)
 //    RallyLab --project v3 --repull-all                    (sample every video's cut again, e.g. after
 //                                                           changing frames per rally — nothing re-downloaded;
 //                                                           videos with tracked rallies or reviewed frames are kept)
@@ -77,7 +78,14 @@
 //             no video file read; written to manifests/source-index-<stamp>.json and summarised)
 //    RallyLab --project v3 --export-net-dataset <dir>    (the net labels (Net labels tab): one upright JPEG and one
 //             YOLO line per labeled recording, data.yaml and net-dataset.json, into <dir> (must not exist); withheld
-//             and handheld recordings refused; the use goes in the exposure ledger first, or nothing is put in place)
+//             and handheld recordings refused, and any recording that is a withheld one's footage by confirmed sourceId,
+//             stored fingerprint or content; the split manifest must be of the project as it is now (add --manifest
+//             --audit-dataset to the same command) and net-dataset.json records its hashes and the withheld closure;
+//             the use goes in the exposure ledger first, or nothing is put in place)
+//    RallyLab --project v3 --withheld-closure <file>     (the withheld closure as it is now — names, confirmed sourceIds,
+//             stored and content fingerprints — with the current split manifest's hashes, into <file> (must not exist):
+//             the --withheld a trainer away from the project is given (train_net_model.py, validate_dataset.py).
+//             Refuses a stale manifest and an empty closure; write it at the time of training, not of the export)
 //    RallyLab --project v3 --net-ai-frames <dir> --model <id> [--count 10] [--every-recording]   (AI-assisted net corners:
 //             the frames of up to N eligible recordings — not withheld (manifest closure ∪ files'), not handheld, identified,
 //             no label, no proposal; one per alias group unless --every-recording, round-robin over surfaces — by the Net
@@ -99,7 +107,9 @@
 //             closest to the marked rallies of validation.json's tune videos, less any withheld recording — the file's
 //             holdout list is the legacy holdout, withheld, not a held-out set (D-017; owner 2026-10-31); reports, applies nothing)
 //    RallyLab --project v3 --retune-decider <plan.json> --out <dir> [--passes-only]   (bounded decider retune for one
-//             detector from a frozen plan: passes cached, candidates replayed, chosen on the tune pool, replayed on eval)
+//             detector from a frozen plan: passes cached, candidates replayed, chosen on the tune pool, replayed on eval.
+//             The split manifest must be of the project as it is now — add --manifest --audit-dataset to the same
+//             command — and vouch for every pool recording: read by content, sharing nothing with a withheld one)
 //    RallyLab --project v3 --serve-report [--verbose]    (the serve found in each marked rally of the tune videos, as
 //             --tune-pipeline reads them, how far from the mark, and what starting clips at the serve would score)
 //    RallyLab --project v3 --pretrack-check [--heat M]     (how right "sure" frames are, against val rallies people tracked)
@@ -307,6 +317,9 @@ enum HeadlessProjects {
             if ok, let out = value(after: "--export-net-dataset", in: args) {
                 ok = await exportNetDataset(projects, to: URL(fileURLWithPath: (out as NSString).expandingTildeInPath, isDirectory: true))
             }
+            if ok, let file = value(after: "--withheld-closure", in: args) {
+                ok = withheldClosure(projects, to: URL(fileURLWithPath: (file as NSString).expandingTildeInPath))
+            }
             if ok, let out = value(after: "--net-ai-frames", in: args) {
                 ok = await netAIFrames(projects, to: URL(fileURLWithPath: (out as NSString).expandingTildeInPath, isDirectory: true),
                                        model: value(after: "--model", in: args),
@@ -399,7 +412,7 @@ enum HeadlessProjects {
                 guard let round = plan.currentRound else { log("Every round is trained."); exit(0) }
                 let progress = PlanProgress(videos: projects.sampler.sessions.map(PlanVideo.init(session:)), round: round)
                 log("Round \(round.number): \(progress.frames) frames (\(progress.surfaces.map { "\($0.key) \($0.value.frames)" }.sorted().joined(separator: ", ")))")
-                plan.exportAndTrain(round, progress: progress)
+                plan.train(round, progress: progress)
                 var said = ""
                 while plan.isRunning || library.isBusy {
                     let now = [plan.status, library.heatmaps.desktopLine].joined(separator: " · ")
@@ -901,10 +914,7 @@ enum HeadlessProjects {
         try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         let manifestURL = out.appendingPathComponent("manifest.json")
         let generator = generator()
-        let hashes = DatasetSplitManifest.Hashes(
-            projectJson: DatasetSplitManifest.sha256(of: dir.appendingPathComponent("project.json")),
-            sessions: DatasetSplitManifest.canonicalDigest(ofDirectory: dir.appendingPathComponent("sessions", isDirectory: true)),
-            validationJson: DatasetSplitManifest.sha256(of: dir.appendingPathComponent("pipeline_tuning/validation.json")))
+        let hashes = DatasetSplitManifest.Hashes.current(of: dir)
         let validation: PipelineTuner.ValidationSet?
         do {
             validation = try PipelineTuner.ValidationSet.loadStrict(from: dir)
@@ -1200,8 +1210,10 @@ enum HeadlessProjects {
     @MainActor
     private static func exportNetDataset(_ projects: ProjectsModel, to dir: URL) async -> Bool {
         guard let root = projects.projectDir, let project = projects.project else { log("❌ No project folder."); return false }
-        let withheld: Set<String>
-        do { withheld = try ReservedVideos.lineageWithheldNames(in: root) } catch { log("❌ \(error.localizedDescription)"); return false }
+        // The withheld closure with every identity, and the split manifest — of the project as it is now, or nothing
+        // is exported: the package records both, and the trainer holds it to them.
+        let closure: RallyClassifierExporter.ProjectClosure
+        do { closure = try .current(in: root) } catch { log("❌ \(error.localizedDescription)"); return false }
         let labels: [String: NetLabel]
         do { labels = try NetLabelStore(projectDir: root).load() } catch { log("❌ net-labels.json: \(error.localizedDescription)"); return false }
         let exclusions: [String: NetExclusion]
@@ -1213,6 +1225,7 @@ enum HeadlessProjects {
         let sources = project.clips.flatMap { clip in
             clip.videos.map { NetDatasetExport.Source(video: clip.videoId(of: $0), clip: clip.id, camera: clip.camera,
                                                       url: URL(fileURLWithPath: $0.clipFile), fingerprint: ReservedVideos.effectiveFingerprint($0),
+                                                      sourceId: $0.sourceId.flatMap { $0.isEmpty ? nil : $0 },
                                                       cuts: cuts[clip.videoId(of: $0)]) }   // nil: no session — unknown cuts, skipped
         }
         guard !FileManager.default.fileExists(atPath: dir.path) else { log("❌ \(dir.path) exists; name a new folder."); return false }
@@ -1226,7 +1239,7 @@ enum HeadlessProjects {
         let partial = staging.appendingPathComponent(dir.lastPathComponent)
         let manifest: NetDatasetExport.Manifest
         do {
-            manifest = try await NetDatasetExport.write(labels: labels, sources: sources, withheld: withheld, exclusions: exclusions, project: project.name,
+            manifest = try await NetDatasetExport.write(labels: labels, sources: sources, closure: closure, exclusions: exclusions, project: project.name,
                                                         to: partial) { log("  \($0)") }
         } catch {
             log("❌ \(error.localizedDescription)")
@@ -1242,6 +1255,21 @@ enum HeadlessProjects {
         let byReason = Dictionary(grouping: manifest.skipped, by: \.reason).mapValues(\.count)
         log("✅ \(manifest.labeled) labeled recordings → \(dir.path) (skipped: \(byReason.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", ")))")
         return true
+    }
+
+    /// `--withheld-closure <file>`: the project's withheld closure as it is now, with every identity and the split
+    /// manifest's hashes (RallyClassifierExporter.ProjectClosure) — what a trainer away from the project is given as
+    /// `--withheld`. Never overwrites: a closure file is evidence of the project at one moment.
+    @MainActor
+    private static func withheldClosure(_ projects: ProjectsModel, to file: URL) -> Bool {
+        guard let root = projects.projectDir, let project = projects.project else { log("❌ No project folder."); return false }
+        do {
+            let closure = try RallyClassifierExporter.ProjectClosure.current(in: root)
+            try closure.file(project: project.name).write(to: file, options: .withoutOverwriting)
+            log("✅ Withheld closure: \(closure.withheld.names.count) names, \(closure.withheld.sourceIds.count) sourceIds, \(closure.withheld.fingerprints.count) fingerprints "
+                + "(sha256 \(closure.withheld.closureSha256.prefix(16))…; split manifest \(closure.splitManifest.manifestJson.prefix(16))…) → \(file.path)")
+            return true
+        } catch { log("❌ \(error.localizedDescription)"); return false }
     }
 
     /// Who is withheld, by both readings: the split manifest's closure (NetInventory, which must be of

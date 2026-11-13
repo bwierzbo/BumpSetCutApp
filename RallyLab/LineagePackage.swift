@@ -168,21 +168,36 @@ enum LineagePackage {
 
         // Exclusion closure, recomputed from the manifest rows: no identity and no alias group
         // may be shared between a packaged recording and a withheld one.
-        var identityOwner: [String: String] = [:]
-        var groupOwner: [String: String] = [:]
-        for w in withheld {
-            for id in w.identities { identityOwner[id] = w.video }
-            if let g = w.aliasGroup { groupOwner[g] = w.video }
-        }
+        let held = WithheldIdentities(withheld.map { (video: $0.video, identities: $0.identities, aliasGroup: $0.aliasGroup) })
         for e in eligible {
-            for id in e.identities {
-                if let w = identityOwner[id] { throw PlanError.sharedIdentity(eligible: e.video, withheld: w, identity: id) }
-            }
-            if let g = e.aliasGroup, let w = groupOwner[g] {
-                throw PlanError.sharedIdentity(eligible: e.video, withheld: w, identity: "aliasGroup:" + g)
+            if let hit = held.shared(identities: e.identities, aliasGroup: e.aliasGroup) {
+                throw PlanError.sharedIdentity(eligible: e.video, withheld: hit.withheld, identity: hit.identity)
             }
         }
         return (withheld, eligible)
+    }
+
+    /// The identities (`identities(of:)`) and alias groups of the withheld recordings, to hold any other recording
+    /// against: one rule for every consumer that must not use a withheld recording under another card.
+    struct WithheldIdentities {
+        private var identityOwner: [String: String] = [:]
+        private var groupOwner: [String: String] = [:]
+
+        init(_ withheld: [(video: String, identities: [String], aliasGroup: String?)]) {
+            for w in withheld {
+                for id in w.identities { identityOwner[id] = w.video }
+                if let g = w.aliasGroup { groupOwner[g] = w.video }
+            }
+        }
+
+        /// The withheld recording these identities or this alias group belong to as well, and which one, or nil.
+        func shared(identities: [String], aliasGroup: String?) -> (withheld: String, identity: String)? {
+            for id in identities {
+                if let w = identityOwner[id] { return (w, id) }
+            }
+            if let g = aliasGroup, let w = groupOwner[g] { return (w, "aliasGroup:" + g) }
+            return nil
+        }
     }
 
     // MARK: - Preflight of a written package

@@ -8,7 +8,11 @@
 //  in the experiment record before anything runs. Every pool recording is
 //  checked against the final-test reservation and the lineage-withheld
 //  closure, must have every rally marked, and no recording group may sit in
-//  both pools. The detector runs once per recording per model (the tuner's
+//  both pools. The groups and identities come from the split manifest, which
+//  counts only while it is of the project as it is now (`admit`): a manifest
+//  written before a provenance change still names the old groups, and a
+//  recording that shares footage with a withheld one is refused whatever its
+//  card is called. The detector runs once per recording per model (the tuner's
 //  evidence cache); every candidate is a replay of the decision from that
 //  evidence. Settings are chosen on the tune pool only and the chosen settings
 //  are then replayed on the evaluation pool — development evidence, not
@@ -244,9 +248,11 @@ enum DeciderRetune {
 
     // MARK: - Recording groups
 
-    /// Recording groups over the manifest's videos: one clip card, one uploader, one alias group, or a shared
-    /// confirmed source, session or venue put two videos in one group (transitively) — `_v2`… variants and
-    /// same-channel videos are not independent evidence. Video → group ID (the smallest name in the group).
+    /// Recording groups over the manifest's videos: one clip card, one uploader, one alias group, a shared
+    /// confirmed source, session or venue, or one file — the fingerprint a card was registered with or the content
+    /// of the video it holds (D-036: the same footage under two cards shares neither a name nor a card) — put two
+    /// videos in one group (transitively): `_v2`… variants and same-channel videos are not independent evidence.
+    /// Video → group ID (the smallest name in the group).
     static func groups(_ videos: [ManifestVideo]) -> [String: String] {
         var parent: [String: String] = [:]
         func find(_ x: String) -> String {
@@ -265,6 +271,7 @@ enum DeciderRetune {
             if let c = v.clipId, !c.isEmpty { keys.append("clip:" + c) }
             if let u = v.uploader?.trimmingCharacters(in: .whitespaces), !u.isEmpty { keys.append("up:" + u) }
             if let g = v.aliasGroup, !g.isEmpty { keys.append("grp:" + g) }
+            for f in [v.fingerprint, v.contentFingerprint] { if let f, !f.isEmpty { keys.append("fp:" + f) } }
             if let s = v.sourceId.value, !s.isEmpty { keys.append("src:" + s) }
             if let s = v.sessionId.value, !s.isEmpty { keys.append("ses:" + s) }
             if let s = v.venueId.value, !s.isEmpty { keys.append("ven:" + s) }
@@ -287,6 +294,63 @@ enum DeciderRetune {
         let straddling = tuneGroups.intersection(evalGroups)
         if !straddling.isEmpty { return "recording group(s) in both pools: \(straddling.sorted()) — settings would be evaluated on recordings they were chosen with" }
         if candidates(plan.grid).isEmpty { return "the grid lists no values" }
+        return nil
+    }
+
+    // MARK: - Admission
+
+    /// What the plan's recordings are, by the split manifest of the project as it is now.
+    struct Admission: Equatable {
+        /// Video → recording group, over every manifest video.
+        var groups: [String: String]
+        /// Video → manifest split.
+        var splits: [String: String]
+    }
+
+    struct Refusal: LocalizedError, Equatable {
+        let why: String
+        var errorDescription: String? { "Plan refused: \(why)" }
+    }
+
+    /// Admits the plan against the project at `root` as it is now, or throws why not — before anything is recorded
+    /// in the ledger, read from the pass cache or run. The reservations and the withheld closure are the files'
+    /// (ReservedVideos); the split manifest must be of project.json, the sessions and validation.json as they are
+    /// today (`DatasetSplitManifest.readCurrent`), or its groups and identities are another project state's. Every
+    /// pool recording must then be one the manifest can vouch for (`identityRefusal`).
+    static func admit(_ plan: Plan, root: URL) throws -> Admission {
+        let reserved = try ReservedVideos.reservedNames(in: root)
+        let withheld = try ReservedVideos.lineageWithheldNames(in: root)
+        let manifest = try DatasetSplitManifest.readCurrent(from: NetInventory.manifestURL(in: root), projectDir: root).manifest
+        let groups = groups(manifest.videos)
+        if let why = planRefusal(plan, reserved: reserved, withheld: withheld, groups: groups) { throw Refusal(why: why) }
+        let rows = Dictionary(manifest.videos.map { ($0.video, $0) }, uniquingKeysWith: { a, _ in a })
+        func isWithheld(_ v: ManifestVideo) -> Bool { v.split.isReserved || v.reservedAs != nil || withheld.contains(v.video) }
+        let held = LineagePackage.WithheldIdentities(manifest.videos.filter(isWithheld)
+            .map { (video: $0.video, identities: LineagePackage.identities(of: $0), aliasGroup: $0.aliasGroup) })
+        for n in plan.tune + plan.eval {
+            guard let row = rows[n] else { throw Refusal(why: "\(n) is not in the split manifest") }
+            guard !isWithheld(row) else { throw Refusal(why: "\(n) is withheld in the split manifest (split \(row.split.rawValue))") }
+            if let why = identityRefusal(row, held: held) { throw Refusal(why: why) }
+        }
+        return Admission(groups: groups, splits: Dictionary(uniqueKeysWithValues: manifest.videos.map { ($0.video, "\($0.split)") }))
+    }
+
+    /// Why the manifest can't vouch for this recording, or nil: it must have a file identity, its video must have
+    /// been read when the manifest was built (a card's stored fingerprint names the file it was registered from,
+    /// which need not be the video it holds — D-036), and none of its identities or its alias group may be a
+    /// withheld recording's. A cached pass of such a recording is never scored.
+    static func identityRefusal(_ row: ManifestVideo, held: LineagePackage.WithheldIdentities) -> String? {
+        let identities = LineagePackage.identities(of: row)
+        guard identities.contains(where: { $0.hasPrefix("fp:") }) else {
+            return "\(row.video) has no file identity in the split manifest, so which recording it is can't be verified"
+        }
+        guard row.contentState == "read" else {
+            return "\(row.video)'s video was not read when the split manifest was built (content \(row.contentState ?? "not recorded")), so the footage it "
+                + "holds was not compared with the withheld recordings'. Make its footage reachable, then: \(DatasetSplitManifest.CurrencyError.refresh)"
+        }
+        if let hit = held.shared(identities: identities, aliasGroup: row.aliasGroup) {
+            return "\(row.video) shares \(hit.identity) with withheld \(hit.withheld) — the same footage as a withheld recording is not scored"
+        }
         return nil
     }
 
@@ -341,24 +405,12 @@ enum DeciderRetune {
         let planSHA = SHA256.hash(data: planData).map { String(format: "%02x", $0) }.joined()
         guard !FileManager.default.fileExists(atPath: out.path) else { log("❌ \(out.path) exists; name a new folder."); return false }
 
-        // Eligibility: the reservation and the withheld closure, every rally marked, groups apart.
-        let reserved: Set<String>, withheld: Set<String>
-        do {
-            reserved = try ReservedVideos.reservedNames(in: root)
-            withheld = try ReservedVideos.lineageWithheldNames(in: root)
-        } catch { log("❌ \(error.localizedDescription)"); return false }
-        let manifest: DatasetSplitManifest
-        do {
-            guard let m = try DatasetSplitManifest.readStrict(from: NetInventory.manifestURL(in: root)) else {
-                log("❌ No manifests/manifest.json: write the split manifest first (--manifest)."); return false
-            }
-            manifest = m
-        } catch { log("❌ \(error.localizedDescription)"); return false }
-        let groups = groups(manifest.videos)
-        let splits = Dictionary(uniqueKeysWithValues: manifest.videos.map { ($0.video, "\($0.split)") })
-        if let why = planRefusal(plan, reserved: reserved, withheld: withheld, groups: groups) { log("❌ Plan refused: \(why)"); return false }
+        // Eligibility: the reservation and the withheld closure, a current manifest that vouches for every pool
+        // recording, groups apart (admit); then every rally marked.
+        let admission: Admission
+        do { admission = try admit(plan, root: root) } catch { log("❌ \(error.localizedDescription)"); return false }
+        let groups = admission.groups, splits = admission.splits
         let pool = plan.tune + plan.eval
-        for n in pool where groups[n] == nil { log("❌ \(n) is not in the split manifest."); return false }
         var videos: [String: PipelineTuner.Video] = [:]
         for v in PipelineTuner.videos(pool, sampler: projects.sampler, log: log) { videos[v.session.name] = v }
         let unmarked = pool.filter { videos[$0] == nil }
