@@ -447,9 +447,10 @@ def render(report: dict) -> str:
                                   for c, cell in a["byClass"].items() if cell["both"] + cell["firstOnly"] + cell["repeatOnly"])
             lines.append(f"  repeat ({label}): identical on {a['identical']} of {a['compared']}; by class {per_class}")
         for r in part["recordings"]:
+            found = ", ".join(f"{k} {cell['count']}" for k, cell in r["findings"].items() if cell["count"]) or "no finding"
             lines.append(f"  {r['recordingId']} [{r['surface']}, group {r['groupId']}, fold {r['fold']}] {r['state']}"
-                         f"{' + partial' if r['contaminated'] and r['partial'] else ''}: reviewed {r['reviewed']}/{r['intervals']}, "
-                         f"clean {r['cleanIntervals']}, missed {r['missed']}, record {r['record']}"
+                         f"{' + partial' if r['contaminated'] and r['partial'] else ''}: reviewed {r['reviewed']}/{r['intervals']} "
+                         f"({seconds(r['secondsReviewed'])} of {seconds(r['secondsDrawn'])}), clean {r['cleanIntervals']}, {found}, record {r['record']}"
                          f"{', marks changed since the draw' if r['marksChangedSinceDraw'] else ''}")
             lines += [f"    ! {p}" for p in r["problems"]]
         return lines
