@@ -339,7 +339,11 @@ def _read_records(draw: dict, draw_sha: str, project_dir: str) -> list:
     for rec in draw["recordings"]:
         path = inv.sidecar_path(inv.session_video(project_dir, rec["recordingId"]), "coverageaudit")
         record = inv.load_json(path, f"{rec['recordingId']}: audit record") if os.path.exists(path) else None
-        out.append(review_recording(rec, draw, draw_sha, record, ignore_ticks))
+        row = review_recording(rec, draw, draw_sha, record, ignore_ticks)
+        # The record's bytes as evaluated: a dataset exported from these records carries the same hash
+        # (`coverage.audit.auditSha256`), so a trainer can tell the records it trusts are the ones that passed.
+        row["recordSha256"] = v.sha256_file(path) if record is not None else None
+        out.append(row)
     return out
 
 
