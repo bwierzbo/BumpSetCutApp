@@ -112,6 +112,8 @@ class Draw(unittest.TestCase):
                  {"t": 9.5, "seg": 1, "y": S["ACTIVE_RALLY"]}, {"t": 10.0, "seg": 1, "y": S["UNKNOWN"]}]
         seconds = folds.label_seconds(steps)
         self.assertEqual((seconds["NON_RALLY"], seconds["ACTIVE_RALLY"], seconds["UNKNOWN"]), (0.5, 1.0, 0.5))
+        self.assertEqual(folds.step_seconds(steps), [0.0, 0.5, 0.5, 0.0, 0.5, 0.5])    # a segment's first step stands for no time
+        self.assertEqual(folds.step_seconds([]), [])
 
 
 class FoldsFile(unittest.TestCase):

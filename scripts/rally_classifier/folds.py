@@ -157,14 +157,17 @@ def draw(groups: list, folds: int, seed: int, stratify: str, max_shuffles: int) 
     raise FoldsError(why, report)
 
 
+def step_seconds(steps: list) -> list:
+    """The time each step stands for: the time since the previous step of its segment (0 for a segment's first)."""
+    return [s["t"] - prev["t"] if prev is not None and prev["seg"] == s["seg"] else 0.0
+            for prev, s in zip([None] + steps[:-1], steps)]
+
+
 def label_seconds(steps: list) -> dict:
-    """Step time by label state: each step stands for the time since the previous step of its segment."""
+    """Step time by label state (`step_seconds`)."""
     out = {name: 0.0 for name in v.STATES}
-    prev = None
-    for s in steps:
-        if prev is not None and prev["seg"] == s["seg"]:
-            out[v.STATE_NAMES[s["y"]]] += s["t"] - prev["t"]
-        prev = s
+    for s, seconds in zip(steps, step_seconds(steps)):
+        out[v.STATE_NAMES[s["y"]]] += seconds
     return out
 
 
