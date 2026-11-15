@@ -319,6 +319,31 @@ final class CoverageAuditModelTests: XCTestCase {
         model.deactivate()
     }
 
+    func testWhatOneReviewerWatchedNeverCountsForAnother() async throws {
+        let model = try await model()
+        await model.open("v")
+        try await wait("interval 0 to play through") { !model.isPlaying }
+        XCTAssertTrue(model.played.covers(try XCTUnwrap(model.interval).span), "bw watched it")
+        // Handed over without a labeling session: jr has watched nothing.
+        model.typedName = "jr"
+        XCTAssertFalse(model.played.covers(try XCTUnwrap(model.interval).span))
+        model.markClean()
+        try await wait("the refusal") { !model.busy }
+        XCTAssertTrue(model.lastRefused); XCTAssertTrue(model.status.contains("has not been played whole"), model.status)
+        XCTAssertNil(try onDisk("v"), "no verdict on another person's viewing")
+        // Back to bw: bw's viewing still counts for bw.
+        model.typedName = "bw"
+        model.markClean()
+        try await wait("bw's clean") { !model.busy && model.intervalIndex == 1 }
+        XCTAssertEqual(try onDisk("v")?.review(0)?.reviewer, "bw")
+        // Undo belongs to whoever gave the verdict.
+        model.typedName = "jr"
+        await model.undo()
+        XCTAssertTrue(model.lastRefused); XCTAssertTrue(model.status.contains("only bw can undo it"), model.status)
+        XCTAssertEqual(try onDisk("v")?.review(0)?.verdict, .clean)
+        model.deactivate()
+    }
+
     func testEnteringTheBlindRepeatShowsNothingOfTheFirstLook() async throws {
         let model = try await model()
         await model.open("v", play: false)
