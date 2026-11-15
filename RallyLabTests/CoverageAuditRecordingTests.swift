@@ -63,7 +63,8 @@ final class CoverageAuditRecordingTests: XCTestCase {
 
     /// The draw as the draw tool freezes it for these recordings as they are now: each 10 s long, its intervals from
     /// its marks, its file's content fingerprint and its marks' hash. `edit` changes a recording's entry afterwards.
-    private func draw(_ names: [String], id: String? = nil, repeatSet: [Int] = [1], edit: (inout [String: Any]) -> Void = { _ in }) throws -> A.LoadedDraw {
+    private func draw(_ names: [String], id: String? = nil, repeatSet: [Int] = [1], supersedes: [String]? = nil,
+                      edit: (inout [String: Any]) -> Void = { _ in }) throws -> A.LoadedDraw {
         let sessions = try DatasetStore(root: root).loadSessionsStrict()
         let recordings: [[String: Any]] = try names.map { name in
             let session = try XCTUnwrap(sessions.first { $0.name == name })
@@ -80,8 +81,9 @@ final class CoverageAuditRecordingTests: XCTestCase {
             return entry
         }
         let id = id ?? drawId
-        let json: [String: Any] = ["schemaVersion": A.drawVersion, "stage": "pilot", "drawId": id, "dataset": ["name": "rc-v1-20261112", "timescale": 600, "manifestSha256": "aa"],
+        var json: [String: Any] = ["schemaVersion": A.drawVersion, "stage": "pilot", "drawId": id, "dataset": ["name": "rc-v1-20261112", "timescale": 600, "manifestSha256": "aa"],
                                    "seed": 20261114, "recordings": recordings]
+        if let supersedes { json["supersedes"] = supersedes }
         let url = A.drawsDirectory(in: root).appendingPathComponent("\(id)-draw.json")
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys]).write(to: url)
@@ -602,6 +604,28 @@ final class CoverageAuditRecordingTests: XCTestCase {
         try writeMarks("a", [(1.5, 4, "rally"), (6, 8, "rally")])          // interval 0 moves
         let status = try XCTUnwrap(A.status(draw: d, root: root).first)
         XCTAssertEqual([status.repeatOwed, status.repeatLeft], [2, 1], "no verdict can be taken on the moved interval, so it is not work left")
+    }
+
+    func testAReplacementDrawKeepsTheOldRecordAndStartsAFreshOne() throws {
+        try recording("a")
+        let old = try draw(["a"], repeatSet: [])
+        try A.record(request("a", 0, .finding(A.Finding(kind: .missedRally, approxStartSec: 1)), played: all), draw: old, root: root, tool: "t", now: now)
+        let before = try Data(contentsOf: A.url(forVideo: video("a")))
+        // A draw that does not say it replaces the old one: the old record stands in its way.
+        let other = try draw(["a"], id: "20261116-090000")
+        XCTAssertThrowsError(try A.open("a", draw: other, root: root, now: now)) { error in
+            guard case A.Failure.otherDraw = error else { return XCTFail("\(error)") }
+        }
+        // The replacement (the draw tool's --reason, recorded in `supersedes`): the status says what will happen …
+        let replacement = try draw(["a"], id: "20261116-100000", repeatSet: [], supersedes: [drawId])
+        XCTAssertTrue(try XCTUnwrap(A.status(draw: replacement, root: root).first).problem?.contains("which this draw supersedes") == true)
+        // … and opening keeps the old record whole under its draw's id and starts afresh: no old verdict is reused.
+        let opened = try A.open("a", draw: replacement, root: root, now: now)
+        XCTAssertNil(opened.file)
+        XCTAssertEqual(try Data(contentsOf: A.supersededURL(forVideo: video("a"), drawId: drawId)), before)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: A.url(forVideo: video("a")).path))
+        let fresh = try A.record(request("a", 0, .clean, played: all), draw: replacement, root: root, tool: "t", now: now)
+        XCTAssertEqual([fresh.drawId, fresh.review(0)?.verdict.rawValue], ["20261116-100000", "clean"])
     }
 
     func testARepeatOrResolutionWithFindingsNotPlayedWholeIsWorkLeft() throws {

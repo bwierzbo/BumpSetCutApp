@@ -140,6 +140,9 @@ extension CoverageAudit {
                         }
                     }
                 }
+            } catch Failure.otherDraw(_, let recorded, _) where draw.draw.supersedes?.contains(recorded) == true {
+                // Not read here (the status writes nothing): opening the recording sets it aside and starts afresh.
+                problems.append("its record is of draw \(recorded), which this draw supersedes: kept, and set aside when the recording is opened")
             } catch { problems.append(error.localizedDescription) }
             status.problem = problems.isEmpty ? nil : problems.joined(separator: "; ")
             return status
