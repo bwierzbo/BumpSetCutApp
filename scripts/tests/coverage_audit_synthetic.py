@@ -74,7 +74,7 @@ class Synthetic:
             self.sessions[rid] = {"name": rid, "ralliesMarked": True, "sourcePath": self.video(rid), "cuts": [{"start": a, "end": b} for a, b in s["cuts"]]}
             self.types[rid] = s["type"]
             write_json(self.marks_path(rid), s["marks"])
-            spans = inv.truth_spans(inv.read_marks(self.marks_path(rid)), s["cuts"])
+            spans = inv.truth_spans(inv.read_marks(self.marks_path(rid))[0], s["cuts"])
             continuous = s["type"] == "continuous"
             recordings.append({
                 "recordingId": rid, "groupId": s["group"], "surface": s["surface"], "camera": "End line, elevated", "split": s["split"],

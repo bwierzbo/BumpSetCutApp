@@ -127,10 +127,16 @@ def _is_rally(kind) -> bool:
     return kind in (None, "rally")
 
 
-def read_marks(path: str) -> list:
-    """The marks sidecar as RallyLab decodes it (`[RallyMarkRecord]`): `{start, end, kind, contacts}` per mark.
-    A file RallyLab could not decode is refused here too."""
-    data = load_json(path, "rally marks")
+def read_marks(path: str) -> tuple[list, str]:
+    """The marks sidecar as RallyLab decodes it (`[RallyMarkRecord]`): `{start, end, kind, contacts}` per mark, and
+    the SHA-256 of the very bytes parsed — read once, so a save or a phone sync in between can't pair one file's
+    intervals with another's hash. A file RallyLab could not decode is refused here too."""
+    try:
+        with open(path, "rb") as fh:
+            raw = fh.read()
+        data = json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
+        raise AuditError(f"rally marks unreadable: {e}")
     if not isinstance(data, list):
         raise AuditError("rally marks unreadable: not a list of marks")
     marks = []
@@ -145,7 +151,7 @@ def read_marks(path: str) -> list:
                                                  for c in contacts):
             raise AuditError(f"rally marks unreadable: mark {i} has a contact without a time or a known kind")
         marks.append({"start": float(m["startTime"]), "end": float(m["endTime"]), "kind": kind, "contacts": contacts})
-    return marks
+    return marks, hashlib.sha256(raw).hexdigest()
 
 
 def normalised_cuts(cuts) -> list:
@@ -322,8 +328,8 @@ def _eligible_record(project_dir: str, rec: dict, row: dict, fold: int) -> dict:
     raw_cuts = session.get("cuts") or []
     if any(not isinstance(c, dict) or not _is_number(c.get("start")) or not _is_number(c.get("end")) for c in raw_cuts):
         raise AuditError("the session's cut ranges are unreadable")
-    spans = truth_spans(read_marks(marks_path), [(c["start"], c["end"]) for c in raw_cuts])
-    marks_sha = v.sha256_file(marks_path)
+    marks, marks_sha = read_marks(marks_path)
+    spans = truth_spans(marks, [(c["start"], c["end"]) for c in raw_cuts])
     out = {
         "recordingId": rid, "groupId": rec["groupId"], "surface": rec["surface"], "camera": rec["camera"], "split": rec["split"],
         "fold": fold, "durationSec": rec["durationSec"], "durationTicks": tick(rec["durationSec"]),

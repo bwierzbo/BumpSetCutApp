@@ -126,6 +126,26 @@ class Inventory(unittest.TestCase):
         self.assertEqual(doc["totals"]["marksChangedSinceExport"], ["grs_b"])
         self.assertEqual(doc["totals"]["spansChangedSinceExport"], ["grs_b"])
 
+    def test_the_marks_hash_is_of_the_bytes_the_intervals_came_from(self):
+        path = self.syn.marks_path("grs_b")
+        with open(path, "rb") as fh:
+            parsed = fh.read()
+        real = inv.read_marks
+
+        def synced_meanwhile(p):                                        # a phone sync replaces the sidecar right after the read
+            out = real(p)
+            if p == path:
+                synthetic.write_json(path, synthetic.marks()[:-2])
+            return out
+        inv.read_marks = synced_meanwhile
+        try:
+            doc = self.syn.build()
+        finally:
+            inv.read_marks = real
+        rec = next(r for r in doc["recordings"] if r["recordingId"] == "grs_b")
+        self.assertEqual(rec["marksSha256"], inv.hashlib.sha256(parsed).hexdigest(), "the hash names the marks the intervals were made from")
+        self.assertNotEqual(rec["marksSha256"], inv.v.sha256_file(path))
+
     def test_a_cut_range_added_since_the_export_changes_the_spans_not_the_marks(self):
         self.syn.sessions["ind_b"]["cuts"] = [{"start": 0.0, "end": 3.0}]
         self.syn.save()
