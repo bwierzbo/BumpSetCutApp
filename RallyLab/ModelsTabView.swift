@@ -391,7 +391,7 @@ private struct MultiFrameBox: View {
                 } label: { Label("Train on Desktop", systemImage: "desktopcomputer") }
                 .fixedSize()
                 .disabled(lab.desktopBusy || lab.packages.isEmpty)
-                .help("Sends the newest multi-frame package to the desktop, trains there, brings the model back and scores it")
+                .help("Sends the newest lineage package (--package-l2) to the desktop, trains there, brings the model back and scores it")
                 if let run = lab.desktopRun, !lab.desktopBusy {
                     Button("Bring Back \(run)") { lab.bringBackDesktopRun() }
                         .help("Training carries on on the desktop if RallyLab was closed; this waits for it and brings it back")

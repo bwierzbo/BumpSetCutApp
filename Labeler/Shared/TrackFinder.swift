@@ -8,9 +8,24 @@
 //  After you fix a frame, it looks again near your fix (lookAgain) for the
 //  ball the first pass missed on the frames either side.
 //
+//  Every pass here runs a model many times — a window of frames, a crop —
+//  and takes `whileAllowed`: asked before each of those, so the pass stops
+//  itself at the next one when its recording stops being open to the models
+//  (ModelLeave), and hands back nothing of what it had found.
+//
 
 import CoreGraphics
 import Foundation
+
+/// The multi-frame model fed frame by frame: a push may run it over a window of frames, the finish over the last.
+/// HeatmapWindows in the apps; a counting stand-in in tests.
+protocol HeatWindowing {
+    associatedtype Frame
+    mutating func push(_ frame: Frame) -> [[HeatmapBallDetector.Peak]]
+    mutating func finish() -> [[HeatmapBallDetector.Peak]]
+}
+
+extension HeatmapWindows: HeatWindowing {}
 
 enum TrackFinder {
 
@@ -24,9 +39,13 @@ enum TrackFinder {
     /// A multi-frame peak with no YOLO candidate at the spot counts this much.
     static let heatAloneWeight = 0.6
 
+    /// False — and nothing merged — when `whileAllowed` said no before a window: the pass stopped there.
+    @discardableResult
     static func addHeatmapCandidates(_ heat: HeatmapBallDetector, grays: [HeatmapBallDetector.Frame?],
-                                     to found: inout [[TrackCandidate]]) {
-        for (i, peaks) in heatPeaks(heat, grays: grays).enumerated() where found.indices.contains(i) {
+                                     to found: inout [[TrackCandidate]], whileAllowed: () -> Bool) -> Bool {
+        var windows = HeatmapWindows(detector: heat)
+        guard let all = heatPeaks(&windows, frames: grays, whileAllowed: whileAllowed) else { return false }
+        for (i, peaks) in all.enumerated() where found.indices.contains(i) {
             for peak in peaks {
                 let c = CGPoint(x: peak.rect.midX, y: peak.rect.midY)
                 let near = found[i].indices.first { k in
@@ -42,21 +61,25 @@ enum TrackFinder {
                 }
             }
         }
+        return true
     }
 
-    /// The multi-frame model's peaks on each of `grays`, from overlapping
+    /// The multi-frame model's peaks on each of `frames`, from overlapping
     /// windows in order; a frame that couldn't be read stands in with the
-    /// one before it.
-    private static func heatPeaks(_ heat: HeatmapBallDetector, grays: [HeatmapBallDetector.Frame?]) -> [[HeatmapBallDetector.Peak]] {
-        var windows = HeatmapWindows(detector: heat)
-        var answers: [[HeatmapBallDetector.Peak]] = []
-        var last: HeatmapBallDetector.Frame?
-        for gray in grays {
-            guard let frame = gray ?? last ?? grays.lazy.compactMap({ $0 }).first else { answers.append([]); continue }
+    /// one before it. `whileAllowed` is asked before every push and before
+    /// the finish — each may run the model over a window — and once it says
+    /// no, no further window runs and the answer is nil.
+    static func heatPeaks<Windows: HeatWindowing>(_ windows: inout Windows, frames: [Windows.Frame?],
+                                                  whileAllowed: () -> Bool) -> [[HeatmapBallDetector.Peak]]? {
+        var last: Windows.Frame?
+        let first = frames.lazy.compactMap({ $0 }).first
+        let pushed = ModelLeave.each(frames, whileAllowed: whileAllowed) { gray -> [[HeatmapBallDetector.Peak]] in
+            guard let frame = gray ?? last ?? first else { return [[]] }
             last = frame
-            answers += windows.push(frame)
+            return windows.push(frame)
         }
-        return answers + windows.finish()
+        guard let pushed, let rest = ModelLeave.each([()], whileAllowed: whileAllowed, { windows.finish() }) else { return nil }
+        return pushed.flatMap { $0 } + rest.flatMap { $0 }
     }
 
     // MARK: - Looking again near a fix
@@ -84,22 +107,39 @@ enum TrackFinder {
     /// ball, or when the "ball" stops moving (a head or a pole, not a ball in
     /// play). Returns the new candidates by frame, to add before re-solving.
     /// `heat` should have its threshold at `lookAgainHeatThreshold`.
+    /// `whileAllowed` is asked before every window of the multi-frame model
+    /// and every crop the detector is run on; once it says no the search
+    /// stops there and nothing is returned.
     static func lookAgain(from fix: Int, in rally: TrackedRally, detector: YOLODetector, heat: HeatmapBallDetector?,
+                          whileAllowed: () -> Bool, image: (Int) -> CGImage?) -> [Int: [TrackCandidate]] {
+        lookAgain(from: fix, in: rally, whileAllowed: whileAllowed, faint: { span in
+            guard let heat else { return [] }
+            var windows = HeatmapWindows(detector: heat)
+            return heatPeaks(&windows, frames: span.map { k in image(k).flatMap { heat.frame($0) } }, whileAllowed: whileAllowed)
+        }, detect: { patch in
+            detector.detect(in: patch, at: .zero).map { ($0.bbox, $0.confidence) }
+        }, image: image)
+    }
+
+    /// The search itself, over what the models are asked through: `faint` — the multi-frame model's peaks on
+    /// the frames of a span, in order (empty without one, nil when it was stopped) — and `detect`, the detector
+    /// on one crop (Vision boxes in the crop).
+    static func lookAgain(from fix: Int, in rally: TrackedRally, whileAllowed: () -> Bool,
+                          faint peaks: (Range<Int>) -> [[HeatmapBallDetector.Peak]]?,
+                          detect: (CGImage) -> [(bbox: CGRect, confidence: Float)],
                           image: (Int) -> CGImage?) -> [Int: [TrackCandidate]] {
         func centre(_ r: CGRect) -> CGPoint { CGPoint(x: r.midX, y: r.midY) }
         func distance(_ a: CGPoint, _ b: CGPoint) -> Double { hypot(a.x - b.x, (a.y - b.y) * 9 / 16) }
         let points = rally.points
         guard points.indices.contains(fix), rally.candidates.count == points.count,
-              let fixBox = points[fix].box, points[fix].state == .visible else { return [:] }
+              let fixBox = points[fix].box, points[fix].state == .visible, whileAllowed() else { return [:] }
         // The multi-frame model over the frames either side (and the few its
         // windows need past them).
         let span = max(0, fix - lookAgainSteps - 4)..<min(points.count, fix + lookAgainSteps + 5)
         var faint: [Int: [TrackCandidate]] = [:]
-        if let heat {
-            let grays = span.map { k in image(k).flatMap { heat.frame($0) } }
-            for (n, peaks) in heatPeaks(heat, grays: grays).enumerated() {
-                faint[span.lowerBound + n] = peaks.map { TrackCandidate(rect: $0.rect, confidence: Double($0.confidence)) }
-            }
+        guard let found = peaks(span) else { return [:] }
+        for (n, peaks) in found.enumerated() {
+            faint[span.lowerBound + n] = peaks.map { TrackCandidate(rect: $0.rect, confidence: Double($0.confidence)) }
         }
         var added: [Int: [TrackCandidate]] = [:]
         for step in [-1, 1] {
@@ -141,7 +181,9 @@ enum TrackFinder {
                 let size = CGSize(width: frame.width, height: frame.height)
                 // Vision (bottom-up) ↔ top-left pixels.
                 let spot = CGPoint(x: predicted.x * size.width, y: (1 - predicted.y) * size.height)
-                let found = nearest(detections(around: spot, in: frame, detector: detector, sides: [480, 960]).map { d in
+                // Stopped at a crop: nothing of this search is handed back.
+                guard let crops = detections(around: spot, in: frame, sides: [480, 960], whileAllowed: whileAllowed, detect: detect) else { return [:] }
+                let found = nearest(crops.map { d in
                     TrackCandidate(rect: CGRect(x: d.rect.minX / size.width, y: 1 - d.rect.maxY / size.height,
                                                 width: d.rect.width / size.width, height: d.rect.height / size.height),
                                    confidence: Double(d.confidence))
@@ -167,9 +209,10 @@ enum TrackFinder {
     /// pixels), each side in turn: a 480 crop at its 960 input is a 2× zoom,
     /// so a small or blurred ball the whole frame hid shows up. Boxes in
     /// top-left pixels of the whole image; crop-sized boxes (something
-    /// bigger than the crop) are dropped.
-    static func detections(around spot: CGPoint, in image: CGImage, detector: YOLODetector,
-                           sides: [CGFloat]) -> [(rect: CGRect, confidence: Float)] {
+    /// bigger than the crop) are dropped. `whileAllowed` is asked before
+    /// the detector runs on each crop; nil once it says no.
+    static func detections(around spot: CGPoint, in image: CGImage, sides: [CGFloat], whileAllowed: () -> Bool,
+                           detect: (CGImage) -> [(bbox: CGRect, confidence: Float)]) -> [(rect: CGRect, confidence: Float)]? {
         var out: [(rect: CGRect, confidence: Float)] = []
         for side in sides {
             let s = min(side, CGFloat(min(image.width, image.height)))
@@ -177,7 +220,8 @@ enum TrackFinder {
                               y: min(max(spot.y - s / 2, 0), CGFloat(image.height) - s),
                               width: s, height: s).integral
             guard let patch = image.cropping(to: crop) else { continue }
-            for det in detector.detect(in: patch, at: .zero) {
+            guard whileAllowed() else { return nil }
+            for det in detect(patch) {
                 // Vision (bottom-left) in the crop → top-left pixels in the image.
                 let box = CGRect(x: crop.minX + det.bbox.minX * crop.width,
                                  y: crop.minY + (1 - det.bbox.maxY) * crop.height,

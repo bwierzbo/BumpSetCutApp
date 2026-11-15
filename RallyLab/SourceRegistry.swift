@@ -321,12 +321,8 @@ enum SourceRegistry {
         }
         let (properties, unreadable) = try FootageProperties.Store(root: root).loadAll()
         for (name, why) in unreadable.sorted(by: { $0.key < $1.key }) { problems.append("footage-properties record for \(name) not read (the recording is quarantined): \(why)") }
-        let hashes = DatasetSplitManifest.Hashes(
-            projectJson: DatasetSplitManifest.sha256(of: projectURL),
-            sessions: DatasetSplitManifest.canonicalDigest(ofDirectory: root.appendingPathComponent("sessions", isDirectory: true)),
-            validationJson: DatasetSplitManifest.sha256(of: PipelineTuner.ValidationSet.file(in: root)))
         return Inputs(project: project, sessions: sessions, validation: validation, exposure: exposure, properties: properties, unreadableProperties: unreadable,
-                      problems: problems, hashes: hashes, now: now)
+                      problems: problems, hashes: .current(of: root), now: now)
     }
 
     static func load(root: URL, now: Date = Date()) throws -> Index {

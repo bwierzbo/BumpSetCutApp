@@ -24,11 +24,14 @@ struct LabelSnapshot: Codable, Sendable {
     var withheld: [String: [String]] = [:]
     /// Footage-type claims (migration 052; D-033): this phone's and others', with their state.
     var claims: [RecordingTypeClaim] = []
+    /// The signed-in account is a lead (public.labelers.lead), as last loaded; false until it has been (a snapshot
+    /// from an older build): then a withheld recording is closed here, as it is for an ordinary labeler.
+    var lead = false
 
     init(videos: [LabelVideo] = [], times: [LabelRallyTimes] = [], tracks: [LabelTrack] = [], states: [LabelProjectState] = [],
-         events: [LabelRallyEvents] = [], withheld: [String: [String]] = [:], claims: [RecordingTypeClaim] = []) {
+         events: [LabelRallyEvents] = [], withheld: [String: [String]] = [:], claims: [RecordingTypeClaim] = [], lead: Bool = false) {
         self.videos = videos; self.times = times; self.tracks = tracks; self.states = states; self.events = events; self.withheld = withheld
-        self.claims = claims
+        self.claims = claims; self.lead = lead
     }
 
     init(from decoder: Decoder) throws {
@@ -40,6 +43,7 @@ struct LabelSnapshot: Codable, Sendable {
         events = try c.decodeIfPresent([LabelRallyEvents].self, forKey: .events) ?? []
         withheld = try c.decodeIfPresent([String: [String]].self, forKey: .withheld) ?? [:]
         claims = try c.decodeIfPresent([RecordingTypeClaim].self, forKey: .claims) ?? []
+        lead = try c.decodeIfPresent(Bool.self, forKey: .lead) ?? false
     }
 }
 

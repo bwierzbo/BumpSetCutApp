@@ -284,17 +284,17 @@ struct ProjectPlanView: View {
                     || progress.frames == 0 || plan.unfinished != nil
                 HStack(spacing: 10) {
                     if blockers.isEmpty {
-                        Button("Export & Train Round \(round.number)") { plan.exportAndTrain(round, progress: progress) }
+                        Button("Train Round \(round.number)") { plan.train(round, progress: progress) }
                             .buttonStyle(.borderedProminent)
                             .disabled(blocked)
                     } else {
-                        Button("Train Round \(round.number) Anyway") { plan.exportAndTrain(round, progress: progress) }
+                        Button("Train Round \(round.number) Anyway") { plan.train(round, progress: progress) }
                             .disabled(blocked)
                             .help("Train before the round's frames are in — the timeline records what it had")
                     }
                     if plan.isRunning { ProgressView().controlSize(.small) }
                 }
-                Text("Exports a multi-frame package, then trains \(round.runs.map(\.title).joined(separator: ", ")) on the desktop one after another and brings each back. "
+                Text("Trains \(round.runs.map(\.title).joined(separator: ", ")) on the desktop one after another, from the project's newest lineage package (RallyLab --project <name> --package-l2), and brings each back. "
                      + "On 50k frames, 15 epochs from scratch: a 512 run takes about 3 hours, 768 about 4 (colour about 10), 1024 about 8 (colour more than a day). RallyLab can be closed — Carry On Training picks it up.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
