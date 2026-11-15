@@ -560,6 +560,22 @@ final class CoverageAuditRecordingTests: XCTestCase {
         XCTAssertTrue(list.notListed.first?.hasPrefix("a: withheld (") == true, "\(list.notListed)")
     }
 
+    func testFirstPassWorkLeftCountsOnlyIntervalsStillAsDrawn() throws {
+        try recording("a")
+        let d = try draw(["a"], repeatSet: [])
+        for i in 0...1 { try A.record(request("a", i, .clean, played: all), draw: d, root: root, tool: "t", now: now) }
+        XCTAssertEqual(try XCTUnwrap(A.status(draw: d, root: root).first).firstLeft, 1)
+        // The first rally now starts earlier: interval 0, reviewed, is no longer as drawn; interval 2 is still unwatched.
+        try writeMarks("a", [(1.5, 4, "rally"), (6, 8, "rally")])
+        let status = try XCTUnwrap(A.status(draw: d, root: root).first)
+        XCTAssertEqual([status.movedIntervals, status.reviewed, status.firstLeft], [1, 2, 1], "the unwatched interval is still work left")
+        // A finding given before the interval played whole is work left too.
+        try A.record(request("a", 2, .finding(A.Finding(kind: .missedServe, approxStartSec: 9)), played: A.PlayedCoverage()), draw: d, root: root, tool: "t", now: now)
+        XCTAssertEqual(try XCTUnwrap(A.status(draw: d, root: root).first).firstLeft, 1)
+        try A.record(request("a", 2, .playedWhole, played: all), draw: d, root: root, tool: "t", now: now)
+        XCTAssertEqual(try XCTUnwrap(A.status(draw: d, root: root).first).firstLeft, 0)
+    }
+
     func testARepeatOrResolutionWithFindingsNotPlayedWholeIsWorkLeft() throws {
         try recording("a")
         let d = try draw(["a"], repeatSet: [0, 1])

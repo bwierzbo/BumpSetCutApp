@@ -335,7 +335,7 @@ final class CoverageAuditModel {
     private func hasWork(_ s: CoverageAudit.RecordingStatus) -> Bool {
         guard s.problem == nil else { return false }
         switch pass {
-        case .first: return s.reviewed - s.partialLooks < s.total - s.movedIntervals
+        case .first: return s.firstLeft > 0
         case .repeatLook: return s.repeatDone < s.repeatOwed
         case .resolution: return s.unresolved + s.unfinishedResolutions > 0
         }
