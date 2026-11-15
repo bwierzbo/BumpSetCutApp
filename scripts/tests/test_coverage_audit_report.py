@@ -20,6 +20,7 @@ import coverage_audit_draw as d  # noqa: E402
 import coverage_audit_inventory as inv  # noqa: E402
 import coverage_audit_report as report  # noqa: E402
 import coverage_audit_synthetic as synthetic  # noqa: E402
+import validate_dataset as v  # noqa: E402
 
 
 class Bound(unittest.TestCase):
@@ -118,6 +119,13 @@ class Records(unittest.TestCase):
         iv["playedAllAtMaxRate"] = 2.0
         synthetic.write_json(self.syn.record_path(self.first), record)
         self.assertEqual(report.evaluate(self.draw_path, self.syn.project)["pilot"]["outcome"], "pass")
+
+    def test_each_recording_carries_the_hash_of_its_record_as_evaluated(self):
+        result = self.evaluate()
+        row = self.row(result)
+        self.assertEqual(row["recordSha256"], v.sha256_file(self.syn.record_path(self.first)))
+        missing = self.row(self.evaluate(skip=(self.ids[5],)), self.ids[5])
+        self.assertIsNone(missing["recordSha256"])
 
     def test_a_record_with_repeats_by_both_reviewers_is_read_by_who_made_each(self):
         self.evaluate()
