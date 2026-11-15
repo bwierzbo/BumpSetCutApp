@@ -33,6 +33,7 @@ pr: research/player-pose-feasibility-p0 (#166)
 | `--import-web` (Court Check export, 5 courts, then `bch_ele` after the owner redid it) | `d274beb` | 6 `player_lab_web` confirmations; a dry run first; a repeat import applied nothing; pre-import copies in `court-web-imports/pre-import/` |
 | `--report p2-court-confirmed --review court-reviews/p2-owner-review --audit …` (no `--propose`) | `d274beb` | `court-evals/p2-court-confirmed/summary.json` `aa722e29e2c2c92d…`; owner sheets `persons.csv` `eb8fa85b50465965…`, `frames.csv` `98c2b816201a8d51…` |
 | Same, `p2-court-confirmed-r2` | `02d3eb2` | `summary.json` `90572c9388960ac9…`: review figures identical; proposal errors equal to the 14th digit; 174 / 174 labelled boxes match the run's boxes |
+| Same, `p2-court-confirmed-r3` | `777477d` | `summary.json` `a779d239910983cf…`: detection over fully labelled frames only; 0 incomplete frames; all figures identical |
 
 ## Results
 
