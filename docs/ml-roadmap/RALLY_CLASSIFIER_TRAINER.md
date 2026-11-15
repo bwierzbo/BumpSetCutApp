@@ -101,7 +101,7 @@ Labels: only steps with `w` = 1 enter a loss, a class weight, a standardisation 
 25. R2's augmentation: at most one dropout run per window, 3–15 cells, placed uniformly; besides the columns §4 lists, `is_projectile` is zeroed and `ball_y_any` and `y_above_net` nulled, because the contract ties them to the nulled ones; confidence jitter is drawn per cell and clipped to [0, 1].
 
 **Evaluation**
-26. Scoring fixture: cut ranges and time-breaking spans are both passed as cuts; the contact is the rally's start; `fullyMarked` is coverage complete and negatives `standard`.
+26. Scoring fixture: cut ranges and time-breaking spans are both passed as cuts; the contact is the rally's start; `fullyMarked` is coverage complete and negatives `standard`; under `rally_activity_truth_v2` complete means verified — Stage 1 coverage, or reviewed-clean intervals covering every unmarked tick — so a contaminated, partial or unaudited recording scores no dead time or false clips (its missed rally is never counted as dead time).
 27. Headline tables hold the standard recordings; restricted recordings are scored identically and reported apart, as a group and one by one.
 28. Raw boundaries are the contract's (one span per clip, the union of the raws it joined). The clips' pre-merge raw spans are scored as well (`preMergeRawBoundary`) so that the model's own merges can be told from the padding's; IoU ≥ 0.3 is reported beside 0.5.
 29. Pooled numbers are ratios of sums over recordings; boundary errors are pooled over matched rallies; medians are pooled and get no interval.

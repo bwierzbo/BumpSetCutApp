@@ -604,6 +604,19 @@ class Datasets(unittest.TestCase):
         self.assertIn("negatives **audited**", syn.read_text(os.path.join(self.out, "report.md")))
         self.assertIn("**G6: met** — 12 of 15 groups", syn.read_text(os.path.join(self.out, "report.md")))
 
+    def test_under_v2_only_verified_coverage_is_fully_marked(self):
+        dataset, _, _ = make(self.tmp, trust="audited", unaudited=("g-bea-00",))
+        recs = {r["recordingId"]: r for r in v.load_manifest(dataset)["recordings"]}
+        self.assertFalse(evaluate.fully_marked(recs[syn.NOT_CLEAN]), "an interval not reviewed clean: its time is not scored as dead time")
+        self.assertFalse(evaluate.fully_marked(recs["syn_bea_00"]), "declared and never audited")
+        self.assertTrue(evaluate.fully_marked(recs["syn_ind_02"]), "every unmarked tick reviewed clean")
+        self.assertTrue(evaluate.fully_marked(recs["syn_gra_00"]), "Stage 1 verified coverage")
+        self.assertFalse(evaluate.fully_marked(recs["syn_bea_01"]), "edited footage")
+        declared_dir = os.path.join(self.tmp, "declared")
+        os.makedirs(declared_dir)
+        declared = {r["recordingId"]: r for r in v.load_manifest(syn.write(declared_dir, trust="declared"))["recordings"]}
+        self.assertTrue(evaluate.fully_marked(declared[syn.NOT_CLEAN]), "v1: the declaration is what v1 scores by")
+
     def test_too_few_audited_groups_is_refused_with_the_exact_deficiency(self):
         unaudited = ("g-bea-00", "g-bea-02", "g-bea-03", "g-gra-01", "g-gra-02", "g-ind-00", "g-ind-01")
         dataset, closure, folds_file = make(self.tmp, trust="audited", unaudited=unaudited)
@@ -624,7 +637,9 @@ class Datasets(unittest.TestCase):
         code, out, err = quiet(train.main, args + ["--dry-run"])
         self.assertEqual(code, 0, err)
         self.assertIn("negatives audited: G7 met, G6 NOT MET (7 of 15 groups with trusted negatives, 10 required) — a real run would be refused", out)
-        self.assertEqual(syn.read_json(os.path.join(self.out, "readiness.json"))["problems"], gate["deficiencies"])
+        problems = syn.read_json(os.path.join(self.out, "readiness.json"))["problems"]
+        self.assertEqual(problems[-len(gate["deficiencies"]):], gate["deficiencies"], "every deficiency of the gate is reported")
+        self.assertTrue(all("no fully marked" in p for p in problems[:-len(gate["deficiencies"])]), problems)    # under v2 only verified coverage is
 
     def tamper(self, dataset):
         """Drop one reviewed-clean interval from the manifest and leave the labels as they were."""

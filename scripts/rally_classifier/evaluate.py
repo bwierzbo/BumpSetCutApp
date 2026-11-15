@@ -7,7 +7,10 @@ recordings a table holds, sums over them, the paired group bootstrap, and the hy
 A recording's fixture: truth = its rallies (contact = start) and its missed-serve / other marks as excluded
 spans; cuts = its cut ranges **and its time-breaking spans** (both are not footage in this dataset);
 `fullyMarked` = coverage complete **and** full-video negatives `standard` (preregistration §6) — otherwise the
-scorecard leaves dead time and false clips null; raw = one span per clip, the union of the raws it joined
+scorecard leaves dead time and false clips null. Under `rally_activity_truth_v2` (a recording record with
+`coverage.audit`), "complete" is verified, not declared: Stage 1 coverage, or reviewed-clean intervals covering
+every unmarked tick of the recording as it is now (gate G7) — a contaminated, partial or unaudited recording is not
+fully marked, so the time a missed rally lies in is never scored as dead time; raw = one span per clip, the union of the raws it joined
 (the contract's finalized raw boundary); padded = the clip.
 
 Beside the contract's scorecard a card carries two more raw-boundary scores from the same function: at
@@ -52,7 +55,13 @@ TOLERANCE_SEC = rs.DEFAULTS["tolerance"]
 
 
 def fully_marked(rec: dict) -> bool:
-    return rec["coverage"]["state"] in v.COMPLETE and rec["eligibility"]["fullVideoNegatives"] == "standard"
+    cov = rec["coverage"]
+    if rec["eligibility"]["fullVideoNegatives"] != "standard" or cov["state"] not in v.COMPLETE:
+        return False
+    if "audit" not in cov or cov["state"] == "stage1_complete":        # v1 (declared), or verified by Stage 1
+        return True
+    clean = [(c["startTick"], c["endTick"]) for c in (cov["audit"] or {}).get("cleanIntervals") or []]
+    return all(any(a <= s and e <= b for a, b in clean) for s, e in v.unmarked_intervals(rec))
 
 
 def is_handheld(rec: dict) -> bool:
