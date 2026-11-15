@@ -2,7 +2,7 @@
 name: rally-classifier-coverage-audit-protocol
 status: frozen 2026-11-14 on the owner's authorisation; pilot not yet reviewed
 created: 2026-11-15T07:03:36Z
-updated: 2026-11-15T07:14:15Z
+updated: 2026-11-15T07:31:25Z
 decision: D-001, D-002, D-021, D-028, D-030, D-032, D-033, D-036, D-037; the owner's authorisation of 2026-11-14 ("Merge Remaining Corrective PRs and Complete Classifier Readiness", section "Negative-coverage audit")
 ---
 
@@ -12,7 +12,7 @@ Owner requirement (2026-11-03): "Confirming a recording's type as continuous is 
 
 Owner authorisation (2026-11-14), the parts that bind this document: "The owner does not waive negative-label verification." "Adapt the protocol and sample-draw tool from PR #138 to the actual corrected dataset `rc-v1-20261112`." "Freeze the audit protocol, sample selection and pass/fail criteria. Preserve group independence. Sample four eligible continuous recordings per surface where feasible. Refuse all protected recordings and aliases. Bind the draw to the dataset, current marks and source identities." "Hide ball-path and pipeline predictions during the audit. Do not fabricate human review or automatically certify unmarked intervals." "Record missed rallies, missed serves, boundary errors, non-rally activity, edited footage and uncertainty separately." "Start with the 12-recording pilot." "Arrange the blind repeat sample and document reviewer independence accurately." "If the pilot passes, proceed to review the remaining eligible continuous recordings supplying negative labels. A passing sample does not automatically certify unaudited recordings." "Only explicitly reviewed clean intervals or eligible Stage 1 verified coverage may supply trusted negatives under the adopted G7 policy." "Do not allow edited footage to supply full-video negative labels." "Never modify a sealed dataset or frozen folds file in place."
 
-This protocol is the one proposed on PR #138 (never merged), adapted to the dataset that exists. What changed, and why, is in §11. It follows the shape of [EVENT_BOUNDARY_REVIEW_PROTOCOL.md](EVENT_BOUNDARY_REVIEW_PROTOCOL.md) (D-004) but certifies something different and cheaper: not where a rally's boundaries are, but whether the time **between** marks contains play. It is the condition under which a `NON_RALLY` label of the [dataset contract](RALLY_CLASSIFIER_DATASET_CONTRACT.md) may carry weight in the first classifier experiment ([preregistration](experiments/EXP-20261103-temporal-rally-classifier-prereg.md)).
+This protocol is the one proposed on PR #138 (not merged), adapted to the dataset that exists. What changed, and why, is in §11. It follows the shape of [EVENT_BOUNDARY_REVIEW_PROTOCOL.md](EVENT_BOUNDARY_REVIEW_PROTOCOL.md) (D-004) but certifies something different and cheaper: not where a rally's boundaries are, but whether the time **between** marks contains play. It is the condition under which a `NON_RALLY` label of the [dataset contract](RALLY_CLASSIFIER_DATASET_CONTRACT.md) may carry weight in the first classifier experiment ([preregistration](experiments/EXP-20261103-temporal-rally-classifier-prereg.md)).
 
 The sample, the verdicts, the record and the pass / fail criterion below were fixed before any draw was made and before any interval was reviewed. This document is not edited afterwards: results go into their own record, and a change to the protocol is a new document that supersedes this one.
 
