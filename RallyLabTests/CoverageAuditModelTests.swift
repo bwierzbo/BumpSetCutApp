@@ -353,6 +353,11 @@ final class CoverageAuditModelTests: XCTestCase {
         XCTAssertTrue(model.status.contains("missedServe") || model.status.contains("missed_serve"), model.status)
         model.setPass(.repeatLook)
         XCTAssertEqual(model.status, CoverageAuditModel.opening(.repeatLook))
+        // A note typed in the first look and never sent is not on screen in the repeat either.
+        model.setPass(.first)
+        model.note = "a ball rolled in from the next court"
+        model.setPass(.repeatLook)
+        XCTAssertEqual(model.note, "", "the draft note was the first look's")
         // A first-pass save still in flight when the pass changes is kept, and says nothing.
         model.setPass(.first)
         await model.open("v", at: 1, play: false)
