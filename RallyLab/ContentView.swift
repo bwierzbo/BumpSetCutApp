@@ -26,7 +26,7 @@ struct ContentView: View {
     /// Set by "Continue without a project" on the welcome window.
     @State private var workingWithoutProject = false
 
-    enum Tab: String, Hashable { case label, projects, sampler, track, review, coverage, netLabels, queue, models, pipeline, net, compare, fsm }
+    enum Tab: String, Hashable { case label, projects, sampler, track, review, audit, netLabels, queue, models, pipeline, net, compare, fsm }
 
     var body: some View {
         Group {
@@ -101,13 +101,13 @@ struct ContentView: View {
             // into <video>.coverageaudit.json — the original footage and nothing over it (no ball path, no pipeline).
             Group {
                 if projects.project != nil {
-                    CoverageAuditView(model: coverage, isActive: tab == .coverage)
+                    CoverageAuditView(model: coverage, isActive: tab == .audit)
                 } else {
                     ProjectWelcomeView(projects: projects) { tab = .pipeline }
                 }
             }
-            .tabItem { Label("Coverage", systemImage: "eye") }
-            .tag(Tab.coverage)
+            .tabItem { Label("Audit", systemImage: "eye") }
+            .tag(Tab.audit)
             // One net box per recording, by hand, for the net model's dataset (--export-net-dataset).
             Group {
                 if projects.project != nil {

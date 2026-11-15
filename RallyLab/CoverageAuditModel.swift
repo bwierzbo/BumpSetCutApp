@@ -2,7 +2,7 @@
 //  CoverageAuditModel.swift
 //  RallyLab
 //
-//  The Coverage tab's state: a frozen draw, its recordings with what their records say
+//  The Audit tab's state: a frozen draw, its recordings with what their records say
 //  (CoverageAudit.status, read-only), the open recording (through CoverageAudit.open —
 //  the one guard: it refuses the withheld closure and writes the ledger row before a
 //  frame is shown), an AVPlayer on the ORIGINAL footage, the interval under review with

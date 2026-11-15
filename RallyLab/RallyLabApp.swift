@@ -21,7 +21,7 @@ struct RallyLabApp: App {
     @State private var phone: LabelingSync
     /// Stage 1 rally-boundary review (D-024).
     @State private var boundaries: RallyBoundariesModel
-    /// The negative-coverage audit's review queue (Coverage tab).
+    /// The negative-coverage audit's review queue (Audit tab).
     @State private var coverage: CoverageAuditModel
     @State private var netLabels: NetLabelsModel
     /// RallyLab 2.0: the project's labeling tasks and source index (Queue tab).

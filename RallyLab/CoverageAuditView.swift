@@ -2,7 +2,7 @@
 //  CoverageAuditView.swift
 //  RallyLab
 //
-//  The Coverage tab: the negative-coverage audit's review queue. On the left the frozen
+//  The Audit tab: the negative-coverage audit's review queue. On the left the frozen
 //  draw, the pass (review, blind repeat, resolution) and the draw's recordings with
 //  their progress; on the right the original footage, the interval under review with a
 //  second of context either side, what of it has been played, and the verdict keys.

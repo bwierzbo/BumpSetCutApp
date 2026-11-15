@@ -6,7 +6,7 @@
 //  or a ledger row, and no video is played: per drawn recording how many intervals are
 //  reviewed, the derived state, the findings that count (after the repeat and its
 //  resolution), the repeat's progress, and whether the marks moved since the draw
-//  (`status`, the Coverage tab's list and `RallyLab --coverage-audit-status`); and the
+//  (`status`, the Audit tab's list and `RallyLab --coverage-audit-status`); and the
 //  findings as a list for the marking pass (`findingsList`), since the audit itself
 //  writes no rally mark. A withheld recording in a draw is named and not read.
 //

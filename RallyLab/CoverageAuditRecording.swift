@@ -4,7 +4,7 @@
 //
 //  The only ways a recording is opened for the negative-coverage audit and its record
 //  changed (CLAUDE.md: guards live in the shared function, ledgers fail closed). Every
-//  caller — the Coverage tab, a test, a later command — comes through `open` and
+//  caller — the Audit tab, a test, a later command — comes through `open` and
 //  `record`, and both begin with `admit`, which refuses:
 //
 //   - a recording that is not one of the frozen draw's;
@@ -153,10 +153,14 @@ extension CoverageAudit {
         return file
     }
 
-    /// A person's use of the recording, on the ledger: one row per recording per draw (a repeated one is dropped).
+    /// A person's use of the recording, on the ledger: one row per recording per draw. Once the row is there the
+    /// ledger is left alone — a verdict is saved at every key press, and the ledger is one file every other
+    /// operation's uses are appended to as well, so it is not rewritten for nothing.
     private static func logUse(of recordingId: String, draw: LoadedDraw, root: URL, now: Date) throws {
+        let ref = ledgerRef(draw.draw.drawId)
+        if let rows = try? ExposureLog.readStrict(in: root), rows.contains(where: { $0.video == recordingId && $0.kind == .coverageAudit && $0.ref == ref }) { return }
         do {
-            try ExposureLog.record(videos: [recordingId], kind: .coverageAudit, ref: ledgerRef(draw.draw.drawId),
+            try ExposureLog.record(videos: [recordingId], kind: .coverageAudit, ref: ref,
                                    note: "negative-coverage audit of \(draw.draw.datasetName): a person reviewed the unmarked intervals; no model ran", in: root, now: now)
         } catch { throw Failure.ledgerNotWritten(error.localizedDescription) }
     }
@@ -306,7 +310,8 @@ extension CoverageAudit {
     nonisolated(unsafe) private static var keptSessions: [String: (stamps: [String: FileFingerprintCache.Stamp], sessions: [VideoSession])] = [:]
 
     /// Every session of the project, read strictly (one that can't be read throws: it may be a withheld recording's),
-    /// without its frames and tracks — the audit reads a session's name, file, completion and cut ranges only. The
+    /// without its frames, tracks and net box — the audit reads a session's name, file, completion and cut ranges
+    /// only, and holds nothing a model produced. The
     /// session files are tens of megabytes and a verdict is saved at every key press, so the answer is kept while the
     /// sessions folder holds the same files, each the file it was (size, modification time, file number: a session is
     /// saved by replacing its file); anything else is read again. A read that throws is never kept.
@@ -324,6 +329,7 @@ extension CoverageAudit {
             slim.frames = []
             slim.tracks = nil
             slim.rejected = nil
+            slim.netBox = nil
             return slim
         }
         sessionsLock.lock()

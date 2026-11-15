@@ -2,7 +2,7 @@
 //  CoverageAuditModelTests.swift
 //  RallyLabTests
 //
-//  The Coverage tab's model against a real player: a committed 3 s clip in a synthetic
+//  The Audit tab's model against a real player: a committed 3 s clip in a synthetic
 //  project, played by the model's own AVPlayer. What plays earns coverage and a clean;
 //  a seek earns none; the queue moves on after a verdict; findings take the playhead or
 //  the marked in/out; undo takes the last verdict back; leaving the tab releases the
