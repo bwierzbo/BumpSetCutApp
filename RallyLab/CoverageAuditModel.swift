@@ -192,6 +192,8 @@ final class CoverageAuditModel {
         self.pass = pass
         clearPending()
         intervalIndex = nil
+        // Nothing of the last pass's feedback stays on screen: in the blind repeat it would show the first verdict.
+        say(Self.opening(pass))
         if let first = firstOpen(after: nil) ?? visibleIntervals.first?.index { select(first, play: false) }
     }
 
@@ -454,6 +456,15 @@ final class CoverageAuditModel {
     }
 
     private func say(_ text: String) { status = text; lastRefused = false }
+
+    /// What the status line says on entering a pass — nothing of what was said in another.
+    static func opening(_ pass: CoverageAudit.Pass) -> String {
+        switch pass {
+        case .first: return "First look: every drawn interval."
+        case .repeatLook: return "Blind repeat: the first look's verdicts are hidden."
+        case .resolution: return "Resolution: both looks, where they disagree."
+        }
+    }
     private func refuse(_ text: String) { status = text; lastRefused = true }
 
     func setMarkIn() {
@@ -545,9 +556,13 @@ final class CoverageAuditModel {
             let result = await Task.detached(priority: .userInitiated) { Result { try CoverageAudit.record(request, draw: draw, root: root, tool: tool) } }.value
             guard mine == generation else { return false }
             busy = false
+            // A save made in another pass than the one now on screen is kept, and says nothing: its feedback would be
+            // that pass's verdict, shown during this one (the blind repeat).
+            let samePass = key.pass == pass
+            @MainActor func say(_ text: String) { if samePass { self.say(text) } }
             switch result {
             case .failure(let error):
-                refuse(error.localizedDescription)
+                if samePass { refuse(error.localizedDescription) } else { self.say(Self.opening(pass) + " (A save of the previous pass was not taken; open it again to see why.)") }
                 return false
             case .success(let written):
                 file = written

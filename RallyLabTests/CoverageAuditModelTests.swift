@@ -318,4 +318,24 @@ final class CoverageAuditModelTests: XCTestCase {
         XCTAssertEqual(model.visibleIntervals.map(\.index), [0, 1])
         model.deactivate()
     }
+
+    func testEnteringTheBlindRepeatShowsNothingOfTheFirstLook() async throws {
+        let model = try await model()
+        await model.open("v", play: false)
+        // A first-pass finding, its feedback on screen; then straight to the repeat.
+        model.addFinding(.missedServe)
+        try await wait("the finding") { !model.busy && model.currentLook != nil }
+        XCTAssertTrue(model.status.contains("missedServe") || model.status.contains("missed_serve"), model.status)
+        model.setPass(.repeatLook)
+        XCTAssertEqual(model.status, CoverageAuditModel.opening(.repeatLook))
+        // A first-pass save still in flight when the pass changes is kept, and says nothing.
+        model.setPass(.first)
+        await model.open("v", at: 1, play: false)
+        model.addFinding(.nonRallyActivity)
+        model.setPass(.repeatLook)
+        try await wait("the save") { !model.busy }
+        XCTAssertEqual(model.status, CoverageAuditModel.opening(.repeatLook), "nothing of the first look reaches the repeat")
+        XCTAssertEqual(try onDisk("v")?.review(1)?.findings.map(\.kind), [.nonRallyActivity], "the save itself is kept")
+        model.deactivate()
+    }
 }
