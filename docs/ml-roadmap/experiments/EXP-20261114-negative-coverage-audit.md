@@ -2,10 +2,10 @@
 id: EXP-20261114-negative-coverage-audit
 status: pilot drawn and frozen (2026-11-15T07:25Z); **no interval reviewed yet** — the review is the owner's; results are added below the line when it is done
 created: 2026-11-15T07:26:43Z
-updated: 2026-11-15T07:26:43Z
+updated: 2026-11-15T18:39:03Z
 decision: D-038 (owner authorisation of 2026-11-14, section "Negative-coverage audit"); D-001, D-002, D-021, D-028, D-030, D-032, D-037
 roadmap_phase: learned temporal rally classifier — data readiness (gates G6 and G7 of EXP-20261103-temporal-rally-classifier-prereg)
-pr: ml/coverage-audit-protocol-and-draw (protocol, inventory, draw, report — PR #183); the review queue, the exporter and the validator are their own PRs
+pr: PR #183 (protocol, inventory, draw, report); PR #186 (the Audit tab, the record and its save operation); PR #187 (exporter and validator under `rally_activity_truth_v2`)
 issue: n/a
 ---
 

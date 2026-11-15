@@ -2,7 +2,7 @@
 id: EXP-20261103-temporal-rally-classifier-prereg
 status: proposed — not approved, not run; amendments A1–A13 accepted by the owner on 2026-11-14 with reporting requirements (D-038); gate G7 adopted — the negative-coverage audit's pilot is drawn and frozen and not yet reviewed; the trainer is merged (PR #178); the dataset the experiment will run on is a new export after the audit (§12)
 created: 2026-11-03T19:05:00Z
-updated: 2026-11-15T07:27:27Z
+updated: 2026-11-15T18:39:03Z
 approved_by: not yet
 decision: D-001 (approved production candidate), D-007 (objective), D-021 (scoring contract), D-010, D-017, D-018 (preregistration before training, applied to this model), D-031 (eligibility); D-029 (proposed, PR #132) names this direction
 roadmap_phase: Phase 8 (learned temporal classifier vs FSM; no longer approval-gated, D-001), after the measurement phases
@@ -255,15 +255,15 @@ Written on the owner's authorisation of 2026-11-14 ([verbatim](../../decisions/2
 | # | Accepted as proposed, and the owner's reporting requirement | Where it is implemented |
 |---|---|---|
 | A1, A2 | folds in their own frozen file tied to the dataset's digest; procedure `fold_draw_v1` | `folds.py` (merged, PR #178); the folds file of §11.2 |
-| A3 | G6: at least two-thirds of the groups contribute valid negatives, and at least two such groups in every fold — counted over **trusted** negatives (§12.3) | the trainer's gate (`ml/rally-classifier-accepted-amendments`) |
-| A4 | 49 recordings, 25 groups, 736 rallies; `restrictedUse` is the 18 edited recordings. "retain eligible continuous handheld footage, but report handheld recordings separately and include a sensitivity analysis excluding them" | `evaluate.py`: a handheld scope and the headline recomputed without handheld recordings (same branch) |
+| A3 | G6: at least two-thirds of the groups contribute valid negatives, and at least two such groups in every fold — counted over **trusted** negatives (§12.3) | the trainer's gate (PR #185) |
+| A4 | 49 recordings, 25 groups, 736 rallies; `restrictedUse` is the 18 edited recordings. "retain eligible continuous handheld footage, but report handheld recordings separately and include a sensitivity analysis excluding them" | `evaluate.py`: a handheld scope and the headline recomputed without handheld recordings (PR #185) |
 | A5, A6 | R1 by Newton's method; R2's 150-cell margin | `train.py`, `tcn.py` (merged) |
 | A7 | the four per-rally classes the reference scorecard defines | `evaluate.py` (merged) |
-| A8 | the stated fallbacks for the decode point. "report whenever the decoder-selection fallback is used, including why the recall constraint was not met" | the fold record and the report name the fallback, the best recall any grid point reached against R0's, and the number of points that met the constraint (same branch) |
-| A9 | temperature scaling alone, no bias term. "document the calibration limitation caused by class-balanced logistic regression" | the report and `RALLY_CLASSIFIER_TRAINER.md` state it (same branch) |
-| A10 | the above-net asymmetry is stated in every report. "retain the production FSM as the primary baseline and explicitly report its above-net-rule advantage. Investigate a matched baseline without this rule where practical, without changing the primary baseline or silently altering the existing dataset" | practical: the exporter can replay R0 with the rule off from the same evidence. The **next** export carries a third baseline variant `r0_no_net_rule` (`feat/rc-export-trusted-negatives`); every candidate table is also reported against it as a secondary, labelled comparison. R0 stays the primary baseline; H1 and H2 are unchanged; `rc-v1-20261112` is not altered and has no such variant |
+| A8 | the stated fallbacks for the decode point. "report whenever the decoder-selection fallback is used, including why the recall constraint was not met" | the fold record and the report name the fallback, the best recall any grid point reached against R0's, and the number of points that met the constraint (PR #185) |
+| A9 | temperature scaling alone, no bias term. "document the calibration limitation caused by class-balanced logistic regression" | the report and `RALLY_CLASSIFIER_TRAINER.md` state it (PR #185) |
+| A10 | the above-net asymmetry is stated in every report. "retain the production FSM as the primary baseline and explicitly report its above-net-rule advantage. Investigate a matched baseline without this rule where practical, without changing the primary baseline or silently altering the existing dataset" | practical: the exporter can replay R0 with the rule off from the same evidence. The **next** export carries a third baseline variant `r0_no_net_rule` (PR #187); every candidate table is also reported against it as a secondary, labelled comparison. R0 stays the primary baseline; H1 and H2 are unchanged; `rc-v1-20261112` is not altered and has no such variant |
 | A11, A12 | the trainer command of §11.4; the verdict read by hand from the four reports | merged |
-| A13 | the exposure statement of §11.5. "preserve all historical exposure caveats. This is development evaluation, not independent final-test evidence" | every report's header states it with the counts read from the manifest (same branch); §10's limitations stand |
+| A13 | the exposure statement of §11.5. "preserve all historical exposure caveats. This is development evaluation, not independent final-test evidence" | every report's header states it with the counts read from the manifest (PR #185); §10's limitations stand |
 
 ### 12.2 The trainer as merged
 
@@ -306,6 +306,7 @@ These are the hashes of what is merged today. The accepted reporting requirement
 ### 12.5 What remains before training can begin
 
 1. The owner reviews the pilot (about 40 minutes), and its blind repeat a day later (about 10 minutes); then stage 2 if it passes.
-2. The owner merges the open PRs (the protocol and draw tooling #183; the review queue; the exporter and validator; the trainer's accepted amendments and gate; this record).
+2. The owner merges the open PRs, in this order: #183 (protocol, inventory, draw, report), #186 (the Audit tab and its save operation), #187 (the exporter and validator, `rally_activity_truth_v2`, `r0_no_net_rule`, evidence reuse; stacked on #186), #185 (the trainer's accepted amendments and gate; stacked on #187); this record (#184) after #183.
+   The next export cannot both reuse `rc-v1-20261112`'s evidence and carry `r0_no_net_rule` — the variant needs the frame evidence, which a dataset does not store — so a matched baseline means a fresh detector run (about five hours over the share). The owner's choice.
 3. The new export, its validation, its folds, the dry runs (item list of §12.4).
 4. The owner approves this preregistration (the checklist under "Approval"). Until then no model is trained, tuned, calibrated or scored.
