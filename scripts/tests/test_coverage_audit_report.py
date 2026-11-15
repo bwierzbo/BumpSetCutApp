@@ -7,6 +7,7 @@ pass / fail criterion and the trusted-negative count against G6. Standard librar
 """
 
 import contextlib
+import hashlib
 import io
 import os
 import shutil
@@ -127,6 +128,27 @@ class Records(unittest.TestCase):
         os.remove(self.syn.record_path(self.ids[5]))
         missing = self.row(self.evaluate(skip=(self.ids[5],)), self.ids[5])
         self.assertIsNone(missing["recordSha256"])
+
+    def test_the_hash_is_of_the_bytes_evaluated_even_if_the_record_is_saved_meanwhile(self):
+        self.evaluate()
+        path = self.syn.record_path(self.first)
+        with open(path, "rb") as fh:
+            evaluated = fh.read()
+        real = report.review_recording
+
+        def saved_meanwhile(rec, *args):
+            row = real(rec, *args)
+            if rec["recordingId"] == self.first:          # RallyLab saves the sidecar while the report runs
+                with open(path, "w") as fh:
+                    fh.write(evaluated.decode().replace('"clean"', '"clean" ', 1))
+            return row
+        report.review_recording = saved_meanwhile
+        try:
+            row = self.row(report.evaluate(self.draw_path, self.syn.project))
+        finally:
+            report.review_recording = real
+        self.assertEqual(row["recordSha256"], hashlib.sha256(evaluated).hexdigest())
+        self.assertNotEqual(row["recordSha256"], v.sha256_file(path))
 
     def test_a_record_with_repeats_by_both_reviewers_is_read_by_who_made_each(self):
         self.evaluate()

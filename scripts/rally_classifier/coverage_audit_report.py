@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import hashlib
+import json
 import math
 import os
 import sys
@@ -338,11 +340,19 @@ def _read_records(draw: dict, draw_sha: str, project_dir: str) -> list:
     out = []
     for rec in draw["recordings"]:
         path = inv.sidecar_path(inv.session_video(project_dir, rec["recordingId"]), "coverageaudit")
-        record = inv.load_json(path, f"{rec['recordingId']}: audit record") if os.path.exists(path) else None
+        record, sha = None, None
+        if os.path.exists(path):
+            # Read once: the bytes evaluated are the bytes hashed, so a record saved meanwhile can't pair its hash
+            # with another's verdicts. A dataset exported from these records carries the same hash
+            # (`coverage.audit.auditSha256`): a trainer can tell the records it trusts are the ones that passed.
+            try:
+                with open(path, "rb") as fh:
+                    data = fh.read()
+                record, sha = json.loads(data.decode("utf-8")), hashlib.sha256(data).hexdigest()
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
+                raise inv.AuditError(f"{rec['recordingId']}: audit record unreadable: {e}")
         row = review_recording(rec, draw, draw_sha, record, ignore_ticks)
-        # The record's bytes as evaluated: a dataset exported from these records carries the same hash
-        # (`coverage.audit.auditSha256`), so a trainer can tell the records it trusts are the ones that passed.
-        row["recordSha256"] = v.sha256_file(path) if record is not None else None
+        row["recordSha256"] = sha
         out.append(row)
     return out
 
