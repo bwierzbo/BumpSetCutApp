@@ -91,6 +91,10 @@ struct ExposureRecord: Codable, Equatable, Hashable {
         /// whether or not the person then confirms a label. Also the single-video Net tab's
         /// detection over sampled frames.
         case netProposal = "net_proposal"
+        /// A person watched the video's unmarked intervals for the negative-coverage audit of a frozen
+        /// draw (CoverageAudit, ref `coverage-audit <drawId>`): an annotation use like `eventReview`,
+        /// never a model's. Written before the recording is shown and before every verdict is saved.
+        case coverageAudit = "coverage_audit"
     }
 
     var kind: Kind

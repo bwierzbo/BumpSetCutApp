@@ -68,6 +68,12 @@
 //             rallies, spans, coverage and completion in <video>.rallyevents.json; withheld recordings named, not
 //             read. --event-inventory writes manifests/event-inventory-<stamp>.{json,csv}; --review-status prints
 //             the coverage table only. Neither writes a sidecar or a ledger row.)
+//    RallyLab --project v3 --coverage-audit-status <draw.json>   (the negative-coverage audit of a frozen draw
+//             (manifests/coverage-audit/<stamp>-draw.json; a path or a file name there), read-only: per drawn recording
+//             the unmarked intervals reviewed, the derived state (audited_clean / partial / contaminated), the blind
+//             repeat's progress, the findings that count and whether the marks moved since the draw; then the totals.
+//             A withheld recording is named, not read. Writes no record and no ledger row — verdicts are given in
+//             the Coverage tab only (CoverageAudit.record))
 //    RallyLab --project v3 --work-queue [--json] | --reconcile-tasks   (RallyLab 2.0 work queue: every labeling task
 //             — Stage 1 rally boundaries, ball tracks, net corners — with its state from the annotation files
 //             (WorkQueueReconciler). --work-queue prints it, writing nothing; --reconcile-tasks also writes
@@ -311,6 +317,8 @@ enum HeadlessProjects {
             if ok, args.contains("--event-inventory") || args.contains("--review-status") {
                 ok = eventInventory(projects, write: args.contains("--event-inventory"))
             }
+            // The negative-coverage audit of a frozen draw, read-only: what its records say so far.
+            if ok, let draw = value(after: "--coverage-audit-status", in: args) { ok = coverageAuditStatus(projects, draw: draw) }
             if ok, args.contains("--work-queue") || args.contains("--reconcile-tasks") {
                 ok = workQueue(projects, write: args.contains("--reconcile-tasks"), json: args.contains("--json"))
             }
@@ -1208,6 +1216,24 @@ enum HeadlessProjects {
         }
         for line in EventInventory.statusLines(report) { log(line) }
         return true
+    }
+
+    /// `--coverage-audit-status <draw.json>`: per drawn recording the intervals reviewed, the derived state, the repeat's
+    /// progress and the findings that count, then the totals. `draw` is a path, or a file name in the project's
+    /// manifests/coverage-audit/. Reads the draw, the reservations, the sessions, the marks and the audit records;
+    /// writes nothing — no record, no ledger row.
+    @MainActor
+    private static func coverageAuditStatus(_ projects: ProjectsModel, draw: String) -> Bool {
+        guard let root = projects.projectDir else { log("❌ No project folder."); return false }
+        let url = draw.contains("/") ? URL(fileURLWithPath: (draw as NSString).expandingTildeInPath) : CoverageAudit.drawsDirectory(in: root).appendingPathComponent(draw)
+        do {
+            let loaded = try CoverageAudit.loadDraw(url)
+            for line in CoverageAudit.statusLines(try CoverageAudit.status(draw: loaded, root: root), draw: loaded.draw) { log(line) }
+            return true
+        } catch {
+            log("❌ \(error.localizedDescription)")
+            return false
+        }
     }
 
     /// `--export-net-dataset <dir>`: the net labels as a dataset. Written beside the destination first; the
