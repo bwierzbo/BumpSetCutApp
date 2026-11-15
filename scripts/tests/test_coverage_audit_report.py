@@ -124,6 +124,7 @@ class Records(unittest.TestCase):
         result = self.evaluate()
         row = self.row(result)
         self.assertEqual(row["recordSha256"], v.sha256_file(self.syn.record_path(self.first)))
+        os.remove(self.syn.record_path(self.ids[5]))
         missing = self.row(self.evaluate(skip=(self.ids[5],)), self.ids[5])
         self.assertIsNone(missing["recordSha256"])
 
