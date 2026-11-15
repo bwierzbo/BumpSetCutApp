@@ -654,6 +654,15 @@ enum RallyClassifierExporter {
 
     static func tick(_ seconds: Double) -> Int { Int((seconds * Double(timescale)).rounded(.toNearestOrEven)) }
 
+    /// Where the dataset starts a rally: the serve contact when one was marked on it (contacts[0], a serve, inside the
+    /// mark), else the mark's start. `piece` is the rally as RallyTruth keeps it; `records` the sidecar's marks. One
+    /// rule for the dataset's rallies and for the coverage audit's unmarked intervals (CoverageAudit), which must
+    /// agree to the tick.
+    static func rallyStart(_ piece: RallyTruth.Mark, in records: [RallyMarkRecord]) -> Double {
+        let record = records.first { $0.startTime == piece.start && $0.endTime == piece.end && RallyTruth.isRally($0.kind) }
+        return record?.contacts?.first.flatMap { $0.kind == .serve && $0.time >= piece.start && $0.time < piece.end ? $0.time : nil } ?? piece.start
+    }
+
     /// The contract's §5 rule: EXCLUDED > TRANSITION > ACTIVE_RALLY > NON_RALLY_ACTIVITY > NON_RALLY > UNKNOWN.
     static func state(_ tick: Int, _ l: LabelInputs) -> State {
         func inside(_ s: Int, _ e: Int) -> Bool { s <= tick && tick < e }
@@ -771,12 +780,9 @@ enum RallyClassifierExporter {
         let durationTicks = tick(m.duration)
 
         // Truth, in ticks.
-        let rallies: [RallyDTO] = p.truth.pieces.filter { RallyTruth.isRally($0.kind) }.map { mark in
-            let record = p.records.first { $0.startTime == mark.start && $0.endTime == mark.end && RallyTruth.isRally($0.kind) }
-            // The serve contact starts the rally when one was marked (contacts[0], a serve), else the mark's start.
-            let contact = record?.contacts?.first.flatMap { $0.kind == .serve && $0.time >= mark.start && $0.time < mark.end ? $0.time : nil }
-            return RallyDTO(rallyId: nil, startTick: tick(contact ?? mark.start), endTick: tick(mark.end), kind: "rally",
-                            provenance: mark.kind == nil ? "legacy_nil_kind" : "legacy_declared", contactUncertaintyTicks: nil, deadUncertaintyTicks: nil)
+        let rallies: [RallyDTO] = p.truth.pieces.filter { RallyTruth.isRally($0.kind) }.map { m in
+            RallyDTO(rallyId: nil, startTick: tick(rallyStart(m, in: p.records)), endTick: tick(m.end), kind: "rally",
+                     provenance: m.kind == nil ? "legacy_nil_kind" : "legacy_declared", contactUncertaintyTicks: nil, deadUncertaintyTicks: nil)
         }.filter { $0.startTick < $0.endTick }
         let excluded = p.truth.pieces.filter { !RallyTruth.isRally($0.kind) }.compactMap { mark -> SpanDTO? in
             let s = tick(mark.start), e = tick(mark.end)
@@ -795,7 +801,7 @@ enum RallyClassifierExporter {
             }
         }
         // G7: unmarked time is a negative only where a person reviewed it clean and it is still unmarked.
-        let trusted = trustedSpans(clean: p.audit.clean, truth: p.truth, durationTicks: durationTicks)
+        let trusted = trustedSpans(clean: p.audit.clean, marks: p.records, cuts: p.truth.cuts, durationTicks: durationTicks)
         let labels = LabelInputs(rallies: rallies, excluded: excluded, cuts: cuts, timeBreaking: timeBreaking, nonRallyActivity: [],
                                  trusted: trusted, ignoreTicks: tick(boundaryIgnoreSec))
 
@@ -1423,7 +1429,7 @@ enum RallyClassifierExporter {
         init(planned: [Planned], recordings: [Recording]) {
             let byVideo = Dictionary(planned.map { ($0.video, $0) }, uniquingKeysWith: { a, _ in a })
             self.recordings = recordings.map { r in
-                let unmarked = byVideo[r.recordingId].map { CoverageAudit.unmarkedIntervals($0.truth, durationTicks: tick(r.durationSec)) } ?? []
+                let unmarked = byVideo[r.recordingId].map { CoverageAudit.unmarkedIntervals(marks: $0.records, cuts: $0.truth.cuts, durationTicks: tick(r.durationSec)) } ?? []
                 return Row(video: r.recordingId, groupId: r.groupId, recordingType: r.recordingType, fullVideoNegatives: r.eligibility.fullVideoNegatives,
                            auditState: r.coverage.audit.state, unmarkedSec: CoverageAudit.seconds(unmarked.reduce(0) { $0 + $1.span.ticks }),
                            trustedNegativeSec: CoverageAudit.seconds(r.coverage.audit.cleanIntervals.reduce(0) { $0 + $1.ticks }),

@@ -14,8 +14,10 @@ import XCTest
 final class CoverageAuditTests: XCTestCase {
     private typealias A = CoverageAudit
 
-    private func truth(_ marks: [(Double, Double, RallyKind?)], cuts: [(Double, Double)] = []) -> RallyTruth {
-        RallyTruth(marks: marks.map { RallyTruth.Mark(start: $0.0, end: $0.1, kind: $0.2) }, cuts: cuts.map { CutRange(start: $0.0, end: $0.1) }, complete: true)
+    /// The unmarked intervals of a recording `ticks` long with these marks (start, end, kind) and cut ranges.
+    private func unmarked(_ marks: [(Double, Double, RallyKind?)], cuts: [(Double, Double)] = [], ticks: Int) -> [A.Interval] {
+        A.unmarkedIntervals(marks: marks.map { RallyMarkRecord(startTime: $0.0, endTime: $0.1, kind: $0.2, contacts: nil) },
+                            cuts: cuts.map { CutRange(start: $0.0, end: $0.1) }, durationTicks: ticks)
     }
 
     private func bounds(_ intervals: [A.Interval]) -> [[Int]] { intervals.map { [$0.startTick, $0.endTick] } }
@@ -23,44 +25,37 @@ final class CoverageAuditTests: XCTestCase {
     // MARK: - Unmarked intervals
 
     func testNoMarkLeavesTheWholeRecording() {
-        let all = A.unmarkedIntervals(truth([]), durationTicks: 6000)
-        XCTAssertEqual(all, [A.Interval(index: 0, startTick: 0, endTick: 6000)])
-        XCTAssertEqual(A.unmarkedIntervals(truth([]), durationTicks: 0), [], "a recording with no length has no interval")
+        XCTAssertEqual(unmarked([], ticks: 6000), [A.Interval(index: 0, startTick: 0, endTick: 6000)])
+        XCTAssertEqual(unmarked([], ticks: 0), [], "a recording with no length has no interval")
     }
 
     func testEveryKindOfMarkCoversAndTheEdgesAreIntervals() {
         // A rally, a legacy mark with no kind, a missed serve and a "not a rally" mark: all four cover.
-        let t = truth([(1, 2, .rally), (3, 4, nil), (5, 6, .missedServe), (7, 8, .other)])
-        let got = A.unmarkedIntervals(t, durationTicks: 6000)
+        let got = unmarked([(1, 2, .rally), (3, 4, nil), (5, 6, .missedServe), (7, 8, .other)], ticks: 6000)
         XCTAssertEqual(bounds(got), [[0, 600], [1200, 1800], [2400, 3000], [3600, 4200], [4800, 6000]])
         XCTAssertEqual(got.map(\.index), [0, 1, 2, 3, 4], "numbered from 0 in time order")
     }
 
     func testOverlappingAndTouchingMarksMergeAndUnsortedMarksAreOrdered() {
-        let t = truth([(6, 8, .rally), (1, 3, .rally), (2, 4, .missedServe), (4, 5, .rally)])
-        XCTAssertEqual(bounds(A.unmarkedIntervals(t, durationTicks: 6000)), [[0, 600], [3000, 3600], [4800, 6000]],
+        XCTAssertEqual(bounds(unmarked([(6, 8, .rally), (1, 3, .rally), (2, 4, .missedServe), (4, 5, .rally)], ticks: 6000)), [[0, 600], [3000, 3600], [4800, 6000]],
                        "1–3 and 2–4 overlap, 4–5 touches: one covered stretch 1–5")
     }
 
     func testMarksAtTheEdgesLeaveNoEdgeIntervalAndAreClampedToTheRecording() {
-        let t = truth([(0, 2, .rally), (8, 12, .rally)])
-        XCTAssertEqual(bounds(A.unmarkedIntervals(t, durationTicks: 6000)), [[1200, 4800]], "nothing before a mark at 0, nothing after one that runs past the end")
-        XCTAssertEqual(A.unmarkedIntervals(truth([(0, 10, .rally)]), durationTicks: 6000), [], "a recording marked whole has no interval")
+        XCTAssertEqual(bounds(unmarked([(0, 2, .rally), (8, 12, .rally)], ticks: 6000)), [[1200, 4800]], "nothing before a mark at 0, nothing after one that runs past the end")
+        XCTAssertEqual(unmarked([(0, 10, .rally)], ticks: 6000), [], "a recording marked whole has no interval")
     }
 
     func testCutRangesCoverLikeMarks() {
         // The clip starts mid-rally (cut 0–1.5) and an instant replay sits at 5–6.
-        let t = truth([(2, 3, .rally)], cuts: [(0, 1.5), (5, 6)])
-        XCTAssertEqual(bounds(A.unmarkedIntervals(t, durationTicks: 6000)), [[900, 1200], [1800, 3000], [3600, 6000]])
+        XCTAssertEqual(bounds(unmarked([(2, 3, .rally)], cuts: [(0, 1.5), (5, 6)], ticks: 6000)), [[900, 1200], [1800, 3000], [3600, 6000]])
         // A mark is read outside the cuts, as RallyTruth keeps it: the cut covers what it takes from the mark.
-        let over = truth([(2, 6, .other)], cuts: [(4, 7)])
-        XCTAssertEqual(bounds(A.unmarkedIntervals(over, durationTicks: 6000)), [[0, 1200], [4200, 6000]])
+        XCTAssertEqual(bounds(unmarked([(2, 6, .other)], cuts: [(4, 7)], ticks: 6000)), [[0, 1200], [4200, 6000]])
     }
 
     func testSubSecondIntervalsAreKept() {
         // 50 ms between two rallies is an interval (30 ticks); one tick is one too.
-        let t = truth([(1, 2, .rally), (2.05, 3, .rally), (3, 9.0 - 1.0 / 600, .rally)])
-        let got = A.unmarkedIntervals(t, durationTicks: 5400)
+        let got = unmarked([(1, 2, .rally), (2.05, 3, .rally), (3, 9.0 - 1.0 / 600, .rally)], ticks: 5400)
         XCTAssertEqual(bounds(got), [[0, 600], [1200, 1230], [5399, 5400]])
         XCTAssertEqual(got[1].span.ticks, 30)
     }
@@ -68,7 +63,7 @@ final class CoverageAuditTests: XCTestCase {
     func testBoundsAreTheExportersTicks() {
         // The marks of a real sidecar: the interval's bounds are the exporter's ticks of the marks' ends and starts.
         let a = (0.3333666666666667, 3.5371666666666703), b = (6.6665222222222225, 11.624605308)
-        let got = A.unmarkedIntervals(truth([(a.0, a.1, .rally), (b.0, b.1, .rally)]), durationTicks: RallyClassifierExporter.tick(20))
+        let got = unmarked([(a.0, a.1, .rally), (b.0, b.1, .rally)], ticks: RallyClassifierExporter.tick(20))
         XCTAssertEqual(bounds(got), [[0, RallyClassifierExporter.tick(a.0)], [RallyClassifierExporter.tick(a.1), RallyClassifierExporter.tick(b.0)],
                                      [RallyClassifierExporter.tick(b.1), 12000]])
         XCTAssertEqual(got[1].startTick, 2122)
@@ -77,20 +72,37 @@ final class CoverageAuditTests: XCTestCase {
 
     func testASliverOfAMarkBesideACutIsUnmarked() {
         // RallyTruth drops what a cut leaves of a mark under 0.1 s: that sliver is unmarked time, as the exporter labels it.
-        let t = truth([(10, 20, .missedServe)], cuts: [(10.05, 25)])
-        XCTAssertEqual(bounds(A.unmarkedIntervals(t, durationTicks: 18000)), [[0, 6030], [15000, 18000]])
+        XCTAssertEqual(bounds(unmarked([(10, 20, .missedServe)], cuts: [(10.05, 25)], ticks: 18000)), [[0, 6030], [15000, 18000]])
+    }
+
+    func testARallyCoversFromWhereTheDatasetStartsIt() {
+        // A serve contact marked after the mark's start: the dataset's rally starts at the contact, so the time
+        // before it is unmarked (the exporter labels it not-rally) and the audit reviews it.
+        func intervals(_ contacts: [RallyContact]?, kind: RallyKind? = .rally) -> [[Int]] {
+            bounds(A.unmarkedIntervals(marks: [RallyMarkRecord(startTime: 2, endTime: 4, kind: kind, contacts: contacts)], cuts: [], durationTicks: 6000))
+        }
+        XCTAssertEqual(intervals([RallyContact(time: 2.5, kind: .serve), RallyContact(time: 3, kind: .pass)]), [[0, 1500], [2400, 6000]])
+        XCTAssertEqual(intervals([RallyContact(time: 2, kind: .serve)]), [[0, 1200], [2400, 6000]], "a contact at the start is the start")
+        XCTAssertEqual(intervals(nil), [[0, 1200], [2400, 6000]])
+        XCTAssertEqual(intervals([RallyContact(time: 2.5, kind: .pass)]), [[0, 1200], [2400, 6000]], "only a serve starts a rally")
+        XCTAssertEqual(intervals([RallyContact(time: 4.5, kind: .serve)]), [[0, 1200], [2400, 6000]], "a contact outside the mark is not its start")
+        XCTAssertEqual(intervals([RallyContact(time: 2.5, kind: .serve)], kind: .missedServe), [[0, 1200], [2400, 6000]], "an excluded span covers from its start")
+        // The same ticks the exporter gives the rally.
+        let record = RallyMarkRecord(startTime: 2, endTime: 4, kind: .rally, contacts: [RallyContact(time: 2.5, kind: .serve)])
+        XCTAssertEqual(RallyClassifierExporter.tick(RallyClassifierExporter.rallyStart(RallyTruth.Mark(record), in: [record])), 1500)
     }
 
     // MARK: - The draw file
 
+    /// A draw as scripts/rally_classifier/coverage_audit_draw.py writes it, cut down to one recording.
     private func drawJSON(version: String = "coverage_audit_draw_v2", intervals: String = #"[{"index":0,"startTick":0,"endTick":600},{"index":1,"startTick":1200,"endTick":6000}]"#,
                           repeatSet: String = "[1]", extra: String = "") -> String {
         """
-        {"schemaVersion":"\(version)","drawId":"20261114-120000","datasetName":"rc-v1-20261112","timescale":600,"seed":20261114,
-         "manifestSha256":"aa","notDrawn":["x"],\(extra)
+        {"schemaVersion":"\(version)","procedure":"coverage_draw_v2","stage":"pilot","drawId":"20261114-120000","createdAt":"2026-11-14T12:00:00Z","seed":20261114,
+         "dataset":{"name":"rc-v1-20261112","manifestSha256":"aa","timescale":600,"surfaces":["beach"]},"notDrawn":[{"recordingId":"x"}],\(extra)
          "recordings":[{"recordingId":"rec_a","groupId":"g1","surface":"beach","split":"train","fold":2,"camera":"End line",
            "fingerprint":"youtube:abc","sourceId":"youtube:abc","contentFingerprint":"file:11","marksSha256":"m1","durationTicks":6000,
-           "intervals":\(intervals),"repeat":\(repeatSet)}]}
+           "marksChangedSinceExport":false,"rallyMarks":2,"intervals":\(intervals),"repeatIndices":\(repeatSet)}]}
         """
     }
 
@@ -131,6 +143,7 @@ final class CoverageAuditTests: XCTestCase {
         try refused(drawJSON().replacingOccurrences(of: #""durationTicks":6000,"#, with: ""), "no durationTicks")
         try refused(drawJSON().replacingOccurrences(of: #""contentFingerprint":"file:11","#, with: ""), "no content fingerprint")
         try refused(drawJSON().replacingOccurrences(of: #""timescale":600"#, with: #""timescale":1000"#), "another timescale")
+        try refused(drawJSON().replacingOccurrences(of: #""repeatIndices":[1]"#, with: #""repeat":[1]"#), "no repeat set")
         XCTAssertThrowsError(try A.loadDraw(URL(fileURLWithPath: "/nonexistent/draw.json")))
     }
 

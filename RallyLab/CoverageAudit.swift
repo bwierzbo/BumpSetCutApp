@@ -9,9 +9,9 @@
 //
 //   - the unmarked intervals of a recording, in ticks at the classifier dataset's
 //     timescale (600), from its marks and cut ranges as `RallyTruth` reads them — the
-//     same pieces and the same `tick` the dataset exporter writes, so an interval's
-//     bounds are a mark's or a cut's to the tick. A mark covers from its own start (a
-//     serve contact marked later than the start does not open an interval before it);
+//     same pieces, the same `tick` and the same rally start (the serve contact when one
+//     is marked: `RallyClassifierExporter.rallyStart`) the dataset exporter writes, so
+//     an interval's bounds are the dataset's rally, excluded-span and cut-range ticks;
 //   - the frozen draw (`coverage_audit_draw_v2`, written by
 //     scripts/rally_classifier/coverage_audit_draw.py): which recordings, which
 //     intervals, which of them are reviewed a second time;
@@ -63,11 +63,16 @@ enum CoverageAudit {
     // MARK: - Unmarked intervals
 
     /// The maximal intervals of `0 ..< durationTicks` that no mark of any kind and no cut range covers: the marks
-    /// as `truth` keeps them (every kind, outside the cuts) and the cut ranges, each `tick(start) ..< tick(end)`,
-    /// clamped to the recording, overlapping or touching ones merged. Every interval counts, whatever its length.
-    static func unmarkedIntervals(_ truth: RallyTruth, durationTicks: Int) -> [Interval] {
+    /// as RallyTruth keeps them (every kind, outside the cuts; a rally from where the dataset starts it) and the
+    /// cut ranges, each `tick(start) ..< tick(end)`, clamped to the recording, overlapping or touching ones merged
+    /// — the dataset's rallies, excluded spans and cut ranges. Every interval counts, whatever its length.
+    static func unmarkedIntervals(marks: [RallyMarkRecord], cuts: [CutRange], durationTicks: Int) -> [Interval] {
         guard durationTicks > 0 else { return [] }
-        let taken = (truth.pieces.map { (tick($0.start), tick($0.end)) } + truth.cuts.map { (tick($0.start), tick($0.end)) })
+        let truth = RallyTruth(marks: marks.map(RallyTruth.Mark.init), cuts: cuts, complete: true)
+        let covered = truth.pieces.map { piece in
+            (tick(RallyTruth.isRally(piece.kind) ? RallyClassifierExporter.rallyStart(piece, in: marks) : piece.start), tick(piece.end))
+        }
+        let taken = (covered + truth.cuts.map { (tick($0.start), tick($0.end)) })
             .map { (max(0, $0.0), min(durationTicks, $0.1)) }
             .filter { $0.0 < $0.1 }
             .sorted { $0.0 < $1.0 }
@@ -86,6 +91,11 @@ enum CoverageAudit {
     /// The frozen sample (`coverage_audit_draw_v2`). Only what the review needs is read, and that strictly; the
     /// draw's other fields (hashes, seed, the recordings not drawn) are the draw tool's and are left alone.
     struct Draw: Decodable, Equatable {
+        struct Dataset: Decodable, Equatable {
+            var name: String
+            var timescale: Int
+        }
+
         struct Recording: Decodable, Equatable {
             var recordingId: String
             var groupId: String
@@ -101,19 +111,15 @@ enum CoverageAudit {
             var repeatIndices: [Int]
             var surface: String?
 
-            enum CodingKeys: String, CodingKey {
-                case recordingId, groupId, fingerprint, sourceId, contentFingerprint, marksSha256, durationTicks, intervals, surface
-                case repeatIndices = "repeat"
-            }
-
             func interval(_ index: Int) -> Interval? { intervals.first { $0.index == index } }
         }
 
         var schemaVersion: String
         var drawId: String
-        var datasetName: String
-        var timescale: Int
+        var dataset: Dataset
         var recordings: [Recording]
+
+        var datasetName: String { dataset.name }
 
         func recording(_ id: String) -> Recording? { recordings.first { $0.recordingId == id } }
     }
@@ -138,7 +144,7 @@ enum CoverageAudit {
         guard version == drawVersion else { throw Failure.drawUnreadable("schemaVersion \(version); this build reads \(drawVersion) only") }
         let draw: Draw
         do { draw = try JSONDecoder().decode(Draw.self, from: data) } catch { throw Failure.drawUnreadable(String(describing: error)) }
-        guard draw.timescale == timescale else { throw Failure.drawUnreadable("timescale \(draw.timescale), not \(timescale)") }
+        guard draw.dataset.timescale == timescale else { throw Failure.drawUnreadable("timescale \(draw.dataset.timescale), not \(timescale)") }
         guard !draw.drawId.isEmpty, !draw.datasetName.isEmpty else { throw Failure.drawUnreadable("no drawId or dataset name") }
         guard Set(draw.recordings.map(\.recordingId)).count == draw.recordings.count else { throw Failure.drawUnreadable("a recording is listed twice") }
         for r in draw.recordings {
@@ -371,6 +377,7 @@ enum CoverageAudit {
         case noDisagreement(index: Int)
         case frozen(index: Int, by: String)
         case nothingToWithdraw(index: Int)
+        case noFindings(index: Int)
         case ledgerNotWritten(String)
 
         var errorDescription: String? {
@@ -407,6 +414,7 @@ enum CoverageAudit {
             case .noDisagreement(let index): return "Interval \(index)'s first and repeat verdicts do not disagree: there is nothing to resolve."
             case .frozen(let index, let by): return "Interval \(index) has a \(by); withdraw that first."
             case .nothingToWithdraw(let index): return "Interval \(index) has nothing to withdraw in this pass."
+            case .noFindings(let index): return "Interval \(index) has no findings in this pass to complete by playing it whole."
             case .ledgerNotWritten(let why): return "The exposure ledger could not record this audit, so nothing is saved: \(why)"
             }
         }

@@ -98,9 +98,9 @@ extension RallyClassifierExporter {
 
     /// The time of a recording that may be NON_RALLY (D7): unmarked now — no mark of any kind and no cut range
     /// covers it — and inside an interval reviewed clean; in time order, inside `0 ..< durationTicks`.
-    static func trustedSpans(clean: [CoverageAudit.Span], truth: RallyTruth, durationTicks: Int) -> [CoverageAudit.Span] {
+    static func trustedSpans(clean: [CoverageAudit.Span], marks: [RallyMarkRecord], cuts: [CutRange], durationTicks: Int) -> [CoverageAudit.Span] {
         guard !clean.isEmpty else { return [] }
-        let unmarked = CoverageAudit.unmarkedIntervals(truth, durationTicks: durationTicks)
+        let unmarked = CoverageAudit.unmarkedIntervals(marks: marks, cuts: cuts, durationTicks: durationTicks)
         return clean.flatMap { c in
             unmarked.compactMap { u -> CoverageAudit.Span? in
                 let start = max(c.startTick, u.startTick), end = min(c.endTick, u.endTick)

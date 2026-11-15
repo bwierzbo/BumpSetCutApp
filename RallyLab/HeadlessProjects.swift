@@ -81,7 +81,7 @@
 //             the unmarked intervals reviewed, the derived state (audited_clean / partial / contaminated), the blind
 //             repeat's progress, the findings that count and whether the marks moved since the draw; then the totals.
 //             A withheld recording is named, not read. Writes no record and no ledger row — verdicts are given in
-//             the Coverage tab only (CoverageAudit.record))
+//             the Audit tab only (CoverageAudit.record))
 //    RallyLab --project v3 --work-queue [--json] | --reconcile-tasks   (RallyLab 2.0 work queue: every labeling task
 //             — Stage 1 rally boundaries, ball tracks, net corners — with its state from the annotation files
 //             (WorkQueueReconciler). --work-queue prints it, writing nothing; --reconcile-tasks also writes

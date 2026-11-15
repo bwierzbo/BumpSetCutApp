@@ -21,6 +21,8 @@ struct RallyLabApp: App {
     @State private var phone: LabelingSync
     /// Stage 1 rally-boundary review (D-024).
     @State private var boundaries: RallyBoundariesModel
+    /// The negative-coverage audit's review queue (Audit tab).
+    @State private var coverage: CoverageAuditModel
     @State private var netLabels: NetLabelsModel
     /// RallyLab 2.0: the project's labeling tasks and source index (Queue tab).
     @State private var queue: WorkQueueModel
@@ -58,6 +60,7 @@ struct RallyLabApp: App {
         _marker = State(initialValue: marker)
         let boundaries = RallyBoundariesModel(sampler: sampler)
         _boundaries = State(initialValue: boundaries)
+        _coverage = State(initialValue: CoverageAuditModel(sampler: sampler))
         _netLabels = State(initialValue: NetLabelsModel(projects: projects))
         _queue = State(initialValue: WorkQueueModel(projects: projects))
         // Records every stall of the main thread (≥ 0.5 s) to the unified log and ~/Library/Logs/RallyLab/stalls.log.
@@ -77,7 +80,7 @@ struct RallyLabApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView(model: model, sampler: sampler, projects: projects, library: library, tracker: tracker, marker: marker, boundaries: boundaries, netLabels: netLabels, queue: queue, phone: phone)
+            ContentView(model: model, sampler: sampler, projects: projects, library: library, tracker: tracker, marker: marker, boundaries: boundaries, coverage: coverage, netLabels: netLabels, queue: queue, phone: phone)
         }
         .commands {
             CommandGroup(replacing: .newItem) {

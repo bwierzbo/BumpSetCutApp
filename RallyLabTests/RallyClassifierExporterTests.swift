@@ -834,7 +834,7 @@ final class RallyClassifierExporterTests: XCTestCase {
         XCTAssertEqual(try cleanIntervals(rec), [[0, 3000], [7200, 8400], [9600, 12000], [18600, 20400], [21600, 24000], [28800, 36000]],
                        "(the time unmarked now) ∩ (the intervals reviewed clean)")
         XCTAssertEqual(X.trustedSpans(clean: [CoverageAudit.Span(startTick: 7200, endTick: 12000)],
-                                      truth: RallyTruth(marks: marks.map { RallyTruth.Mark(start: $0.startTime, end: $0.endTime, kind: $0.kind) }, cuts: [], complete: true),
+                                      marks: marks, cuts: [],
                                       durationTicks: 9000),
                        [CoverageAudit.Span(startTick: 7200, endTick: 8400)], "and inside the recording")
     }
