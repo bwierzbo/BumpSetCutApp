@@ -421,7 +421,7 @@ enum CoverageAudit {
             case .nothingToWithdraw(let index): return "Interval \(index) has nothing to withdraw in this pass."
             case .noFindings(let index): return "Interval \(index) has no findings in this pass to complete by playing it whole."
             case .supersededRecordKept(let path): return "A record of the superseded draw is already kept at \(path); nothing is moved over it."
-            case .othersLook(let index, let reviewer): return "Interval \(index)'s look in this pass is \(reviewer)'s: only \(reviewer) can complete it by playing it whole."
+            case .othersLook(let index, let reviewer): return "Interval \(index)'s look in this pass is \(reviewer)'s: only \(reviewer) can change, complete or withdraw it."
             case .ledgerNotWritten(let why): return "The exposure ledger could not record this audit, so nothing is saved: \(why)"
             }
         }
