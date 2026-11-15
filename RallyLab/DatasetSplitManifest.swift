@@ -722,8 +722,14 @@ enum ExposureLog {
     /// sidecar instead, so nothing is lost either way. A write failure throws:
     /// a use that can't be recorded must fail the operation that caused it,
     /// or the video could later pass as unseen.
+    /// One ledger write at a time in this process: `record` reads the whole log and replaces it, so two at once (two
+    /// recordings opened in quick succession, a tab and a background job) would each drop the other's row.
+    private static let writeLock = NSLock()
+
     static func record(videos: Set<String>, kind: ExposureRecord.Kind, ref: String, note: String?, in projectDir: URL, now: Date = Date()) throws {
         guard !videos.isEmpty else { return }
+        writeLock.lock()
+        defer { writeLock.unlock() }
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.timeZone = TimeZone(identifier: "UTC")
