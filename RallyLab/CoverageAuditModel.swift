@@ -453,8 +453,11 @@ final class CoverageAuditModel {
 
     // MARK: - Verdicts
 
+    /// What is being prepared for the look on screen — marks in and out, a finding waiting for its note, the draft
+    /// note — is that look's alone: dropped on a change of interval, pass or recording, so no other look (the blind
+    /// repeat above all) shows or submits it.
     private func clearPending() {
-        markIn = nil; markOut = nil; awaitingNote = nil
+        markIn = nil; markOut = nil; awaitingNote = nil; note = ""
     }
 
     private func say(_ text: String) { status = text; lastRefused = false }
