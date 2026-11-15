@@ -37,6 +37,8 @@ enum CoverageAudit {
     static let timescale = RallyClassifierExporter.timescale
     /// Nothing played faster than this earns coverage.
     static let maxCreditRate = 2.0
+    /// What is played either side of an interval for context, in seconds (clamped to the recording).
+    static let contextSec = 1.0
     /// A repeat by the reviewer who gave the first verdict is accepted this long after it, not before.
     static let sameReviewerWait: TimeInterval = 24 * 3600
 
