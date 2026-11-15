@@ -298,6 +298,7 @@ These are the hashes of what is merged today. The accepted reporting requirement
 1. the audit is reviewed (pilot, repeat, then stage 2 on a pass), and any correction it finds goes through the marking pass;
 2. the review queue, the exporter and validator change, and the trainer's gate are reviewed and merged by the owner;
 3. a **new dataset** is exported under a new name from the marks and audit records as they then are, with `r0_no_net_rule` beside `r0` and `r0_prime`; the validator checks every `NON_RALLY` step against the reviewed-clean intervals;
+   The trainer refuses a real run on its audited negatives unless given the audit report (`coverage_audit_report.py --json-out`) showing the pilot passed, on the very records the dataset read (PR #185).
 4. eligibility, group counts, trusted-negative coverage, G6 per fold and baseline parity are recomputed on it; a **new folds file** is drawn for its digest by the same procedure and seed;
 5. §2, §9 and this section are filled from that dataset and from the merged scripts, and only then is this record approvable.
 
