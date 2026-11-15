@@ -55,6 +55,29 @@ class SummarizePilot(unittest.TestCase):
         self.assertAlmostEqual(a["ALL"]["posesPlausibleShare"], 0.5, msg="the na row leaves the denominator")
         self.assertNotIn("rec_b", a)
 
+    def test_partly_filled_row_leaves_unassessed_metrics_alone(self):
+        path = os.path.join(self.tmp, "audit.csv")
+        v.write_bytes(path, (
+            "recording,interval,tick,t,overlay,persons,in_court,poses,unmatched_poses,visible_on_court_players,detected_on_court_players,"
+            "missed_on_court_players,false_on_court_detections,off_court_detections,identity_switches_vs_previous_sampled,poses_plausible,reviewer,notes\n"
+            "rec_a,active_1,6000,10.0,x,1,1,1,0,4,3,1,1,2,,yes,r,\n"
+            "rec_a,active_1,6120,10.2,x,1,1,1,0,4,,,,,,,r,\n").encode())
+        a = s.summarize(self.tmp, path)["audit"]["ALL"]
+        self.assertEqual(a["frames"], 2)
+        self.assertEqual(a["recallFrames"], 1)
+        self.assertAlmostEqual(a["recall"], 3 / 4, msg="the row with no detection count is not recall 0")
+        self.assertAlmostEqual(a["falseOnCourtPerFrame"], 1.0, msg="a blank is not zero false detections")
+        self.assertAlmostEqual(a["offCourtDetectionsPerFrame"], 2.0)
+
+    def test_unreadable_measurement_is_refused(self):
+        path = os.path.join(self.tmp, "audit.csv")
+        v.write_bytes(path, (
+            "recording,interval,tick,t,overlay,persons,in_court,poses,unmatched_poses,visible_on_court_players,detected_on_court_players,"
+            "missed_on_court_players,false_on_court_detections,off_court_detections,identity_switches_vs_previous_sampled,poses_plausible,reviewer,notes\n"
+            "rec_a,active_1,6000,10.0,x,1,1,1,0,4,three,1,0,0,,yes,r,\n").encode())
+        with self.assertRaises(ValueError):
+            s.summarize(self.tmp, path)
+
     def test_unfilled_identity_column_is_not_assessed(self):
         path = os.path.join(self.tmp, "audit.csv")
         v.write_bytes(path, (

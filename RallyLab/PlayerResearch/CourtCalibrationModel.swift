@@ -286,7 +286,7 @@ final class CourtCalibrationModel {
 
     private func decide(_ status: CourtSegment.Status, note: String) {
         guard stale == nil, var f = file else { return }
-        f.set(segment: segmentId, status: status, note: note)
+        f.set(segment: segmentId, status: status, note: note, at: Date())
         file = f
         draft = nil
         baseline = nil

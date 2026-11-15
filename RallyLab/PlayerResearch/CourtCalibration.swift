@@ -101,8 +101,16 @@ struct CourtSegment: Codable, Equatable, Sendable, Identifiable {
     /// Earlier confirmations of this segment, superseded by a later one or reopened.
     var history: [CourtConfirmation]
     var note: String?
+    /// When the person last set `rejected` or `unknown_view` (absent in files written before it was recorded).
+    var decidedAt: Date?
 
     func contains(_ t: Double) -> Bool { t >= validFromSec && t < validToSec }
+
+    /// The time of the latest decision this segment holds: a confirmation (in force or superseded) or a rejection /
+    /// not-one-view mark. An imported decision no newer than this is never applied over it.
+    var latestDecisionAt: Date? {
+        ([confirmation?.confirmedAt, decidedAt].compactMap { $0 } + history.map(\.confirmedAt)).max()
+    }
 
     /// The latest proposal of each method.
     var latestProposals: [CourtProposal] {
@@ -331,11 +339,12 @@ extension CourtCalibrationFile {
     }
 
     /// Takes a segment out of use: rejected proposals, or a view that isn't one court. A confirmation moves to history.
-    mutating func set(segment id: Int, status: CourtSegment.Status, note: String?) {
+    mutating func set(segment id: Int, status: CourtSegment.Status, note: String?, at: Date) {
         guard let i = segments.firstIndex(where: { $0.id == id }), status != .confirmed else { return }
         if let old = segments[i].confirmation { segments[i].history.append(old) }
         segments[i].confirmation = nil
         segments[i].status = status
         segments[i].note = note
+        segments[i].decidedAt = at
     }
 }

@@ -4,11 +4,16 @@ claude.ai artifact; Claude exports its `labels` documents to JSON). Only what th
 label stays blank, a frame whose missed counts were never set stays blank. The unfilled sheets are kept once as
 persons.blank.csv / frames.blank.csv. Stdlib only.
 
+Every label document must carry `reviewSheet`, the SHA-256 of the unfilled persons sheet the page was built from: image names
+and track numbers alone don't say which detector run's boxes the owner saw (Codex on #166). `--player-lab-court … --review`
+then checks each labelled box against the scored run's own boxes.
+
 usage: import_review_rows.py <export.json> <review-folder>
 export.json: {"artifact": "<url>", "labels": [{"id": "<image stem>", "recordingId", "tick", "image", "labels": {"<track>": "<label>"},
-              "missedNear": n|null, "missedFar": n|null, "notes": "", "by": "<viewer id>"}, ...]}
+              "missedNear": n|null, "missedFar": n|null, "notes": "", "by": "<viewer id>", "reviewSheet": "<sha256>"}, ...]}
 """
 import csv
+import hashlib
 import json
 import os
 import shutil
@@ -33,10 +38,22 @@ def write(path, header, rows):
     os.replace(tmp, path)
 
 
+def sheet_hash(folder):
+    """SHA-256 of the unfilled persons sheet: the kept blank once there is one, else the sheet itself (still unfilled)."""
+    blank = os.path.join(folder, "persons.blank.csv")
+    with open(blank if os.path.exists(blank) else os.path.join(folder, "persons.csv"), "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
 def fill(export, folder):
-    """Returns (labelled boxes, frames with both missed counts). Raises ValueError on a label or box the sheets don't have."""
+    """Returns (labelled boxes, frames with both missed counts). Raises ValueError on a label or box the sheets don't have,
+    or on a document made from another review sheet; nothing is written then."""
     docs = {d["image"]: d for d in export["labels"]}
     reviewer = "owner (Court Check page %s)" % export.get("artifact", "")
+    want = sheet_hash(folder)
+    for image, d in docs.items():
+        if d.get("reviewSheet") != want:
+            raise ValueError("%s was labelled on another review sheet (%s), not this folder's (%s)" % (image, d.get("reviewSheet"), want))
     paths = {k: os.path.join(folder, k + ".csv") for k in ("persons", "frames")}
     for k, p in paths.items():
         blank = os.path.join(folder, k + ".blank.csv")

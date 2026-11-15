@@ -85,6 +85,16 @@ enum CourtWebImport {
             guard let decidedAt = date(row.decidedAt) else { skip("no decision time — not applied"); continue }
             let seg = file.segments[i]
             let note = (row.note.map { $0 + " " } ?? "") + "(Court Check page \(export.artifact))"
+            // The file may hold a later decision: a Player Lab correction, or this row imported and then taken out of use.
+            // A page decision no newer than the latest one in the file is never applied over it (Codex on #166).
+            if let latest = seg.latestDecisionAt, decidedAt <= latest {
+                let same: Bool
+                switch row.decision {
+                case "confirmed": same = seg.confirmation.map { $0.method == CourtConfirmation.webMethod && $0.confirmedAt == decidedAt && $0.geometry == row.geometry } ?? false
+                default: same = seg.status.rawValue == row.decision && seg.decidedAt == decidedAt
+                }
+                skip(same ? "already imported" : "the calibration holds a later decision — not applied"); continue
+            }
 
             if let s = row.setup {
                 let setup = CourtSetup(surface: s.surface.flatMap(CourtSetup.Surface.init(rawValue:)), format: s.format.flatMap(CourtSetup.Format.init(rawValue:)),
@@ -94,9 +104,6 @@ enum CourtWebImport {
             switch row.decision {
             case "confirmed":
                 guard let g = row.geometry else { skip("confirmed without a court — not applied"); continue }
-                if let c = seg.confirmation, c.method == CourtConfirmation.webMethod, c.confirmedAt == decidedAt, c.geometry == g {
-                    skip("already imported"); continue
-                }
                 let baseline = seg.latestProposals.first { $0.method.rawValue == row.startedFrom }?.geometry
                 let spec = file.setup?.spec ?? CourtSpec.standard(surface: rec.surface)
                 do {
@@ -106,8 +113,7 @@ enum CourtWebImport {
                 } catch { skip(error.localizedDescription); continue }
             default:
                 let status: CourtSegment.Status = row.decision == "rejected" ? .rejected : .unknownView
-                if seg.status == status, seg.note == note { skip("already imported"); continue }
-                file.set(segment: row.segment, status: status, note: note)
+                file.set(segment: row.segment, status: status, note: note, at: decidedAt)
             }
             if !dryRun { try store.save(file) }
             out.append(Outcome(recordingId: row.recordingId, segment: row.segment, applied: true,

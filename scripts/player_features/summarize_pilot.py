@@ -63,20 +63,32 @@ def audit(path):
     groups["ALL"] = rows
 
     def n(r, k):
+        """The measurement in column k, or None when nobody filled it: a blank is unassessed, never zero."""
         v = (r.get(k) or "").strip()
-        return int(v) if v.lstrip("-").isdigit() else 0
+        if v == "":
+            return None
+        if not v.lstrip("-").isdigit():
+            raise ValueError(f"{path}: {r.get('recording')} tick {r.get('tick')}: {k} is {v!r}, not a whole number")
+        return int(v)
+
+    def per_frame(rs, k):
+        vals = [n(r, k) for r in rs if n(r, k) is not None]
+        return sum(vals) / len(vals) if vals else None
 
     res = {}
     for g, rs in groups.items():
-        visible = sum(n(r, "visible_on_court_players") for r in rs)
-        found = sum(n(r, "detected_on_court_players") for r in rs)
-        res[g] = {"frames": len(rs), "visibleOnCourt": visible, "detectedOnCourt": found,
+        # Recall only over rows where the reviewer counted both the visible and the detected players (Codex on #166).
+        both = [r for r in rs if n(r, "visible_on_court_players") is not None and n(r, "detected_on_court_players") is not None]
+        visible = sum(n(r, "visible_on_court_players") for r in both)
+        found = sum(n(r, "detected_on_court_players") for r in both)
+        switches = [n(r, "identity_switches_vs_previous_sampled") for r in rs]
+        res[g] = {"frames": len(rs), "recallFrames": len(both), "visibleOnCourt": visible, "detectedOnCourt": found,
                   "recall": found / visible if visible else None,
-                  "falseOnCourtPerFrame": sum(n(r, "false_on_court_detections") for r in rs) / len(rs) if rs else None,
-                  "offCourtDetectionsPerFrame": sum(n(r, "off_court_detections") for r in rs) / len(rs) if rs else None,
+                  # Each per-frame rate over the rows whose column was filled.
+                  "falseOnCourtPerFrame": per_frame(rs, "false_on_court_detections"),
+                  "offCourtDetectionsPerFrame": per_frame(rs, "off_court_detections"),
                   # Not assessed when nobody filled the column: a blank is not zero switches.
-                  "identitySwitches": (sum(n(r, "identity_switches_vs_previous_sampled") for r in rs)
-                                       if any((r.get("identity_switches_vs_previous_sampled") or "").strip() for r in rs) else None),
+                  "identitySwitches": sum(x for x in switches if x is not None) if any(x is not None for x in switches) else None,
                   # "na" (no on-court pose to judge) leaves the denominator.
                   "posesPlausibleShare": share_yes([(r.get("poses_plausible") or "").strip().lower() for r in rs]),
                   "reviewers": sorted({(r.get("reviewer") or "").strip() for r in rs})}

@@ -175,7 +175,7 @@ final class CourtCalibrationTests: XCTestCase {
         // Re-confirming keeps the earlier one; taking the segment out of use keeps it too.
         try f.confirm(segment: 0, geometry: p, startedFrom: "confirmation", baseline: moved, by: "Owner", net: nil, spec: .indoor, format: nil, now: Date())
         XCTAssertEqual(f.segments[0].history.count, 1)
-        f.set(segment: 0, status: .unknownView, note: "pan")
+        f.set(segment: 0, status: .unknownView, note: "pan", at: Date())
         XCTAssertNil(f.confirmed(at: 10))
         XCTAssertEqual(f.segments[0].history.count, 2)
         // A scripted GUI test's confirmation is recorded and never used.
@@ -392,6 +392,40 @@ final class CourtCalibrationTests: XCTestCase {
         let d = CourtReview.detection(frames: [frame], recording: "rec_01", labels: review.persons, missed: review.missed)
         XCTAssertEqual(d, CourtReview.Detection(frames: 1, nearFound: 2, nearMissed: 1, farFound: 1, farMissed: 0))
         XCTAssertEqual(CourtReview.sample([frame], count: 3, avoid: [700]).count, 0, "a frame within 2 s of an earlier audit frame is left out")
+        // A frame where the detector found nobody is still reviewed, and the players missed there count as missed.
+        var empty = frame; empty.persons = []; empty.tick = 6000; empty.t = 10
+        XCTAssertEqual(CourtReview.sample([frame, empty], count: 2, avoid: []).map(\.tick), [600, 6000])
+        let both = CourtReview.detection(frames: [frame, empty], recording: "rec_01", labels: review.persons,
+                                         missed: review.missed.merging(["rec_01|6000": (near: 2, far: 1, reviewer: "Owner")]) { a, _ in a })
+        XCTAssertEqual(both, CourtReview.Detection(frames: 2, nearFound: 2, nearMissed: 3, farFound: 1, farMissed: 1))
+    }
+
+    func testAReviewIsScoredOnlyAgainstTheRunWhoseBoxesWereLabelled() throws {
+        let persons = [person(standing(0.5, 0.25), track: 1), person(standing(0.3, 0.52), track: 2)]
+        let frame = PlayerFeatures.Frame(t: 1, tick: 600, interval: "a", seg: 0, reset: "interval_start", frameDiff: nil, persons: persons, unmatchedPoses: [],
+                                         scene: PlayerFeatures.SceneDerived(persons: 2, confirmed: 2, inCourt: 0, posesInCourt: 0),
+                                         masks: PlayerFeatures.Masks(ran: true, skipped: nil, rectFailed: false, poseFailed: false), ms: [:])
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("review-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        func row(_ p: PlayerFeatures.Person, _ label: String) -> String {
+            String(format: "rec_01,a,600,1,x.jpg,%d,%.4f,%.4f,%.4f,%.4f,%@,Owner,", p.track, p.box.x, p.box.y, p.box.w, p.box.h, label)
+        }
+        func write(_ rows: [String], missed: String = "rec_01,a,600,1,x.jpg,0,0,Owner,") throws -> CourtReview.Filled {
+            try Data(([CourtReview.personsHeader] + rows).joined(separator: "\n").utf8).write(to: dir.appendingPathComponent("persons.csv"))
+            try Data([CourtReview.framesHeader, missed].joined(separator: "\n").utf8).write(to: dir.appendingPathComponent("frames.csv"))
+            return try CourtReview.read(dir)
+        }
+        // The sheet the run wrote: its boxes match to the sheet's four decimals.
+        XCTAssertEqual(CourtReview.mismatches(try write([row(persons[0], "near_court"), row(persons[1], "far_court")]), frames: [frame], recording: "rec_01"), [])
+        // Same image and track numbers, but another run's boxes: refused.
+        var other = persons[1]; other.box.x += 0.05
+        XCTAssertEqual(CourtReview.mismatches(try write([row(persons[0], "near_court"), row(other, "far_court")]), frames: [frame], recording: "rec_01"),
+                       ["rec_01 tick 600: box #2 is not where the run put it"])
+        // A track or a frame the run doesn't have.
+        var extra = persons[0]; extra.track = 9
+        XCTAssertEqual(CourtReview.mismatches(try write([row(extra, "spectator")], missed: "rec_01,a,1200,2,y.jpg,1,0,Owner,"), frames: [frame], recording: "rec_01"),
+                       ["rec_01 tick 600: no box #9 in the run", "rec_01 tick 1200: missed players counted on a frame the run never analysed"])
     }
 
     // MARK: The assembler
@@ -470,5 +504,29 @@ final class CourtCalibrationTests: XCTestCase {
         let g = try XCTUnwrap(try store.load("rec_01")?.segments.first)
         XCTAssertEqual(g.status, .unknownView)
         XCTAssertEqual(g.history.last?.method, CourtConfirmation.webMethod)
+
+        // Re-importing the earlier export never brings the superseded confirmation back (Codex on #166) …
+        let marked = try Data(contentsOf: store.url("rec_01"))
+        out = try CourtWebImport.apply(export([pageRow("confirmed", geometry: moved)]), experiment: dir, recordings: recs, dryRun: false)
+        XCTAssertEqual(out.map(\.detail), ["the calibration holds a later decision — not applied"])
+        XCTAssertEqual(try Data(contentsOf: store.url("rec_01")), marked)
+        // … and the not-one-view mark itself re-imports as already imported.
+        out = try CourtWebImport.apply(export([pageRow("unknown_view", geometry: nil, at: "2026-11-12T19:00:00Z")]), experiment: dir, recordings: recs, dryRun: false)
+        XCTAssertEqual(out.map(\.detail), ["already imported"])
+
+        // A later correction made in Player Lab is never overwritten by an older page decision.
+        var h = try XCTUnwrap(try store.load("rec_01"))
+        try h.confirm(segment: 0, geometry: layout(), startedFrom: "confirmation", baseline: moved, by: "Owner", net: nil, spec: .indoor, format: "6v6",
+                      now: try XCTUnwrap(CourtWebImport.date("2026-11-12T20:00:00Z")))
+        try store.save(h)
+        let corrected = try Data(contentsOf: store.url("rec_01"))
+        out = try CourtWebImport.apply(export([pageRow("rejected", geometry: nil, at: "2026-11-12T19:30:00Z")]), experiment: dir, recordings: recs, dryRun: false)
+        XCTAssertEqual(out.map(\.applied), [false])
+        XCTAssertEqual(try Data(contentsOf: store.url("rec_01")), corrected)
+        XCTAssertEqual(try store.load("rec_01")?.confirmed(at: 10)?.method, CourtConfirmation.personMethod)
+        // A page decision made after that correction is applied.
+        out = try CourtWebImport.apply(export([pageRow("confirmed", geometry: moved, at: "2026-11-12T21:00:00Z")]), experiment: dir, recordings: recs, dryRun: false)
+        XCTAssertEqual(out.map(\.applied), [true])
+        XCTAssertEqual(try store.load("rec_01")?.confirmed(at: 10)?.method, CourtConfirmation.webMethod)
     }
 }

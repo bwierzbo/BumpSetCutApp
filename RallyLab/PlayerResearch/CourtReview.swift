@@ -48,9 +48,11 @@ enum CourtReview {
     static let personsHeader = "recording,interval,tick,t,image,track,box_x,box_y,box_w,box_h,label,reviewer,notes"
     static let framesHeader = "recording,interval,tick,t,image,missed_near_players,missed_far_players,reviewer,notes"
 
-    /// `count` analysed frames spread evenly over the recording's frames, none within 2 s of an `avoid` tick.
+    /// `count` analysed frames spread evenly over the recording's frames, none within 2 s of an `avoid` tick. A frame
+    /// where the detector found nobody stays in the pool: its missed players are the ones a detection score must count
+    /// (Codex on #166).
     static func sample(_ frames: [PlayerFeatures.Frame], count: Int, avoid: Set<Int>) -> [PlayerFeatures.Frame] {
-        let pool = frames.filter { f in f.masks.ran && !f.persons.isEmpty && !avoid.contains { abs($0 - f.tick) < 2 * PlayerFeatures.timescale } }
+        let pool = frames.filter { f in f.masks.ran && !avoid.contains { abs($0 - f.tick) < 2 * PlayerFeatures.timescale } }
         guard count > 0, !pool.isEmpty else { return [] }
         let n = min(count, pool.count)
         return (0..<n).map { pool[(2 * $0 + 1) * pool.count / (2 * n)] }
@@ -71,8 +73,7 @@ enum CourtReview {
             guard let footage = PlayerFeaturesRun.decodedFootage(experiment, rec.recordingId, fingerprint: rec.decoded.fingerprint) else {
                 log("⚠️ \(rec.recordingId): the run's footage copy isn't in the experiment — skipped"); continue
             }
-            let lines = try Data(contentsOf: runDir.appendingPathComponent("features").appendingPathComponent(rec.framesFile))
-            let frames = try lines.split(separator: 0x0A).map { try JSONDecoder().decode(PlayerFeatures.Frame.self, from: Data($0)) }
+            let frames = try runFrames(runDir, rec)
             let gen = AVAssetImageGenerator(asset: AVURLAsset(url: footage))
             gen.appliesPreferredTrackTransform = true
             gen.requestedTimeToleranceBefore = .zero
@@ -123,10 +124,40 @@ enum CourtReview {
 
     // MARK: - Scoring
 
-    struct PersonLabel: Equatable { var label: Label; var reviewer: String }
+    struct PersonLabel: Equatable { var label: Label; var reviewer: String; var box: PlayerFeatures.Box? }
+
+    typealias Filled = (persons: [String: PersonLabel], missed: [String: (near: Int, far: Int, reviewer: String)])
+
+    /// A run's per-frame lines for one recording.
+    static func runFrames(_ runDir: URL, _ rec: PlayerFeatures.Recording) throws -> [PlayerFeatures.Frame] {
+        let lines = try Data(contentsOf: runDir.appendingPathComponent("features").appendingPathComponent(rec.framesFile))
+        return try lines.split(separator: 0x0A).map { try JSONDecoder().decode(PlayerFeatures.Frame.self, from: Data($0)) }
+    }
+
+    /// Where a filled review doesn't describe this run's detections of `recording`: a labelled box whose frame, track or
+    /// position (the sheet's four decimals) the run doesn't have, or a missed count on a frame it never analysed. Image
+    /// names and track numbers alone don't say which run the reviewer saw (Codex on #166).
+    static func mismatches(_ review: Filled, frames: [PlayerFeatures.Frame], recording: String) -> [String] {
+        let byTick = Dictionary(frames.map { ($0.tick, $0) }, uniquingKeysWith: { a, _ in a })
+        var out: [String] = []
+        for (key, l) in review.persons.sorted(by: { $0.key < $1.key }) {
+            let k = key.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+            guard k.count == 3, k[0] == recording else { continue }
+            guard let tick = Int(k[1]), let f = byTick[tick] else { out.append("\(recording) tick \(k[1]): no such frame in the run"); continue }
+            guard let p = f.persons.first(where: { "\($0.track)" == k[2] }) else { out.append("\(recording) tick \(tick): no box #\(k[2]) in the run"); continue }
+            let close = l.box.map { b in [abs(b.x - p.box.x), abs(b.y - p.box.y), abs(b.w - p.box.w), abs(b.h - p.box.h)].allSatisfy { $0 <= 0.000051 } } ?? false
+            if !close { out.append("\(recording) tick \(tick): box #\(k[2]) is not where the run put it") }
+        }
+        for key in review.missed.keys.sorted() {
+            let k = key.split(separator: "|").map(String.init)
+            guard k.count == 2, k[0] == recording else { continue }
+            if Int(k[1]).flatMap({ byTick[$0] }) == nil { out.append("\(recording) tick \(k[1]): missed players counted on a frame the run never analysed") }
+        }
+        return out
+    }
 
     /// The filled rows of a review folder: (recording, tick, track) → label; (recording, tick) → missed near/far.
-    static func read(_ dir: URL) throws -> (persons: [String: PersonLabel], missed: [String: (near: Int, far: Int, reviewer: String)]) {
+    static func read(_ dir: URL) throws -> Filled {
         func rows(_ file: String) throws -> [[String: String]] {
             let text = try String(contentsOf: dir.appendingPathComponent(file), encoding: .utf8)
             let lines = text.split(whereSeparator: \.isNewline).map { $0.split(separator: ",", omittingEmptySubsequences: false).map(String.init) }
@@ -138,7 +169,9 @@ enum CourtReview {
             let raw = (r["label"] ?? "").trimmingCharacters(in: .whitespaces)
             guard !raw.isEmpty else { continue }
             guard let l = Label(rawValue: raw) else { throw CourtCalibrationError.invalid(["persons.csv: unknown label \(raw)"]) }
-            persons["\(r["recording"] ?? "")|\(r["tick"] ?? "")|\(r["track"] ?? "")"] = PersonLabel(label: l, reviewer: r["reviewer"] ?? "")
+            let v = ["box_x", "box_y", "box_w", "box_h"].compactMap { r[$0].flatMap(Double.init) }
+            persons["\(r["recording"] ?? "")|\(r["tick"] ?? "")|\(r["track"] ?? "")"] = PersonLabel(
+                label: l, reviewer: r["reviewer"] ?? "", box: v.count == 4 ? PlayerFeatures.Box(x: v[0], y: v[1], w: v[2], h: v[3]) : nil)
         }
         var missed: [String: (near: Int, far: Int, reviewer: String)] = [:]
         for r in try rows("frames.csv") {

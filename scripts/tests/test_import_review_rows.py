@@ -1,5 +1,5 @@
 """Tests for scripts/player_features/import_review_rows.py: only what the owner entered is written, the blank sheets are
-kept, and a label or box the sheets don't have stops the import.
+kept, and a label or box the sheets don't have, or a label made on another review sheet, stops the import.
 
     python3 -m unittest scripts.tests.test_import_review_rows -v
 """
@@ -34,9 +34,10 @@ class ImportReviewRows(unittest.TestCase):
         with open(os.path.join(self.dir, name), newline="") as f:
             return list(csv.DictReader(f))
 
-    def export(self, labels, near=1, far=0):
+    def export(self, labels, near=1, far=0, sheet=None):
         return {"artifact": "https://claude.ai/artifact/x",
-                "labels": [{"id": "rec_600", "image": "frames/rec_600.jpg", "labels": labels, "missedNear": near, "missedFar": far, "notes": "two\nlines"}]}
+                "labels": [{"id": "rec_600", "image": "frames/rec_600.jpg", "labels": labels, "missedNear": near, "missedFar": far, "notes": "two\nlines",
+                            "reviewSheet": sheet or m.sheet_hash(self.dir)}]}
 
     def test_fills_only_what_was_entered_and_keeps_the_blank_sheets(self):
         boxes, counted = m.fill(self.export({"3": "spectator"}), self.dir)
@@ -57,6 +58,18 @@ class ImportReviewRows(unittest.TestCase):
             m.fill(self.export({"3": "coach"}), self.dir)
         with self.assertRaises(ValueError):
             m.fill(self.export({"99": "spectator"}), self.dir)
+
+    def test_refuses_labels_made_on_another_review_sheet(self):
+        # Same image names and track numbers, but another run's sheet: nothing is written.
+        before = self.rows("persons.csv")
+        with self.assertRaises(ValueError):
+            m.fill(self.export({"3": "spectator"}, sheet="0" * 64), self.dir)
+        missing = self.export({"3": "spectator"})
+        del missing["labels"][0]["reviewSheet"]
+        with self.assertRaises(ValueError):
+            m.fill(missing, self.dir)
+        self.assertEqual(self.rows("persons.csv"), before)
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "persons.blank.csv")))
 
 
 if __name__ == "__main__":

@@ -184,6 +184,17 @@ enum CourtPilot {
         let manifestURL = runDir.appendingPathComponent("features/player-features-manifest.json")
         guard let data = try? Data(contentsOf: manifestURL) else { throw Failure.noRun(runDir.path) }
         let manifest = try JSONDecoder().decode(PlayerFeatures.Manifest.self, from: data)
+        // A review is scored only against the run whose boxes the reviewer labelled; checked before anything is written.
+        if let review {
+            var bad: [String] = []
+            for rec in manifest.recordings { bad += CourtReview.mismatches(review, frames: try CourtReview.runFrames(runDir, rec), recording: rec.recordingId) }
+            let known = Set(manifest.recordings.map(\.recordingId))
+            bad += Set(review.persons.keys.map { String($0.prefix { $0 != "|" }) }).subtracting(known).sorted().map { "\($0): not a recording of run \(runName)" }
+            guard bad.isEmpty else {
+                throw CourtCalibrationError.invalid(["the review at \(reviewDir!.path) was not made from run \(runName)'s detections"] + Array(bad.prefix(5))
+                                                    + (bad.count > 5 ? ["… and \(bad.count - 5) more"] : []))
+            }
+        }
         let out = experiment.appendingPathComponent("court-evals/\(report)", isDirectory: true)
         let fm = FileManager.default
         guard !fm.fileExists(atPath: out.path) else { throw Failure.exists(out.path) }
@@ -241,8 +252,7 @@ enum CourtPilot {
             }
 
             // Frames of the run.
-            let lines = try Data(contentsOf: runDir.appendingPathComponent("features").appendingPathComponent(rec.framesFile))
-            let frames = try lines.split(separator: 0x0A).map { try JSONDecoder().decode(PlayerFeatures.Frame.self, from: Data($0)) }
+            let frames = try CourtReview.runFrames(runDir, rec)
             let auditTicks = audit(auditCSV, recording: rec.recordingId)
             let seg0 = file.segments.first { $0.status == .unreviewed || $0.status == .confirmed }
             var sources: [(name: String, confirmed: Bool, geometry: (Double) -> (CourtLayout, Int)?, spec: CourtSpec)] = []
