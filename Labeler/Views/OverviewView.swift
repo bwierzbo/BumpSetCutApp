@@ -98,7 +98,8 @@ struct VideoRow: View {
                     Text("· \(plan.rallies) rallies (\(plan.labeledFrames.formatted()) frames)")
                     let open = tracks.filter(\.isOpen).count + model.untrackedRallies(in: video).filter { LocalStore.trim(of: $0, in: video) != nil }.count
                     if open > 0 { Text("· \(open) in progress").foregroundStyle(.orange) }
-                    if !video.ralliesFound.isEmpty { Text("· \(video.ralliesFound.count) found") }
+                    let found = model.found(in: video).count
+                    if found > 0 { Text("· \(found) found") }
                     if video.status == .uploaded { Text("· waiting for the Mac") }
                 }
                 .font(.caption).foregroundStyle(.secondary).lineLimit(1)

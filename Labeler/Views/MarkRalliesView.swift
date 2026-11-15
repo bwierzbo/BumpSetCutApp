@@ -58,7 +58,7 @@ struct MarkRalliesView: View {
     init(model: LabelerModel, video: LabelVideo) {
         self.model = model
         self.video = video
-        _tagger = State(initialValue: LiveTagger(tracks: model.tracks(for: video).map(\.rally),
+        _tagger = State(initialValue: LiveTagger(tracks: model.snapTracks(for: video),
                                                  store: PhoneLiveTagStore(model: model, video: video)))
     }
 
@@ -86,6 +86,11 @@ struct MarkRalliesView: View {
         // the scrub ends here instead, where it was, so playback and the next drag start from a clean state.
         .onChange(of: verticalSizeClass) { _, _ in if scrubbing { endScrub(landingAt: time) } }
         .task { await load() }
+        // Withheld (or no longer known not to be) while this pass is open: the ball path and every rally a model
+        // found the ball in stop being snapped to at once; marking goes on by hand.
+        .onChange(of: model.access(for: video)) { _, access in
+            if access != .open { tagger.path = BallPath(tracks: model.snapTracks(for: video)) }
+        }
         .onDisappear {
             player.pause()
             if let observer { player.removeTimeObserver(observer) }
@@ -170,7 +175,7 @@ struct MarkRalliesView: View {
     }
 
     private var timeline: some View {
-        RallyTimesBar(time: time, duration: duration, found: video.ralliesFound, marked: times.rallies,
+        RallyTimesBar(time: time, duration: duration, found: model.found(in: video), marked: times.rallies,
                       current: nil, pending: tagger.open,
                       ticks: times.rallies.first { $0.start <= time && time <= $0.end }?.contacts?.map(\.time) ?? [],
                       cuts: (times.cuts ?? []).map { [$0.start, $0.end] }, pendingCut: tagger.cutFrom)
@@ -383,7 +388,7 @@ struct MarkRalliesView: View {
             model.setIsRally(false, AnnotationReview.RallyCheck(video: video.id.uuidString, track: t.id, start: t.start, end: t.end))
         }
         let rejected = LocalStore.rejected(video)
-        for f in video.ralliesFound where !rejected.contains(LocalStore.key(f)) && truth.rallySeconds(within: f[0], f[1]) <= 0.3 && !cuts.overlaps(f[0], f[1]) {
+        for f in model.found(in: video) where !rejected.contains(LocalStore.key(f)) && truth.rallySeconds(within: f[0], f[1]) <= 0.3 && !cuts.overlaps(f[0], f[1]) {
             model.rejectFound(f, in: video)
         }
         model.update(video) { $0.complete = true }
@@ -401,7 +406,7 @@ struct MarkRalliesView: View {
             player.replaceCurrentItem(with: item)
             duration = (try? await item.asset.load(.duration).seconds) ?? video.duration
             if let seen = await model.ballPath(for: video) {
-                tagger.path = BallPath(tracks: model.tracks(for: video).map(\.rally), seen: seen)
+                tagger.path = BallPath(tracks: model.snapTracks(for: video), seen: seen)
             }
             observer = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 30), queue: .main) { t in
                 time = t.seconds

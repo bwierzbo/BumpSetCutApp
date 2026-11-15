@@ -17,7 +17,10 @@ struct VideoDetailView: View {
     var body: some View {
         let times = model.rallyTimes(for: video)
         let tracks = model.tracks(for: video)
-        let untracked = model.untrackedRallies(in: video)
+        // What the project's withheld list leaves open (LabelAccess): no rally to track, and nothing a model
+        // found, for a recording no model may run over — its rallies are still marked by hand.
+        let access = model.access(for: video)
+        let untracked = access == .open ? model.untrackedRallies(in: video) : []
         // The row as the model has it now (the one handed in may predate a skip or a put-back).
         let current = model.video(video.id) ?? video
         List {
@@ -30,6 +33,10 @@ struct VideoDetailView: View {
                     Button { model.setBacklog(current, reason: nil) } label: { Label("Put back in the queue", systemImage: "arrow.uturn.backward") }
                 } else {
                     Button { skipping = true } label: { Label("Skip this video…", systemImage: "arrow.uturn.forward") }
+                }
+                if let why = access.modelRefusal {
+                    Label(why + " Its rallies can still be marked by hand.", systemImage: "hand.raised")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
             }
             Section("Rally times") {

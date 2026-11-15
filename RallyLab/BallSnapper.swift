@@ -58,7 +58,10 @@ enum BallSnapper {
 
     private static func detect(at click: CGPoint, in image: CGImage, detector: YOLODetector) -> (rect: CGRect, confidence: Float)? {
         // It has to be the thing clicked.
-        TrackFinder.detections(around: click, in: image, detector: detector, sides: [960, 640, 480])
+        // One click, three crops, under the Track tab's admission asked for the click (modelsAdmitted).
+        (TrackFinder.detections(around: click, in: image, sides: [960, 640, 480], whileAllowed: { true }) { patch in
+            detector.detect(in: patch, at: .zero).map { ($0.bbox, $0.confidence) }
+        } ?? [])
             .filter { $0.rect.insetBy(dx: -$0.rect.width * 0.5, dy: -$0.rect.height * 0.5).contains(click) }
             .max { $0.confidence < $1.confidence }
     }
