@@ -1,8 +1,8 @@
 ---
 name: player-court-calibration-p2
-status: research scope accepted (D-034, owner 2026-11-10); assisted court calibration built and piloted 2026-11-10; no training, no production change; courts and the review sheet await the owner
+status: research scope accepted (D-034, owner 2026-11-10); assisted court calibration built and piloted 2026-11-10; six courts confirmed and the review labelled by the owner, owner-verified evaluation 2026-11-15 (§10); no training, no production change
 created: 2026-11-10T20:04:02Z
-updated: 2026-11-10T21:10:33Z
+updated: 2026-11-15T17:54:11Z
 decision: D-034 (accepted, research scope), P2 paragraph and owner decisions of 2026-11-10; owner authorisation "P2 Assisted Court Calibration" (PR #166 continuation), 2026-11-10
 experiment: EXP-20261110-player-court-calibration-p2
 ---
@@ -146,11 +146,11 @@ A scripted Player Lab run (`--script`, new steps `mode`, `surface`, `format`, `m
 | Measure (assignment §7) | Status |
 |---|---|
 | 1. Automatic proposal quality | §5.1, by eye |
-| 2. Human adjustment needed | **Pending owner review.** The pilot command reports each proposal's point error (pixels) and the points moved, once a court is confirmed |
-| 3. Boundary accuracy after confirmation | Pending: a confirmed court is the reference |
-| 4. Near/far membership | §5.2, against unconfirmed proposals |
-| 5. False in-court from spectators and next courts | §5.2 "beyond" |
-| 6. Servers classified outside | Pending: needs a confirmed court and a server count |
+| 2. Human adjustment needed | §10: points moved and each proposal's point error against the owner's courts |
+| 3. Boundary accuracy after confirmation | §10: near/far half and exact zone against the owner's labels |
+| 4. Near/far membership | §10 (owner-verified); §5.2 against unconfirmed proposals |
+| 5. False in-court from spectators and next courts | §10 (owner-verified); §5.2 "beyond" |
+| 6. Servers classified outside | §10: 2 serving-area players labelled, neither counted outside; too few to judge |
 | 7. Stability across frames | §5.2 flicker |
 | 8. Duplicate tracks and scene features | §5.2: unaffected by zones; re-measure after confirmation |
 | 9. Court-detection time | Net-guided under 1 ms. Court lines 4.0–6.0 s per segment in the Debug build (3.6–7.9 s in the first run): decoding and taking the median of 9 frames, then the search. Once per camera view, not per frame |
@@ -244,5 +244,47 @@ These are candidate human-verified labels. Proposals are never labels.
   - `scripts/player_features/import_review_rows.py <export.json> <review folder>` fills `persons.csv` and `frames.csv` only with what the owner entered. It keeps the blank sheets as `*.blank.csv`, and refuses an unknown label or box.
   - Tests: `testTheOwnersPageConfirmationIsEvidenceAndDraftsOrOtherFootageAreNot`, `scripts/tests/test_import_review_rows.py`.
 
-**Pending the owner:** confirm the six courts, and fill the review sheet. Then the evaluation is re-run without `--propose`, and §5.2–5.3 are replaced by owner-verified figures.
+**Done (2026-11-12 to 2026-11-15):** the owner confirmed the six courts (on the Court Check page) and labelled the review (on `review.html`); §10 has the owner-verified evaluation. §5.2 stays as the earlier, approximate comparison.
+
+## 10. Owner-verified evaluation (2026-11-15)
+
+**What was measured.**
+- **Courts.** All six courts were confirmed by the owner on the Court Check page and imported as `player_lab_web`. The owner redid `bch_ele_ovc_land_self_02` after a first confirmation that kept the proposal unchanged; the second confirmation moved one point (`netLeft`), and the owner confirmed that this court is correct as placed. No proposal is used as a reference.
+- **Labels.** 174 of the 294 boxes, in 20 of the 24 review frames, labelled by the owner with `review.html` (reviewer "Ben"). The owner left out `ind_gnd_bright_land_self_01` (120 boxes in 4 crowded indoor frames). One frame of `bch_ele_ovc_land_self_02` has labels but no missed-player counts, so it counts for membership and not for detection.
+- **Command.** `RallyLab --player-lab-court <experiment> --run p1-rfdetr-keypoint-3x2 --report p2-court-confirmed --review court-reviews/p2-owner-review --audit runs-comparison/p1/audit-p1-rfdetr-keypoint-tiles.csv`, without `--propose`, code `d274beb`; re-run as `p2-court-confirmed-r2` on `02d3eb2` (the Codex fixes, below) with the same review figures. Every labelled box was checked against the run's own boxes: 174 of 174 match.
+
+**Results, 5 recordings, owner labels** (playing = labelled near/far court or serving area; not playing = off court, spectator, adjacent court, referee):
+
+| Source | Near/far half right | Not playing counted in | Players counted out | Players unknown | Duplicates counted in |
+|---|---|---|---|---|---|
+| **Owner-confirmed court** | **76 / 112 (68%)** | **0 / 32** | **2 / 114** | 17 / 114 | 12 / 27 |
+| Net-guided proposal (unconfirmed) | 86 / 112 (77%) | 0 / 32 | 6 / 114 | 0 | 16 / 27 |
+| Court-lines proposal (unconfirmed) | 51 / 112 (46%) | 10 / 32 | 6 / 114 | 40 / 114 | 11 / 27 |
+| Net lane (no court) | — | 31 / 32 | 0 / 114 | 0 | 27 / 27 |
+
+- **In or out is solved on these views.** Against the owner's courts, nobody who wasn't playing was counted in, and 2 of 114 players were counted out. The net lane let in 31 of 32 non-players.
+- **Near/far is not.** Per recording, the confirmed court got 13/14 (`bch_gnd`), 17/20 (`grs_ele`), 20/25 (`ind_port`), 24/43 (`bch_ele`) and 2/10 (`grs_gnd`).
+  - `bch_ele`: all 17 "unknown" players are here. The owner labelled them far court; the confirmed court's far end line sits in front of where they stand, so they fall beyond it.
+  - `grs_gnd`: the camera is at ground level, so the far half is a strip a few pixels deep and players' feet sit on its edges.
+  - On the other three recordings the confirmed court is ahead: 50 / 59 against the net-guided proposal's 44 / 59. On `bch_ele` and `grs_gnd` the net-guided proposal is ahead: 34 / 43 and 8 / 10.
+- **Duplicates.** Court zones don't remove split boxes: 12 of 27 duplicates are still counted in (P1 §9).
+- **Servers.** Only 2 serving-area players were labelled; neither was counted outside.
+- **Detection (owner's missed counts, 19 frames).** Near players found 59 of 60; far 44 of 49 (3 of the 5 misses on `grs_gnd`).
+- **Human adjustment.** The owner moved 4–6 of the 6 points on five courts, starting from the court-lines proposal, and 1 point on `bch_ele` (started from combined). Mean point error of each proposal against the owner's court, pixels on the decoded frame: court lines 69–260 on the five redrawn courts and 9 on `bch_ele`; net-guided 50–408.
+- **Time.** Proposals as in §5.3 (court lines 4.0–6.0 s per view; net-guided under 1 ms). The whole evaluation, six recordings, took 9 s.
+
+**Conclusion.**
+- A person-confirmed court reliably separates this game's players from everyone else on these five views.
+- Near/far from a confirmed court is not dependable yet for low cameras or where the far court is hard to see: it was right for 68% of players overall, behind the unconfirmed net-guided proposal's 77%, which is ahead only on those two recordings. Nothing downstream should rely on near/far.
+- Small sample: 5 recordings, 174 labelled people, one reviewer.
+
+**Codex findings on `16522b6` and `d274beb`, fixed in `02d3eb2`:**
+- **Review sample.** `CourtReview.sample` keeps analysed frames where the detector found nobody, so complete misses reach the missed-player counts. This run has no such frame (0 of 1,350), so the owner's sample is unchanged.
+- **Audit metrics.** `summarize_pilot.audit` scores each metric only over rows whose columns were filled, and refuses a non-number. No existing audit sheet has a partly filled row, so no earlier figure changes.
+- **Re-imports.** A segment records when it was rejected or marked not one court view (`decidedAt`). A page decision is applied only if it is newer than the latest decision the segment holds, in force or in history, so a re-import can't restore a superseded court or overwrite a later Player Lab correction.
+- **Labels bound to the reviewed run.** Page label documents carry the SHA-256 of the unfilled persons sheet, and `import_review_rows.py` refuses any other. `--review` checks every labelled box and missed count against the scored run's own boxes before writing anything.
+- **`d0f0229` stale calibration in the GUI:** already fixed in `38a9b2d` (above).
+- Tests: `testAReviewIsScoredOnlyAgainstTheRunWhoseBoxesWereLabelled`, the superseded-import cases in `testTheOwnersPageConfirmationIsEvidenceAndDraftsOrOtherFootageAreNot`, the empty-frame case in `testReviewScoresFalseInLostPlayersServersAndHalves`, `test_partly_filled_row_leaves_unassessed_metrics_alone`, `test_unreadable_measurement_is_refused`, `test_refuses_labels_made_on_another_review_sheet`.
+
+**Court Check page fixes (not in the repository).** The page first failed to draw the court (it drew before sizing the picture, and that error also stopped it connecting to storage), and points could not be dragged (the redraw replaced the handle being dragged). Both were fixed on the page and checked on a local copy and the live page; the owner's six confirmations were made on the fixed page.
 

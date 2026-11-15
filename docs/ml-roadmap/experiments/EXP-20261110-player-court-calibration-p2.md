@@ -1,8 +1,8 @@
 ---
 id: EXP-20261110-player-court-calibration-p2
-status: built and piloted 2026-11-10 (research scope accepted, D-034); courts and the review sheet await the owner
+status: built and piloted 2026-11-10 (research scope accepted, D-034); owner-verified evaluation 2026-11-15
 created: 2026-11-10T20:04:02Z
-updated: 2026-11-10T21:10:33Z
+updated: 2026-11-15T17:54:11Z
 approved_by: owner 2026-11-10 ("P2 Assisted Court Calibration", PR #166 continuation; "If there are methods that work better depending on what type of volleyball you're at I don't mind asking the user")
 decision: D-034 (accepted, research scope), P2 paragraph and owner decisions of 2026-11-10
 pr: research/player-pose-feasibility-p0 (#166)
@@ -30,6 +30,9 @@ pr: research/player-pose-feasibility-p0 (#166)
 | Scripted GUI check (throwaway copy of the experiment) | `2737e69` | Calibration with a `player_lab_script` confirmation (never used); editor renders `court-*-editor.png` |
 | Scripted open of all six recordings in court mode (throwaway copy) | `38a9b2d` | Each opens on its best proposal as an unsaved draft; calibration files byte-identical afterwards; renders `open-*-editor.png` |
 | `--make-review p2-owner-review --per-recording 4` | `38a9b2d` | 24 fresh frames, 294 people; blank `persons.csv` / `frames.csv`; `review.html` |
+| `--import-web` (Court Check export, 5 courts, then `bch_ele` after the owner redid it) | `d274beb` | 6 `player_lab_web` confirmations; a dry run first; a repeat import applied nothing; pre-import copies in `court-web-imports/pre-import/` |
+| `--report p2-court-confirmed --review court-reviews/p2-owner-review --audit …` (no `--propose`) | `d274beb` | `court-evals/p2-court-confirmed/summary.json` `aa722e29e2c2c92d…`; owner sheets `persons.csv` `eb8fa85b50465965…`, `frames.csv` `98c2b816201a8d51…` |
+| Same, `p2-court-confirmed-r2` | `02d3eb2` | `summary.json` `90572c9388960ac9…`: review figures identical; proposal errors equal to the 14th digit; 174 / 174 labelled boxes match the run's boxes |
 
 ## Results
 
@@ -37,7 +40,8 @@ pr: research/player-pose-feasibility-p0 (#166)
 - Over the 36 audited frames, people counted "in" beyond the auditor's count: lane 4.3 per frame, net-guided 0.7, court lines 0.4. Short of it: 0.2 / 0.4 / 3.1. These are against unconfirmed geometry.
 - Smoothing cuts zone changes per track per 10 observations from 0.11–0.53 to 0.02–0.12.
 - Time: net-guided under 1 ms; court lines 4.0–6.0 s per camera view (Debug).
-- Courts confirmed by a person: **0**. Human adjustment, boundary accuracy after confirmation, and servers classified outside are pending.
+- Courts confirmed by a person: **6** (owner, Court Check page, 2026-11-13 and 2026-11-15).
+- **Owner-verified (2026-11-15; 5 recordings, 174 labelled people; indoor `ind_gnd_bright_land_self_01` left out by the owner).** Against the owner's courts: near/far half right 76 / 112 (68%); not playing counted in 0 / 32; players counted out 2 / 114, unknown 17 / 114 (all on `bch_ele`); duplicates counted in 12 / 27. Unconfirmed net-guided: 86 / 112, 0 / 32, 6 / 114. Net lane: 31 / 32 not playing counted in. Detection: near 59 / 60, far 44 / 49. Report §10.
 - Owner decisions (2026-11-10):
   - All three methods stay; court lines is an optional proposal only.
   - Losing 3.1 players per frame is unacceptable.
@@ -45,7 +49,7 @@ pr: research/player-pose-feasibility-p0 (#166)
 
 ## Tests
 
-- CourtCalibrationTests 20. Since the first version, these were added:
+- CourtCalibrationTests 22 (after the Codex fixes in `02d3eb2`). Since the first version, these were added:
   - a stale calibration classifies nobody in the GUI;
   - a recording opens on its best proposal and nothing is saved;
   - review scoring.
@@ -63,6 +67,6 @@ pr: research/player-pose-feasibility-p0 (#166)
 
 ## Next (owner)
 
-1. Confirm the six courts in Player Lab, then re-run the pilot without `--propose`.
+1. Near/far is not dependable on low or far-hidden views (report §10): decide whether to pursue it, and how.
 2. Decide whether the line search stays.
 3. Address the split boxes from tiling separately.
