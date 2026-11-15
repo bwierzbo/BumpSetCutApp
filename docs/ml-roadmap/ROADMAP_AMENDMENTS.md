@@ -2,7 +2,7 @@
 name: roadmap-amendments
 status: living (CI-BSC-021)
 created: 2026-10-22T02:29:29Z
-updated: 2026-11-05T01:20:21Z
+updated: 2026-11-13T03:24:04Z
 ---
 
 # Roadmap amendments
@@ -40,3 +40,4 @@ Decisions logged after the roadmap whose entries change the plan. The section co
 | D-019 | 2026-10-21 | not named in the entry (owner to confirm) | First L2 recipe approved with amendments (paired H1, label provenance, one seed); training and holdout evaluation each need separate authorisation. |
 | D-024 | 2026-10-23 | Phase 1A (event-boundary pilot); RallyLab review workflow and future classifier datasets | Stage 1 expands from the approved 24-rally calibration pilot to full eligible-video review of exact serve contact/dead ball, with simple missed-serve and non-rally ball-activity flags. An independently resumable, optional Stage 2 adds per-contact action/technique labels without redoing boundaries. Stage 3 player identities/stats are deferred; frozen L2 and protected footage controls remain unchanged. |
 | D-031 | 2026-11-02 | not named in the entry (owner to confirm); touches Phase 1 (dataset manifest), Phase 1A (review tooling) and the RallyLab workflow | RallyLab becomes the dataset-management and annotation platform: a derived source registry and a persistent labeling task queue over the existing stores, built in reviewable phases with stability fixes first; the roadmap's measurement-first ordering, reservations and training gates are unchanged. |
+| D-037 | 2026-11-12 | not named in the entry (owner to confirm); touches the model-lineage holdout and the L2 lineage (D-017, D-018) and every phase that runs a model over project recordings | Completes D-036: three train copies of lineage-holdout recordings are withheld with them (the closure is 24). The first L2 model is kept as a development comparator and marked exposed — it no longer counts as a lineage isolated under D-017; a clean L2 needs a new package and its own preregistration. Routine model runs (training and packaging, pre-tracking, scoring, tuning, comparison, proposals) refuse the whole withheld closure, the legacy holdout included; a holdout evaluation needs its own controlled, logged path. |

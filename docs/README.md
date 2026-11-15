@@ -17,6 +17,7 @@ Plain Markdown with relative links, so this folder opens as an Obsidian vault (p
 
 - [Decision log](decisions/DECISION_LOG.md) — authoritative; D-001 … D-021 (D-020 proposed).
 - [Decision log](decisions/DECISION_LOG.md) — authoritative; D-001 … D-020.
+- [Owner authorisation, 2026-11-12 (complete D-036, correct the exporter, prepare classifier training)](decisions/2026-11-12-d036-completion-authorization.md) — verbatim: the four corrective PRs merged, the correction applied to live Scratch, the follow-up guard fixes, one bounded content audit of the protected recordings, L2 kept and marked exposed, a new classifier export, the experiment prepared up to the training gate (D-037).
 - [Owner authorisation, 2026-11-10 (D-017 lineage correction and content-leakage audit)](decisions/2026-11-10-d017-lineage-correction-authorization.md) — verbatim: Option A (the holdouts stay reserved, the train copies are excluded); backup, isolated copy and owner review before the live project changes; root cause, content-lineage audit, consumer audit, model ancestry, classifier-dataset check; no merge, training or regeneration without a separate decision.
 - [Owner decisions, 2026-10-20](decisions/2026-10-20-phase0-owner-decisions.md) — verbatim primary source for D-001 … D-010.
 - [Owner decisions, 2026-10-21 (L2)](decisions/2026-10-21-l2-owner-decisions.md) — verbatim primary source for D-018 (dataset isolation, preregistration).
