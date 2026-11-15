@@ -336,8 +336,8 @@ final class CoverageAuditModel {
         guard s.problem == nil else { return false }
         switch pass {
         case .first: return s.firstLeft > 0
-        case .repeatLook: return s.repeatDone < s.repeatOwed
-        case .resolution: return s.unresolved + s.unfinishedResolutions > 0
+        case .repeatLook: return s.repeatLeft > 0
+        case .resolution: return s.resolveLeft > 0
         }
     }
 
