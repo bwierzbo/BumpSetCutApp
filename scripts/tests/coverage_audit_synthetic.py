@@ -166,7 +166,7 @@ def write_records(syn: Synthetic, draw_path: str, findings=None, repeat="second_
     draw, draw_sha = report.read_draw(draw_path)
 
     def verdict(found):
-        return {"verdict": "not_clean", "findings": found} if found else {"verdict": "clean", "playedAllAtMaxRate": 2.0}
+        return {"verdict": "not_clean", "findings": found, "playedAllAtMaxRate": 2.0} if found else {"verdict": "clean", "playedAllAtMaxRate": 2.0}
 
     for rec in draw["recordings"]:
         rid = rec["recordingId"]

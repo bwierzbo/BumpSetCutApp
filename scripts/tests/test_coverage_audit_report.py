@@ -101,6 +101,46 @@ class Records(unittest.TestCase):
         self.assertEqual(result["pilot"]["missing"]["notReviewed"][self.first], [self.free])
         self.assertEqual((self.row(result)["state"], self.row(result)["reviewed"]), ("partial", synthetic.INTERVALS - 1))
 
+    def test_a_finding_given_before_its_interval_played_whole_keeps_the_pilot_incomplete(self):
+        self.evaluate()
+        record = inv.load_json(self.syn.record_path(self.first), "record")
+        iv = next(i for i in record["intervals"] if i["index"] == self.free)
+        iv.update(verdict="not_clean", findings=[{"kind": "non_rally_activity", "approxStartSec": 1.0}])
+        iv.pop("playedAllAtMaxRate")
+        synthetic.write_json(self.syn.record_path(self.first), record)
+        result = report.evaluate(self.draw_path, self.syn.project)
+        self.assertEqual(result["pilot"]["outcome"], "incomplete")
+        self.assertEqual(result["pilot"]["missing"]["unfinished"], {self.first: [self.free]})
+        row = self.row(result)
+        self.assertEqual((row["state"], row["unfinished"], row["findings"]["non_rally_activity"]["count"]), ("partial", [self.free], 1),
+                         "the finding stands; the interval waits for the rest of its look")
+        # Played to its end: the look is finished and the pilot can be evaluated.
+        iv["playedAllAtMaxRate"] = 2.0
+        synthetic.write_json(self.syn.record_path(self.first), record)
+        self.assertEqual(report.evaluate(self.draw_path, self.syn.project)["pilot"]["outcome"], "pass")
+
+    def test_a_record_with_repeats_by_both_reviewers_is_read_by_who_made_each(self):
+        self.evaluate()
+        record = inv.load_json(self.syn.record_path(self.first), "record")
+        repeats = record["repeat"]["intervals"]
+        self.assertGreater(len(repeats), 1)
+        # RallyLab labels the block same_reviewer_after_24h when any repeat is the first reviewer's.
+        record["repeat"]["method"] = "same_reviewer_after_24h"
+        repeats[0]["reviewer"] = "owner"
+        synthetic.write_json(self.syn.record_path(self.first), record)
+        result = report.evaluate(self.draw_path, self.syn.project)
+        row = self.row(result)
+        self.assertEqual(row["problems"], [])
+        self.assertEqual((row["agreement"]["same_reviewer_after_24h"]["compared"], row["agreement"]["second_reviewer"]["compared"]),
+                         (1, len(repeats) - 1))
+        self.assertEqual(result["pilot"]["outcome"], "pass")
+        self.assertFalse(result["pilot"]["totals"]["agreement"]["same_reviewer_after_24h"]["independent"])
+        # A block that claims second_reviewer never holds a repeat of the first reviewer's.
+        record["repeat"]["method"] = "second_reviewer"
+        synthetic.write_json(self.syn.record_path(self.first), record)
+        row = self.row(report.evaluate(self.draw_path, self.syn.project))
+        self.assertTrue(any("calls it second_reviewer" in p for p in row["problems"]), row["problems"])
+
     def test_the_repeat_set_must_be_done_before_the_pilot_is_evaluated(self):
         result = self.evaluate(repeat=None)
         self.assertEqual(result["pilot"]["outcome"], "incomplete")
@@ -229,9 +269,9 @@ class Records(unittest.TestCase):
         self.assertEqual(result["pilot"]["missing"]["unresolved"], {self.first: [self.again]})
         row = self.row(result)
         self.assertEqual((row["state"], row["cleanIntervals"]), ("partial", synthetic.INTERVALS - 1), "an unresolved interval is not clean")
-        self.assertEqual(row["agreement"]["byClass"]["missed_rally"], {"both": 0, "firstOnly": 0, "repeatOnly": 1})
-        self.assertEqual(row["agreement"]["byClass"]["clean"], {"both": 2, "firstOnly": 1, "repeatOnly": 0})
-        self.assertEqual((row["agreement"]["compared"], row["agreement"]["identical"]), (3, 2))
+        self.assertEqual(row["agreement"]["second_reviewer"]["byClass"]["missed_rally"], {"both": 0, "firstOnly": 0, "repeatOnly": 1})
+        self.assertEqual(row["agreement"]["second_reviewer"]["byClass"]["clean"], {"both": 2, "firstOnly": 1, "repeatOnly": 0})
+        self.assertEqual((row["agreement"]["second_reviewer"]["compared"], row["agreement"]["second_reviewer"]["identical"]), (3, 2))
 
         result = self.evaluate(repeat_findings={self.first: {self.again: missed}}, resolutions={self.first: {self.again: missed}})
         self.assertEqual((result["pilot"]["outcome"], result["pilot"]["m"]), ("pass", 1))
