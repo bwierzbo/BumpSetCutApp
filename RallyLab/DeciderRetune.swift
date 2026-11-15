@@ -342,11 +342,8 @@ enum DeciderRetune {
         guard !FileManager.default.fileExists(atPath: out.path) else { log("❌ \(out.path) exists; name a new folder."); return false }
 
         // Eligibility: the reservation and the withheld closure, every rally marked, groups apart.
-        let reserved: Set<String>, withheld: Set<String>
-        do {
-            reserved = try ReservedVideos.reservedNames(in: root)
-            withheld = try ReservedVideos.lineageWithheldNames(in: root)
-        } catch { log("❌ \(error.localizedDescription)"); return false }
+        let closures: ScoringExposure.Closures
+        do { closures = try ScoringExposure.Closures(in: root) } catch { log("❌ \(error.localizedDescription)"); return false }
         let manifest: DatasetSplitManifest
         do {
             guard let m = try DatasetSplitManifest.readStrict(from: NetInventory.manifestURL(in: root)) else {
@@ -356,7 +353,7 @@ enum DeciderRetune {
         } catch { log("❌ \(error.localizedDescription)"); return false }
         let groups = groups(manifest.videos)
         let splits = Dictionary(uniqueKeysWithValues: manifest.videos.map { ($0.video, "\($0.split)") })
-        if let why = planRefusal(plan, reserved: reserved, withheld: withheld, groups: groups) { log("❌ Plan refused: \(why)"); return false }
+        if let why = planRefusal(plan, reserved: closures.reserved, withheld: closures.withheld, groups: groups) { log("❌ Plan refused: \(why)"); return false }
         let pool = plan.tune + plan.eval
         for n in pool where groups[n] == nil { log("❌ \(n) is not in the split manifest."); return false }
         var videos: [String: PipelineTuner.Video] = [:]

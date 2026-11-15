@@ -73,11 +73,12 @@ struct ExposureRecord: Codable, Equatable, Hashable {
         case pipelineTune = "pipeline_tuning_tune"
         case pipelineHoldout = "pipeline_tuning_holdout"
         /// The rally pipeline was run on the video and scored against its marks
-        /// (--score-rallies, --diagnose-rallies, --render-pipeline, --serve-report, the RallyLab Pipeline/Compare tabs).
+        /// (--score-rallies, --diagnose-rallies, --render-pipeline, --serve-report, the RallyLab Pipeline/Compare/FSM tabs).
         case rallyScoring = "rally_scoring"
         /// A detector was evaluated on the video's reviewed frames (ModelLibrary evaluate, --pretrack-check).
         case detectorEvaluation = "detector_evaluation"
-        /// A model wrote machine tracks into the video (--pretrack).
+        /// A model wrote machine tracks into the video (--pretrack), or ran over its frames while a person
+        /// labeled them (the Track tab's detectors, the Sampler review's click-to-box).
         case preTracking = "pre_tracking"
         /// The pipeline ran over the whole video to save where it saw the ball (BallPathBuilder,
         /// for marking in the Label / Live-tag tabs).
@@ -87,7 +88,8 @@ struct ExposureRecord: Codable, Equatable, Hashable {
         case eventReview = "event_review"
         /// The old net model ran on one frame of the video to propose a net box in the Net labels
         /// tab (NetLabelsModel): a model-assisted annotation use, written before the model runs,
-        /// whether or not the person then confirms a label.
+        /// whether or not the person then confirms a label. Also the single-video Net tab's
+        /// detection over sampled frames.
         case netProposal = "net_proposal"
     }
 

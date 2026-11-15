@@ -141,6 +141,8 @@ struct ClipStatusLabel: View {
             } else {
                 Label("\(reviewed)/\(frames) reviewed", systemImage: "circle.lefthalf.filled").foregroundStyle(.orange)
             }
+        case .registered(let why):
+            Label("Withheld · not sampled", systemImage: "lock").foregroundStyle(.secondary).help(why)
         }
     }
 }

@@ -54,17 +54,17 @@ enum PreTracker {
             return report
         }
         log("Multi-frame model: \(heat.deletingPathExtension().lastPathComponent)")
-        let reserved: Set<String>
-        do { reserved = try PipelineTuner.ValidationSet.finalTestNames(in: sampler.datasetRoot) } catch {
+        // No model tracks a withheld recording (D-002, D-017: the final test, the lineage and legacy holdouts, every alias).
+        let closures: ScoringExposure.Closures
+        do { closures = try ScoringExposure.Closures(in: sampler.datasetRoot) } catch {
             log("❌ \(error.localizedDescription)")
             return report
         }
-        for name in only where reserved.contains(name) { log("⛔ \(name) is reserved as final_test (D-002) — not pre-tracked.") }
+        for name in only { if let why = closures.standing(of: name) { log("⛔ \(name) is \(why) — not pre-tracked.") } }
         let yolo = sampler.prelabelModel
-        let sessions = sampler.sessions.filter {
+        let sessions = closures.admitted(sampler.sessions.filter {
             ($0.split == "val") == val && FileManager.default.fileExists(atPath: $0.sourcePath) && (only.isEmpty || only.contains($0.name))
-                && !reserved.contains($0.name)
-        }
+        })
         // Machine tracks written by a model are exposure (D-002); logged as the run starts.
         do {
             try ExposureLog.record(videos: Set(sessions.map(\.name)), kind: .preTracking,
@@ -191,13 +191,13 @@ enum PreTracker {
             return []
         }
         log("Multi-frame model: \(heat.deletingPathExtension().lastPathComponent)")
-        let reserved: Set<String>
-        do { reserved = try PipelineTuner.ValidationSet.finalTestNames(in: sampler.datasetRoot) } catch {
-            log("❌ \(error.localizedDescription) Final-test reservations unknown; nothing checked (D-002).")
+        let closures: ScoringExposure.Closures
+        do { closures = try ScoringExposure.Closures(in: sampler.datasetRoot) } catch {
+            log("❌ \(error.localizedDescription) The reservations are unknown; nothing checked (D-002).")
             return []
         }
         let yolo = sampler.prelabelModel
-        let checked = sampler.sessions.filter { $0.split == "val" && FileManager.default.fileExists(atPath: $0.sourcePath) && !reserved.contains($0.name) }
+        let checked = closures.admitted(sampler.sessions.filter { $0.split == "val" && FileManager.default.fileExists(atPath: $0.sourcePath) })
         do {
             try ExposureLog.record(videos: Set(checked.map(\.name)), kind: .detectorEvaluation,
                                    ref: "--pretrack-check " + heat.deletingPathExtension().lastPathComponent, note: nil, in: sampler.datasetRoot)

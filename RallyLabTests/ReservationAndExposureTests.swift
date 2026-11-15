@@ -29,31 +29,37 @@ final class ReservationAndExposureTests: XCTestCase {
     // MARK: - Reservations fail closed
 
     func testMissingValidationFileMeansNoReservations() throws {
-        XCTAssertEqual(try PipelineTuner.ValidationSet.finalTestNames(in: root), [])
+        XCTAssertEqual(try ReservedVideos.reservedNames(in: root), [])
         XCTAssertNil(try PipelineTuner.ValidationSet.loadStrict(from: root))
     }
 
     func testLegacyValidationFileWithoutFinalTestMeansNoReservations() throws {
         try writeValidation(#"{"tune":["a"],"holdout":["b"]}"#)
-        XCTAssertEqual(try PipelineTuner.ValidationSet.finalTestNames(in: root), [])
+        XCTAssertEqual(try ReservedVideos.reservedNames(in: root), [])
     }
 
     func testFinalTestNamesAreReturned() throws {
         try writeValidation(#"{"tune":["a"],"holdout":["b"],"finalTest":["z","y"]}"#)
-        XCTAssertEqual(try PipelineTuner.ValidationSet.finalTestNames(in: root), ["y", "z"])
+        XCTAssertEqual(try ReservedVideos.reservedNames(in: root), ["y", "z"])
     }
 
     func testLineageWithheldNamesIncludeTheLegacyHoldout() throws {
         try writeValidation(#"{"tune":["a"],"holdout":["b"],"finalTest":["z"],"lineageHoldout":["l"]}"#)
-        XCTAssertEqual(try ReservedVideos.reservedNames(in: root), ["l", "z"], "the legacy holdout is not reserved for scoring paths")
-        XCTAssertEqual(try ReservedVideos.lineageWithheldNames(in: root), ["b", "l", "z"], "but a lineage package leaves it out too")
+        XCTAssertEqual(try ReservedVideos.reservedNames(in: root), ["l", "z"], "the legacy holdout is not the final test")
+        XCTAssertEqual(try ReservedVideos.lineageWithheldNames(in: root), ["b", "l", "z"], "but it is withheld: no package holds it and no model runs over it")
+        let closures = try ScoringExposure.Closures(in: root)
+        XCTAssertEqual(closures.reserved, ["l", "z"])
+        XCTAssertEqual(closures.withheld, ["b", "l", "z"], "what every model run and package refuses")
+        XCTAssertEqual(closures.standing(of: "z"), "reserved as final_test (D-002)", "the final test is named first")
+        XCTAssertEqual(closures.standing(of: "b"), "withheld — a lineage or legacy holdout, or an alias of one (D-017)")
+        XCTAssertNil(closures.standing(of: "a"))
         try writeValidation(#"{"tune":["a"],"holdout":["b"],"finalTest":["z"]"#)   // truncated
         XCTAssertThrowsError(try ReservedVideos.lineageWithheldNames(in: root))
     }
 
     func testUnreadableValidationFileThrowsInsteadOfEmptying() throws {
         try writeValidation(#"{"tune":["a"],"holdout":["b"],"finalTest":["z"]"#)   // truncated
-        XCTAssertThrowsError(try PipelineTuner.ValidationSet.finalTestNames(in: root)) { error in
+        XCTAssertThrowsError(try ReservedVideos.reservedNames(in: root)) { error in
             XCTAssertTrue(error is PipelineTuner.ValidationSet.ReservationError)
         }
         XCTAssertThrowsError(try PipelineTuner.ValidationSet.loadStrict(from: root))
@@ -252,7 +258,7 @@ final class ReservationAndExposureTests: XCTestCase {
         try enc.encode(project).write(to: root.appendingPathComponent("project.json"))
         try writeValidation(#"{"tune":[],"holdout":[],"finalTest":["bch_a"]}"#)
         XCTAssertEqual(try ReservedVideos.reservedNames(in: root), ["bch_a", "bch_copy", "bch_same_venue"])
-        XCTAssertEqual(try PipelineTuner.ValidationSet.finalTestNames(in: root), ["bch_a", "bch_copy", "bch_same_venue"],
+        XCTAssertEqual(try ScoringExposure.Closures(in: root).withheld, ["bch_a", "bch_copy", "bch_same_venue"],
                        "every package/score/tune/pre-track filter sees the aliases")
     }
 
@@ -295,7 +301,7 @@ final class ReservationAndExposureTests: XCTestCase {
         let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
         try enc.encode(project).write(to: root.appendingPathComponent("project.json"))
         try writeValidation(#"{"tune":[],"holdout":[],"finalTest":["bch_a"],"finalTestCandidates":["bch_c"]}"#)
-        XCTAssertEqual(try PipelineTuner.ValidationSet.finalTestNames(in: root), ["bch_a", "bch_c", "bch_c_copy"], "candidates and their aliases are protected everywhere")
+        XCTAssertEqual(try ReservedVideos.reservedNames(in: root), ["bch_a", "bch_c", "bch_c_copy"], "candidates and their aliases are protected everywhere")
         let set = try XCTUnwrap(try PipelineTuner.ValidationSet.loadStrict(from: root))
         let (finalTest, lineage, candidates) = ReservedVideos.expanded(set, sources: try ReservedVideos.sources(in: root))
         XCTAssertEqual(finalTest, ["bch_a"])
@@ -314,7 +320,7 @@ final class ReservationAndExposureTests: XCTestCase {
         let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
         try enc.encode(project).write(to: root.appendingPathComponent("project.json"))
         try writeValidation(#"{"tune":[],"holdout":[],"finalTest":[],"finalTestCandidates":["bch_c","bch_l"],"lineageHoldout":["bch_l"]}"#)
-        XCTAssertEqual(try PipelineTuner.ValidationSet.finalTestNames(in: root), ["bch_c", "bch_l", "bch_n"],
+        XCTAssertEqual(try ReservedVideos.reservedNames(in: root), ["bch_c", "bch_l", "bch_n"],
                        "the lineage holdout and its same-session alias are protected everywhere packages, scoring, tuning and pre-tracking look")
         let set = try XCTUnwrap(try PipelineTuner.ValidationSet.loadStrict(from: root))
         let (finalTest, lineage, candidates) = ReservedVideos.expanded(set, sources: try ReservedVideos.sources(in: root))
