@@ -171,9 +171,23 @@ extension CoverageAudit {
     /// returned — so before a frame of it is shown. An unwritable ledger refuses the open.
     static func open(_ recordingId: String, draw: LoadedDraw, root: URL, now: Date = Date()) throws -> Opened {
         let admission = try admit(recordingId, draw: draw, root: root)
+        try setAsideSupersededRecord(video: admission.video, draw: draw)
         let file = try existingRecord(of: admission.recording, video: admission.video, contentFingerprint: admission.contentFingerprint, draw: draw)
         try logUse(of: recordingId, draw: draw, root: root, now: now)
         return Opened(admission: admission, file: file)
+    }
+
+    /// A recording opened under a draw that replaces the one its record belongs to (protocol §8: after a failed
+    /// pilot the changed intervals are audited again under a new draw, with its reason): the old record is kept
+    /// whole beside the video (`supersededURL`) and the replacement starts a fresh record — none of the old verdicts
+    /// is reused. A record of any draw this one does not name in `supersedes` is left where it is (and refused).
+    private static func setAsideSupersededRecord(video: URL, draw: LoadedDraw) throws {
+        let sidecar = url(forVideo: video), fm = FileManager.default
+        guard fm.fileExists(atPath: sidecar.path), let file = try? read(sidecar), file.drawId != draw.draw.drawId,
+              draw.draw.supersedes?.contains(file.drawId) == true else { return }
+        let kept = supersededURL(forVideo: video, drawId: file.drawId)
+        guard !fm.fileExists(atPath: kept.path) else { throw Failure.supersededRecordKept(path: kept.path) }
+        try fm.moveItem(at: sidecar, to: kept)
     }
 
     // MARK: - Saving a verdict

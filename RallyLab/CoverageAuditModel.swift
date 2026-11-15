@@ -23,11 +23,13 @@ import Observation
 
 @MainActor @Observable
 final class CoverageAuditModel {
-    /// One look at one interval: what played coverage and undo are kept by.
+    /// One look at one interval by one reviewer: what played coverage and undo are kept by. The reviewer is part of
+    /// it, so what one person watched never counts for another (a hand-over on a Mac with no labeling session).
     struct LookKey: Hashable {
         var recordingId: String
         var pass: CoverageAudit.Pass
         var index: Int
+        var reviewer: String
     }
 
     /// Who is signed in to labeling on this Mac, as far as it can be told.
@@ -300,7 +302,7 @@ final class CoverageAuditModel {
 
     private var key: LookKey? {
         guard let recordingId, let intervalIndex else { return nil }
-        return LookKey(recordingId: recordingId, pass: pass, index: intervalIndex)
+        return LookKey(recordingId: recordingId, pass: pass, index: intervalIndex, reviewer: reviewer)
     }
 
     /// What of the interval on screen has been played in this look.
@@ -528,6 +530,7 @@ final class CoverageAuditModel {
     /// Z: the last verdict given in this session is taken back — its last finding, or its clean.
     func undo() async {
         guard let last = undoStack.last else { refuse("Nothing to undo in this session."); return }
+        guard last.reviewer == reviewer else { refuse("The last verdict in this session is \(last.reviewer)'s: only \(last.reviewer) can undo it."); return }
         if last.recordingId != recordingId { await open(last.recordingId, at: last.index, play: false) }
         guard last.recordingId == recordingId else { return }
         if pass != last.pass { pass = last.pass }

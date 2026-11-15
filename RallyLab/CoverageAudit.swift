@@ -118,6 +118,9 @@ enum CoverageAudit {
         var drawId: String
         var dataset: Dataset
         var recordings: [Recording]
+        /// The earlier draws of the same stage this one replaces (the draw tool writes them with its `--reason`): a
+        /// record of one of them is set aside, kept whole, when a recording is opened under this draw.
+        var supersedes: [String]?
 
         var datasetName: String { dataset.name }
 
@@ -379,6 +382,7 @@ enum CoverageAudit {
         case nothingToWithdraw(index: Int)
         case noFindings(index: Int)
         case othersLook(index: Int, reviewer: String)
+        case supersededRecordKept(path: String)
         case ledgerNotWritten(String)
 
         var errorDescription: String? {
@@ -416,6 +420,7 @@ enum CoverageAudit {
             case .frozen(let index, let by): return "Interval \(index) has a \(by); withdraw that first."
             case .nothingToWithdraw(let index): return "Interval \(index) has nothing to withdraw in this pass."
             case .noFindings(let index): return "Interval \(index) has no findings in this pass to complete by playing it whole."
+            case .supersededRecordKept(let path): return "A record of the superseded draw is already kept at \(path); nothing is moved over it."
             case .othersLook(let index, let reviewer): return "Interval \(index)'s look in this pass is \(reviewer)'s: only \(reviewer) can complete it by playing it whole."
             case .ledgerNotWritten(let why): return "The exposure ledger could not record this audit, so nothing is saved: \(why)"
             }
@@ -426,6 +431,12 @@ enum CoverageAudit {
 
     static func url(forVideo video: URL) -> URL {
         video.deletingPathExtension().appendingPathExtension("coverageaudit.json")
+    }
+
+    /// Where a record of a superseded draw is kept once a replacement draw opens its recording: beside the video,
+    /// under that draw's id. Nothing reads it as a record of the recording any more; it stays as evidence.
+    static func supersededURL(forVideo video: URL, drawId: String) -> URL {
+        video.deletingPathExtension().appendingPathExtension("coverageaudit.\(drawId).json")
     }
 
     static func read(_ url: URL) throws -> File {
