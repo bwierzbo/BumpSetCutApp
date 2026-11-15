@@ -210,6 +210,8 @@ extension CoverageAudit {
             return Look(verdict: .notClean, findings: kept + [finding], reviewer: reviewer, at: at, playedAllAtMaxRate: whole ?? existing?.playedAllAtMaxRate)
         case .playedWhole:
             guard var look = existing, look.verdict == .notClean else { throw Failure.noFindings(index: interval.index) }
+            // Completing a look says its reviewer watched the interval to its end: only that reviewer can.
+            guard look.reviewer == reviewer else { throw Failure.othersLook(index: interval.index, reviewer: look.reviewer) }
             guard let whole else {
                 throw Failure.notPlayed(index: interval.index, missingSec: seconds(interval.span.ticks - played.playedTicks(in: interval.span)))
             }
@@ -251,7 +253,8 @@ extension CoverageAudit {
 
         switch request.pass {
         case .first:
-            if file.repeatReview(index) != nil { throw Failure.frozen(index: index, by: "repeat verdict") }
+            // Playing an unfinished look to its end changes no verdict, finding or time, so it is taken beneath a later look.
+            if file.repeatReview(index) != nil, request.entry != .playedWhole { throw Failure.frozen(index: index, by: "repeat verdict") }
             let next = try apply(to: file.review(index).map {
                 Look(verdict: $0.verdict, findings: $0.findings, reviewer: $0.reviewer, at: $0.reviewedAt, playedAllAtMaxRate: $0.playedAllAtMaxRate)
             })
@@ -264,7 +267,7 @@ extension CoverageAudit {
         case .repeatLook:
             guard let first = file.review(index) else { throw Failure.noFirstVerdict(index: index) }
             guard repeatSet(recording, file: file).contains(index) else { throw Failure.notInRepeatSet(index: index) }
-            if file.resolution(index) != nil { throw Failure.frozen(index: index, by: "resolution") }
+            if file.resolution(index) != nil, request.entry != .playedWhole { throw Failure.frozen(index: index, by: "resolution") }
             // The first reviewer's own second look is blind only once the first is a day old.
             if adds, reviewer == first.reviewer, let firstAt = date(first.reviewedAt), now.timeIntervalSince(firstAt) < sameReviewerWait {
                 throw Failure.sameReviewerTooSoon(index: index, acceptedFrom: EventReview.stamp(firstAt.addingTimeInterval(sameReviewerWait)))

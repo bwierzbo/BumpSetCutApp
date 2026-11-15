@@ -576,6 +576,34 @@ final class CoverageAuditRecordingTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(A.status(draw: d, root: root).first).firstLeft, 0)
     }
 
+    func testAnUnfinishedLookIsCompletedBeneathALaterOneByItsOwnReviewerOnly() throws {
+        try recording("a")
+        let d = try draw(["a"], repeatSet: [1])
+        // bw gives a finding before interval 1 has played whole; jr's repeat follows at once.
+        try A.record(request("a", 1, .finding(A.Finding(kind: .missedServe, approxStartSec: 5)), played: A.PlayedCoverage()), draw: d, root: root, tool: "t", now: now)
+        try A.record(request("a", 1, .clean, pass: .repeatLook, by: "jr", played: all), draw: d, root: root, tool: "t", now: now)
+        refused(.frozen(index: 1, by: "repeat verdict"), "a verdict under a later look is still frozen") {
+            try A.record(request("a", 1, .finding(A.Finding(kind: .uncertain, note: "?")), played: all), draw: d, root: root, tool: "t", now: now)
+        }
+        refused(.othersLook(index: 1, reviewer: "bw"), "only the look's own reviewer can say it was watched to its end") {
+            try A.record(request("a", 1, .playedWhole, by: "jr", played: all), draw: d, root: root, tool: "t", now: now)
+        }
+        let file = try A.record(request("a", 1, .playedWhole, played: all), draw: d, root: root, tool: "t", now: now)
+        XCTAssertEqual(file.review(1)?.playedAllAtMaxRate, 2)
+        XCTAssertEqual(file.review(1)?.findings.map(\.kind), [.missedServe], "the verdict is as it was")
+        XCTAssertEqual(file.repeatReview(1)?.verdict, .clean, "the later look stays")
+    }
+
+    func testAMovedIntervalIsNoLaterPassWork() throws {
+        try recording("a")
+        let d = try draw(["a"], repeatSet: [0, 2])
+        for i in 0...2 { try A.record(request("a", i, .clean, played: all), draw: d, root: root, tool: "t", now: now) }
+        XCTAssertEqual(try XCTUnwrap(A.status(draw: d, root: root).first).repeatLeft, 2)
+        try writeMarks("a", [(1.5, 4, "rally"), (6, 8, "rally")])          // interval 0 moves
+        let status = try XCTUnwrap(A.status(draw: d, root: root).first)
+        XCTAssertEqual([status.repeatOwed, status.repeatLeft], [2, 1], "no verdict can be taken on the moved interval, so it is not work left")
+    }
+
     func testARepeatOrResolutionWithFindingsNotPlayedWholeIsWorkLeft() throws {
         try recording("a")
         let d = try draw(["a"], repeatSet: [0, 1])
@@ -585,17 +613,17 @@ final class CoverageAuditRecordingTests: XCTestCase {
         try A.record(request("a", 1, .finding(A.Finding(kind: .missedServe, approxStartSec: 3)), pass: .repeatLook, by: "jr", played: A.PlayedCoverage()),
                      draw: d, root: root, tool: "t", now: now)
         var status = try XCTUnwrap(A.status(draw: d, root: root).first)
-        XCTAssertEqual([status.repeatDone, status.repeatOwed], [1, 2])
+        XCTAssertEqual([status.repeatDone, status.repeatOwed, status.repeatLeft], [1, 2, 1])
         try A.record(request("a", 1, .playedWhole, pass: .repeatLook, by: "jr", played: all), draw: d, root: root, tool: "t", now: now)
         status = try XCTUnwrap(A.status(draw: d, root: root).first)
-        XCTAssertEqual([status.repeatDone, status.unresolved, status.unfinishedResolutions], [2, 1, 0])
+        XCTAssertEqual([status.repeatDone, status.repeatLeft, status.unresolved, status.resolveLeft], [2, 0, 1, 1])
         // The same for a resolution given before the interval had played whole in it.
         try A.record(request("a", 1, .finding(A.Finding(kind: .missedServe, approxStartSec: 3.1)), pass: .resolution, played: A.PlayedCoverage()),
                      draw: d, root: root, tool: "t", now: now)
         status = try XCTUnwrap(A.status(draw: d, root: root).first)
-        XCTAssertEqual([status.unresolved, status.unfinishedResolutions], [0, 1])
+        XCTAssertEqual([status.unresolved, status.resolveLeft], [0, 1])
         try A.record(request("a", 1, .playedWhole, pass: .resolution, played: all), draw: d, root: root, tool: "t", now: now)
         status = try XCTUnwrap(A.status(draw: d, root: root).first)
-        XCTAssertEqual([status.unresolved, status.unfinishedResolutions], [0, 0])
+        XCTAssertEqual([status.unresolved, status.resolveLeft], [0, 0])
     }
 }
