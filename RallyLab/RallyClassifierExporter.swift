@@ -594,6 +594,15 @@ enum RallyClassifierExporter {
 
     static func tick(_ seconds: Double) -> Int { Int((seconds * Double(timescale)).rounded(.toNearestOrEven)) }
 
+    /// Where the dataset starts a rally: the serve contact when one was marked on it (contacts[0], a serve, inside the
+    /// mark), else the mark's start. `piece` is the rally as RallyTruth keeps it; `records` the sidecar's marks. One
+    /// rule for the dataset's rallies and for the coverage audit's unmarked intervals (CoverageAudit), which must
+    /// agree to the tick.
+    static func rallyStart(_ piece: RallyTruth.Mark, in records: [RallyMarkRecord]) -> Double {
+        let record = records.first { $0.startTime == piece.start && $0.endTime == piece.end && RallyTruth.isRally($0.kind) }
+        return record?.contacts?.first.flatMap { $0.kind == .serve && $0.time >= piece.start && $0.time < piece.end ? $0.time : nil } ?? piece.start
+    }
+
     /// The contract's §5 rule: EXCLUDED > TRANSITION > ACTIVE_RALLY > NON_RALLY_ACTIVITY > NON_RALLY > UNKNOWN.
     static func state(_ tick: Int, _ l: LabelInputs) -> State {
         func inside(_ s: Int, _ e: Int) -> Bool { s <= tick && tick < e }
@@ -666,11 +675,8 @@ enum RallyClassifierExporter {
 
         // Truth, in ticks.
         let rallies: [RallyDTO] = p.truth.pieces.filter { RallyTruth.isRally($0.kind) }.map { m in
-            let record = p.records.first { $0.startTime == m.start && $0.endTime == m.end && RallyTruth.isRally($0.kind) }
-            // The serve contact starts the rally when one was marked (contacts[0], a serve), else the mark's start.
-            let contact = record?.contacts?.first.flatMap { $0.kind == .serve && $0.time >= m.start && $0.time < m.end ? $0.time : nil }
-            return RallyDTO(rallyId: nil, startTick: tick(contact ?? m.start), endTick: tick(m.end), kind: "rally",
-                            provenance: m.kind == nil ? "legacy_nil_kind" : "legacy_declared", contactUncertaintyTicks: nil, deadUncertaintyTicks: nil)
+            RallyDTO(rallyId: nil, startTick: tick(rallyStart(m, in: p.records)), endTick: tick(m.end), kind: "rally",
+                     provenance: m.kind == nil ? "legacy_nil_kind" : "legacy_declared", contactUncertaintyTicks: nil, deadUncertaintyTicks: nil)
         }.filter { $0.startTick < $0.endTick }
         let excluded = p.truth.pieces.filter { !RallyTruth.isRally($0.kind) }.compactMap { m -> SpanDTO? in
             let s = tick(m.start), e = tick(m.end)

@@ -51,6 +51,9 @@ extension CoverageAudit {
         case clean
         /// Something was: added to the interval's findings (the interval is `not_clean`).
         case finding(Finding)
+        /// The interval has now been played whole under its findings: recorded on the `not_clean` verdict, which
+        /// until then holds findings from a partial look (and leaves the recording partial).
+        case playedWhole
         /// Takes back the last finding added — or the verdict, when it is a clean or holds one finding.
         case withdrawLast
         /// Takes back the pass's whole verdict on the interval.
@@ -75,13 +78,14 @@ extension CoverageAudit {
         let session: VideoSession
         /// The content fingerprint of its file, equal to the draw's.
         let contentFingerprint: String
-        let truth: RallyTruth
+        /// Its marks as the sidecar keeps them now, and that file's SHA-256.
+        let marks: [RallyMarkRecord]
         let marksSha256: String
 
         var video: URL { session.sourceURL }
         var sidecar: URL { CoverageAudit.url(forVideo: video) }
         /// The recording's unmarked intervals as its marks and cut ranges are now.
-        var currentIntervals: [Interval] { CoverageAudit.unmarkedIntervals(truth, durationTicks: recording.durationTicks) }
+        var currentIntervals: [Interval] { CoverageAudit.unmarkedIntervals(marks: marks, cuts: session.cutRanges, durationTicks: recording.durationTicks) }
     }
 
     struct Opened: Sendable {
@@ -123,12 +127,12 @@ extension CoverageAudit {
             throw Failure.sourceChanged(recording: recordingId, draw: recording.contentFingerprint, current: content)
         }
         let marksURL = RallyMarkModel.labelsURL(for: session.sourceURL)
-        let read: RallyTruth?
-        do { read = try RallyTruth.of(session) } catch { throw Failure.marksUnreadable(error.localizedDescription) }
-        guard let truth = read, let marksSha = DatasetSplitManifest.sha256(of: marksURL) else {
+        let read: [RallyMarkRecord]?
+        do { read = try RallyTruth.records(inSidecarOf: session.sourceURL) } catch { throw Failure.marksUnreadable(error.localizedDescription) }
+        guard let marks = read, let marksSha = DatasetSplitManifest.sha256(of: marksURL) else {
             throw Failure.marksUnreadable("no rally marks beside the video (\(marksURL.lastPathComponent))")
         }
-        return Admission(recording: recording, session: session, contentFingerprint: content, truth: truth, marksSha256: marksSha)
+        return Admission(recording: recording, session: session, contentFingerprint: content, marks: marks, marksSha256: marksSha)
     }
 
     /// A drawn recording's record as it is on disk, checked against the recording, the draw and the content
@@ -200,6 +204,13 @@ extension CoverageAudit {
             }
             let kept = existing?.verdict == .notClean ? existing?.findings ?? [] : []
             return Look(verdict: .notClean, findings: kept + [finding], reviewer: reviewer, at: at, playedAllAtMaxRate: whole ?? existing?.playedAllAtMaxRate)
+        case .playedWhole:
+            guard var look = existing, look.verdict == .notClean else { throw Failure.noFindings(index: interval.index) }
+            guard let whole else {
+                throw Failure.notPlayed(index: interval.index, missingSec: seconds(interval.span.ticks - played.playedTicks(in: interval.span)))
+            }
+            look.playedAllAtMaxRate = whole
+            return look
         case .withdrawLast:
             guard var look = existing else { throw Failure.nothingToWithdraw(index: interval.index) }
             guard look.verdict == .notClean, look.findings.count > 1 else { return nil }

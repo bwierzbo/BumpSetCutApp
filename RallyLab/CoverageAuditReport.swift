@@ -27,6 +27,8 @@ extension CoverageAudit {
         var repeatDone = 0
         /// Disagreements between the first and the repeat verdict nobody has resolved.
         var unresolved = 0
+        /// Intervals whose findings come from a look that did not cover the interval: not reviewed whole yet.
+        var partialLooks = 0
         var state: RecordingState
         /// The findings that count, by kind.
         var findings: [FindingKind: Int] = [:]
@@ -64,9 +66,9 @@ extension CoverageAudit {
             }
             var problems: [String] = []
             do {
-                if let truth = try RallyTruth.of(session) {
-                    status.rallyMarks = truth.positives.count
-                    let current = Set(unmarkedIntervals(truth, durationTicks: recording.durationTicks).map(\.span))
+                if let marks = try RallyTruth.records(inSidecarOf: session.sourceURL) {
+                    status.rallyMarks = RallyTruth(marks: marks.map(RallyTruth.Mark.init), cuts: session.cutRanges, complete: true).positives.count
+                    let current = Set(unmarkedIntervals(marks: marks, cuts: session.cutRanges, durationTicks: recording.durationTicks).map(\.span))
                     status.movedIntervals = recording.intervals.filter { !current.contains($0.span) }.count
                 } else {
                     problems.append("no rally marks beside the video")
@@ -87,7 +89,9 @@ extension CoverageAudit {
                         status.reviewed += 1
                         switch standing(of: interval.index, in: file) {
                         case .disputed: status.unresolved += 1
-                        case .settled(_, let findings, _): for f in findings { status.findings[f.kind, default: 0] += 1 }
+                        case .settled(_, let findings, let playedWhole):
+                            for f in findings { status.findings[f.kind, default: 0] += 1 }
+                            if !playedWhole { status.partialLooks += 1 }
                         case .unreviewed: break
                         }
                     }
@@ -113,6 +117,7 @@ extension CoverageAudit {
             var line = "  " + s.recordingId.padding(toLength: width, withPad: " ", startingAt: 0)
                 + "  \(s.reviewed)/\(s.total) reviewed · \(s.state.text) · repeat \(s.repeatDone)/\(s.repeatOwed)"
             if s.unresolved > 0 { line += " · \(s.unresolved) disagreement(s) unresolved" }
+            if s.partialLooks > 0 { line += " · \(s.partialLooks) with findings not played whole" }
             line += " · findings: \(countsText(s.findings))"
             if s.movedIntervals > 0 { line += " · ⚠️ marks changed since the draw: \(s.movedIntervals) interval(s) no longer as drawn" }
             if let problem = s.problem { line += " · ⚠️ \(problem)" }

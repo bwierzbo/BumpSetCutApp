@@ -67,20 +67,21 @@ final class CoverageAuditRecordingTests: XCTestCase {
         let sessions = try DatasetStore(root: root).loadSessionsStrict()
         let recordings: [[String: Any]] = try names.map { name in
             let session = try XCTUnwrap(sessions.first { $0.name == name })
-            let truth = try XCTUnwrap(RallyTruth.of(session))
+            let marks = try XCTUnwrap(RallyTruth.records(inSidecarOf: video(name)))
             var entry: [String: Any] = [
                 "recordingId": name, "groupId": name, "surface": "beach",
                 "contentFingerprint": ProjectsModel.fileFingerprint(atPath: session.sourcePath) ?? "file:none",
                 "marksSha256": DatasetSplitManifest.sha256(of: RallyMarkModel.labelsURL(for: video(name))) ?? "",
                 "durationTicks": 6000,
-                "intervals": A.unmarkedIntervals(truth, durationTicks: 6000).map { ["index": $0.index, "startTick": $0.startTick, "endTick": $0.endTick] },
-                "repeat": repeatSet,
+                "intervals": A.unmarkedIntervals(marks: marks, cuts: session.cutRanges, durationTicks: 6000).map { ["index": $0.index, "startTick": $0.startTick, "endTick": $0.endTick] },
+                "repeatIndices": repeatSet,
             ]
             edit(&entry)
             return entry
         }
         let id = id ?? drawId
-        let json: [String: Any] = ["schemaVersion": A.drawVersion, "drawId": id, "datasetName": "rc-v1-20261112", "timescale": 600, "seed": 20261114, "recordings": recordings]
+        let json: [String: Any] = ["schemaVersion": A.drawVersion, "stage": "pilot", "drawId": id, "dataset": ["name": "rc-v1-20261112", "timescale": 600, "manifestSha256": "aa"],
+                                   "seed": 20261114, "recordings": recordings]
         let url = A.drawsDirectory(in: root).appendingPathComponent("\(id)-draw.json")
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys]).write(to: url)
@@ -362,6 +363,29 @@ final class CoverageAuditRecordingTests: XCTestCase {
         _ = try save(.withdraw)
         _ = try save(.clean, played: all)
         XCTAssertNil(try save(.withdrawLast).review(1))
+    }
+
+    func testFindingsFromAPartialLookLeaveTheIntervalOpenUntilItIsPlayedWhole() throws {
+        try recording("a")
+        let d = try draw(["a"], repeatSet: [])
+        let intervals = try XCTUnwrap(d.draw.recording("a")).intervals
+        for i in [0, 2] { try A.record(request("a", i, .clean, played: all), draw: d, root: root, tool: "t", now: now) }
+        // Something is seen a second into interval 1 and noted at once: the rest of it has not been watched.
+        let activity = A.Finding(kind: .nonRallyActivity, approxStartSec: 4.5)
+        var file = try A.record(request("a", 1, .finding(activity), played: played((1800, 3000))), draw: d, root: root, tool: "t", now: now)
+        XCTAssertNil(file.review(1)?.playedAllAtMaxRate)
+        XCTAssertEqual(A.state(of: file, intervals: intervals).name, "partial", "an interval not watched whole is not reviewed")
+        XCTAssertEqual(try XCTUnwrap(A.status(draw: d, root: root).first).partialLooks, 1)
+        refused(.notPlayed(index: 1, missingSec: 1.0)) { try A.record(request("a", 1, .playedWhole, played: played((1800, 3000))), draw: d, root: root, tool: "t", now: now) }
+        refused(.noFindings(index: 0), "a clean was played whole already") { try A.record(request("a", 0, .playedWhole, played: all), draw: d, root: root, tool: "t", now: now) }
+        // Watched to its end: said on the verdict, the findings as they were.
+        file = try A.record(request("a", 1, .playedWhole, played: played((1800, 4200), rate: 1)), draw: d, root: root, tool: "t", now: now.addingTimeInterval(60))
+        XCTAssertEqual(file.review(1)?.playedAllAtMaxRate, 1)
+        XCTAssertEqual(file.review(1)?.findings, [activity]); XCTAssertEqual(file.review(1)?.reviewedAt, "2026-11-14T18:00:00Z")
+        XCTAssertEqual(A.state(of: file, intervals: intervals).name, "audited_clean")
+        XCTAssertEqual(A.cleanIntervals(file).map(\.startTick), [0, 4800], "an interval with non-rally activity is reviewed, never clean")
+        let status = try XCTUnwrap(A.status(draw: d, root: root).first)
+        XCTAssertEqual(status.partialLooks, 0); XCTAssertEqual(status.reviewed, 3)
     }
 
     func testAFindingMustBeWellFormedAndInsideItsInterval() throws {

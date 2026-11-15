@@ -16,6 +16,7 @@ struct ContentView: View {
     let tracker: TrackLabelModel
     let marker: RallyMarkModel
     let boundaries: RallyBoundariesModel
+    let coverage: CoverageAuditModel
     let netLabels: NetLabelsModel
     let queue: WorkQueueModel
     let phone: LabelingSync
@@ -25,7 +26,7 @@ struct ContentView: View {
     /// Set by "Continue without a project" on the welcome window.
     @State private var workingWithoutProject = false
 
-    enum Tab: String, Hashable { case label, projects, sampler, track, review, netLabels, queue, models, pipeline, net, compare, fsm }
+    enum Tab: String, Hashable { case label, projects, sampler, track, review, coverage, netLabels, queue, models, pipeline, net, compare, fsm }
 
     var body: some View {
         Group {
@@ -51,6 +52,7 @@ struct ContentView: View {
             library.reload()
             // The review tab holds a recording of the old project: nothing of it stays open.
             boundaries.projectChanged()
+            coverage.projectChanged()
             netLabels.reload()
             queue.projectChanged()
         }
@@ -95,6 +97,17 @@ struct ContentView: View {
             }
             .tabItem { Label("Review", systemImage: "flag.checkered") }
             .tag(Tab.review)
+            // The negative-coverage audit: the unmarked intervals of a frozen draw's recordings, watched by a person,
+            // into <video>.coverageaudit.json — the original footage and nothing over it (no ball path, no pipeline).
+            Group {
+                if projects.project != nil {
+                    CoverageAuditView(model: coverage, isActive: tab == .coverage)
+                } else {
+                    ProjectWelcomeView(projects: projects) { tab = .pipeline }
+                }
+            }
+            .tabItem { Label("Coverage", systemImage: "eye") }
+            .tag(Tab.coverage)
             // One net box per recording, by hand, for the net model's dataset (--export-net-dataset).
             Group {
                 if projects.project != nil {
