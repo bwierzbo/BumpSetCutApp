@@ -2,7 +2,7 @@
 id: EXP-20261114-negative-coverage-audit
 status: pilot drawn and frozen (2026-11-15T07:25Z); **no interval reviewed yet** — the review is the owner's; results are added below the line when it is done
 created: 2026-11-15T07:26:43Z
-updated: 2026-11-15T18:39:03Z
+updated: 2026-11-15T20:09:22Z
 decision: D-038 (owner authorisation of 2026-11-14, section "Negative-coverage audit"); D-001, D-002, D-021, D-028, D-030, D-032, D-037
 roadmap_phase: learned temporal rally classifier — data readiness (gates G6 and G7 of EXP-20261103-temporal-rally-classifier-prereg)
 pr: PR #183 (protocol, inventory, draw, report); PR #186 (the Audit tab, the record and its save operation); PR #187 (exporter and validator under `rally_activity_truth_v2`)
@@ -27,6 +27,7 @@ The dataset's negatives are the time between marks on recordings whose marking p
 | Withheld closure refused | 24 names, 8 confirmed sourceIds, 45 fingerprints, and the project's closure as it is now |
 | Pilot draw | `20261115-072552` — `Scratch/manifests/coverage-audit/20261115-072552-draw.json`, SHA-256 `e01f685b3052b31c6ad01f27a5f90560feb12c340fc9431e7b917a74cc1553bc`; procedure `coverage_draw_v2`, seed 20261114 |
 | Criterion (in the draw file) | *n* = 127 rally marks. **Pass** when the exact one-sided 90 % upper bound on *m / n* is ≤ 5 % — at most *m* = 2 missed rallies or missed serves — **and** no recording holds more than 2. Evaluated only when every interval, every repeat and every resolution is recorded |
+| How the tools read a look (one point stricter than the protocol) | The protocol (§7) requires a `clean` verdict to have played its whole interval. The tools that apply it — RallyLab's Audit tab and `coverage_audit_report.py` — require it of **every look that counts**: a first look, repeat or resolution that gave findings before its interval had played whole keeps its findings, but the interval stays pending and the pilot `incomplete` until the look is finished. This can only delay an evaluation, never change the criterion; the protocol document is not edited (it remains SHA-256 `bdb28442…`). A repeat's method is read from who made it (the first reviewer after 24 h, or another person), interval by interval |
 
 ## The pilot sample
 
