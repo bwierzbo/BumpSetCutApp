@@ -151,6 +151,13 @@ def _verdict(entry, time_key: str, needs_coverage: bool) -> tuple[Counter | None
     return Counter(f["kind"] for f in findings), None
 
 
+def _played_whole(entry) -> bool:
+    """Whether a look covered its whole interval (`playedAllAtMaxRate` in (0, 2]). A look that gave findings before
+    the interval had played whole is unfinished: its findings stand, and the interval waits for the rest of it."""
+    rate = entry.get("playedAllAtMaxRate")
+    return not isinstance(rate, bool) and isinstance(rate, (int, float)) and 0 < rate <= MAX_COVERAGE_RATE
+
+
 def _by_index(entries, what: str, problems: list) -> dict:
     """Entries keyed by interval index; an index given twice is ambiguous and none of its entries is taken."""
     out, twice = {}, set()
@@ -203,13 +210,16 @@ def review_recording(rec: dict, draw: dict, draw_sha: str, record, ignore_ticks:
             problems.append(f"interval {index} is not in the draw")
 
     intervals = []
-    agreement = {"method": method if repeat_block else None, "compared": 0, "identical": 0,
-                 "byClass": {c: {"both": 0, "firstOnly": 0, "repeatOnly": 0} for c in ("clean",) + FINDING_KINDS}}
+    # Agreement by who made the repeat — the method is the reviewer's, interval by interval: a record whose block says
+    # same_reviewer_after_24h can hold a second reviewer's repeats too (RallyLab labels the block so when any repeat
+    # is the first reviewer's); a block that says second_reviewer never holds one of the first reviewer's.
+    agreement = {m: {"compared": 0, "identical": 0, "byClass": {c: {"both": 0, "firstOnly": 0, "repeatOnly": 0} for c in ("clean",) + FINDING_KINDS}}
+                 for m in REPEAT_METHODS}
     for index, iv in sorted(drawn.items()):
         seconds = (iv["endTick"] - iv["startTick"]) / timescale
         row = {"index": index, "startTick": iv["startTick"], "endTick": iv["endTick"], "seconds": seconds,
                "reviewed": False, "repeatRequired": index in rec["repeatIndices"], "repeated": False,
-               "disagreement": False, "resolved": False, "settled": False, "verdict": None, "findings": []}
+               "disagreement": False, "resolved": False, "settled": False, "unfinished": False, "verdict": None, "findings": []}
         first = firsts.get(index)
         first_class = None
         if first is not None:
@@ -225,6 +235,7 @@ def review_recording(rec: dict, draw: dict, draw_sha: str, record, ignore_ticks:
         row["reviewed"] = True
         row["repeatRequired"] = row["repeatRequired"] or first_class["uncertain"] > 0
         effective, effective_entry = first_class, first
+        looks = [first]
 
         repeat = repeats.get(index)
         repeat_class = None
@@ -237,20 +248,20 @@ def review_recording(rec: dict, draw: dict, draw_sha: str, record, ignore_ticks:
                     why = "the repeat is by the first reviewer but the record calls it second_reviewer"
                 elif same and not waited:
                     why = "a repeat by the same reviewer less than 24 h after the first verdict"
-                elif not same and method != "second_reviewer":
-                    why = "the repeat is by another reviewer but the record calls it same_reviewer_after_24h"
             if why:
                 problems.append(f"interval {index}: repeat verdict not accepted — {why}")
                 repeat_class = None
         if repeat_class is not None:
             row["repeated"] = True
-            agreement["compared"] += 1
-            agreement["identical"] += first_class == repeat_class
+            looks.append(repeat)
+            by = agreement["same_reviewer_after_24h" if repeat["reviewer"] == first["reviewer"] else "second_reviewer"]
+            by["compared"] += 1
+            by["identical"] += first_class == repeat_class
             for c in ("clean",) + FINDING_KINDS:
                 a = (not first_class) if c == "clean" else first_class[c] > 0
                 b = (not repeat_class) if c == "clean" else repeat_class[c] > 0
                 if a or b:
-                    agreement["byClass"][c]["both" if a and b else "firstOnly" if a else "repeatOnly"] += 1
+                    by["byClass"][c]["both" if a and b else "firstOnly" if a else "repeatOnly"] += 1
             row["disagreement"] = first_class != repeat_class
 
         resolution = resolutions.get(index)
@@ -262,9 +273,11 @@ def review_recording(rec: dict, draw: dict, draw_sha: str, record, ignore_ticks:
                 problems.append(f"interval {index}: resolution not accepted — {why}")
             else:
                 row["resolved"] = True
+                looks.append(resolution)
                 effective, effective_entry = resolved_class, resolution
 
-        row["settled"] = (row["repeated"] or not row["repeatRequired"]) and (row["resolved"] or not row["disagreement"])
+        row["unfinished"] = not all(_played_whole(look) for look in looks)
+        row["settled"] = (row["repeated"] or not row["repeatRequired"]) and (row["resolved"] or not row["disagreement"]) and not row["unfinished"]
         if row["resolved"] or not row["disagreement"]:
             row["verdict"] = "not_clean" if effective else "clean"
             row["findings"] = [{"kind": f["kind"],
@@ -276,8 +289,8 @@ def review_recording(rec: dict, draw: dict, draw_sha: str, record, ignore_ticks:
     counted = [r for r in intervals if r["verdict"] is not None]
     kinds = Counter(f["kind"] for r in counted for f in r["findings"])
     contaminated = any(kinds[k] for k in MISSED_KINDS)
-    partial = any(not r["reviewed"] or r["verdict"] is None for r in intervals) or any(kinds[k] for k in PARTIAL_KINDS)
-    clean = [r for r in counted if r["verdict"] == "clean"]
+    partial = any(not r["reviewed"] or r["verdict"] is None or r["unfinished"] for r in intervals) or any(kinds[k] for k in PARTIAL_KINDS)
+    clean = [r for r in counted if r["verdict"] == "clean" and not r["unfinished"]]
     # A clean interval no longer than the two ignore bands at its ends holds only TRANSITION steps: no negative.
     trusted = [r for r in clean if r["endTick"] - r["startTick"] > 2 * ignore_ticks]
     return {
@@ -291,6 +304,7 @@ def review_recording(rec: dict, draw: dict, draw_sha: str, record, ignore_ticks:
         "reviewed": sum(r["reviewed"] for r in intervals),
         "notReviewed": [r["index"] for r in intervals if not r["reviewed"]],
         "repeatPending": [r["index"] for r in intervals if r["reviewed"] and r["repeatRequired"] and not r["repeated"]],
+        "unfinished": [r["index"] for r in intervals if r["unfinished"]],
         "unresolved": [r["index"] for r in intervals if r["disagreement"] and not r["resolved"]],
         "secondsDrawn": sum(r["seconds"] for r in intervals),
         "secondsReviewed": sum(r["seconds"] for r in intervals if r["reviewed"]),
@@ -333,16 +347,16 @@ def _sum_agreement(rows: list) -> dict:
     """The repeat's agreement by method. A repeat by the same reviewer is a repeat, never inter-rater agreement."""
     out = {}
     for row in rows:
-        a = row["agreement"]
-        if not a["compared"]:
-            continue
-        total = out.setdefault(a["method"], {"independent": a["method"] == "second_reviewer", "compared": 0, "identical": 0,
-                                             "byClass": {c: {"both": 0, "firstOnly": 0, "repeatOnly": 0} for c in a["byClass"]}})
-        total["compared"] += a["compared"]
-        total["identical"] += a["identical"]
-        for c, cell in a["byClass"].items():
-            for k, n in cell.items():
-                total["byClass"][c][k] += n
+        for method, a in row["agreement"].items():
+            if not a["compared"]:
+                continue
+            total = out.setdefault(method, {"independent": method == "second_reviewer", "compared": 0, "identical": 0,
+                                            "byClass": {c: {"both": 0, "firstOnly": 0, "repeatOnly": 0} for c in a["byClass"]}})
+            total["compared"] += a["compared"]
+            total["identical"] += a["identical"]
+            for c, cell in a["byClass"].items():
+                for k, n in cell.items():
+                    total["byClass"][c][k] += n
     return out
 
 
@@ -354,6 +368,7 @@ def _totals(rows: list) -> dict:
                 findings[k][field] += value
     return {"recordings": len(rows), "intervals": sum(r["intervals"] for r in rows), "reviewed": sum(r["reviewed"] for r in rows),
             "notReviewed": sum(len(r["notReviewed"]) for r in rows), "repeatPending": sum(len(r["repeatPending"]) for r in rows),
+            "unfinished": sum(len(r["unfinished"]) for r in rows),
             "unresolved": sum(len(r["unresolved"]) for r in rows),
             "secondsDrawn": sum(r["secondsDrawn"] for r in rows), "secondsReviewed": sum(r["secondsReviewed"] for r in rows),
             "cleanIntervals": sum(r["cleanIntervals"] for r in rows), "cleanSeconds": sum(r["cleanSeconds"] for r in rows),
@@ -363,11 +378,12 @@ def _totals(rows: list) -> dict:
 
 
 def _pilot_outcome(rows: list) -> dict:
-    missing = {key: {r["recordingId"]: r[key] for r in rows if r[key]} for key in ("notReviewed", "repeatPending", "unresolved")}
+    missing = {key: {r["recordingId"]: r[key] for r in rows if r[key]} for key in ("notReviewed", "repeatPending", "unresolved", "unfinished")}
     n = sum(r["rallyMarks"] for r in rows)
     if any(missing.values()):
         return {"outcome": "incomplete", "missing": missing, "n": n,
-                "note": "pass / fail is not evaluated while a pilot interval lacks a first verdict, a required repeat or a resolution"}
+                "note": "pass / fail is not evaluated while a pilot interval lacks a first verdict, a required repeat or a resolution, "
+                        "or a look that counts gave findings before its interval had played whole"}
     m = sum(r["missed"] for r in rows)
     bound = upper_bound(m, n)
     worst = max(rows, key=lambda r: r["missed"])
@@ -459,7 +475,8 @@ def render(report: dict) -> str:
     lines = [f"Coverage audit of {report['dataset']['name']}"] + block("Pilot", p)
     if p["outcome"] == "incomplete":
         lines.append(f"  PILOT INCOMPLETE — {p['note']}")
-        for key, label in (("notReviewed", "no first verdict"), ("repeatPending", "repeat pending"), ("unresolved", "disagreement unresolved")):
+        for key, label in (("notReviewed", "no first verdict"), ("repeatPending", "repeat pending"), ("unresolved", "disagreement unresolved"),
+                           ("unfinished", "findings given before the interval played whole")):
             lines += [f"    {label} — {rid}: intervals {indices}" for rid, indices in sorted(p["missing"][key].items())]
     else:
         lines.append(f"  PILOT {p['outcome'].upper()} — m = {p['m']} ({p['missedRallies']} missed rallies, {p['missedServes']} missed serves) "
