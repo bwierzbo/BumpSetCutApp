@@ -155,10 +155,10 @@ final class RallyClassifierExporterTests: XCTestCase {
         let content = try XCTUnwrap(ProjectsModel.fileFingerprint(atPath: footage(name).path))
         let drawId = "20261114-120000"
         let draw: [String: Any] = [
-            "schemaVersion": CoverageAudit.drawVersion, "drawId": drawId, "datasetName": "Fixture-rc-0", "timescale": 600,
+            "schemaVersion": CoverageAudit.drawVersion, "drawId": drawId, "dataset": ["name": "Fixture-rc-0", "timescale": 600],
             "recordings": [["recordingId": name, "groupId": name, "contentFingerprint": content, "marksSha256": "marks-at-the-draw", "durationTicks": 36000,
                             "intervals": unmarked.enumerated().map { ["index": $0.offset, "startTick": $0.element.0, "endTick": $0.element.1] },
-                            "repeat": [Int]()] as [String: Any]],
+                            "repeatIndices": [Int]()] as [String: Any]],
         ]
         let draws = CoverageAudit.drawsDirectory(in: root)
         try FileManager.default.createDirectory(at: draws, withIntermediateDirectories: true)
