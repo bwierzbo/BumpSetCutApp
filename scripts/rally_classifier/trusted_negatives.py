@@ -31,6 +31,7 @@ spelled out (which groups, which folds, by how many). Standard library only.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 
@@ -175,3 +176,53 @@ def markdown(doc: dict) -> list:
     out += [f"| {p['fold']} | {p['groups']} | {len(p['groupsWithTrustedNegatives'])} | {p['trustedNegativeSec']} | {p['untrustedNegativeSec']} |"
             for p in doc["perFold"]]
     return out + [""] + ([f"- {d}" for d in doc["deficiencies"]] + [""] if doc["deficiencies"] else [])
+
+
+PILOT_REPORT = "coverage_audit_report_v2"       # coverage_audit_report.py --json-out
+
+
+def pilot_evidence(manifest: dict, report_path: str | None) -> dict:
+    """The coverage-audit protocol §9: "no audited negative is used in an experiment while the pilot has not passed".
+    A dataset that takes negatives from audit records (any `coverage.audit` whose state is not `none`) needs the
+    report `coverage_audit_report.py --json-out` wrote, saying the pilot passed, and every audited recording's
+    record in it as the dataset read it: its draw is the report's pilot or stage 2 draw and its `auditSha256` is the
+    `recordSha256` the report evaluated. A record changed since (a verdict withdrawn or corrected) no longer
+    matches. Returns {required, met, reportSha256, outcome, problems}; never raises."""
+    audited = [r for r in manifest["recordings"] if isinstance((r["coverage"].get("audit") or {}), dict)
+               and (r["coverage"].get("audit") or {}).get("state", "none") != "none"]
+    out = {"required": bool(audited), "met": True, "reportSha256": None, "outcome": None, "problems": []}
+    if not audited:
+        return out
+    def refuse(why: str) -> dict:
+        out["met"] = False
+        out["problems"].append(f"pilot evidence: {why}")
+        return out
+    if not report_path:
+        return refuse(f"{len(audited)} recording(s) take negatives from audit records, and no coverage-audit report was given "
+                      f"(--coverage-audit-report, from coverage_audit_report.py --json-out): no audited negative is used before "
+                      f"the pilot is shown to have passed")
+    try:
+        with open(report_path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        out["reportSha256"] = v.sha256_file(report_path)
+    except (OSError, ValueError) as e:
+        return refuse(f"the report {report_path!r} can't be read ({e})")
+    if not isinstance(doc, dict) or doc.get("schemaVersion") != PILOT_REPORT or not isinstance(doc.get("pilot"), dict):
+        return refuse(f"{report_path!r} is not a {PILOT_REPORT} report")
+    out["outcome"] = doc["pilot"].get("outcome")
+    if out["outcome"] != "pass":
+        refuse(f"the report's pilot outcome is {out['outcome']!r}, not pass")
+    rows = {}
+    for part in ("pilot", "stage2"):
+        block = doc.get(part)
+        if isinstance(block, dict):
+            for row in block.get("recordings") or []:
+                rows[(block.get("drawId"), row.get("recordingId"))] = row
+    for rec in audited:
+        audit = rec["coverage"]["audit"]
+        row = rows.get((audit.get("drawId"), rec["recordingId"]))
+        if row is None:
+            refuse(f"{rec['recordingId']}: its audit (draw {audit.get('drawId')}) is not in the report")
+        elif row.get("recordSha256") != audit.get("auditSha256"):
+            refuse(f"{rec['recordingId']}: its audit record is not the one the report evaluated (changed since, or another)")
+    return out

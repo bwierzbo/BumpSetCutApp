@@ -579,8 +579,9 @@ class Datasets(unittest.TestCase):
     def test_an_audited_dataset_takes_negatives_from_reviewed_clean_intervals_and_runs(self):
         dataset, closure, folds_file = make(self.tmp, trust="audited", unaudited=("g-bea-00", "g-gra-01"))
         manifest = v.load_manifest(dataset)
-        prep = train.prepare(dataset, folds_file, closure, "present")
-        code, out, err = quiet(train.main, argv(dataset, closure, folds_file, self.out))
+        pilot = syn.write_pilot_report(self.tmp, dataset)
+        prep = train.prepare(dataset, folds_file, closure, "present", pilot)
+        code, out, err = quiet(train.main, argv(dataset, closure, folds_file, self.out, "r1", "present", "--coverage-audit-report", pilot))
         self.assertEqual(code, 0, err)
         gate = prep.negatives
         self.assertEqual((gate["met"], gate["labelSchema"], gate["negativeLabels"], gate["untrustedNegativeSteps"]), (True, tn.AUDITED_LABELS, "audited", 0))
@@ -603,6 +604,27 @@ class Datasets(unittest.TestCase):
         self.assertEqual((report["negativeCoverage"]["met"], report["identity"]["schemas"]["labels"]), (True, tn.AUDITED_LABELS))
         self.assertIn("negatives **audited**", syn.read_text(os.path.join(self.out, "report.md")))
         self.assertIn("**G6: met** — 12 of 15 groups", syn.read_text(os.path.join(self.out, "report.md")))
+
+    def test_audited_negatives_need_a_passing_pilot_on_the_records_the_dataset_read(self):
+        dataset, closure, folds_file = make(self.tmp, trust="audited")
+        self.refused(argv(dataset, closure, folds_file, self.out), "pilot evidence:", "no coverage-audit report was given")
+        incomplete = syn.write_pilot_report(self.tmp, dataset, outcome="incomplete", name="incomplete.json")
+        self.refused(argv(dataset, closure, folds_file, self.out, "r1", "present", "--coverage-audit-report", incomplete),
+                     "the report's pilot outcome is 'incomplete', not pass")
+        passed = syn.write_pilot_report(self.tmp, dataset)
+        doc = syn.read_json(passed)
+        doc["pilot"]["recordings"][0]["recordSha256"] = "0" * 64              # a verdict changed after the report
+        with open(passed, "w") as fh:
+            json.dump(doc, fh)
+        self.refused(argv(dataset, closure, folds_file, self.out, "r1", "present", "--coverage-audit-report", passed),
+                     f"{doc['pilot']['recordings'][0]['recordingId']}: its audit record is not the one the report evaluated")
+        # The dry run reports the missing evidence and fits nothing.
+        code, out, err = quiet(train.main, argv(dataset, closure, folds_file, self.out, "r1", "present", "--dry-run"))
+        self.assertEqual(code, 0, err)
+        self.assertIn("a real run would be refused", out)
+        self.assertTrue(any("pilot evidence" in p for p in syn.read_json(os.path.join(self.out, "readiness.json"))["problems"]))
+        # A declared (v1) dataset takes no audited negatives and needs no report.
+        self.assertFalse(tn.pilot_evidence(v.load_manifest(syn.write(os.path.join(self.tmp, "v1"), trust="stage1")), None)["required"])
 
     def test_under_v2_only_verified_coverage_is_fully_marked(self):
         dataset, _, _ = make(self.tmp, trust="audited", unaudited=("g-bea-00",))

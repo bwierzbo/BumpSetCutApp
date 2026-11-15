@@ -160,6 +160,17 @@ def _add_matched_baseline(dataset: str, manifest: dict):
         rec["baselineSha256"] = v.sha256_file(path)
 
 
+def write_pilot_report(folder: str, dataset: str, outcome: str = "pass", name: str = "coverage-audit-report.json") -> str:
+    """The coverage-audit report (`coverage_audit_report.py --json-out`) for an audited dataset: one pilot draw holding
+    every audited recording, each with the record hash the dataset carries."""
+    rows = [{"recordingId": r["recordingId"], "recordSha256": r["coverage"]["audit"]["auditSha256"]}
+            for r in v.load_manifest(dataset)["recordings"] if (r["coverage"].get("audit") or {}).get("state", "none") != "none"]
+    path = os.path.join(folder, name)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump({"schemaVersion": tn.PILOT_REPORT, "pilot": {"drawId": "synthetic-draw", "outcome": outcome, "recordings": rows}}, fh)
+    return path
+
+
 def write_closure(folder: str, dataset: str) -> str:
     """The external withheld-closure file: the manifest's own closure, as the exporter would hand it over."""
     closure = v.load_manifest(dataset)["withheld"]

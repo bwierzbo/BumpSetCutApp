@@ -183,7 +183,7 @@ class Prepared:
         return [r for r in self.recordings if wanted(r.fold)]
 
 
-def prepare(dataset_dir: str, folds_file: str, withheld: str | None, net: str) -> Prepared:
+def prepare(dataset_dir: str, folds_file: str, withheld: str | None, net: str, audit_report: str | None = None) -> Prepared:
     """Every check that precedes a fit, then the recordings in memory. Raises Refused."""
     if not withheld:
         raise Refused("no withheld-closure file: the dataset is validated against the external closure before it is read")
@@ -225,6 +225,8 @@ def prepare(dataset_dir: str, folds_file: str, withheld: str | None, net: str) -
         negatives = tn.report(manifest, coverage, folds_doc)
     except tn.CoverageError as e:
         raise Refused(str(e))
+    pilot = tn.pilot_evidence(manifest, audit_report)
+    negatives = {**negatives, "pilot": pilot, "met": negatives["met"] and pilot["met"], "deficiencies": negatives["deficiencies"] + pilot["problems"]}
     return Prepared(dataset_dir, manifest, v.dataset_identity(dataset_dir), folds_doc, v.sha256_file(folds_file),
                     {"errors": 0, "warnings": report.warnings, "info": report.info, "withheldFileSha256": v.sha256_file(withheld)},
                     parity, recordings, net, negatives)
@@ -704,6 +706,7 @@ def identity(prep: Prepared, family, argv: list) -> dict:
     draw = {k: prep.folds_doc[k] for k in ("procedure", "seed", "folds", "stratify", "shuffle")}
     return {"candidate": family.name, "net": prep.net, "seed": family.seed if family.name == "r2" else None, "lookaheadSec": family.lookahead_sec,
             "dataset": prep.identity, "foldsFileSha256": prep.folds_sha256, "foldDraw": draw,
+            "coverageAuditReportSha256": prep.negatives["pilot"]["reportSha256"],
             "schemas": {"features": v.FEATURE_VERSION, "labels": prep.manifest["labelSchema"]["version"], "derived": ft.DERIVED_VERSION, "grid": ft.GRID_VERSION},
             "decodeSettings": COMMITTED, "rawFloorSec": decode.RAW_FLOOR_SEC, "codeSha256": hashes, "versions": versions, "argv": argv,
             "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
@@ -829,9 +832,12 @@ def main(argv=None) -> int:
     ap.add_argument("--out", required=True, help="the run folder (new or empty)")
     ap.add_argument("--dry-run", action="store_true", help="check and count everything, fit and score nothing; writes readiness.{json,md}")
     ap.add_argument("--r1-run", help="for --candidate r2: the R1 run to evaluate H2 against")
+    ap.add_argument("--coverage-audit-report", metavar="JSON",
+                    help="the negative-coverage audit's report (coverage_audit_report.py --json-out); required for a real run on a "
+                         "dataset whose negatives come from audit records: its pilot must have passed, on the records the dataset read")
     args = ap.parse_args(argv)
     try:
-        prep = prepare(args.dataset, args.folds_file, args.withheld, args.net)
+        prep = prepare(args.dataset, args.folds_file, args.withheld, args.net, args.coverage_audit_report)
         if args.dry_run:
             _open_run(args.out)
             doc = readiness(prep, FAMILIES[args.candidate](prep, args.seed), argv)
