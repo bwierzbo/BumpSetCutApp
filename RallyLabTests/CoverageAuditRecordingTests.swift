@@ -596,6 +596,22 @@ final class CoverageAuditRecordingTests: XCTestCase {
         XCTAssertEqual(file.repeatReview(1)?.verdict, .clean, "the later look stays")
     }
 
+    func testNoOneChangesAnotherReviewersLook() throws {
+        try recording("a")
+        let d = try draw(["a"], repeatSet: [0])
+        try A.record(request("a", 0, .clean, played: all), draw: d, root: root, tool: "t", now: now)            // bw watched it whole
+        // jr, having watched nothing, can neither add to bw's look (and inherit its play coverage) nor take it back.
+        refused(.othersLook(index: 0, reviewer: "bw")) {
+            try A.record(request("a", 0, .finding(A.Finding(kind: .missedServe, approxStartSec: 1)), by: "jr"), draw: d, root: root, tool: "t", now: now)
+        }
+        refused(.othersLook(index: 0, reviewer: "bw")) { try A.record(request("a", 0, .withdraw, by: "jr"), draw: d, root: root, tool: "t", now: now) }
+        let file = try XCTUnwrap(onDisk("a"))
+        XCTAssertEqual([file.review(0)?.reviewer, file.review(0)?.verdict.rawValue], ["bw", "clean"])
+        // jr's own look is the repeat, and it is a second reviewer's.
+        let after = try A.record(request("a", 0, .clean, pass: .repeatLook, by: "jr", played: all), draw: d, root: root, tool: "t", now: now)
+        XCTAssertEqual(after.repeatPass?.method, "second_reviewer")
+    }
+
     func testAMovedIntervalIsNoLaterPassWork() throws {
         try recording("a")
         let d = try draw(["a"], repeatSet: [0, 2])
