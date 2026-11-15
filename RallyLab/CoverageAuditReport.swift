@@ -22,11 +22,14 @@ extension CoverageAudit {
         /// The draw's intervals, and how many have a first verdict on the bounds drawn.
         var total: Int
         var reviewed = 0
-        /// The intervals owed a second look (the draw's repeat set and the ones first left uncertain), and how many have one.
+        /// The intervals owed a second look (the draw's repeat set and the ones first left uncertain), and how many have one
+        /// that is finished — a look with findings counts only once the interval has played whole in it.
         var repeatOwed: Int
         var repeatDone = 0
         /// Disagreements between the first and the repeat verdict nobody has resolved.
         var unresolved = 0
+        /// Resolutions given with findings before the interval had played whole in them: the resolution pass is not done.
+        var unfinishedResolutions = 0
         /// Intervals whose findings come from a look that did not cover the interval: not reviewed whole yet.
         var partialLooks = 0
         var state: RecordingState
@@ -41,27 +44,48 @@ extension CoverageAudit {
     }
 
     /// What a report judges the draw's recordings against: the withheld closure (an empty one is refused, as
-    /// `admit` refuses it), the project's identities and its sessions by name — all read strictly.
-    private static func projectAsRead(_ root: URL) throws -> (closures: ScoringExposure.Closures, sources: [String: ClipSource], sessions: [String: VideoSession]) {
+    /// `admit` refuses it), the project's identities, its sessions by name, and the withheld context the live
+    /// path-and-content check reads (`EventReview.refusal`, as `admit` applies it) — all read strictly.
+    private struct ProjectAsRead {
+        let closures: ScoringExposure.Closures
+        let sources: [String: ClipSource]
+        let sessions: [String: VideoSession]
+        let context: EventReview.WithheldContext?
+
+        /// Why the session as it is today may not be read: repointed since the draw at a withheld recording's file, or
+        /// at a byte copy of one. The identities the draw froze are `listedRefusal`'s, asked first.
+        func liveRefusal(of session: VideoSession) -> String? {
+            context.flatMap { EventReview.refusal(of: session, context: $0) }
+        }
+    }
+
+    private static func projectAsRead(_ root: URL) throws -> ProjectAsRead {
         let closures = try ScoringExposure.Closures.current(in: root)
         guard !closures.withheld.isEmpty else { throw Failure.emptyClosure }
-        return (closures, try ReservedVideos.sources(in: root), Dictionary(try sessions(in: root).map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a }))
+        let all = try sessions(in: root)
+        return ProjectAsRead(closures: closures, sources: try ReservedVideos.sources(in: root),
+                             sessions: Dictionary(all.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a }),
+                             context: try EventReview.withheldContext(root: root, sessions: all))
     }
 
     /// Every recording of the draw, in the draw's order. Reads the reservations, the project's identities and the
     /// sessions strictly (anything unreadable throws); a recording's own trouble — withheld, no session, a record
     /// that can't be read or belongs to another draw or file — is its `problem`, and nothing of it is counted.
     static func status(draw: LoadedDraw, root: URL) throws -> [RecordingStatus] {
-        let (closures, sources, sessions) = try projectAsRead(root)
+        let project = try projectAsRead(root)
         return draw.draw.recordings.map { recording in
             var status = RecordingStatus(recordingId: recording.recordingId, surface: recording.surface, total: recording.intervals.count,
                                          repeatOwed: recording.repeatIndices.count, state: state(of: nil, intervals: recording.intervals))
-            if let why = listedRefusal(of: recording, closures: closures, sources: sources) {
+            if let why = listedRefusal(of: recording, closures: project.closures, sources: project.sources) {
                 status.problem = "withheld (\(why)) — not read"
                 return status
             }
-            guard let session = sessions[recording.recordingId] else {
+            guard let session = project.sessions[recording.recordingId] else {
                 status.problem = "not a recording of this project"
+                return status
+            }
+            if let why = project.liveRefusal(of: session) {
+                status.problem = "withheld (\(why)) — not read"
                 return status
             }
             var problems: [String] = []
@@ -83,7 +107,8 @@ extension CoverageAudit {
                 if let file = try existingRecord(of: recording, video: session.sourceURL, contentFingerprint: recording.contentFingerprint, draw: draw) {
                     let owed = repeatSet(recording, file: file)
                     status.repeatOwed = owed.count
-                    status.repeatDone = owed.filter { file.repeatReview($0) != nil }.count
+                    status.repeatDone = owed.filter { file.repeatReview($0)?.playedAllAtMaxRate != nil }.count
+                    status.unfinishedResolutions = disagreements(in: file).filter { file.resolution($0).map { $0.playedAllAtMaxRate == nil } ?? false }.count
                     status.state = state(of: file, intervals: recording.intervals)
                     for interval in recording.intervals where file.review(interval.index)?.span == interval.span {
                         status.reviewed += 1
@@ -159,12 +184,19 @@ extension CoverageAudit {
 
     /// Every finding that counts in the draw's records (after the repeat and its resolution), in the draw's order.
     static func findingsList(draw: LoadedDraw, root: URL, now: Date = Date()) throws -> FindingsList {
-        let (closures, sources, sessions) = try projectAsRead(root)
+        let project = try projectAsRead(root)
         var list = FindingsList(drawId: draw.draw.drawId, datasetName: draw.draw.datasetName, createdAt: EventReview.stamp(now), findings: [], notListed: [])
         for recording in draw.draw.recordings {
             let name = recording.recordingId
-            if let why = listedRefusal(of: recording, closures: closures, sources: sources) { list.notListed.append("\(name): withheld (\(why))"); continue }
-            guard let session = sessions[name] else { list.notListed.append("\(name): not a recording of this project"); continue }
+            if let why = listedRefusal(of: recording, closures: project.closures, sources: project.sources) { list.notListed.append("\(name): withheld (\(why))"); continue }
+            guard let session = project.sessions[name] else { list.notListed.append("\(name): not a recording of this project"); continue }
+            if let why = project.liveRefusal(of: session) { list.notListed.append("\(name): withheld (\(why))"); continue }
+            // The findings' times describe the footage that was reviewed: not listed when the file is another now.
+            guard session.isOnMac else { list.notListed.append("\(name): the original is not on this Mac, so its file can't be checked"); continue }
+            guard ProjectsModel.fileFingerprint(atPath: session.sourcePath) == recording.contentFingerprint else {
+                list.notListed.append("\(name): its file is not the one the draw was made from (replaced since): the findings' times describe other footage")
+                continue
+            }
             let file: File?
             do { file = try existingRecord(of: recording, video: session.sourceURL, contentFingerprint: recording.contentFingerprint, draw: draw) } catch {
                 list.notListed.append("\(name): \(error.localizedDescription)")

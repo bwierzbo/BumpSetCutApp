@@ -536,5 +536,50 @@ final class CoverageAuditRecordingTests: XCTestCase {
         XCTAssertThrowsError(try A.writeFindings(list, in: root, stamp: "20261114-180000"), "an existing list is never written over")
         let a = try XCTUnwrap(DatasetStore(root: root).loadSessionsStrict().first { $0.name == "a" })
         XCTAssertEqual(try XCTUnwrap(RallyTruth.of(a)).positives.count, 2, "the audit wrote no mark: still the two rallies")
+        // The footage of `b` replaced since: its findings describe other footage and are not listed.
+        try Data("other footage".utf8).write(to: video("b"))
+        list = try A.findingsList(draw: d, root: root, now: now)
+        XCTAssertEqual(list.findings.map(\.recordingId), ["a", "a"])
+        XCTAssertEqual(list.notListed, ["b: its file is not the one the draw was made from (replaced since): the findings' times describe other footage"])
+    }
+
+    func testTheReportsReadNothingOfASessionRepointedAtAWithheldFileAfterTheDraw() throws {
+        try recording("a")
+        let d = try draw(["a"], repeatSet: [])
+        try A.record(request("a", 0, .finding(A.Finding(kind: .missedServe, approxStartSec: 0.5)), played: all), draw: d, root: root, tool: "t", now: now)
+        XCTAssertEqual(try A.findingsList(draw: d, root: root, now: now).findings.count, 1)
+        // `a`'s session now points at the withheld recording's file: the draw's frozen identities say nothing of it.
+        var s = VideoSession(name: "a", sourcePath: video("held").path, split: "train", addedAt: now, frames: [])
+        s.ralliesMarked = true
+        try DatasetStore(root: root).save(s)
+        let status = try XCTUnwrap(A.status(draw: d, root: root).first)
+        XCTAssertTrue(status.problem?.hasPrefix("withheld (") == true, status.problem ?? "no problem")
+        XCTAssertEqual([status.rallyMarks, status.reviewed], [0, 0], "nothing of the withheld recording's marks or record is read")
+        let list = try A.findingsList(draw: d, root: root, now: now)
+        XCTAssertEqual(list.findings.count, 0)
+        XCTAssertTrue(list.notListed.first?.hasPrefix("a: withheld (") == true, "\(list.notListed)")
+    }
+
+    func testARepeatOrResolutionWithFindingsNotPlayedWholeIsWorkLeft() throws {
+        try recording("a")
+        let d = try draw(["a"], repeatSet: [0, 1])
+        for i in 0...2 { try A.record(request("a", i, .clean, played: all), draw: d, root: root, tool: "t", now: now) }
+        try A.record(request("a", 0, .clean, pass: .repeatLook, by: "jr", played: all), draw: d, root: root, tool: "t", now: now)
+        // A finding at once, the interval not yet played whole in the repeat: the repeat is not done.
+        try A.record(request("a", 1, .finding(A.Finding(kind: .missedServe, approxStartSec: 3)), pass: .repeatLook, by: "jr", played: A.PlayedCoverage()),
+                     draw: d, root: root, tool: "t", now: now)
+        var status = try XCTUnwrap(A.status(draw: d, root: root).first)
+        XCTAssertEqual([status.repeatDone, status.repeatOwed], [1, 2])
+        try A.record(request("a", 1, .playedWhole, pass: .repeatLook, by: "jr", played: all), draw: d, root: root, tool: "t", now: now)
+        status = try XCTUnwrap(A.status(draw: d, root: root).first)
+        XCTAssertEqual([status.repeatDone, status.unresolved, status.unfinishedResolutions], [2, 1, 0])
+        // The same for a resolution given before the interval had played whole in it.
+        try A.record(request("a", 1, .finding(A.Finding(kind: .missedServe, approxStartSec: 3.1)), pass: .resolution, played: A.PlayedCoverage()),
+                     draw: d, root: root, tool: "t", now: now)
+        status = try XCTUnwrap(A.status(draw: d, root: root).first)
+        XCTAssertEqual([status.unresolved, status.unfinishedResolutions], [0, 1])
+        try A.record(request("a", 1, .playedWhole, pass: .resolution, played: all), draw: d, root: root, tool: "t", now: now)
+        status = try XCTUnwrap(A.status(draw: d, root: root).first)
+        XCTAssertEqual([status.unresolved, status.unfinishedResolutions], [0, 0])
     }
 }
