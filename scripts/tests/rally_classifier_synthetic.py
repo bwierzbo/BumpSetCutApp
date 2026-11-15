@@ -9,21 +9,16 @@ Where its negatives' trust comes from is the `trust` argument of `write` (the ad
   negatives are trusted, so a run may start;
 - `"declared"` — label schema v1, declared-complete recordings (one keeps Stage 1 coverage): the shape of
   `rc-v1-20261112`, negatives declared and not audited;
-- `"audited"` — label schema `rally_activity_truth_v2`: the declared dataset with a coverage-audit record per
-  recording (`coverage.audit`), and `NON_RALLY` kept only inside its reviewed-clean intervals; `unaudited` names
-  groups that were never audited, and one recording has an interval that was not clean.
-
-The validator on this branch reads label schema v1 only — the v2 rule is the exporter change's. `reading_v2` runs
-the real validator with the schema's name and its label rule swapped for the adopted one, so a v2 dataset built
-here is still checked file by file (hashes, counts, labels against the rule).
+- `"audited"` — label schema `rally_activity_truth_v2`: the declared dataset with a coverage-audit block per
+  recording (`coverage.audit`, contract §10), and `NON_RALLY` kept only inside its reviewed-clean intervals —
+  labelled by the validator's own v2 rule; `unaudited` names groups that were never audited, and one recording
+  has an interval that was not clean.
 """
 
-import contextlib
 import hashlib
 import json
 import os
 import sys
-from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "rally_classifier"))
 import trusted_negatives as tn  # noqa: E402
@@ -35,16 +30,6 @@ HANDHELD = {"syn_bea_01": "Handheld / corner", "syn_gra_02": "Handheld / corner"
 MATCHED = "r0_no_net_rule"
 NOT_CLEAN = "syn_ind_03"        # under trust="audited": its second unmarked interval was reviewed and is not clean
 TRUST = ("stage1", "declared", "audited")
-_V1_RULE = v.expected_state
-
-
-def v2_rule(tick: int, rec: dict, ignore_ticks: int) -> int:
-    """The label rule of `rally_activity_truth_v2` as adopted (audit spec D7): the v1 state, except that NON_RALLY
-    outside the recording's trusted time is UNKNOWN."""
-    state = _V1_RULE(tick, rec, ignore_ticks)
-    if state == v.STATES["NON_RALLY"] and not tn.inside(tick, tn.trusted_time(rec, True)[1]):
-        return v.STATES["UNKNOWN"]
-    return state
 
 
 def specs(groups_per_surface: int = 5, trust: str = "stage1") -> list:
@@ -110,22 +95,31 @@ def unmarked_intervals(rec: dict) -> list:
 
 
 def _audit(dataset: str, manifest: dict, unaudited: set):
-    """Turn the declared dataset into an audited one (label schema v2): an audit record per recording that
-    supplies negatives by declaration, and NON_RALLY kept only in trusted time."""
+    """Turn the declared dataset into an audited one (label schema v2, contract §10): an audit block per recording —
+    a record for each that supplies negatives by declaration, `none` for the rest — the evidence block, and every
+    step labelled by the validator's v2 rule, so NON_RALLY is kept only in trusted time."""
     manifest["labelSchema"]["version"] = tn.AUDITED_LABELS
+    ignore = round(manifest["labelSchema"]["boundaryIgnoreSec"] * v.TIMESCALE)
     for rec in manifest["recordings"]:
         declared = rec["eligibility"]["fullVideoNegatives"] == "standard" and rec["coverage"]["state"] == "declared_complete"
-        rec["coverage"]["audit"] = None
+        audit = {"state": "none", "auditSha256": None, "drawId": None, "cleanIntervals": [], "findings": {}}
         if declared and rec["groupId"] not in unaudited:
             spans = unmarked_intervals(rec)
-            clean = [s for i, s in enumerate(spans) if not (rec["recordingId"] == NOT_CLEAN and i == 1)]
-            rec["coverage"]["audit"] = {"state": "audited_clean" if len(clean) == len(spans) else "contaminated",
-                                        "auditSha256": hashlib.sha256(f"audit:{rec['recordingId']}".encode()).hexdigest(),
-                                        "drawId": "synthetic-draw", "cleanIntervals": [{"startTick": a, "endTick": b} for a, b in clean]}
+            clean = [sp for i, sp in enumerate(spans) if not (rec["recordingId"] == NOT_CLEAN and i == 1)]
+            audit = {"state": "audited_clean" if len(clean) == len(spans) else "contaminated",
+                     "auditSha256": hashlib.sha256(f"audit:{rec['recordingId']}".encode()).hexdigest(),
+                     "drawId": "synthetic-draw", "cleanIntervals": [{"startTick": a, "endTick": b} for a, b in clean],
+                     "findings": {} if len(clean) == len(spans) else {"missed_rally": 1}}
+            if clean:
+                rec["labelProvenance"]["method"] = "declared_audited"
+        rec["coverage"]["audit"] = audit
+        rec["evidence"] = {"sourceFingerprint": f"file:{hashlib.sha256(rec['recordingId'].encode()).hexdigest()}",
+                           "configSha256": hashlib.sha256(b"synthetic:config:camera").hexdigest(), "codeSha": "synthetic"}
+        rec["evidenceReusedFrom"] = None
         steps = v.read_steps(dataset, rec)
-        for s in steps:
-            s["y"] = v2_rule(s["tick"], rec, round(manifest["labelSchema"]["boundaryIgnoreSec"] * v.TIMESCALE))
-            s["w"] = v.WEIGHTS[str(s["y"])]
+        for st in steps:
+            st["y"] = v.expected_state(st["tick"], rec, ignore, v.LABEL_VERSION_V2)
+            st["w"] = v.WEIGHTS[str(st["y"])]
         write_steps(dataset, rec, steps)
 
 
@@ -164,13 +158,6 @@ def _add_matched_baseline(dataset: str, manifest: dict):
         with open(path, "w", encoding="utf-8") as fh:
             json.dump(doc, fh, indent=1)
         rec["baselineSha256"] = v.sha256_file(path)
-
-
-@contextlib.contextmanager
-def reading_v2():
-    """The validator, reading label schema v2 (the module docstring)."""
-    with mock.patch.object(v, "LABEL_VERSION", tn.AUDITED_LABELS), mock.patch.object(v, "expected_state", v2_rule):
-        yield
 
 
 def write_closure(folder: str, dataset: str) -> str:

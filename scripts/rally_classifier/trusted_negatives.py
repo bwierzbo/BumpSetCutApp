@@ -65,7 +65,7 @@ def trusted_time(rec: dict, audited: bool) -> tuple:
     if not audited:
         return NONE, [], f"coverage {cov['state']}: declared, not audited (this label schema carries no audit record)"
     audit = cov.get("audit")
-    if audit is None:
+    if audit is None or audit.get("state") == "none":      # the exporter writes state none for a recording no record counts for
         return NONE, [], f"coverage {cov['state']}: not audited"
     try:
         spans = [(s["startTick"], s["endTick"]) for s in audit["cleanIntervals"]]

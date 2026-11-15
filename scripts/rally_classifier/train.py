@@ -195,12 +195,11 @@ def prepare(dataset_dir: str, folds_file: str, withheld: str | None, net: str) -
     if labels not in tn.LABEL_SCHEMAS:
         raise Refused(f"the dataset's label schema is {labels!r}; this trainer reads {' and '.join(tn.LABEL_SCHEMAS)}")
     variants = {var["name"]: var["settings"] for var in manifest["baseline"]["variants"]}
-    for name, named in (("r0", COMMITTED), ("r0_prime", D029), (MATCHED, COMMITTED)):
+    # The validator holds a stored matched baseline (`r0_no_net_rule`) to r0's settings, its own config hash and every
+    # r0 clip unchanged; r0 held to the committed settings here makes it the preregistration's as well.
+    for name, named in (("r0", COMMITTED), ("r0_prime", D029)):
         if name in variants and {k: variants[name][k] for k in named} != named:
             raise Refused(f"the dataset's baseline {name} was replayed at {variants[name]}, not at the settings the preregistration names ({named})")
-    config = {var["name"]: var["configSha256"] for var in manifest["baseline"]["variants"]}
-    if MATCHED in config and config[MATCHED] == config["r0"]:
-        raise Refused(f"the dataset's baseline {MATCHED} carries r0's config hash: it is not r0 with the above-net rule off")
     try:
         folds_doc = fd.load(folds_file, dataset_dir)
     except fd.FoldsError as e:
@@ -216,7 +215,6 @@ def prepare(dataset_dir: str, folds_file: str, withheld: str | None, net: str) -
     for rec in manifest["recordings"]:
         steps = v.read_steps(dataset_dir, rec)
         baseline = v.read_baseline(dataset_dir, rec)
-        _check_matched(rec, baseline)
         arr = ft.arrays(steps, ablate_net=(net == "ablated"))
         recordings.append(Recording(rec, folds_doc["recordings"][rec["recordingId"]], arr, baseline, ft.segments(arr["seg"])))
         try:
@@ -230,22 +228,6 @@ def prepare(dataset_dir: str, folds_file: str, withheld: str | None, net: str) -
     return Prepared(dataset_dir, manifest, v.dataset_identity(dataset_dir), folds_doc, v.sha256_file(folds_file),
                     {"errors": 0, "warnings": report.warnings, "info": report.info, "withheldFileSha256": v.sha256_file(withheld)},
                     parity, recordings, net, negatives)
-
-
-def _clip_key(clip: dict) -> tuple:
-    return clip["startTick"], clip["endTick"], tuple((q["startTick"], q["endTick"]) for q in clip["rawSpans"])
-
-
-def _check_matched(rec: dict, baseline: dict):
-    """A stored matched baseline must be r0 with only the above-net rule off: the rule removes whole clips after
-    SegmentBuilder, so every r0 clip is in it unchanged (padded span and raw spans). Refused otherwise."""
-    if MATCHED not in baseline:
-        return
-    matched = {_clip_key(c) for c in baseline[MATCHED]}
-    missing = [c for c in baseline["r0"] if _clip_key(c) not in matched]
-    if missing:
-        raise Refused(f"{rec['recordingId']}: {len(missing)} stored r0 clip(s) are not in {MATCHED} unchanged (first [{missing[0]['startTick']}, "
-                      f"{missing[0]['endTick']})): that variant is not r0 with only the above-net rule off")
 
 
 def exposure_summary(manifest: dict) -> dict:

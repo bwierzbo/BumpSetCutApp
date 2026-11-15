@@ -577,11 +577,10 @@ class Datasets(unittest.TestCase):
             self.assertAlmostEqual(row["logitShift"]["inner"], np.log(row["inner"]["negativeSteps"] / row["inner"]["positiveSteps"]))
 
     def test_an_audited_dataset_takes_negatives_from_reviewed_clean_intervals_and_runs(self):
-        with syn.reading_v2():
-            dataset, closure, folds_file = make(self.tmp, trust="audited", unaudited=("g-bea-00", "g-gra-01"))
-            manifest = v.load_manifest(dataset)
-            prep = train.prepare(dataset, folds_file, closure, "present")
-            code, out, err = quiet(train.main, argv(dataset, closure, folds_file, self.out))
+        dataset, closure, folds_file = make(self.tmp, trust="audited", unaudited=("g-bea-00", "g-gra-01"))
+        manifest = v.load_manifest(dataset)
+        prep = train.prepare(dataset, folds_file, closure, "present")
+        code, out, err = quiet(train.main, argv(dataset, closure, folds_file, self.out))
         self.assertEqual(code, 0, err)
         gate = prep.negatives
         self.assertEqual((gate["met"], gate["labelSchema"], gate["negativeLabels"], gate["untrustedNegativeSteps"]), (True, tn.AUDITED_LABELS, "audited", 0))
@@ -607,23 +606,22 @@ class Datasets(unittest.TestCase):
 
     def test_too_few_audited_groups_is_refused_with_the_exact_deficiency(self):
         unaudited = ("g-bea-00", "g-bea-02", "g-bea-03", "g-gra-01", "g-gra-02", "g-ind-00", "g-ind-01")
-        with syn.reading_v2():
-            dataset, closure, folds_file = make(self.tmp, trust="audited", unaudited=unaudited)
-            gate = train.prepare(dataset, folds_file, closure, "present").negatives
-            fold_of = {g["groupId"]: g["fold"] for g in syn.read_json(folds_file)["groups"]}
-            without = sorted(unaudited + ("g-bea-01",))                                    # and the edited recording's group
-            self.assertEqual((gate["g7"]["met"], gate["g6"]["met"], gate["groupsWithTrustedNegatives"]), (True, False, 15 - len(without)))
-            self.assertEqual(gate["g6"]["deficiencies"][0], f"7 of 15 groups contribute trusted negatives; at least 10 are required (two-thirds, rounded up): "
-                                                            f"3 short. Groups without: {', '.join(without)}")
-            thin = {f: sorted(g for g in without if fold_of[g] == f) for f in range(5)}
-            expected = [f for f in range(5) if 3 - len(thin[f]) < 2]
-            self.assertTrue(expected)
-            self.assertEqual([d.split(":")[0] for d in gate["g6"]["deficiencies"][1:]], [f"fold {f}" for f in expected])
-            for f, d in zip(expected, gate["g6"]["deficiencies"][1:]):
-                self.assertIn(f"at least 2 are required: {2 - (3 - len(thin[f]))} short. Groups without: {', '.join(thin[f])}", d)
-            args = argv(dataset, closure, folds_file, self.out)
-            self.refused(args, "the negative-coverage gate is not met (label schema rally_activity_truth_v2, negatives audited)", f"G6: {gate['g6']['deficiencies'][0]}")
-            code, out, err = quiet(train.main, args + ["--dry-run"])
+        dataset, closure, folds_file = make(self.tmp, trust="audited", unaudited=unaudited)
+        gate = train.prepare(dataset, folds_file, closure, "present").negatives
+        fold_of = {g["groupId"]: g["fold"] for g in syn.read_json(folds_file)["groups"]}
+        without = sorted(unaudited + ("g-bea-01",))                                    # and the edited recording's group
+        self.assertEqual((gate["g7"]["met"], gate["g6"]["met"], gate["groupsWithTrustedNegatives"]), (True, False, 15 - len(without)))
+        self.assertEqual(gate["g6"]["deficiencies"][0], f"7 of 15 groups contribute trusted negatives; at least 10 are required (two-thirds, rounded up): "
+                                                        f"3 short. Groups without: {', '.join(without)}")
+        thin = {f: sorted(g for g in without if fold_of[g] == f) for f in range(5)}
+        expected = [f for f in range(5) if 3 - len(thin[f]) < 2]
+        self.assertTrue(expected)
+        self.assertEqual([d.split(":")[0] for d in gate["g6"]["deficiencies"][1:]], [f"fold {f}" for f in expected])
+        for f, d in zip(expected, gate["g6"]["deficiencies"][1:]):
+            self.assertIn(f"at least 2 are required: {2 - (3 - len(thin[f]))} short. Groups without: {', '.join(thin[f])}", d)
+        args = argv(dataset, closure, folds_file, self.out)
+        self.refused(args, "the negative-coverage gate is not met (label schema rally_activity_truth_v2, negatives audited)", f"G6: {gate['g6']['deficiencies'][0]}")
+        code, out, err = quiet(train.main, args + ["--dry-run"])
         self.assertEqual(code, 0, err)
         self.assertIn("negatives audited: G7 met, G6 NOT MET (7 of 15 groups with trusted negatives, 10 required) — a real run would be refused", out)
         self.assertEqual(syn.read_json(os.path.join(self.out, "readiness.json"))["problems"], gate["deficiencies"])
@@ -637,14 +635,12 @@ class Datasets(unittest.TestCase):
         return dropped
 
     def test_an_untrusted_negative_in_an_audited_dataset_stops_the_run_and_the_dry_run(self):
-        with syn.reading_v2():
-            dataset, _, _ = make(self.tmp, trust="audited")
+        dataset, _, _ = make(self.tmp, trust="audited")
         dropped = self.tamper(dataset)
         closure, folds_file = syn.write_closure(self.tmp, dataset), os.path.join(self.tmp, "folds-2.json")   # the dataset changed: new folds
-        with syn.reading_v2():
-            code, _, err = quiet(folds.main, [dataset, "--out", folds_file, "--withheld", closure])
-            self.assertEqual(code, 1)                                                      # a validator that knows the rule refuses it first
-            self.assertIn("y is NON_RALLY but the recording's rallies and spans say UNKNOWN", err)
+        code, _, err = quiet(folds.main, [dataset, "--out", folds_file, "--withheld", closure])
+        self.assertEqual(code, 1)                                                      # the validator knows the rule and refuses it first
+        self.assertIn("y is NON_RALLY outside trusted time", err)
         with mock.patch.object(v, "validate", lambda dataset_dir, withheld_path=None: v.Report()):    # one that lets it through: the trainer's own check
             code, _, err = quiet(folds.main, [dataset, "--out", folds_file, "--withheld", closure])
             self.assertEqual(code, 0, err)
@@ -653,17 +649,12 @@ class Datasets(unittest.TestCase):
                              "negative step(s) with loss weight in 1 recording(s) lie outside every reviewed-clean interval of a recording without Stage 1 verified coverage",
                              f"syn_ind_02 (", f"first NON_RALLY at tick {dropped['startTick']}", "rally_activity_truth_v2 allows none")
 
-    def test_this_branchs_validator_does_not_read_the_audited_schema(self):
-        with syn.reading_v2():
-            dataset, closure, folds_file = make(self.tmp, trust="audited")
-        self.refused(argv(dataset, closure, folds_file, self.out), "the dataset does not validate", "labelSchema differs from rally_activity_truth_v1")
-
     def test_a_label_schema_the_trainer_does_not_know_is_refused(self):
         dataset, closure, folds_file = make(self.tmp)
         manifest = v.load_manifest(dataset)
         manifest["labelSchema"]["version"] = "rally_activity_truth_v3"
         syn.save_manifest(dataset, manifest)
-        with mock.patch.object(v, "LABEL_VERSION", "rally_activity_truth_v3"):             # even where a validator passes it
+        with mock.patch.object(v, "validate", lambda dataset_dir, withheld_path=None: v.Report()):    # even where a validator passes it
             self.refused(argv(dataset, closure, folds_file, self.out), "the dataset's label schema is 'rally_activity_truth_v3'; this trainer reads "
                                                                        "rally_activity_truth_v1 and rally_activity_truth_v2")
 
@@ -678,13 +669,16 @@ class MatchedBaselineGuards(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def refused(self, fragment):
-        folds_file = os.path.join(self.tmp, "folds-2.json")                                # the dataset changed: its folds are drawn again
-        code, _, err = quiet(folds.main, [self.dataset, "--out", folds_file, "--withheld", self.closure])
-        self.assertEqual(code, 0, err)
-        code, _, err = quiet(train.main, argv(self.dataset, self.closure, folds_file, self.out, "r1", "present", "--dry-run"))
+        """The validator refuses a matched baseline that is not r0 with only the above-net rule off, before the folds
+        file is even read; so does the trainer, which validates first, and the fold draw."""
+        code, _, err = quiet(train.main, argv(self.dataset, self.closure, self.folds_file, self.out, "r1", "present", "--dry-run"))
         self.assertEqual(code, 1, err)
+        self.assertIn("the dataset does not validate", err)
         self.assertIn(fragment, err)
         self.assertFalse(os.path.exists(self.out))
+        code, _, err = quiet(folds.main, [self.dataset, "--out", os.path.join(self.tmp, "folds-2.json"), "--withheld", self.closure])
+        self.assertEqual(code, 1)
+        self.assertIn(fragment, err)
 
     def edit_manifest(self, change):
         manifest = v.load_manifest(self.dataset)
@@ -698,11 +692,11 @@ class MatchedBaselineGuards(unittest.TestCase):
 
     def test_a_matched_baseline_at_other_settings_is_refused(self):
         self.edit_manifest(lambda manifest, variant: variant["settings"].update(joinSec=0.0))
-        self.refused("the dataset's baseline r0_no_net_rule was replayed at")
+        self.refused("baseline variant r0_no_net_rule must carry r0's settings")
 
     def test_a_matched_baseline_under_r0s_config_hash_is_refused(self):
         self.edit_manifest(lambda manifest, variant: variant.update(configSha256=manifest["pipelineConfigSha256"]))
-        self.refused("carries r0's config hash: it is not r0 with the above-net rule off")
+        self.refused("baseline variant r0_no_net_rule carries r0's config hash")
 
     def test_a_matched_baseline_that_lacks_an_r0_clip_is_refused(self):
         def drop(manifest, variant):
@@ -715,7 +709,7 @@ class MatchedBaselineGuards(unittest.TestCase):
                 json.dump(doc, fh, indent=1)
             rec["baselineSha256"] = v.sha256_file(path)
         self.edit_manifest(drop)
-        self.refused("stored r0 clip(s) are not in r0_no_net_rule unchanged")
+        self.refused("not in r0_no_net_rule unchanged")
 
 
 if __name__ == "__main__":
