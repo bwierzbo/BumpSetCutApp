@@ -39,6 +39,9 @@ extension CoverageAudit {
         var rallyMarks = 0
         /// Draw intervals that are no longer unmarked intervals as drawn: the marks or cut ranges changed.
         var movedIntervals = 0
+        /// Draw intervals still unmarked as drawn that the first look has not finished: no verdict yet, or findings
+        /// given before the interval had played whole. The first pass's work left in the recording.
+        var firstLeft = 0
         /// Why the recording is not read, or its record does not count; nil when nothing is wrong.
         var problem: String?
     }
@@ -89,10 +92,11 @@ extension CoverageAudit {
                 return status
             }
             var problems: [String] = []
+            var current: Set<Span> = []
             do {
                 if let marks = try RallyTruth.records(inSidecarOf: session.sourceURL) {
                     status.rallyMarks = RallyTruth(marks: marks.map(RallyTruth.Mark.init), cuts: session.cutRanges, complete: true).positives.count
-                    let current = Set(unmarkedIntervals(marks: marks, cuts: session.cutRanges, durationTicks: recording.durationTicks).map(\.span))
+                    current = Set(unmarkedIntervals(marks: marks, cuts: session.cutRanges, durationTicks: recording.durationTicks).map(\.span))
                     status.movedIntervals = recording.intervals.filter { !current.contains($0.span) }.count
                 } else {
                     problems.append("no rally marks beside the video")
@@ -103,8 +107,18 @@ extension CoverageAudit {
             } else if ProjectsModel.fileFingerprint(atPath: session.sourcePath) != recording.contentFingerprint {
                 problems.append("its file is not the one the draw was made from")
             }
+            // The first pass's work left: drawn intervals still unmarked as drawn without a finished first look.
+            func firstLeft(_ file: File?) -> Int {
+                recording.intervals.filter { interval in
+                    guard current.contains(interval.span) else { return false }
+                    guard let look = file?.review(interval.index), look.span == interval.span else { return true }
+                    return look.playedAllAtMaxRate == nil
+                }.count
+            }
+            status.firstLeft = firstLeft(nil)
             do {
                 if let file = try existingRecord(of: recording, video: session.sourceURL, contentFingerprint: recording.contentFingerprint, draw: draw) {
+                    status.firstLeft = firstLeft(file)
                     let owed = repeatSet(recording, file: file)
                     status.repeatOwed = owed.count
                     status.repeatDone = owed.filter { file.repeatReview($0)?.playedAllAtMaxRate != nil }.count
