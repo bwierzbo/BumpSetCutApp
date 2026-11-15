@@ -205,6 +205,9 @@ extension CoverageAudit {
     /// withdrawn. `clean` needs the interval played whole and no findings under it; a finding must be well-formed
     /// and lie in the interval (a second either side allowed, the context the reviewer was shown).
     private static func applied(_ entry: Entry, to existing: Look?, interval: Interval, played: PlayedCoverage, reviewer: String, at: String) throws -> Look? {
+        // A look is its reviewer's: what they saw, how much of it they played, when. Another person changes nothing of
+        // it — not a finding, not its completion, not its withdrawal — so no one's viewing is ever counted for another.
+        if let existing, existing.reviewer != reviewer { throw Failure.othersLook(index: interval.index, reviewer: existing.reviewer) }
         let whole = played.covers(interval.span) ? played.maxRate : nil
         switch entry {
         case .clean:
@@ -224,8 +227,6 @@ extension CoverageAudit {
             return Look(verdict: .notClean, findings: kept + [finding], reviewer: reviewer, at: at, playedAllAtMaxRate: whole ?? existing?.playedAllAtMaxRate)
         case .playedWhole:
             guard var look = existing, look.verdict == .notClean else { throw Failure.noFindings(index: interval.index) }
-            // Completing a look says its reviewer watched the interval to its end: only that reviewer can.
-            guard look.reviewer == reviewer else { throw Failure.othersLook(index: interval.index, reviewer: look.reviewer) }
             guard let whole else {
                 throw Failure.notPlayed(index: interval.index, missingSec: seconds(interval.span.ticks - played.playedTicks(in: interval.span)))
             }
