@@ -55,14 +55,22 @@
 //             at least one frame; a pre-tracked rally nobody has looked at is left out whole, and no sure frame of the model's
 //             is ever a label (LineagePackage.isHumanLabeled, MultiFramePackage machineLabels: false).
 //             The project's data.yaml is not a lineage dataset.)
-//    RallyLab --project v3 --export-rally-classifier-dataset <name> [--out DIR] [--variants r0,r0_prime] [--resume DIR]
-//             (the learned rally classifier's dataset, rally_classifier_dataset_v1 — RallyClassifierExporter: the split
-//             manifest rebuilt and audited, the withheld closure refused before any video is read, the plan written to
-//             manifests/rally-classifier/<stamp>-plan.{json,md}, the detector run live per recording, steps + labels +
-//             the decider's baseline per variant, a Swift preflight and then scripts/rally_classifier/validate_dataset.py
-//             (python3 required), the exposure ledger, and only then the folder moved to DIR/<name> (default exports/).
+//    RallyLab --project v3 --export-rally-classifier-dataset <name> [--out DIR] [--variants r0,r0_prime,r0_no_net_rule]
+//             [--resume DIR] [--reuse-evidence-from DATASET]
+//             (the learned rally classifier's dataset, rally_classifier_dataset_v1 with labels rally_activity_truth_v2 —
+//             RallyClassifierExporter: the split manifest rebuilt and audited, the withheld closure refused before any
+//             video is read, the plan written to manifests/rally-classifier/<stamp>-plan.{json,md}, the detector run live
+//             per recording, steps + labels + the decider's baseline per variant, a Swift preflight and then
+//             scripts/rally_classifier/validate_dataset.py (python3 required), the exposure ledger, and only then the
+//             folder moved to DIR/<name> (default exports/). Unmarked time is NON_RALLY only inside an interval a person
+//             reviewed clean in the negative-coverage audit (<video>.coverageaudit.json) and that is still unmarked;
+//             without a record a recording contributes its rallies only, and edited footage never a negative.
 //             Refuses when a recording to export has no footage on this Mac. --resume DIR: the .staging-<name> folder of a
-//             run cut short; its verified recordings are kept. The GUI must be closed. Not training.)
+//             run cut short; its verified recordings are kept. --reuse-evidence-from DATASET: a sealed dataset's folder,
+//             read only — its stored steps and decider clips are used for every recording they are proven to be the
+//             evidence of (same detector, config, feature schema, file, duration, hashes); labels are made now; the
+//             detector runs on the rest. Every variant asked for must be in DATASET (a variant it lacks needs the
+//             detector: r0_no_net_rule is not in rc-v1-20261112). The GUI must be closed. Not training.)
 //    RallyLab --project v3 --event-inventory | --review-status   (Stage 1 rally-boundary review, D-024, read-only:
 //             per recording the legacy marks in <video>.rallylabels.json (all legacy_unverified) and the reviewed
 //             rallies, spans, coverage and completion in <video>.rallyevents.json; withheld recordings named, not
@@ -450,7 +458,8 @@ enum HeadlessProjects {
                 let out = value(after: "--out", in: args).map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
                 let resume = value(after: "--resume", in: args).map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
                 let variants = value(after: "--variants", in: args).map { $0.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) } }
-                ok = await exportRallyClassifierDataset(projects, name: name, out: out, resume: resume, variants: variants)
+                let reuse = value(after: "--reuse-evidence-from", in: args).map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
+                ok = await exportRallyClassifierDataset(projects, name: name, out: out, resume: resume, variants: variants, reuseEvidenceFrom: reuse)
             }
             if ok, let model = value(after: "--add-model", in: args) {
                 await library.addModel(URL(fileURLWithPath: (model as NSString).expandingTildeInPath))
@@ -1145,9 +1154,11 @@ enum HeadlessProjects {
     /// `--export-rally-classifier-dataset <name>`: the split manifest rebuilt and audited (manifests/manifest.json), then
     /// RallyClassifierExporter — every guard, the plan, the validation and the ledger are in the operation; this
     /// supplies the live detector and, from this build (the Record Source Revision phase), the commit it was compiled
-    /// from and the validator compiled with it.
+    /// from and the validator compiled with it. `reuseEvidenceFrom`: a sealed dataset whose evidence the operation
+    /// takes where it proves it (RallyClassifierExporter.EvidenceReuse).
     @MainActor
-    private static func exportRallyClassifierDataset(_ projects: ProjectsModel, name: String, out: URL?, resume: URL?, variants: [String]?) async -> Bool {
+    private static func exportRallyClassifierDataset(_ projects: ProjectsModel, name: String, out: URL?, resume: URL?, variants: [String]?,
+                                                     reuseEvidenceFrom: URL?) async -> Bool {
         guard let dir = projects.projectDir else { log("❌ No project folder."); return false }
         guard let codeSha = RallyClassifierExporter.buildRevision(), let binarySha = RallyClassifierExporter.executableSha256(),
               let validator = Bundle.main.url(forResource: "validate_dataset", withExtension: "py") else {
@@ -1164,10 +1175,12 @@ enum HeadlessProjects {
         var options = RallyClassifierExporter.Options(name: name, out: destination, resume: resume, validator: validator,
                                                       codeSha: codeSha, binarySha: binarySha, tool: "\(generator()) --export-rally-classifier-dataset")
         if let variants { options.variants = variants }
+        options.reuseEvidenceFrom = reuseEvidenceFrom
         do {
             let result = try await RallyClassifierExporter.export(projectDir: dir, manifestURL: manifests.appendingPathComponent("manifest.json"),
                                                                   options: options, evidence: RallyClassifierExporter.liveEvidence, log: { log($0) })
-            log("✅ \(RallyClassifierExporter.schemaVersion): \(result.recordings.count) recordings (\(result.leftOut.count) left out) → \(result.dataset.path)")
+            log("✅ \(RallyClassifierExporter.schemaVersion) / \(RallyClassifierExporter.labelVersion): \(result.recordings.count) recordings (\(result.leftOut.count) left out"
+                + (reuseEvidenceFrom == nil ? "" : "; evidence reused for \(result.evidenceReused.count), the detector ran on the rest") + ") → \(result.dataset.path)")
             log("   digest \(result.digest) · manifest \(result.manifestSha256)")
             log("   report: \(result.report.path)")
             return true
