@@ -300,6 +300,7 @@ private struct ClipCard: View {
         case .failed: return .red
         case .busy: return tint.opacity(0.5)
         case .pulled(let frames, let reviewed): return frames > 0 && reviewed == frames ? .green : tint
+        case .registered: return .secondary
         }
     }
 }

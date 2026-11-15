@@ -314,12 +314,12 @@ enum DeciderRetune {
 
     /// Admits the plan against the project at `root` as it is now, or throws why not — before anything is recorded
     /// in the ledger, read from the pass cache or run. The reservations and the withheld closure are the files'
-    /// (ReservedVideos); the split manifest must be of project.json, the sessions and validation.json as they are
+    /// (`ScoringExposure.Closures`, as every model run reads them); the split manifest must be of project.json, the sessions and validation.json as they are
     /// today (`DatasetSplitManifest.readCurrent`), or its groups and identities are another project state's. Every
     /// pool recording must then be one the manifest can vouch for (`identityRefusal`).
     static func admit(_ plan: Plan, root: URL) throws -> Admission {
-        let reserved = try ReservedVideos.reservedNames(in: root)
-        let withheld = try ReservedVideos.lineageWithheldNames(in: root)
+        let closures = try ScoringExposure.Closures(in: root)
+        let reserved = closures.reserved, withheld = closures.withheld
         let manifest = try DatasetSplitManifest.readCurrent(from: NetInventory.manifestURL(in: root), projectDir: root).manifest
         let groups = groups(manifest.videos)
         if let why = planRefusal(plan, reserved: reserved, withheld: withheld, groups: groups) { throw Refusal(why: why) }

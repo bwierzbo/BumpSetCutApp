@@ -19,8 +19,10 @@
 //  it with that one file left out.
 //
 //  The project's own data.yaml (images/train, images/val) is NOT a lineage
-//  dataset: it knows nothing of reservations. A lineage trains only from a
-//  package written here with a passing preflight.
+//  dataset: its writer keeps withheld recordings' frames out of it
+//  (DatasetStore.writeLabels), but nothing plans, audits or hashes that
+//  folder. A lineage trains only from a package written here with a passing
+//  preflight.
 //
 //    RallyLab --project Scratch --package-l2 [--dry-run] [--long-side 512]
 //

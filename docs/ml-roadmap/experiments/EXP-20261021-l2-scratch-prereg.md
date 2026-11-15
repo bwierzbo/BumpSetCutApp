@@ -1,9 +1,9 @@
 ---
 id: EXP-20261021-l2-scratch-prereg
 lineage: L2
-status: final approval given by the owner 2026-10-25 (record as merged in PR #95, incl. the §10 preservation policy); first L2 run `l2_scratch_768_color_s20261021` completed 60/60 epochs 2026-10-28 on the approved recipe (two memory-commit failures in epoch 44, both resumed from the checkpoint, §11.1); best epoch 47, val F1 0.914; H1 paired comparison with L1 run 2026-10-30 under the owner's authorisation of 2026-10-29 (§11.2); holdout not evaluated; second seed, promotion and deployment not authorised
+status: final approval given by the owner 2026-10-25 (record as merged in PR #95, incl. the §10 preservation policy); first L2 run `l2_scratch_768_color_s20261021` completed 60/60 epochs 2026-10-28 on the approved recipe (two memory-commit failures in epoch 44, both resumed from the checkpoint, §11.1); best epoch 47, val F1 0.914; H1 paired comparison with L1 run 2026-10-30 under the owner's authorisation of 2026-10-29 (§11.2); holdout not evaluated; second seed, promotion and deployment not authorised; **marked exposed 2026-11-12: kept as a development comparator, its D-017 lineage-isolation claim void (§13, D-037)**
 created: 2026-10-21T20:19:11Z
-updated: 2026-11-10T19:54:19Z
+updated: 2026-11-13T01:34:52Z
 approved_by: recipe — owner, 2026-10-21 (D-019); completed record — owner, 2026-10-25 (final approval of the record as merged in PR #95, incl. the §10 preservation policy; verbatim in docs/decisions/2026-10-25-l2-final-approval-and-training-authorization.md)
 decision: D-017, D-018, D-019, D-022, D-023, D-025
 pr: data/l2-dataset-isolation (#73, merged), data/l2-package-export (#75, merged), feat/l2-export-resume (#85, merged), docs/l2-prereg-recovery (#87, merged), fix/l2-window-playable-range (#91, merged), fix/l2-window-fits-playable-end (#92, merged), fix/l2-undecodable-leading-pictures (#93, merged), docs/l2-run5-completion (#95, merged), docs/l2-training-start, docs/l2-h1-paired-result
@@ -212,3 +212,13 @@ Recorded here because this record states the opposite in §1 ("no training, tuni
 - No holdout evaluation has been run. One run on this model reports the 13, or the lineage is trained again from a package built after the correction. Whether §10's "the run is void" applies is the owner's decision; it is not made here.
 
 Audit: [EXP-20261110-lineage-holdout-copies-audit](EXP-20261110-lineage-holdout-copies-audit.md).
+
+## 13. Owner decision of 2026-11-12: kept, marked exposed, the lineage-isolation claim void (D-037)
+
+The decision §12 left open is made ([verbatim](../../decisions/2026-11-12-d036-completion-authorization.md), §7): "Retain the affected L2 model and historical artifacts. Annotate the model and its experiment as exposed. Void the claim that this model satisfies the original D-017 lineage-isolation requirement. It may remain available as a development comparator, but it must not be presented as a clean lineage model."
+
+- `l2_scratch_768_color_s20261021` (`best.pt` `d736147b…`, mlpackage `8cb1bbca0c2729a8`) and `Scratch-L2-multiframe-20261021-1917` are kept as they are. Nothing is deleted or rewritten.
+- **Exposed:** the model trained on footage of three lineage holdouts. Every statement in this record that it has no training exposure to the 16 is void for `grs_extra_self_06`, `grs_extra_self_12` and `bch_extra_self_18`; the experiment's claim to D-017 lineage isolation is void as a whole.
+- H1 (§11.2) stands as what it was: development validation on the package's 13 val recordings.
+- It may be used as a development comparator, with this annotation. It is not a clean lineage model, is not promoted as one, and no holdout number of it is an independent evaluation.
+- A corrected L2 run is a separate experiment: a package built after the correction (applied to the live project 2026-11-12) with a passing preflight and its own owner-approved preregistration. Not authorised here.

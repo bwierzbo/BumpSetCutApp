@@ -90,7 +90,7 @@ final class WithheldConsumerGuardsTests: XCTestCase {
         XCTAssertThrowsError(try ReservedVideos.reservedNames(in: root)) { XCTAssertTrue($0 is ReservedVideos.ProjectUnreadable, "\($0)") }
         XCTAssertThrowsError(try ReservedVideos.lineageWithheldNames(in: root)) { XCTAssertTrue($0 is ReservedVideos.ProjectUnreadable, "\($0)") }
         XCTAssertThrowsError(try ReservedVideos.match(video, root: root)) { XCTAssertTrue($0 is ReservedVideos.ProjectUnreadable, "\($0)") }
-        XCTAssertThrowsError(try PipelineTuner.ValidationSet.finalTestNames(in: root), "every reader of the reservations stops")
+        XCTAssertThrowsError(try ScoringExposure.Closures(in: root), "every reader of the reservations stops")
         // A project.json that decodes as JSON but is no project is unreadable too.
         try Data("[]".utf8).write(to: root.appendingPathComponent("project.json"))
         XCTAssertThrowsError(try ReservedVideos.reservedNames(in: root))
@@ -244,12 +244,12 @@ final class WithheldConsumerGuardsTests: XCTestCase {
         let videos = try makeProject()
         let copy = base.appendingPathComponent("footage/renamed copy.mp4")
         try FileManager.default.copyItem(at: try XCTUnwrap(videos["l"]), to: copy)
-        XCTAssertTrue(RallyLabModel.finalTestRefusal(for: copy, root: root)?.contains("reserved") == true, "a copy of a reserved recording, by content")
-        XCTAssertNil(RallyLabModel.finalTestRefusal(for: videos["t"]!, root: root))
-        try RallyLabModel.recordRallyScoring(videos["t"]!, ref: "RallyLab debug video", root: root)
+        XCTAssertTrue(RallyLabModel.modelRunRefusal(for: copy, root: root)?.contains("reserved") == true, "a copy of a reserved recording, by content")
+        XCTAssertNil(RallyLabModel.modelRunRefusal(for: videos["t"]!, root: root))
+        try RallyLabModel.recordModelRun(videos["t"]!, kind: .rallyScoring, ref: "RallyLab debug video", root: root)
         XCTAssertEqual(try ledger().map { "\($0.video) \($0.kind.rawValue) \($0.ref)" }, ["t rally_scoring RallyLab debug video"])
         try Data("{not json".utf8).write(to: root.appendingPathComponent("project.json"))
-        XCTAssertNotNil(RallyLabModel.finalTestRefusal(for: videos["t"]!, root: root), "an unreadable project refuses every video")
+        XCTAssertNotNil(RallyLabModel.modelRunRefusal(for: videos["t"]!, root: root), "an unreadable project refuses every video")
     }
 
     // MARK: - 3b. Score vs YOLO
@@ -273,7 +273,7 @@ final class WithheldConsumerGuardsTests: XCTestCase {
     func testScoreAgainstYOLORefusesAPackageWithAReservedClip() throws {
         try writeValidation(#"{"tune":[],"holdout":[],"finalTest":["z"]}"#)
         let message = try XCTUnwrap(try evaluationFailure(clip: "z"))
-        XCTAssertTrue(message.contains("reserved final-test clips (z)"), message)
+        XCTAssertTrue(message.contains("z is reserved as final_test (D-002)"), message)
         XCTAssertFalse(ledgerExists, "a refused run leaves no ledger row")
     }
 
@@ -298,7 +298,7 @@ final class WithheldConsumerGuardsTests: XCTestCase {
     func testAdmissionRefusesAnyReservedNameAndRecordsTheRest() throws {
         try writeValidation(#"{"tune":[],"holdout":[],"finalTest":["z"]}"#)
         XCTAssertThrowsError(try ScoringExposure.admit(["a", "z"], kind: .testSetScoring, ref: "export-1", note: nil, root: root)) {
-            XCTAssertEqual($0 as? ScoringExposure.Reserved, ScoringExposure.Reserved(names: ["z"]))
+            XCTAssertEqual($0 as? ScoringExposure.Withheld, ScoringExposure.Withheld(reserved: ["z"], withheld: []))
         }
         XCTAssertFalse(ledgerExists, "nothing of a refused run is recorded")
         try ScoringExposure.admit(["a", "b"], kind: .testSetScoring, ref: "export-1", note: "models: m", root: root)
@@ -352,7 +352,7 @@ final class WithheldConsumerGuardsTests: XCTestCase {
         XCTAssertEqual(try ReservedVideos.match(copy, root: root), .init(session: "l", reserved: true, withheld: true), "a copy, by content")
         XCTAssertNotNil(try SamplerModel.ingestRefusal(of: video, root: root), "not sampled into a new session")
         XCTAssertNotNil(try SamplerModel.ingestRefusal(of: copy, root: root))
-        XCTAssertNotNil(RallyLabModel.finalTestRefusal(for: copy, root: root), "nor run through the pipeline")
+        XCTAssertNotNil(RallyLabModel.modelRunRefusal(for: copy, root: root), "nor run through the pipeline")
         XCTAssertThrowsError(try TrainingDataExporter.admit(video: copy, projectRoots: [root])) { XCTAssertTrue($0 is TrainingDataExporter.Withheld, "\($0)") }
         // An unreserved card with no session is the project's too: matched, not reserved.
         try FileManager.default.removeItem(at: root.appendingPathComponent("sessions/t.json"))

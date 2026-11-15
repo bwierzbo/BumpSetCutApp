@@ -14,6 +14,11 @@
 //  A video is assigned to train or val as a whole when it's added, so frames
 //  from one game never sit on both sides of the split.
 //
+//  No frame of a withheld recording — the final test, a lineage or legacy
+//  holdout, an alias of one (D-002, D-017) — is written into images/ or
+//  labels/: `writeLabels`, the folder's one writer, parks it under excluded/.
+//  A dataset with no pipeline_tuning/validation.json withholds nothing.
+//
 
 import CoreGraphics
 import Foundation
@@ -109,6 +114,10 @@ struct VideoSession: Codable, Identifiable, Equatable {
     /// sync. nil: not set aside.
     var backlogReason: String? = nil
     var backlogAt: Date? = nil
+    /// Why the session was made with no sampled frames: it was registered for a withheld card, so no
+    /// pipeline or detector ran over the recording and nothing was pre-labeled (`SamplerModel.admission`).
+    /// nil: made by the ordinary ingest.
+    var notSampled: String? = nil
 
     /// The cut ranges as every consumer reads them: normalised.
     var cutRanges: [CutRange] { (cuts ?? []).normalised() }
@@ -202,6 +211,11 @@ final class DatasetStore: @unchecked Sendable {
         try? fm.removeItem(at: sessionURL(session.name))
     }
 
+    /// Whether a session file of this name is there — one that can't be read is there too.
+    func hasSession(named name: String) -> Bool {
+        fm.fileExists(atPath: sessionURL(name).path)
+    }
+
     private func sessionURL(_ name: String) -> URL {
         sessionsDir.appendingPathComponent("\(name).json")
     }
@@ -240,17 +254,32 @@ final class DatasetStore: @unchecked Sendable {
         return "images/\(split)/\(name)__\(base).\(copiedFile.pathExtension.lowercased())"
     }
 
-    /// Write (or clear) one frame's YOLO label file. A frame that's not kept,
-    /// or not reviewed when only reviewed labels are wanted, has its label
-    /// file removed so the trainer never sees it — Ultralytics skips images
-    /// without a label file only when `keep` is false, so the image itself is
-    /// moved aside too.
-    /// `inCut`: the frame lies inside one of its recording's cut ranges (not footage; D-030) —
-    /// parked like a discarded one, and back when the cut goes.
-    func writeLabel(for frame: FrameRecord, reviewedOnly: Bool, inCut: Bool = false) throws {
+    /// Write (or clear) the YOLO label files of these frames of the recording `session`. A frame
+    /// that's not kept, or not reviewed when only reviewed labels are wanted, has its label file
+    /// removed so the trainer never sees it — Ultralytics skips images without a label file only
+    /// when `keep` is false, so the image itself is moved aside too.
+    /// `cuts`: the recording's cut ranges (not footage; D-030) — a frame inside one is parked like a
+    /// discarded one, and back when the cut goes.
+    /// A frame of a withheld recording — the final test, a lineage or legacy holdout, an alias of one
+    /// (D-002, D-017; owner, 2026-11-12 §5C) — is never in the dataset a trainer is pointed at, whatever
+    /// the options: parked the same way, where review still finds it (`currentImageURL`). The
+    /// reservations are asked as they are at this call (`ScoringExposure.Closures.current`). Every
+    /// writer comes through here, so none can put one back. Throws, with nothing written or moved, when
+    /// the reservations or the project can't be read (fails closed). Returns how many of the frames are
+    /// in the dataset now.
+    @discardableResult
+    func writeLabels(for frames: [FrameRecord], of session: String, reviewedOnly: Bool, cuts: [CutRange]) throws -> Int {
+        let withheld = try ScoringExposure.Closures.current(in: root).withheld.contains(session)
+        return try frames.reduce(0) { count, frame in
+            let excluded = withheld || !frame.keep || (reviewedOnly && !frame.reviewed) || cuts.contains(frame.time)
+            return try count + (writeLabel(for: frame, excluded: excluded) ? 1 : 0)
+        }
+    }
+
+    /// One frame's label file and image, in the dataset or parked out of it; whether it is in.
+    private func writeLabel(for frame: FrameRecord, excluded: Bool) throws -> Bool {
         let labelURL = root.appendingPathComponent(frame.labelFile)
         let imageURL = root.appendingPathComponent(frame.file)
-        let excluded = !frame.keep || (reviewedOnly && !frame.reviewed) || inCut
         let parkedURL = parkedImageURL(for: frame)
 
         if excluded {
@@ -260,7 +289,7 @@ final class DatasetStore: @unchecked Sendable {
                 try? fm.removeItem(at: parkedURL)
                 try fm.moveItem(at: imageURL, to: parkedURL)
             }
-            return
+            return false
         }
 
         if fm.fileExists(atPath: parkedURL.path), !fm.fileExists(atPath: imageURL.path) {
@@ -269,6 +298,7 @@ final class DatasetStore: @unchecked Sendable {
         let lines = frame.boxes.map { DatasetStore.yoloLine($0.rect) }
         try (lines.joined(separator: "\n") + (lines.isEmpty ? "" : "\n"))
             .write(to: labelURL, atomically: true, encoding: .utf8)
+        return true
     }
 
     /// Excluded frames keep their image under `excluded/` so un-discarding
@@ -286,10 +316,11 @@ final class DatasetStore: @unchecked Sendable {
     func writeDataYAML() throws {
         let text = """
         # Written by RallyLab's Sampler. Whole videos are assigned to train or val.
-        # NOT a model-lineage dataset (D-017/D-018): this folder knows nothing of reserved
-        # recordings (final test, candidates, lineage holdout, legacy holdout) and may hold their
-        # frames under images/ or excluded/. Unsupported for L2 training. A lineage trains only
-        # from a package written by `RallyLab --project <name> --package-l2` with a passing preflight.
+        # NOT a model-lineage dataset (D-017/D-018). RallyLab keeps the frames of withheld
+        # recordings (final test, candidates, lineage holdout, legacy holdout, their aliases) out
+        # of images/ and labels/ whenever it writes them — they are parked under excluded/ — but
+        # nothing audits this folder: unsupported for L2 training. A lineage trains only from a
+        # package written by `RallyLab --project <name> --package-l2` with a passing preflight.
         path: \(root.path)
         train: images/train
         val: images/val

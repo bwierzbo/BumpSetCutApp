@@ -569,6 +569,19 @@ final class NetLabelsModel {
     private func propose(on frame: CGImage, for item: Item) -> String {
         let byHand = "drag a box around the net, then drag its corners onto the net's corners."
         guard footage.modelAvailable else { return "\(item.video): no net model — \(byHand)" }
+        // The list's skips are as of its last reload, and the reservations may have changed since (a recording
+        // listed, or made an alias by a provenance change): asked again as they are now, before the ledger and
+        // the model.
+        if let root = inventoryRoot {
+            do {
+                let closures = try ScoringExposure.Closures.current(in: root)
+                if let why = closures.standing(of: item.video) ?? closures.standing(of: DatasetStore.safeName(item.video)) {
+                    return "⛔ \(item.video) is \(why) — the model does not run over it. Reload the list."
+                }
+            } catch {
+                return "\(item.video): the model's proposal was not made because the reservations can't be read (\(error.localizedDescription)) — \(byHand)"
+            }
+        }
         guard let recordProposal else { return "\(item.video): no exposure ledger for this project — \(byHand)" }
         do { try recordProposal(item.video, time) } catch {
             return "\(item.video): the model's proposal was not made because its use could not be recorded (\(error.localizedDescription)) — \(byHand)"
