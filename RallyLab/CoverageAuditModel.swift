@@ -337,7 +337,7 @@ final class CoverageAuditModel {
         switch pass {
         case .first: return s.reviewed - s.partialLooks < s.total - s.movedIntervals
         case .repeatLook: return s.repeatDone < s.repeatOwed
-        case .resolution: return s.unresolved > 0
+        case .resolution: return s.unresolved + s.unfinishedResolutions > 0
         }
     }
 
