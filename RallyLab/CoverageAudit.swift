@@ -378,6 +378,7 @@ enum CoverageAudit {
         case frozen(index: Int, by: String)
         case nothingToWithdraw(index: Int)
         case noFindings(index: Int)
+        case othersLook(index: Int, reviewer: String)
         case ledgerNotWritten(String)
 
         var errorDescription: String? {
@@ -415,6 +416,7 @@ enum CoverageAudit {
             case .frozen(let index, let by): return "Interval \(index) has a \(by); withdraw that first."
             case .nothingToWithdraw(let index): return "Interval \(index) has nothing to withdraw in this pass."
             case .noFindings(let index): return "Interval \(index) has no findings in this pass to complete by playing it whole."
+            case .othersLook(let index, let reviewer): return "Interval \(index)'s look in this pass is \(reviewer)'s: only \(reviewer) can complete it by playing it whole."
             case .ledgerNotWritten(let why): return "The exposure ledger could not record this audit, so nothing is saved: \(why)"
             }
         }

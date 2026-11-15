@@ -28,8 +28,11 @@ extension CoverageAudit {
         var repeatDone = 0
         /// Disagreements between the first and the repeat verdict nobody has resolved.
         var unresolved = 0
-        /// Resolutions given with findings before the interval had played whole in them: the resolution pass is not done.
-        var unfinishedResolutions = 0
+        /// Intervals still unmarked as drawn that the repeat pass owes a finished look: in the repeat set, with no repeat
+        /// look yet, or one with findings not played whole. A moved interval is not counted: no verdict is taken on it.
+        var repeatLeft = 0
+        /// Disagreements on intervals still unmarked as drawn without a finished resolution: the resolution pass's work.
+        var resolveLeft = 0
         /// Intervals whose findings come from a look that did not cover the interval: not reviewed whole yet.
         var partialLooks = 0
         var state: RecordingState
@@ -122,7 +125,9 @@ extension CoverageAudit {
                     let owed = repeatSet(recording, file: file)
                     status.repeatOwed = owed.count
                     status.repeatDone = owed.filter { file.repeatReview($0)?.playedAllAtMaxRate != nil }.count
-                    status.unfinishedResolutions = disagreements(in: file).filter { file.resolution($0).map { $0.playedAllAtMaxRate == nil } ?? false }.count
+                    let asDrawn = Set(recording.intervals.filter { current.contains($0.span) }.map(\.index))
+                    status.repeatLeft = owed.filter { asDrawn.contains($0) && file.repeatReview($0)?.playedAllAtMaxRate == nil }.count
+                    status.resolveLeft = disagreements(in: file).filter { asDrawn.contains($0) && file.resolution($0)?.playedAllAtMaxRate == nil }.count
                     status.state = state(of: file, intervals: recording.intervals)
                     for interval in recording.intervals where file.review(interval.index)?.span == interval.span {
                         status.reviewed += 1
