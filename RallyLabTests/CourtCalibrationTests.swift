@@ -390,14 +390,22 @@ final class CourtCalibrationTests: XCTestCase {
         XCTAssertEqual(lane.falseIn, 1)
         XCTAssertEqual(lane.halfTotal, 0, "no zones, no half accuracy")
         let d = CourtReview.detection(frames: [frame], recording: "rec_01", labels: review.persons, missed: review.missed)
-        XCTAssertEqual(d, CourtReview.Detection(frames: 1, nearFound: 2, nearMissed: 1, farFound: 1, farMissed: 0))
+        XCTAssertEqual(d, CourtReview.Detection(frames: 1, nearFound: 2, nearMissed: 1, farFound: 1, farMissed: 0, incompleteFrames: 0))
         XCTAssertEqual(CourtReview.sample([frame], count: 3, avoid: [700]).count, 0, "a frame within 2 s of an earlier audit frame is left out")
         // A frame where the detector found nobody is still reviewed, and the players missed there count as missed.
         var empty = frame; empty.persons = []; empty.tick = 6000; empty.t = 10
         XCTAssertEqual(CourtReview.sample([frame, empty], count: 2, avoid: []).map(\.tick), [600, 6000])
         let both = CourtReview.detection(frames: [frame, empty], recording: "rec_01", labels: review.persons,
                                          missed: review.missed.merging(["rec_01|6000": (near: 2, far: 1, reviewer: "Owner")]) { a, _ in a })
-        XCTAssertEqual(both, CourtReview.Detection(frames: 2, nearFound: 2, nearMissed: 3, farFound: 1, farMissed: 1))
+        XCTAssertEqual(both, CourtReview.Detection(frames: 2, nearFound: 2, nearMissed: 3, farFound: 1, farMissed: 1, incompleteFrames: 0))
+        // A frame with its missed counts filled but a box left unlabelled, or marked unsure, is left out whole: its missed
+        // players are not counted against boxes nobody assessed.
+        for change in [{ (l: inout [String: CourtReview.PersonLabel]) in l["rec_01|600|2"] = nil },
+                       { (l: inout [String: CourtReview.PersonLabel]) in l["rec_01|600|2"]?.label = .unsure }] {
+            var partial = review.persons; change(&partial)
+            XCTAssertEqual(CourtReview.detection(frames: [frame], recording: "rec_01", labels: partial, missed: review.missed),
+                           CourtReview.Detection(frames: 0, nearFound: 0, nearMissed: 0, farFound: 0, farMissed: 0, incompleteFrames: 1))
+        }
     }
 
     func testAReviewIsScoredOnlyAgainstTheRunWhoseBoxesWereLabelled() throws {

@@ -233,13 +233,19 @@ enum CourtReview {
 
     /// Near/far detection over the reviewed frames: boxed players (labelled on a half or serving area, not duplicates)
     /// and the players the reviewer counted as missed.
-    struct Detection: Codable, Equatable { var frames: Int; var nearFound: Int; var nearMissed: Int; var farFound: Int; var farMissed: Int }
+    /// `frames`: frames counted (missed counts filled and every box labelled, none `unsure`); `incompleteFrames`: frames
+    /// with missed counts but an unlabelled or unsure box, left out whole so no found player goes uncounted (Codex on #166).
+    struct Detection: Codable, Equatable {
+        var frames: Int; var nearFound: Int; var nearMissed: Int; var farFound: Int; var farMissed: Int; var incompleteFrames: Int
+    }
 
     static func detection(frames: [PlayerFeatures.Frame], recording: String, labels: [String: PersonLabel],
                           missed: [String: (near: Int, far: Int, reviewer: String)]) -> Detection {
-        var d = Detection(frames: 0, nearFound: 0, nearMissed: 0, farFound: 0, farMissed: 0)
+        var d = Detection(frames: 0, nearFound: 0, nearMissed: 0, farFound: 0, farMissed: 0, incompleteFrames: 0)
         for f in frames {
             guard let m = missed["\(recording)|\(f.tick)"] else { continue }
+            let assessed = f.persons.allSatisfy { p in labels["\(recording)|\(f.tick)|\(p.track)"].map { $0.label != .unsure } ?? false }
+            guard assessed else { d.incompleteFrames += 1; continue }
             d.frames += 1
             d.nearMissed += m.near; d.farMissed += m.far
             for p in f.persons {
