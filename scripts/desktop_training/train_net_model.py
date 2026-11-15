@@ -17,10 +17,11 @@ frame widths and the corner error, not a mAP.
 
 Data:
     python train_net_model.py <RallyLab net dataset> --manifest <manifests/manifest.json>
+                              --withheld <closure.json>
                               [--extra <YOLO folder>]... [--epochs 40] [--seed N]
                               [--val-fraction 0.25] [--split <split.json>] [--name net_v1]
                               [--input 384x216] [--aug basic|strong]
-    python train_net_model.py <dataset> --manifest <m> --score-only <best.pt> --name <run>
+    python train_net_model.py <dataset> --manifest <m> --withheld <c> --score-only <best.pt> --name <run>
 
   <RallyLab net dataset>  a folder written by `RallyLab --project P --export-net-dataset`:
       images/<video>.jpg, labels/<video>.txt (YOLO, class 0 = net: the corners'
@@ -34,6 +35,28 @@ Data:
       the export recorded. Any failure stops the run naming the recording —
       the export refuses the same things, and the trainer refuses them again
       (D-002: an exclusion is only real if every consumer honours it).
+  The package, the manifest and the project as it is now are held to each other
+  before anything is read as a sample (D-036: a package and a manifest written
+  before a provenance change still name the old splits and groups, and nothing
+  on this machine can see the project):
+      net-dataset.json must carry its provenance — `splitManifest` (the hashes of
+      project.json, the sessions, validation.json and manifest.json the export
+      ran against) and `withheld` (the closure it refused: names, confirmed
+      sourceIds, stored and content fingerprints), and every entry its
+      `fingerprint` and `contentFingerprint`. A package from before the export
+      recorded them is refused: export it again.
+      --manifest must be that manifest.json, byte for byte (its SHA-256 is the
+      package's `splitManifest.manifestJson`).
+      --withheld <closure.json> is the project's withheld closure as it is NOW
+      (withheld_closure.py, which must sit beside this file), written by
+      `RallyLab --project P --manifest --audit-dataset --withheld-closure
+      <file>` at the time of training, not of the export. It
+      is required; a file that is missing, unreadable, empty or whose hash does
+      not match its lists stops the run — no closure is never "nothing withheld".
+      Its project.json and validation.json hashes must be the package's (else
+      identities, groups or reservations changed since the export: export
+      again), it must hold nothing the package's own closure lacks, and no entry
+      may be in either closure by name, sourceId, fingerprint or content.
   --extra <folder>  a YOLO-format folder from elsewhere (a Roboflow export): data.yaml
       with `names`, images and labels under train/valid/test or flat. Only the
       `net` class is read; an image with no net line is a no-net example. The
@@ -103,11 +126,14 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
+import withheld_closure  # noqa: E402  (beside this file: the closure file and its checks, shared with train_heatmap_model.py)
+
 WIDTH, HEIGHT = 384, 216   # the default input; --input changes it for a run (set_input), and the checkpoint records it
 AUG_LEVELS = ("basic", "strong")
 NET_CLASS = "net"
 PAD_GREY = 114
 WITHHELD_SPLITS = {"lineage_holdout", "legacy_holdout", "final_test_candidate", "final_test"}
+SPLIT_HASH_KEYS = ("projectJson", "sessions", "validationJson", "manifestJson")
 PRESENCE_THRESHOLD = 0.5
 PROVENANCE_FIELDS = ("source", "license", "obtained", "note")
 DRAWS, DRAW_SEED = 1000, 0
@@ -247,19 +273,78 @@ def load_manifest(path: Path) -> tuple[dict, dict[str, dict]]:
     return manifest, {row["video"]: row for row in manifest["videos"]}
 
 
-def read_rallylab_export(root: Path, manifest_rows: dict[str, dict]) -> tuple[list[Sample], dict]:
-    """The frames of a `--export-net-dataset` folder, each checked against the
-    manifest and against the export's own record before it is a sample."""
+def refused(check, *args):
+    """A withheld_closure check, its refusal the run's."""
+    try:
+        return check(*args)
+    except withheld_closure.Refused as e:
+        fail(str(e))
+
+
+def read_split_hashes(block, where: str, keys: tuple) -> dict[str, str]:
+    if not isinstance(block, dict) or not all(isinstance(block.get(k), str) and block[k] for k in keys):
+        fail(f"{where}: no splitManifest hashes ({', '.join(keys)})")
+    return {k: block[k] for k in keys}
+
+
+def load_withheld(path: Path) -> dict:
+    """The project's withheld closure as it is now (withheld_closure.load), which for this trainer
+    must also say which project.json and validation.json it was computed from: the recording groups
+    the validation split is drawn from come from the manifest at training time."""
+    now = refused(withheld_closure.load, path)
+    now["splitManifest"] = read_split_hashes(now["splitManifest"], f"--withheld {path}", ("projectJson", "validationJson"))
+    return now
+
+
+def check_provenance(record: dict, where: Path, manifest_sha256: str, now: dict) -> tuple[dict[str, set], dict]:
+    """Hold a package to the manifest it is trained with and to the project as it is now (`now`:
+    load_withheld), or stop. Returns every identity no entry may carry — the package's own closure
+    and the current one — and the package's provenance for the run's record."""
+    stale = "export the dataset again from the project as it is now"
+    if "splitManifest" not in record or "withheld" not in record:
+        fail(f"{where}: no provenance (splitManifest, withheld) — exported before packages recorded the manifest and the "
+             f"closure they stand on, so nothing here can be verified; {stale}")
+    exported = read_split_hashes(record["splitManifest"], str(where), SPLIT_HASH_KEYS)
+    closure = refused(withheld_closure.read_closure, record["withheld"], str(where))
+    if manifest_sha256 != exported["manifestJson"]:
+        fail(f"--manifest is not the split manifest {where.name} was exported against (SHA-256 {manifest_sha256[:16]}…, the package "
+             f"records {exported['manifestJson'][:16]}…) — pass that manifest, or {stale}")
+    for key, label in (("projectJson", "project.json"), ("validationJson", "validation.json")):
+        if now["splitManifest"][key] != exported[key]:
+            fail(f"{label} changed since {where.name} was exported (--withheld is of another project state): identities, "
+                 f"recording groups or reservations may differ — {stale}")
+    for k in withheld_closure.CLOSURE_KEYS:
+        extra = now["closure"][k] - closure[k]
+        if extra:
+            fail(f"the current withheld closure has {len(extra)} {k} the package's closure lacks (e.g. {sorted(extra)[0]!r}): "
+                 f"the export ran against a smaller closure — {stale}")
+    return ({k: closure[k] | now["closure"][k] for k in withheld_closure.CLOSURE_KEYS},
+            {"splitManifest": exported, "closureSha256": record["withheld"]["closureSha256"]})
+
+
+def read_rallylab_export(root: Path, manifest_rows: dict[str, dict], manifest_sha256: str, now: dict) -> tuple[list[Sample], dict]:
+    """The frames of a `--export-net-dataset` folder: the package held to the manifest and to the
+    project's current closure (`now`: load_withheld), then each entry checked against the manifest,
+    both closures and the export's own record before it is a sample."""
     record_path = root / "net-dataset.json"
     if not record_path.exists():
         fail(f"{root}: no net-dataset.json — not a RallyLab net dataset export")
     record = json.loads(record_path.read_text())
+    withheld, provenance = check_provenance(record, record_path, manifest_sha256, now)
     names = read_names(root / "data.yaml") if (root / "data.yaml").exists() else {0: NET_CLASS}
     net_index = index_of_net(names, root)
     samples: list[Sample] = []
     multi = 0
     for entry in record["entries"]:
         video = entry["video"]
+        if not entry.get("fingerprint") or not entry.get("contentFingerprint"):
+            fail(f"{video}: the package does not say what file it is (no fingerprint or contentFingerprint) — its identity "
+                 "can't be held against the withheld recordings', so it is not used")
+        identity = withheld_closure.withheld_identity(withheld, video, [entry.get("sourceId")],
+                                                      {"fingerprint": entry["fingerprint"], "content": entry["contentFingerprint"]})
+        if identity:
+            fail(f"{video}: withheld — its {identity} is in the withheld closure; a withheld recording, or the same footage "
+                 "under another card, never trains or validates a model")
         row = manifest_rows.get(video)
         if row is None:
             fail(f"{video}: not in the manifest — its identity and split are unknown, so it is not used")
@@ -290,7 +375,7 @@ def read_rallylab_export(root: Path, manifest_rows: dict[str, dict]) -> tuple[li
                               source="rallylab", box=box, corners=corners))
     info = {"folder": str(root), "project": record.get("project"), "createdAt": record.get("createdAt"),
             "entries": len(samples), "skipped_by_export": len(record.get("skipped", [])), "multi_net_images": multi,
-            "record_sha256": sha256_file(record_path)}
+            "record_sha256": sha256_file(record_path), **provenance}
     return samples, info
 
 
@@ -876,7 +961,9 @@ def export_onnx(model, path: Path) -> None:
 def main(argv: Optional[list[str]] = None) -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("dataset", type=Path, help="A RallyLab --export-net-dataset folder")
-    p.add_argument("--manifest", type=Path, required=True, help="The project's manifests/manifest.json (identity, splits, groups)")
+    p.add_argument("--manifest", type=Path, required=True, help="The manifests/manifest.json the dataset was exported against (identity, splits, groups)")
+    p.add_argument("--withheld", type=Path, required=True, metavar="CLOSURE",
+                   help="The project's withheld closure as it is now (RallyLab --project P --withheld-closure <file>)")
     p.add_argument("--extra", type=Path, action="append", default=[], help="A YOLO-format folder with provenance.json (train only)")
     p.add_argument("--epochs", type=int, default=40)
     p.add_argument("--batch", type=int, default=32)
@@ -910,7 +997,8 @@ def main(argv: Optional[list[str]] = None) -> None:
     if not args.manifest.exists():
         fail(f"{args.manifest}: no such manifest")
     manifest, rows = load_manifest(args.manifest)
-    samples, export_info = read_rallylab_export(args.dataset, rows)
+    now = load_withheld(args.withheld)
+    samples, export_info = read_rallylab_export(args.dataset, rows, sha256_file(args.manifest), now)
     group_samples(samples, args.manifest)
     extras_info = []
     for folder in args.extra:
@@ -942,7 +1030,7 @@ def main(argv: Optional[list[str]] = None) -> None:
                                                 "val_fraction": args.val_fraction, "seed": args.seed,
                                                 "from": str(args.split) if args.split else None}, indent=2))
     metrics = {"trainer": "train_net_model.py", "code_sha": git_sha(), "torch": torch.__version__, "input": [WIDTH, HEIGHT], "aug": args.aug,
-               "dataset": export_info, "extras": extras_info, "manifest_sha256": sha256_file(args.manifest),
+               "dataset": export_info, "extras": extras_info, "manifest_sha256": sha256_file(args.manifest), "withheld": now["record"],
                "manifest_createdAt": manifest.get("createdAt"), "seed": args.seed, "epochs": args.epochs, "batch": args.batch,
                "lr": args.lr, "train_frames": len(train_s), "train_digest": dataset_digest(train_s), "val_frames": len(val_s),
                "val_digest": val_digest, "val_groups": val_groups_list, "best": None, "best_epoch": None}

@@ -242,7 +242,8 @@ final class NetLabelsTests: XCTestCase {
                       "e_replaced_video": Self.label(fingerprint: "fp-old"), "f_no_identity": Self.label(),
                       "g_box_only": Self.label(boxOnly: true),
                       "h_label_in_cut": Self.label(time: 1), "i_label_outside_cut": Self.label(time: 1)]
-        let plan = NetDatasetExport.plan(labels: labels, sources: sources, withheld: ["a_withheld_but_labeled"])
+        let plan = NetDatasetExport.plan(labels: labels, sources: sources,
+                                         withheld: .init(names: ["a_withheld_but_labeled"], sourceIds: [], fingerprints: []), content: { _ in "file:own" })
         XCTAssertEqual(plan.export.map(\.video), ["c_labeled", "i_label_outside_cut"])
         XCTAssertEqual(plan.skipped, [.init(video: "a_withheld_but_labeled", reason: "withheld"),
                                       .init(video: "b_unlabeled", reason: "unlabeled"),
