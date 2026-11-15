@@ -104,7 +104,7 @@ struct RallyTimesView: View {
             GeometryReader { geo in
                 let w = geo.size.width, d = max(duration, 0.1)
                 ZStack(alignment: .topLeading) {
-                    ForEach(Array(video.ralliesFound.enumerated()), id: \.offset) { _, r in
+                    ForEach(Array(model.found(in: video).enumerated()), id: \.offset) { _, r in
                         Capsule().fill(Color.secondary.opacity(0.35))
                             .frame(width: max(2, (r[1] - r[0]) / d * w), height: 5)
                             .offset(x: r[0] / d * w, y: 0)
@@ -194,7 +194,7 @@ struct RallyTimesView: View {
                     model.update(video) { $0.rallies.removeAll { ids.contains($0.id) } }
                 }
             }
-            let open = video.ralliesFound.filter { f in
+            let open = model.found(in: video).filter { f in
                 !times.rallies.contains { min($0.end, f[1]) - max($0.start, f[0]) > 0.3 }
             }
             if !open.isEmpty {

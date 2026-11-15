@@ -55,6 +55,9 @@ protocol LabelingService: Sendable {
     var userId: UUID? { get async }
     func signIn(email: String, password: String) async throws
     func signOut() async
+    /// The token refreshed now if it has to be, so that a caller's check right before a send is followed by
+    /// nothing but the send (LabelingClient.authorize).
+    func authorize(forTransfer: Bool) async throws
     func isLabeler() async throws -> Bool
     func videos() async throws -> [LabelVideo]
     @discardableResult func save(_ video: LabelVideo) async throws -> LabelVideo
@@ -62,7 +65,9 @@ protocol LabelingService: Sendable {
     @discardableResult func save(_ times: LabelRallyTimes) async throws -> LabelRallyTimes
     func trackStamps() async throws -> [LabelingClient.TrackStamp]
     func tracks(ids: [UUID]) async throws -> [LabelTrack]
-    func save(_ tracks: [LabelTrack]) async throws
+    /// Several requests, each suspending: `allowed` is asked for the rows of each right before it is made, and
+    /// the outcome says which rows went (LabelingClient.save).
+    func save(_ tracks: [LabelTrack], allowed: @Sendable ([LabelTrack]) async -> [LabelTrack]) async -> LabelingClient.TrackSave
     func rallyEvents(since: Date?) async throws -> [LabelRallyEvents]
     func saveRallyEvents(videoId: UUID, expected: Int, record: EventReview.File) async throws -> LabelRallyEvents
     func publishWithheld(project: String, names: [String]) async throws -> Int
@@ -124,13 +129,17 @@ final class LabelingSync {
     /// on disk, the claim stays submitted, and the next round must acknowledge it without writing again.
     private let dropFirstSettlement: Bool
     private var settlementDropped = false
+    /// Makes a recording's small copy for the phone at `out` (ffmpeg; a stand-in in tests).
+    typealias SmallCopy = @Sendable (_ source: URL, _ out: URL) async throws -> Void
+    private let smallCopy: SmallCopy
 
     /// `client` and `pendingDirectory` are for tests: a fake server, and a folder of their own for the queued
     /// decisions, so a test never sends or touches the person's. `importsPhoneUploads: false` is the guarded run's.
     init(projects: ProjectsModel, client: any LabelingService = LabelingClient.shared, pendingDirectory: URL = Pending.defaultDirectory,
-         importsPhoneUploads: Bool = true, dropFirstSettlement: Bool = false) {
+         importsPhoneUploads: Bool = true, dropFirstSettlement: Bool = false, smallCopy: @escaping SmallCopy = LabelingSync.encodeSmallCopy) {
         self.importsPhoneUploads = importsPhoneUploads
         self.dropFirstSettlement = dropFirstSettlement
+        self.smallCopy = smallCopy
         let pending = Pending(directory: pendingDirectory)
         var notes: [String] = []
         self.projects = projects
@@ -288,11 +297,13 @@ final class LabelingSync {
                 if let paths { parts.append(paths) }
             }
             let times = try await syncRallyTimes(opening)
-            let (tracksSent, tracksReceived) = try await syncTracks(opening, framesSent: framesSent)
+            let tracks = try await syncTracks(opening, framesSent: framesSent)
             let plan = try await publishPlan(opening)
             parts.append("rally times \(times.pushed) sent · \(times.pulled) received"
                          + (times.unreadable.isEmpty ? "" : " · \(times.unreadable.count) rally-times file(s) unreadable, left untouched: \(times.unreadable.joined(separator: ", "))")
-                         + ", tracked rallies \(tracksSent) sent · \(tracksReceived) received")
+                         + ", tracked rallies \(tracks.sent) sent · \(tracks.received) received"
+                         + (tracks.held == 0 ? "" : " · \(tracks.held) kept on this Mac, not published — a model found the ball in them and "
+                            + (tracks.closureUnread ? "the withheld closure can't be read" : "their recording is withheld")))
             if let plan { parts.append(plan) }
             let events = try await syncRallyEvents(opening)
             parts.append("boundary records \(events.pushed) sent · \(events.pulled) received" + (events.conflicts.isEmpty ? "" : " · conflicts kept for: \(events.conflicts.joined(separator: ", "))")
@@ -415,7 +426,7 @@ final class LabelingSync {
         guard let opening = projects.opening else { status = "No project."; return false }
         let project = opening.name, root = opening.root
         do {
-            guard let withheld = await withheldClosure(root: root) else {
+            guard let withheld = await Self.withheldClosure(root: root) else {
                 status = "The withheld closure cannot be read: nothing published."; return false
             }
             try projects.require(opening)
@@ -452,7 +463,7 @@ final class LabelingSync {
         var failed: [String] = []
         // Withheld recordings (the L2 closure) are never uploaded for the phone. When the closure cannot be read,
         // nothing is uploaded at all (fail closed). The closure and the sessions are the captured project's (`root`).
-        guard let withheld = await withheldClosure(root: root) else { return (0, 0, []) }
+        guard let withheld = await Self.withheldClosure(root: root) else { return (0, 0, []) }
         try projects.require(opening)
         // Decoding every session and asking the share whether each file is there is file work: off the main actor.
         // A recording whose original is not on this Mac (moved to the desktop) keeps its row as it is, copy and
@@ -496,15 +507,28 @@ final class LabelingSync {
             // removed. Remaking them all takes hours, so it isn't automatic.
             let path = "rallylab/\(DatasetStore.safeName(project))/\(session.name)-v\(Self.copyVersion).mp4"
             let stale = video.clipPath.map { remaking(session.name) && $0.hasPrefix("rallylab/") && $0 != path } ?? true
+            // The awaits above (and the encode and the upload below, minutes each) all suspend: the recording may
+            // have been withheld since the closure was read for this loop. Each publication — the copy, then the
+            // row with what the pipeline found in it — asks the closure as it is at that moment.
+            let name = session.name
+            let stillPublished: () async -> Bool = { await Self.withheldClosure(root: root).map { !$0.contains(name) } ?? false }
+            // The copy the row points at now, when a new one replaces it: removed only once the row has been saved
+            // with the new path. Until then the row's copy stays — a round stopped in between (the recording
+            // withheld, the save refused, the connection gone) leaves the row and its footage as they were, and
+            // at worst a new copy no row names.
+            var replaced: String?
             if stale {
+                guard await stillPublished() else { continue }
                 status = "Uploading \(session.name) for the phone (\(i + 1) of \(sessions.count))…"
                 do {
-                    try await uploadSmallCopy(of: source, to: path)
-                    if let old = video.clipPath { try? await client.remove(old) }
+                    try await uploadSmallCopy(of: source, to: path, unless: { !(await stillPublished()) })
+                    replaced = video.clipPath
                     video.clipPath = path
                     uploaded += 1
                 } catch LabelingClient.Failure.notSignedIn {
                     throw LabelingClient.Failure.notSignedIn
+                } catch SyncError.withheldMeanwhile {
+                    continue   // nothing went up; the next round leaves it out from the start
                 } catch {
                     // One clip failing (a dropped connection, or the round cancelled) shouldn't stop the rest; the
                     // next sync retries it.
@@ -517,7 +541,10 @@ final class LabelingSync {
             // during the upload: the copy is on the server, and the row is how the phone finds it and the next sync
             // knows not to make it again. The next pass stops at its check.
             if video != existing {
+                try await client.authorize(forTransfer: true)
+                guard await stillPublished() else { continue }
                 try await client.save(video)
+                if let replaced, replaced != path { try? await client.remove(replaced) }
             }
             listed += 1
         }
@@ -569,9 +596,17 @@ final class LabelingSync {
     /// frame next to the one asked for, and frames sharing a time decoded grey).
     static let copyVersion = 3
 
-    private func uploadSmallCopy(of source: URL, to path: String) async throws {
+    /// `unless` is asked once the copy is encoded (minutes after the caller's own check), right before it goes up.
+    private func uploadSmallCopy(of source: URL, to path: String, unless withheldMeanwhile: () async -> Bool) async throws {
         let out = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
         defer { try? FileManager.default.removeItem(at: out) }
+        try await smallCopy(source, out)
+        try await client.authorize(forTransfer: true)
+        guard !(await withheldMeanwhile()) else { throw SyncError.withheldMeanwhile }
+        try await client.uploadFile(out, to: path)
+    }
+
+    static let encodeSmallCopy: SmallCopy = { source, out in
         let run = await ToolEnvironment.run("ffmpeg", [
             "-y", "-loglevel", "error", "-i", source.path, "-an",
             "-vf", "scale='if(gt(iw,ih),min(1280,iw),-2)':'if(gt(iw,ih),-2,min(1280,ih))'", "-fps_mode", "passthrough",
@@ -579,13 +614,17 @@ final class LabelingSync {
             "-pix_fmt", "yuv420p", "-movflags", "+faststart", out.path,
         ])
         guard run.status == 0 else { throw SyncError.encode(run.lines.last ?? "ffmpeg failed") }
-        try await client.uploadFile(out, to: path)
     }
 
     enum SyncError: LocalizedError {
         case encode(String)
+        /// The recording was withheld while its copy was being made: nothing was uploaded.
+        case withheldMeanwhile
         var errorDescription: String? {
-            switch self { case .encode(let why): return "Couldn't make the phone copy: \(why)" }
+            switch self {
+            case .encode(let why): return "Couldn't make the phone copy: \(why)"
+            case .withheldMeanwhile: return "The recording was withheld while its phone copy was being made: not uploaded."
+            }
         }
     }
 
@@ -597,6 +636,13 @@ final class LabelingSync {
     /// Returns a note for the status when the list could not be read: then
     /// nothing is sent (the list is never taken as empty, which would send
     /// every path again) and the list is left as it is.
+    ///
+    /// A ball path is the pipeline's output over its recording: none goes up
+    /// for a recording the project withholds from every model (D-036 §5C/§5E)
+    /// — from the lead's account either, which the server does not stop. The
+    /// closure is the captured project's, read again before every path that
+    /// is waiting; when it can't be read no path goes up (fail closed, with a note). A
+    /// path sent before its recording was withheld stays on the server as it is.
     private func publishBallPaths(_ opening: ProjectsModel.Opening) async throws -> String? {
         let root = opening.root
         let sentFile = root.appendingPathComponent("ballpaths/sent.json")
@@ -606,6 +652,15 @@ final class LabelingSync {
             catch { return "ball paths not sent: ballpaths/sent.json unreadable (\(error.localizedDescription)), left untouched" }
         }
         let remote = try await client.videos().filter { $0.project == opening.name }
+        try projects.require(opening)
+        let waiting = remote.compactMap { video -> (name: String, path: String, local: URL)? in
+            guard let clip = video.clipPath, let name = video.sessionName else { return nil }
+            let path = BallPathFile.remotePath(forClip: clip)
+            let local = BallPathBuilder.url(for: name, in: root)
+            return !sent.contains(path) && FileManager.default.fileExists(atPath: local.path) ? (name, path, local) : nil
+        }
+        guard !waiting.isEmpty else { return nil }
+        let unreadable = "ball paths not sent: the withheld closure can't be read, so which recordings no model output may be published for is unknown"
         var sentNow = 0
         // What went up is recorded even when the round stops: the uploads are on the server.
         defer {
@@ -614,12 +669,14 @@ final class LabelingSync {
                 try? data.write(to: sentFile, options: .atomic)
             }
         }
-        for video in remote {
+        var kept = 0
+        for (name, path, local) in waiting {
+            // The closure as it is now, before each path: an upload suspends, and a recording withheld while the
+            // paths before it went up must not follow them under the closure they were sent under.
+            try await client.authorize(forTransfer: true)
+            guard let withheld = await Self.withheldClosure(root: root) else { return unreadable }
             try projects.require(opening)
-            guard let clip = video.clipPath, let name = video.sessionName else { continue }
-            let path = BallPathFile.remotePath(forClip: clip)
-            let local = BallPathBuilder.url(for: name, in: root)
-            guard !sent.contains(path), FileManager.default.fileExists(atPath: local.path) else { continue }
+            guard !withheld.contains(name) else { kept += 1; continue }
             do {
                 try await client.uploadFile(local, to: path)
             } catch LabelingClient.Failure.notSignedIn {
@@ -630,7 +687,7 @@ final class LabelingSync {
             sent.insert(path)
             sentNow += 1
         }
-        return nil
+        return kept == 0 ? nil : "ball paths of \(kept) withheld recording\(kept == 1 ? "" : "s") kept on this Mac, not published"
     }
 
     // MARK: - 3. Rally times, both ways
@@ -646,7 +703,8 @@ final class LabelingSync {
     /// path or content** — a session over a withheld recording's file or a byte-identical copy — with the project's
     /// identities and sessions read strictly first. Anything unreadable gives nil, and nothing is published or
     /// uploaded then; the server keeps the list it has (fail closed).
-    private func withheldClosure(root: URL) async -> Set<String>? {
+    /// The Label tab's queue reads the same closure (no track task for a recording in it, none at all when it is nil).
+    nonisolated static func withheldClosure(root: URL) async -> Set<String>? {
         // Fingerprinting the withheld recordings' files is file work: off the main actor, so playback and editing go on.
         await Task.detached(priority: .utility) { try? EventReview.publishedWithheldNames(in: root) }.value
     }
@@ -660,7 +718,7 @@ final class LabelingSync {
         let project = opening.name, root = opening.root
         // The exclusions and the records are the captured project's (`root`): a project switched under a running
         // sync must never publish another project's list under this name, nor write another project's files.
-        guard let withheld = await withheldClosure(root: root) else { return (0, 0, [], nil) }
+        guard let withheld = await Self.withheldClosure(root: root) else { return (0, 0, [], nil) }
         try projects.require(opening)
         var published: Int?
         do { published = try await client.publishWithheld(project: project, names: Array(withheld)) } catch LabelingClient.Failure.notSignedIn {
@@ -854,7 +912,20 @@ final class LabelingSync {
     /// Only rallies whose time differs from this Mac's copy are fetched in
     /// full: pre-tracked rallies make hundreds, and most don't change
     /// between syncs.
-    private func syncTracks(_ opening: ProjectsModel.Opening, framesSent: Set<UUID>) async throws -> (sent: Int, received: Int) {
+    ///
+    /// A rally the server does not have goes up as new — unless a model found
+    /// the ball in it (pre-tracked, or tracked with the detector's picks) and
+    /// its recording is one the project withholds from every model (D-036
+    /// §5C/§5E): that is model output over withheld footage, and the server
+    /// does not stop a lead's account. It stays in its session as it is
+    /// (`held`), and goes up if the recording stops being withheld. The
+    /// closure is the captured project's, read only when such a rally is
+    /// waiting; when it can't be read none of them goes up, whatever its
+    /// recording (`closureUnread`; fail closed). Rallies the server already
+    /// has keep syncing both ways — the records made before, and the frames a
+    /// person checks by hand since — and a rally a person tracked by hand
+    /// goes up as before.
+    private func syncTracks(_ opening: ProjectsModel.Opening, framesSent: Set<UUID>) async throws -> (sent: Int, received: Int, held: Int, closureUnread: Bool) {
         let videos = try await client.videos().filter { $0.project == opening.name && $0.sessionName != nil }
         let stamps = try await client.trackStamps()
         var localTimes: [UUID: Date?] = [:]
@@ -870,8 +941,19 @@ final class LabelingSync {
         }
         let remote = Dictionary(grouping: try await client.tracks(ids: changed.map(\.id)), by: \.videoId)
         let remoteIds = Dictionary(grouping: stamps, by: \.videoId).mapValues { Set($0.map(\.id)) }
+        var modelRallyWaiting = false
+        for video in videos where !modelRallyWaiting {
+            guard let name = video.sessionName, let session = try projects.session(named: name, in: opening) else { continue }
+            let known = remoteIds[video.id] ?? []
+            modelRallyWaiting = (session.tracks ?? []).contains { !known.contains($0.id) && $0.carriesModelOutput }
+        }
+        // nil: not read (nothing was waiting when asked) or unreadable — either way no such rally goes up this round.
+        let withheld = modelRallyWaiting ? await Self.withheldClosure(root: opening.root) : nil
         var outgoing: [LabelTrack] = []
         var received = 0
+        var held = 0
+        // The new rallies a model found the ball in that the closure just read lets go up, with their recording.
+        var modelRallies: [UUID: (session: String, rally: TrackedRally)] = [:]
         // What each session's synced list becomes once the server has this round's batches: its rallies now, plus
         // the rallies deleted here whose tombstones the server has not acknowledged yet.
         var syncedAfter: [(session: String, ids: [UUID], tombstones: [UUID])] = []
@@ -927,31 +1009,56 @@ final class LabelingSync {
                     changedHere = true
                 }
             }
+            var heldHere: Set<UUID> = []
             for i in local.indices where !known.contains(local[i].id) {
+                if local[i].carriesModelOutput {
+                    guard local[i].mayGoUp(new: true, access: Self.access(name, withheld)) else {
+                        heldHere.insert(local[i].id)   // model output over a withheld recording (or one not known not to be)
+                        continue
+                    }
+                    modelRallies[local[i].id] = (name, local[i])
+                }
                 local[i] = local[i].with(updatedAt: now)
                 outgoing.append(LabelTrack(local[i], videoId: video.id))   // new here
                 changedHere = true
             }
+            held += heldHere.count
             local.sort { $0.start < $1.start }
             try projects.require(opening)
             if changedHere {
                 projects.sampler.setTracks(local, session: name)
                 onTracksChanged?(name)
             }
-            // The synced list now: the session's rallies (a rally just received from the phone included — deleted
-            // here before the next successful round, it must go up as a tombstone, not come back as new) plus the
-            // rallies deleted here, every one of them until the server acknowledges its tombstone below.
-            projects.sampler.setSyncedTrackIds(local.map(\.id) + tombstones, session: name)
-            syncedAfter.append((name, local.map(\.id), tombstones))
+            // The synced list now: the session's rallies the server has or is being sent (a rally just received from
+            // the phone included — deleted here before the next successful round, it must go up as a tombstone, not
+            // come back as new) plus the rallies deleted here, every one of them until the server acknowledges its
+            // tombstone below. A held rally was never sent, so it is not on the list.
+            let syncedIds = local.map(\.id).filter { !heldHere.contains($0) }
+            projects.sampler.setSyncedTrackIds(syncedIds + tombstones, session: name)
+            syncedAfter.append((name, syncedIds, tombstones))
         }
         var acknowledged: Set<UUID> = []
+        // A batch goes as several requests, each suspending, so what a request may carry is asked when it is made:
+        // its new rallies a model found the ball in go only if the closure, read again right before that request,
+        // still lets them. A recording withheld meanwhile keeps them here (the next round holds them like any
+        // other); an unreadable closure keeps them all. Everything else in the request goes as it is.
+        let root = opening.root, admitted = modelRallies, closureLost = Raised()
+        let allowed: @Sendable ([LabelTrack]) async -> [LabelTrack] = { rows in
+            guard rows.contains(where: { admitted[$0.id] != nil }) else { return rows }
+            let current = await Self.withheldClosure(root: root)
+            if current == nil { closureLost.raise() }
+            return rows.filter { row in admitted[row.id].map { $0.rally.mayGoUp(new: true, access: Self.access($0.session, current)) } ?? true }
+        }
         for batch in stride(from: 0, to: outgoing.count, by: 20).map({ Array(outgoing[$0..<min($0 + 20, outgoing.count)]) }) {
             // Rallies not sent because the opening ended go next time: changed here, they are newer than the
             // server's stamp; new here, the server does not know them; deleted here, they stay on the synced list
             // (written below only once every batch is acknowledged).
             try projects.require(opening)
-            try await client.save(batch)
-            acknowledged.formUnion(batch.map(\.id))
+            let outcome = await client.save(batch, allowed: allowed)
+            // What the server took is acknowledged even when a later request of the batch failed.
+            acknowledged.formUnion(outcome.sent)
+            if let failure = outcome.failure { throw failure }
+            held += batch.count - outcome.sent.count
         }
         // Once the server has every batch, the acknowledged tombstones come off the synced lists. A round stopped
         // between batches — the opening ended, the connection dropped — leaves the lists as written above: a
@@ -962,7 +1069,13 @@ final class LabelingSync {
         for entry in syncedAfter {
             projects.sampler.setSyncedTrackIds(entry.ids + entry.tombstones.filter { !acknowledged.contains($0) }, session: entry.session)
         }
-        return (outgoing.count, received)
+        return (acknowledged.count, received, held, (modelRallyWaiting && withheld == nil) || closureLost.isRaised)
+    }
+
+    /// A recording's access by a closure read (nil: unreadable or not read — not known). Marking by hand goes on
+    /// on the Mac, so a withheld recording is by hand only, never closed.
+    nonisolated private static func access(_ session: String, _ closure: Set<String>?) -> LabelAccess {
+        LabelAccess(withheld: closure.map { $0.contains(session) }, byHand: true)
     }
 
     private static func sameTrack(_ a: TrackedRally, _ b: LabelTrack) -> Bool {
@@ -1041,7 +1154,7 @@ final class LabelingSync {
         // (the captured project's, read off the main actor) refuses a withheld recording when it can be read; when it
         // can't (a withheld recording's footage away from this Mac) the claim is judged without it, as a confirmation
         // on this Mac is — the export refuses withheld recordings on its own.
-        let withheld = await withheldClosure(root: root)
+        let withheld = await Self.withheldClosure(root: root)
         let me = await client.userId
         let rows = Dictionary(try await client.videos().map { ($0.id, $0.sourceFingerprint) }, uniquingKeysWith: { a, _ in a })
         try projects.require(opening)
@@ -1359,5 +1472,21 @@ struct Pending {
     func save<T: Encodable>(_ value: T, _ name: String) {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try? JSONEncoder().encode(value).write(to: file(name), options: .atomic)
+    }
+}
+
+/// A yes left by a question asked off the main actor, for the round that asked to read afterwards.
+private final class Raised: @unchecked Sendable {
+    private let lock = NSLock()
+    private var raised = false
+
+    func raise() {
+        lock.lock(); defer { lock.unlock() }
+        raised = true
+    }
+
+    var isRaised: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return raised
     }
 }
