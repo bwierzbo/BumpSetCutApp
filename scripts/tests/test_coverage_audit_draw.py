@@ -233,6 +233,7 @@ class Stage2(Case):
         self.assertEqual({r["recordingId"] for r in draw["recordings"]}, {r["recordingId"] for r in pilot["notDrawn"]})
         self.assertEqual((len(draw["recordings"]), draw["notDrawn"], draw["totals"]["intervals"]), (10, [], 140))
         self.assertEqual(draw["inPilot"], sorted(r["recordingId"] for r in pilot["recordings"]))
+        self.assertEqual([(r["surface"], r["recordingId"]) for r in draw["recordings"]], sorted((r["surface"], r["recordingId"]) for r in draw["recordings"]))
         self.assertTrue(all(len(r["repeatIndices"]) == 3 for r in draw["recordings"]))
         self.assertEqual(draw, self.stage2())
         path = d.write_draw(draw, self.out)

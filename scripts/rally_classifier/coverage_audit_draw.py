@@ -112,7 +112,7 @@ def draw_pilot(recordings: list, surfaces: list, per_surface: int, rng: random.R
         short = len(groups) < per_surface
         feasible.append({"surface": surface, "eligibleGroups": len(by_group), "drawn": len(groups), "asPlanned": not short,
                          "note": (f"{len(by_group)} eligible recording group(s), fewer than {per_surface}: one recording from each "
-                                  f"(four per surface where feasible; never two from one group)") if short else
+                                  f"({per_surface} per surface where feasible; never two from one group)") if short else
                                  f"{per_surface} of {len(by_group)} eligible recording group(s), one recording from each"})
     return sorted(picked, key=lambda r: (r["surface"], r["recordingId"])), feasible
 
@@ -189,7 +189,7 @@ def build_stage2(inventory_path: str, pilot_path: str, project_dir: str, protoco
     if outcome["outcome"] != "pass":
         raise inv.AuditError(f"stage 2 is entered only when the pilot passes; pilot {pilot['drawId']} is {outcome['outcome']}")
     in_pilot = frozenset(r["recordingId"] for r in pilot["recordings"])
-    remaining = [r for r in inventory["recordings"] if r["recordingId"] not in in_pilot]
+    remaining = sorted((r for r in inventory["recordings"] if r["recordingId"] not in in_pilot), key=lambda r: (r["surface"], r["recordingId"]))
     if not remaining:
         raise inv.AuditError("no eligible recording remains after the pilot")
     draw = _document(inventory, inventory_path, protocol, "stage2", pilot["seed"], remaining, random.Random(pilot["seed"]), now, in_pilot)
