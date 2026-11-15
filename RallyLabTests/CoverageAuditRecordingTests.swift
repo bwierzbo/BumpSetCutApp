@@ -164,6 +164,15 @@ final class CoverageAuditRecordingTests: XCTestCase {
         XCTAssertEqual(try ExposureLog.readStrict(in: root).filter { $0.video == "held" }, [], "nothing of the withheld recording")
     }
 
+    func testRecordingsOpenedAtOnceEachKeepTheirLedgerRow() throws {
+        let names = (0..<8).map { "r\($0)" }
+        for name in names { try recording(name) }
+        let d = try draw(names, repeatSet: [])
+        let root: URL = self.root, now = self.now
+        DispatchQueue.concurrentPerform(iterations: names.count) { i in _ = try? A.open(names[i], draw: d, root: root, now: now) }
+        XCTAssertEqual(Set(try auditRows().map(\.video)), Set(names), "no open overwrote another's row")
+    }
+
     func testTheSaveFailsWhenTheLedgerCannotBeWritten() throws {
         try recording("a")
         let d = try draw(["a"])
