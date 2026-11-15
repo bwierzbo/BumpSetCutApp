@@ -2,8 +2,8 @@
 name: rally-classifier-dataset-contract
 status: proposed v1 (owner review); written by `RallyLab --project <name> --export-rally-classifier-dataset <dataset>` (`RallyLab/RallyClassifierExporter.swift`, 2026-11-07), not yet run on a real project; `scripts/rally_classifier/validate_dataset.py` validates it
 created: 2026-11-03T18:55:00Z
-updated: 2026-11-07T17:47:31Z
-decision: D-001, D-002, D-010, D-017, D-018 (the isolation and preflight pattern applied to this model), D-021 (time base and excluded spans), D-023, D-031 (per-model eligibility); D-030 (cut ranges, proposed) for compatibility
+updated: 2026-11-15T18:13:56Z
+decision: D-001, D-002, D-010, D-017, D-018 (the isolation and preflight pattern applied to this model), D-021 (time base and excluded spans), D-023, D-031 (per-model eligibility); D-030 (cut ranges, proposed) for compatibility; D-038 (gate G7: label schema `rally_activity_truth_v2`, §10)
 ---
 
 # Rally classifier dataset contract, version `rally_classifier_dataset_v1`
@@ -178,3 +178,39 @@ The validator refuses the dataset when any recording's `recordingId`, `sourceId`
 ## 9. Versioning
 
 `schemaVersion`, `featureSchema.version` and `labelSchema.version` change independently; a trainer states which it accepts. A change to the column order, a unit, a nullable rule or a label definition is a new version with a new validator branch, never an edit of `v1`. The dataset's identity for the registry is `(name, digest, manifest SHA-256, splitManifest hashes, detector digest)`.
+
+## 10. Label schema `rally_activity_truth_v2` (2026-11-15)
+
+Owner, 2026-11-14 (D-038): "Only explicitly reviewed clean intervals or eligible Stage 1 verified coverage may supply trusted negatives under the adopted G7 policy." "Do not allow edited footage to supply full-video negative labels." The negative-label rule of §5 changes, so by §9 the label schema is a new version and §5 is not edited: a `v1` dataset keeps its meaning ("negatives declared, not audited") and stays readable. `schemaVersion` stays `rally_classifier_dataset_v1` — the layout of §1–§4 is unchanged; the fields below are added only to `v2`-labelled datasets and the validator reads them only there. Neither existing dataset (`rc-v1-20261108`, `rc-v1-20261112`) is touched.
+
+### 10.1 The rule
+
+Every state of §5 is as there, except `NON_RALLY`: a step is `NON_RALLY` only if §5's conditions hold **and** either
+
+- the tick lies inside one of the recording's `coverage.audit.cleanIntervals` — the intervals a person reviewed clean in the [negative-coverage audit](RALLY_CLASSIFIER_COVERAGE_AUDIT_PROTOCOL.md) (after the blind repeat and its resolution; a clean counts only when the interval was played whole at no more than 2×), intersected with the time that is unmarked **now** (a clean interval was watched whole, so any part of it is clean; time that was under a mark at the review lies in none) — **or**
+- `coverage.state` is `stage1_complete` with `fullVideoNegatives == standard`.
+
+Otherwise the step is `UNKNOWN`. A declaration (`declared_complete`) alone gives nothing. A recording whose `fullVideoNegatives` is not `standard` (edited, restricted) has no `NON_RALLY` step whatever its audit says. A recording whose audit found `edited_footage` supplies none until its footage type has been confirmed again after that finding.
+
+### 10.2 Fields added to a recording record
+
+| Field | Content |
+|---|---|
+| `coverage.audit` | `{state, auditSha256, drawId, cleanIntervals: [{startTick, endTick}], findings: {<kind>: count}}`. `state` ∈ `none` (no record that counts), `audited_clean`, `partial`, `contaminated`, derived from the record and its draw as the protocol §7 defines it — a summary for reporting; the negatives are the intervals. `auditSha256` is the record file's SHA-256 as the exporter read it; `findings` counts the six kinds after resolution. `cleanIntervals` are in time order, apart, inside `[0, duration)`, and overlap no rally, excluded span or cut range |
+| `labelProvenance.method` | adds `declared_audited` — the recording's negatives come from its audit |
+| `evidence` | `{sourceFingerprint, configSha256, codeSha}`: the content fingerprint of the file the detector ran on, the camera-applied config, the commit that ran it |
+| `evidenceReusedFrom` | `null`, or the dataset the steps' times and feature columns and the baseline clips were taken from and the proof: `{dataset, manifestSha256, digest, stepsSha256, baselineSha256, detector, pipelineConfigSha256, featureVersion, sourceFingerprint, durationSec, identityProof}` (`identityProof` `manifest` or `journal`). Labels, masks and counts are always made at export from the project's truth; nothing of a source's label columns is read |
+
+An audit record is void — treated as absent, and the export report says why — when it fails its own validation, is another recording's, is of another file than the one being exported (`sourceFingerprint`), or its draw is not in the project's `manifests/coverage-audit/` with the hash the record carries. A record that cannot be read stops that recording; it is never taken as "no audit".
+
+### 10.3 The matched baseline `r0_no_net_rule`
+
+A third baseline variant (preregistration amendment A10): R0's config with `enableAboveNetRequirement = false`, the same five settings, its own `configSha256`. The above-net rule only removes whole clips after the decider and the builder, so every `r0` clip is in `r0_no_net_rule` unchanged, and what the variant holds beyond `r0` is what the rule removed. `r0` stays the primary baseline. A variant needs the frame evidence, which a dataset does not store: it can be written only where the detector runs, not from reused evidence.
+
+### 10.4 Evidence reuse
+
+`RallyLab --project <p> --export-rally-classifier-dataset <name> --reuse-evidence-from <sealed dataset>` takes a recording's steps and clips from a sealed dataset only where it is proven to be the same evidence: the same detector, pipeline config hash, time base and feature schema (else refused whole); per recording, the source's files hash to its manifest, the file and camera config are unchanged (from the source's `evidence` block, or for a dataset written before it from its export journal's input key recomputed now), the duration is the same to the tick, and every stored step reads back. Where unproven, the detector runs on that recording. Every baseline variant asked for must be in the source (so `r0_no_net_rule` cannot come from `rc-v1-20261112`). The source is only read.
+
+### 10.5 Validation
+
+`validate_dataset.py` recomputes every label of a `v2` dataset from the manifest alone and refuses any `NON_RALLY` outside trusted time, malformed or overlapping clean intervals, clean intervals on footage that supplies no negatives, a `declared_audited` recording without one, a state that disagrees with its findings, `evidenceReusedFrom` without its proof, evidence of a withheld file, and an `r0` clip missing from `r0_no_net_rule`. Two checks need more than the dataset and are made only when asked: `--project DIR` holds each audit record against `auditSha256` and checks that the record itself says clean every interval the manifest trusts; `--evidence-source DIR` compares reused steps and clips with their source. When either is not given the report says so in a note — a check not made is never reported as passed.

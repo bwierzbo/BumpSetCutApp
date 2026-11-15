@@ -15,13 +15,18 @@
 import Foundation
 
 extension RallyTruth {
-    /// The marks in the sidecar beside `video`: nil when there is no sidecar; throws when it won't decode
-    /// (unreadable marks are unknown marks, never none).
-    static func marks(inSidecarOf video: URL) throws -> [Mark]? {
+    /// The sidecar beside `video` as it keeps the marks — with their touches, for a consumer that reads a rally's
+    /// serve contact (the coverage audit, as the classifier dataset does): nil when there is no sidecar; throws
+    /// when it won't decode (unreadable marks are unknown marks, never none).
+    static func records(inSidecarOf video: URL) throws -> [RallyMarkRecord]? {
         let url = RallyMarkModel.labelsURL(for: video)
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         return try JSONDecoder().decode([RallyMarkRecord].self, from: Data(contentsOf: url))
-            .map { Mark(start: $0.startTime, end: $0.endTime, kind: $0.kind) }
+    }
+
+    /// The marks in the sidecar beside `video`: nil when there is no sidecar; throws when it won't decode.
+    static func marks(inSidecarOf video: URL) throws -> [Mark]? {
+        try records(inSidecarOf: video)?.map(Mark.init)
     }
 
     /// A project session's truth; nil when the recording has no sidecar yet.
@@ -39,4 +44,10 @@ extension RallyTruth {
 
     var positiveIntervals: [Interval] { positives.map { Interval(start: $0.start, end: $0.end) } }
     var excludedIntervals: [Interval] { excluded.map { Interval(start: $0.start, end: $0.end) } }
+}
+
+extension RallyTruth.Mark {
+    init(_ record: RallyMarkRecord) {
+        self.init(start: record.startTime, end: record.endTime, kind: record.kind)
+    }
 }
