@@ -324,7 +324,9 @@ class Records(unittest.TestCase):
         self.assertEqual((result["stage2"]["totals"]["reviewed"], result["stage2"]["totals"]["states"]), (140, {"audited_clean": 10}))
         tn = result["trustedNegatives"]
         self.assertEqual((tn["groupCount"], tn["g6"]["groupsRequired"]), (18, 13))
-        self.assertEqual(tn["groupsPerFold"], {"0": 4, "1": 4, "2": 4, "3": 3, "4": 3})
+        eligible_groups = {s["group"]: self.syn.fold[s["rid"]] for s in self.syn.specs if s["type"] == "continuous"}
+        self.assertEqual(tn["groupsPerFold"], {str(f): sum(1 for fold in eligible_groups.values() if fold == f) for f in range(5)})
+        self.assertEqual(sum(tn["groupsPerFold"].values()), 18)
         self.assertTrue(tn["g6"]["met"])
         self.assertEqual(result["pilot"]["outcome"], "pass", "the pilot's verdict is the pilot's alone")
         with self.assertRaises(inv.AuditError) as cm:

@@ -397,7 +397,7 @@ approval = "owner"
 maintainer = "implementer"
 decisions = ["D-001", "D-002", "D-021", "D-028", "D-030", "D-032", "D-033", "D-036", "D-037"]
 sources = ["docs/ml-roadmap/RALLY_CLASSIFIER_DATASET_CONTRACT.md", "docs/ml-roadmap/experiments/EXP-20261103-temporal-rally-classifier-prereg.md"]
-frozen_sha256 = "f3276eb8fd0e8296c8f9ccdfe632627a4de9865246d88b5c9891ab6327cbb683"
+frozen_sha256 = "bdb28442173588d25581ce904a78005e1c3b4d88f880864ca5ae5182c1293eab"
 notes = "Frozen on the owner's authorisation of 2026-11-14: the sample, the verdicts, the record and the pass/fail criterion are fixed before any draw. Every draw file records this file's SHA-256 and commit (scripts/rally_classifier/coverage_audit_draw.py refuses an unfrozen or uncommitted protocol). Results go into their own record; a change is a new document that supersedes this one."
 
 # ---------------------------------------------------------------- product and release (milestone 4 groundwork)

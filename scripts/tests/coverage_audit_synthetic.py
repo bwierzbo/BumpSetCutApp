@@ -24,22 +24,22 @@ def marks(rallies: int = RALLIES) -> list:
     return out + [{"startTime": 8.0 * rallies + 4, "endTime": 8.0 * rallies + 6, "kind": "missedServe"}]
 
 
-def spec(rid, surface, group, fold, kind="continuous", split="train"):
-    return {"rid": rid, "surface": surface, "group": group, "fold": fold, "type": kind, "split": split,
-            "marks": marks(), "cuts": [], "duration": 8.0 * RALLIES + 14}
+def spec(rid, surface, group, kind="continuous", split="train", rallies=RALLIES):
+    return {"rid": rid, "surface": surface, "group": group, "type": kind, "split": split,
+            "marks": marks(rallies), "cuts": [], "duration": 8.0 * RALLIES + 14}
 
 
 def corpus() -> list:
-    """The shape of rc-v1-20261112 in small: beach 4 groups (one of three recordings), grass 6, indoor 8, and two
-    edited recordings — one inside a beach group, one a group of its own (19 groups in all)."""
-    specs = [spec("bch_a", "beach", "g-bch_a", 0), spec("bch_a_v2", "beach", "g-bch_a", 0), spec("bch_a_v3", "beach", "g-bch_a", 0)]
-    specs += [spec(f"bch_{c}", "beach", f"g-bch_{c}", i + 1) for i, c in enumerate("bcd")]
-    specs += [spec("grs_a", "grass", "g-grs_a", 4, split="tune"), spec("grs_a_v2", "grass", "g-grs_a", 4, split="tune")]
-    specs += [spec(f"grs_{c}", "grass", f"g-grs_{c}", i % 5) for i, c in enumerate("bcdef")]
-    specs += [spec("ind_a", "indoor", "g-ind_a", 0, split="dev_val"), spec("ind_a_v2", "indoor", "g-ind_a", 0, split="dev_val")]
-    specs += [spec(f"ind_{c}", "indoor", f"g-ind_{c}", (i + 1) % 5) for i, c in enumerate("bcdefgh")]
-    specs += [spec("bch_a_edit", "beach", "g-bch_a", 0, kind="edited"), spec("grs_edit", "grass", "g-grs_edit", 2, kind="edited")]
-    return specs
+    """The shape of rc-v1-20261112 in small: beach 4 groups (one of two eligible recordings and an edited one), grass
+    6, indoor 8, and an edited recording that is a group of its own — 24 recordings, 22 eligible, 19 groups."""
+    specs = [spec("bch_a", "beach", "g-bch_a"), spec("bch_a_v2", "beach", "g-bch_a"), spec("bch_a_edit", "beach", "g-bch_a", kind="edited", rallies=1)]
+    specs += [spec(f"bch_{c}", "beach", f"g-bch_{c}") for c in "bcd"]
+    specs += [spec("grs_a", "grass", "g-grs_a", split="tune"), spec("grs_a_v2", "grass", "g-grs_a", split="tune")]
+    specs += [spec(f"grs_{c}", "grass", f"g-grs_{c}") for c in "bcdef"]
+    specs += [spec("ind_a", "indoor", "g-ind_a", split="dev_val"), spec("ind_a_v2", "indoor", "g-ind_a", split="dev_val"),
+              spec("ind_a_v3", "indoor", "g-ind_a", split="dev_val")]
+    specs += [spec(f"ind_{c}", "indoor", f"g-ind_{c}") for c in "bcdefgh"]
+    return specs + [spec("grs_edit", "grass", "g-grs_edit", kind="edited")]
 
 
 def write_json(path: str, doc) -> None:
@@ -52,8 +52,9 @@ class Synthetic:
     """Everything the inventory reads, held in memory (`rows`, `cards`, `validation`, `closure`, `manifest`, `sessions`,
     `types`) and written by `save()`: a test changes what it needs and saves again."""
 
-    def __init__(self, root: str, specs=None):
+    def __init__(self, root: str, specs=None, folds: int = 5):
         self.root = root
+        self.folds = folds
         self.project = os.path.join(root, "Project")
         self.dataset = os.path.join(root, "rc-synthetic")
         self.closure_path = os.path.join(root, "closure.json")
@@ -118,14 +119,18 @@ class Synthetic:
                    {"hashes": {"projectJson": v.sha256_file(os.path.join(self.project, "project.json")),
                                "validationJson": v.sha256_file(os.path.join(self.project, "pipeline_tuning", "validation.json"))},
                     "videos": list(self.rows.values())})
-        closure = {**self.closure, "closureSha256": v.closure_sha256(*(self.closure[k] for k in inv.WITHHELD_KEYS))}
+        closure = {**self.closure, "closureSha256": inv.wc.closure_sha256(self.closure)}
         write_json(self.closure_path, closure)
         self.manifest["withheld"] = closure
         write_json(os.path.join(self.dataset, "dataset-manifest.json"), self.manifest)
-        write_json(self.folds_path, {"schemaVersion": inv.FOLDS_VERSION, "folds": 5,
-                                     "dataset": {"name": "rc-synthetic", "digest": "d" * 64,
-                                                 "manifestSha256": v.sha256_file(os.path.join(self.dataset, "dataset-manifest.json"))},
-                                     "recordings": {s["rid"]: s["fold"] for s in self.specs}})
+        # The frozen folds file as folds.py writes it (without the per-fold report, which reads steps files).
+        folds, groups = inv.fold_draw, inv.fold_draw.groups_of(self.manifest)
+        args = {"folds": self.folds, "seed": folds.DEFAULT_SEED, "stratify": "where-feasible", "maxShuffles": folds.DEFAULT_MAX_SHUFFLES}
+        drawn = folds.draw(groups, args["folds"], args["seed"], args["stratify"], args["maxShuffles"])
+        self.fold = {rid: drawn["assignment"][g["groupId"]] for g in groups for rid in g["recordings"]}
+        write_json(self.folds_path, {"schemaVersion": folds.SCHEMA_VERSION, "procedure": folds.PROCEDURE, **args, "shuffle": drawn["shuffle"],
+                                     "dataset": v.dataset_identity(self.dataset), "recordings": self.fold,
+                                     "groups": [{"groupId": g["groupId"], "fold": drawn["assignment"][g["groupId"]]} for g in groups]})
 
     def build(self) -> dict:
         return inv.build_inventory(self.dataset, self.project, self.closure_path, self.folds_path, now="2026-11-14T00:00:00Z")

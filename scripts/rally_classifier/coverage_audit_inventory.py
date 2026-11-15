@@ -16,8 +16,8 @@ labels outside every rally, excluded span and cut range. Each eligible recording
 file now and the one the dataset recorded, and whether they differ.
 
 Refusals (nothing is written): an empty withheld closure; a closure file that is not the closure the dataset was
-exported against; a folds file drawn for another dataset; a split manifest older than project.json or
-validation.json (the closure's inputs). A recording that is in the withheld closure by name, sourceId, card or
+exported against; a folds file that `folds.load` refuses (drawn for another dataset, or edited); a split manifest
+older than project.json or validation.json (the closure's inputs). A recording that is in the withheld closure by name, sourceId, card or
 content fingerprint, or alias group — the closure file's lists and the project's closure as it is now
 (`content_lineage/audit.py withheld_closure`) — is left out and listed.
 
@@ -40,16 +40,17 @@ import sys
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 sys.path.insert(0, os.path.join(_HERE, "..", "content_lineage"))
+sys.path.insert(0, os.path.join(_HERE, "..", "desktop_training"))
 import audit as lineage  # noqa: E402
+import folds as fold_draw  # noqa: E402
 import validate_dataset as v  # noqa: E402
+import withheld_closure as wc  # noqa: E402
 
 INVENTORY_VERSION = "coverage_audit_inventory_v2"
-FOLDS_VERSION = "rally_classifier_folds_v1"
 SLIVER_SEC = 0.1                    # RallyTruth.sliver: a piece a cut leaves shorter than this is dropped
 EXCLUDED_KINDS = ("missedServe", "other")
 CONTACT_KINDS = {"serve", "pass", "set", "attack", "block", "freeBall"}
 SPLIT_MANIFEST_KEYS = ("projectJson", "sessions", "validationJson", "manifestJson")
-WITHHELD_KEYS = ("names", "sourceIds", "fingerprints")
 RECORDING_KEYS = {
     "recordingId", "groupId", "surface", "camera", "split", "fold", "durationSec", "durationTicks", "recordingType",
     "fullVideoNegatives", "fingerprint", "contentFingerprint", "sourceId", "aliasGroup", "marksSha256",
@@ -233,18 +234,14 @@ def _span_pairs(spans, with_kind: bool = False) -> list:
 # ----------------------------------------------------------------------------- the withheld closure
 
 def withheld_identity(rec: dict, withheld: dict) -> str | None:
-    """Which of a recording's identities is a withheld one — its name, confirmed sourceId, card fingerprint,
-    content fingerprint or alias group — or None. The one rule for the inventory and the draw."""
-    if rec["recordingId"] in withheld["names"]:
-        return "name"
-    if rec.get("sourceId") and rec["sourceId"] in withheld["sourceIds"]:
-        return "sourceId"
-    for key in ("fingerprint", "contentFingerprint"):
-        if rec.get(key) and rec[key] in withheld["fingerprints"]:
-            return key
-    if rec.get("aliasGroup") and rec["aliasGroup"] in withheld["aliasGroups"]:
-        return "aliasGroup"
-    return None
+    """Which of a recording's identities is a withheld one — its name, confirmed sourceId, card fingerprint or
+    content fingerprint (the trainers' rule, `withheld_closure.withheld_identity`), or its alias group — or None.
+    The one rule for the inventory and the draw."""
+    hit = wc.withheld_identity(withheld, rec["recordingId"], [rec.get("sourceId")],
+                               {key: rec.get(key) for key in ("fingerprint", "contentFingerprint")})
+    if hit is None and rec.get("aliasGroup") and rec["aliasGroup"] in withheld["aliasGroups"]:
+        hit = "aliasGroup"
+    return hit
 
 
 def _confirmed(value) -> str | None:
@@ -254,19 +251,17 @@ def _confirmed(value) -> str | None:
 
 def read_closure(closure_path: str, dataset_manifest: dict) -> dict:
     """The withheld-closure file the dataset was exported against. Refused: unreadable, without its three lists,
-    empty (an empty closure proves nothing), not hashing to its own closureSha256, or not the dataset's closure."""
+    empty (an empty closure proves nothing), not hashing to its own closureSha256 (`withheld_closure.read_closure`),
+    or not the dataset's closure."""
     closure = load_json(closure_path, "withheld closure file")
-    if not isinstance(closure, dict) or not all(isinstance(closure.get(k), list) for k in WITHHELD_KEYS):
-        raise AuditError("the withheld closure file must carry names, sourceIds and fingerprints lists")
-    if not closure["names"]:
-        raise AuditError("the withheld closure is empty: an empty closure proves nothing, so no inventory is written")
-    digest = v.closure_sha256(*(closure[k] for k in WITHHELD_KEYS))
-    if closure.get("closureSha256") != digest:
-        raise AuditError("the withheld closure file's closureSha256 does not match the lists it carries")
+    try:
+        wc.read_closure(closure, "the withheld closure file")
+    except wc.Refused as e:
+        raise AuditError(str(e))
     ours = dataset_manifest.get("withheld")
-    if not isinstance(ours, dict) or ours.get("closureSha256") != digest:
+    if not isinstance(ours, dict) or ours.get("closureSha256") != closure["closureSha256"]:
         raise AuditError("the withheld closure file is not the closure the dataset was exported against "
-                         f"(file {digest[:16]}…, dataset {str((ours or {}).get('closureSha256'))[:16]}…)")
+                         f"(file {closure['closureSha256'][:16]}…, dataset {str((ours or {}).get('closureSha256'))[:16]}…)")
     return closure
 
 
@@ -351,19 +346,14 @@ def _eligible_record(project_dir: str, rec: dict, row: dict, fold: int) -> dict:
 
 
 def build_inventory(dataset_dir: str, project_dir: str, closure_path: str, folds_path: str, now: str | None = None) -> dict:
-    manifest_path = os.path.join(dataset_dir, "dataset-manifest.json")
-    dataset = load_json(manifest_path, "dataset manifest")
+    dataset = load_json(os.path.join(dataset_dir, "dataset-manifest.json"), "dataset manifest")
     if not isinstance(dataset, dict) or dataset.get("schemaVersion") != v.SCHEMA_VERSION or dataset.get("timescale") != v.TIMESCALE:
         raise AuditError(f"the dataset manifest must be {v.SCHEMA_VERSION} at timescale {v.TIMESCALE}")
-    name, manifest_sha = os.path.basename(os.path.abspath(dataset_dir)), v.sha256_file(manifest_path)
-
-    folds = load_json(folds_path, "folds file")
-    identity = folds.get("dataset") if isinstance(folds, dict) else None
-    if not isinstance(folds, dict) or folds.get("schemaVersion") != FOLDS_VERSION or not isinstance(identity, dict) or not isinstance(folds.get("recordings"), dict):
-        raise AuditError(f"the folds file is not {FOLDS_VERSION}")
-    if identity.get("name") != name or identity.get("manifestSha256") != manifest_sha:
-        raise AuditError(f"the folds file was drawn for another dataset: it names {identity.get('name')} "
-                         f"{str(identity.get('manifestSha256'))[:16]}…, this dataset is {name} {manifest_sha[:16]}…")
+    try:
+        folds = fold_draw.load(folds_path, dataset_dir)     # refuses a file for another dataset, or one edited since it was drawn
+    except fold_draw.FoldsError as e:
+        raise AuditError(str(e))
+    identity = folds["dataset"]
 
     closure = read_closure(closure_path, dataset)
     try:
@@ -409,17 +399,17 @@ def build_inventory(dataset_dir: str, project_dir: str, closure_path: str, folds
         "schemaVersion": INVENTORY_VERSION,
         "createdAt": now or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "project": dataset.get("project"),
-        "dataset": {"name": name, "manifestSha256": manifest_sha, "digest": identity.get("digest"), "timescale": v.TIMESCALE,
+        "dataset": {**identity, "timescale": v.TIMESCALE,
                     "labelSchema": (dataset.get("labelSchema") or {}).get("version"),
                     "boundaryIgnoreSec": (dataset.get("labelSchema") or {}).get("boundaryIgnoreSec"),
                     "recordings": len(dataset["recordings"]), "groups": len({r["groupId"] for r in dataset["recordings"]}),
                     "surfaces": surfaces},
-        "folds": {"file": os.path.basename(folds_path), "sha256": v.sha256_file(folds_path), "folds": folds.get("folds")},
+        "folds": {"file": os.path.basename(folds_path), "sha256": v.sha256_file(folds_path), "folds": folds["folds"]},
         "splitManifest": {"atExport": {k: dataset["splitManifest"].get(k) for k in SPLIT_MANIFEST_KEYS}, "now": current,
                           "changedSinceExport": [k for k in SPLIT_MANIFEST_KEYS if dataset["splitManifest"].get(k) != current[k]]},
         "withheld": {"closureFile": os.path.basename(closure_path), "closureFileSha256": v.sha256_file(closure_path),
                      "closureSha256": closure["closureSha256"],
-                     "closureFileCounts": {k: len(closure[k]) for k in WITHHELD_KEYS}, **withheld},
+                     "closureFileCounts": {k: len(closure[k]) for k in wc.CLOSURE_KEYS}, **withheld},
         "recordings": recordings,
         "leftOut": left_out,
         "totals": totals(recordings, surfaces),
@@ -451,7 +441,7 @@ def load_inventory(path: str) -> dict:
         if key not in inv:
             raise AuditError(f"inventory missing {key!r}")
     withheld = inv["withheld"]
-    if not isinstance(withheld, dict) or not all(isinstance(withheld.get(k), list) for k in WITHHELD_KEYS + ("aliasGroups",)):
+    if not isinstance(withheld, dict) or not all(isinstance(withheld.get(k), list) for k in wc.CLOSURE_KEYS + ("aliasGroups",)):
         raise AuditError("inventory withheld must carry names, sourceIds, fingerprints and aliasGroups lists")
     if not withheld["names"]:
         raise AuditError("withheld.names is empty: an empty closure proves nothing; the inventory must carry the closure it refused")

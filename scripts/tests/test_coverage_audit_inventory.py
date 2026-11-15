@@ -89,20 +89,23 @@ class Inventory(unittest.TestCase):
         t = doc["totals"]
         self.assertEqual((t["recordings"], t["groups"]), (22, 18))
         self.assertEqual({s: (row["recordings"], row["groups"]) for s, row in t["bySurface"].items()},
-                         {"beach": (6, 4), "grass": (7, 6), "indoor": (9, 8)})
+                         {"beach": (5, 4), "grass": (7, 6), "indoor": (10, 8)})
         self.assertEqual(t["intervals"], 22 * synthetic.INTERVALS)
         self.assertEqual(t["rallyMarks"], 22 * synthetic.RALLIES)
         self.assertEqual(t["missedServeMarks"], 22)
         self.assertEqual((t["marksChangedSinceExport"], t["spansChangedSinceExport"]), ([], []))
-        self.assertEqual(doc["dataset"], {"name": "rc-synthetic", "manifestSha256": inv.v.sha256_file(os.path.join(self.syn.dataset, "dataset-manifest.json")),
-                                          "digest": "d" * 64, "timescale": 600, "labelSchema": "rally_activity_truth_v1", "boundaryIgnoreSec": 0.5,
-                                          "recordings": 24, "groups": 19, "surfaces": ["beach", "grass", "indoor"]})
+        self.assertEqual(doc["dataset"], {**inv.v.dataset_identity(self.syn.dataset), "timescale": 600, "labelSchema": "rally_activity_truth_v1",
+                                          "boundaryIgnoreSec": 0.5, "recordings": 24, "groups": 19, "surfaces": ["beach", "grass", "indoor"]})
+        self.assertEqual(doc["dataset"]["name"], "rc-synthetic")
+        self.assertEqual(doc["folds"], {"file": "folds.json", "sha256": inv.v.sha256_file(self.syn.folds_path), "folds": 5})
         self.assertEqual(doc["splitManifest"]["changedSinceExport"], [])
         self.assertEqual(doc["withheld"]["closureFileCounts"], {"names": 1, "sourceIds": 1, "fingerprints": 2})
         self.assertEqual(doc["withheld"]["namesNotInClosureFile"], [])
         rec = doc["recordings"][0]
         self.assertEqual(set(rec), inv.RECORDING_KEYS)
-        self.assertEqual((rec["recordingId"], rec["fold"], rec["durationTicks"], rec["contentFingerprint"]), ("bch_a", 0, 66000, "file:content-bch_a"))
+        self.assertEqual((rec["recordingId"], rec["fold"], rec["durationTicks"], rec["contentFingerprint"]),
+                         ("bch_a", self.syn.fold["bch_a"], 66000, "file:content-bch_a"))
+        self.assertEqual({r["recordingId"]: r["fold"] for r in doc["recordings"]}, {rid: f for rid, f in self.syn.fold.items() if "edit" not in rid})
         self.assertEqual(pairs(rec["intervals"])[:3] + pairs(rec["intervals"])[-2:], [(0, 3000), (5400, 7800), (10200, 12600), (58200, 60000), (61200, 66000)])
         self.assertEqual(rec["unmarkedTicks"], 3000 + 11 * 2400 + 1800 + 4800)
 
@@ -187,12 +190,16 @@ class Inventory(unittest.TestCase):
                     syn.build()
                 self.assertIn(fragment, str(cm.exception))
 
-    def test_folds_for_another_dataset_and_a_stale_split_manifest_are_refused(self):
+    def test_folds_for_another_dataset_or_edited_and_a_stale_split_manifest_are_refused(self):
         folds = inv.load_json(self.syn.folds_path, "folds")
         synthetic.write_json(self.syn.folds_path, {**folds, "dataset": {**folds["dataset"], "manifestSha256": "0" * 64}})
         with self.assertRaises(inv.AuditError) as cm:
             self.syn.build()
         self.assertIn("drawn for another dataset", str(cm.exception))
+        synthetic.write_json(self.syn.folds_path, {**folds, "recordings": {**folds["recordings"], "bch_b": (folds["recordings"]["bch_b"] + 1) % 5}})
+        with self.assertRaises(inv.AuditError) as cm:
+            self.syn.build()
+        self.assertIn("edited after it was written", str(cm.exception))
         self.syn.save()
         self.syn.build()
         synthetic.write_json(os.path.join(self.syn.project, "pipeline_tuning", "validation.json"), {"lineageHoldout": []})

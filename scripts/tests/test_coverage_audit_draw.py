@@ -92,7 +92,7 @@ class Pilot(Case):
 
     def test_a_surface_with_fewer_groups_gives_one_from_each_and_says_so(self):
         specs = [s for s in synthetic.corpus() if s["surface"] != "indoor" or s["group"] in ("g-ind_a", "g-ind_b")]
-        syn = synthetic.Synthetic(os.path.join(self.tmp, "few"), specs)
+        syn = synthetic.Synthetic(os.path.join(self.tmp, "few"), specs, folds=3)
         draw = d.build_pilot(syn.write_inventory(), self.protocol, now=NOW)
         indoor = [r for r in draw["recordings"] if r["surface"] == "indoor"]
         self.assertEqual(sorted(r["groupId"] for r in indoor), ["g-ind_a", "g-ind_b"], "one from each group, never a second from g-ind_a")
@@ -136,7 +136,7 @@ class Refusals(Case):
             def mutate(doc):
                 doc["withheld"][key].append(value)
                 if target:
-                    doc["recordings"][3][target] = value
+                    next(r for r in doc["recordings"] if r["recordingId"] == "bch_b")[target] = value
             return mutate
 
         for mutate, identity in ((by("names", "bch_b", None), "name"), (by("sourceIds", "src:bch_b", None), "sourceId"),

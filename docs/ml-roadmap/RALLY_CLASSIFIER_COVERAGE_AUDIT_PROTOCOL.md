@@ -2,7 +2,7 @@
 name: rally-classifier-coverage-audit-protocol
 status: frozen 2026-11-14 on the owner's authorisation; pilot not yet reviewed
 created: 2026-11-15T07:03:36Z
-updated: 2026-11-15T07:03:36Z
+updated: 2026-11-15T07:14:15Z
 decision: D-001, D-002, D-021, D-028, D-030, D-032, D-033, D-036, D-037; the owner's authorisation of 2026-11-14 ("Merge Remaining Corrective PRs and Complete Classifier Readiness", section "Negative-coverage audit")
 ---
 
@@ -32,7 +32,7 @@ Read from the manifest of `rc-v1-20261112` (manifest SHA-256 `eaa95c08…`, dige
 | 49 recordings in 25 recording groups. 31 are `recordingType == continuous` with `eligibility.fullVideoNegatives == standard`: beach 9 in 4 groups, grass 9 in 6, indoor 13 in 8 — 18 groups. 18 are `edited` (`restrictedUse`, positives only) | the audit's population is the 31; an edited recording is never audited for negatives and never supplies one |
 | Over the 31: 402 unmarked intervals, 6,040.5 s; 15 intervals shorter than 3 s. Per recording 8 to 20 intervals (mean 13) and 125 to 260 s of unmarked time (mean 195 s); each recording is a card of about five minutes | every interval is reviewed, whatever its length; a recording costs about three minutes of video at 1× |
 | Over the 31: 340 rally marks (7 to 16 per recording, mean 11), 31 missed-serve marks, 8 cut ranges on 7 recordings; no time-breaking span on any recording | twelve drawn recordings hold roughly 100 to 180 rally marks (§8's table) |
-| Of the 31, 26 are in the split `train`, 5 in `tune`, none in `dev_val`. The experiment is grouped five-fold over the frozen folds file; the 18 groups lie 2, 4, 4, 4, 4 over folds 0 to 4 | the split names no longer partition the experiment's use of a recording (§4, §11); fold 0 has no group to spare (§9) |
+| Of the 31, 26 are in the split `train`, 5 in `tune`, none in `dev_val`. The experiment is grouped five-fold over the frozen folds file ([`…folds-rc-v1-20261112.plan.json`](experiments/EXP-20261103-temporal-rally-classifier-prereg.folds-rc-v1-20261112.plan.json), SHA-256 `b5e4b4ef…`); the 18 groups lie 2, 4, 4, 4, 4 over folds 0 to 4 | the split names no longer partition the experiment's use of a recording (§4, §11); fold 0 has no group to spare (§9) |
 | Every recording's `coverage.state` is `declared_complete`, `labelProvenance.method` is `legacy_declared`, and `labelProvenance.marksSha256` is the marks file at export. No Stage 1 record (`rallyevents.json`) exists | declared is not verified; the audit record carries its own provenance (§7) |
 | A mark is `{startTime, endTime, kind?, contacts?}` — no annotator and no time of marking (`RallyMarkRecord`, `Labeler/Shared/RallyEvents.swift`) | who made a given mark cannot be read from the data (§6) |
 | Marks were made on 960 px scrub proxies; a live-tag press is backed up 0.25 s × rate and snapped within 0.4 s to a ball-path change (`Labeler/Shared/LiveTagger.swift`) | an interval's edges are uncertain by up to about 0.5 s, the label schema's ignore band; a boundary error is recorded only beyond 1.0 s |
@@ -40,7 +40,7 @@ Read from the manifest of `rc-v1-20261112` (manifest SHA-256 `eaa95c08…`, dige
 | The detector packager takes unmarked time in declared-complete recordings as dead-time windows with no coverage check (`RallyLab/MultiFramePackage.swift`) | the pilot's result is also the first measurement of that risk; it is reported, not acted on here |
 | The withheld closure the dataset was exported against: 24 names, 8 confirmed sourceIds, 45 fingerprints (`closureSha256 ff4f7f7b…`, D-036 / D-037) | every tool of this protocol refuses the closure by every identity (§4.4) |
 
-On 2026-11-15 the inventory adapter (§3) was run read-only against the project, writing outside it and drawing nothing: all 49 marks files hash to the dataset's `marksSha256`; the project's `project.json`, `validation.json` and sessions digest equal the dataset's; the adapter's rallies, excluded spans and cut ranges equal the manifest's for all 31 recordings, tick for tick; 31 eligible, 18 left out (all edited), 402 intervals. The frozen draw file, not this paragraph, is the record of the state the audit starts from.
+On 2026-11-15 the inventory adapter (§3) was run read-only against the project, writing outside it and drawing nothing: all 49 marks files hash to the dataset's `marksSha256`; the project's `project.json`, `validation.json` and sessions digest equal the dataset's; the adapter's rallies, excluded spans and cut ranges equal the manifest's for all 31 recordings, tick for tick; the folds file is the dataset's and unedited (`folds.load`); 31 eligible, 18 left out (all edited), 402 intervals. The frozen draw file, not this paragraph, is the record of the state the audit starts from.
 
 ## 3. Population, unit and the inventory adapter
 
@@ -52,13 +52,13 @@ On 2026-11-15 the inventory adapter (§3) was run read-only against the project,
 
 **The adapter** — `scripts/rally_classifier/coverage_audit_inventory.py --dataset <dir> --project <dir> --closure <closure.json> --folds <folds.json> --out <inventory.json>` — reads the dataset manifest, the frozen folds file, the export's withheld-closure file and the project's JSON (`project.json`, `manifests/manifest.json`, `pipeline_tuning/validation.json`, `sessions/`, `footage-properties/`, the `<video>.rallylabels.json` sidecars). It never opens a video. It writes `coverage_audit_inventory_v2`:
 
-- `dataset` (name, manifest SHA-256, digest as the folds file records it, timescale, label schema, counts, surfaces), `folds` (file SHA-256), `splitManifest` (the four hashes at export and now, and which changed), `withheld` (the closure file's SHA-256 and counts; the names, sourceIds, fingerprints and alias groups refused);
+- `dataset` (name, manifest SHA-256 and digest — `validate_dataset.dataset_identity` — timescale, label schema, counts, surfaces), `folds` (file SHA-256), `splitManifest` (the four hashes at export and now, and which changed), `withheld` (the closure file's SHA-256 and counts; the names, sourceIds, fingerprints and alias groups refused);
 - `recordings`: per eligible recording its group, surface, camera, split, fold, duration in ticks, card fingerprint, content fingerprint (the original's file identity, from the split manifest), confirmed sourceId, alias group, the SHA-256 of its marks file now and at export and whether they differ, its rallies, excluded spans and cut ranges in ticks and whether they differ from the dataset's, its mark counts, and `intervals: [{index, startTick, endTick}]`;
 - `leftOut`: **every** dataset recording that is not eligible, with the reason — none is dropped silently.
 
 Left out, with the reason: withheld by any identity (§4.4); edited, or full-video negatives not `standard`; not in the current split manifest; card fingerprint or confirmed sourceId changed since the export; no fold; typed other than continuous now, or no footage-type record now (`footage-properties/`); the pass no longer declared complete; a Stage 1 record beside the video (its coverage is Stage 1's to verify); no marks file, or one RallyLab could not decode; a rally mark overlapping a cut range, or two rally marks overlapping (the exporter's own refusals); no content fingerprint.
 
-Refused, nothing written: an empty closure; a closure file that does not hash to its own `closureSha256` or is not the closure the dataset carries; a folds file drawn for another dataset; a split manifest older than `project.json` or `validation.json` (the closure read from it would be stale).
+Refused, nothing written: an empty closure; a closure file that does not hash to its own `closureSha256` or is not the closure the dataset carries; a folds file that `scripts/rally_classifier/folds.py load` refuses — drawn for another dataset (name, manifest SHA-256 or digest), or changed since it was drawn; a split manifest older than `project.json` or `validation.json` (the closure read from it would be stale).
 
 ## 4. Sample and draw
 
@@ -82,7 +82,7 @@ Every remaining eligible recording — 19 with the inventory of §2 — every in
 
 ### 4.4 Refusals
 
-By the inventory adapter and again by the draw tool (one function, `withheld_identity`), and by the recording operation in RallyLab:
+By the inventory adapter and again by the draw tool (one function, `withheld_identity`, over the trainers' rule in `scripts/desktop_training/withheld_closure.py`), and by the recording operation in RallyLab:
 
 - any recording whose **name**, confirmed **sourceId**, card **fingerprint** or content **fingerprint** is in the withheld closure, or whose **alias group** is a withheld recording's. The closure is the closure file's three lists together with the project's closure as it is now (`scripts/content_lineage/audit.py withheld_closure`: reserved splits, `validation.json`'s lists, and every recording that shares an identity with one). An empty closure is refused, as the dataset validator refuses it;
 - any recording that is not in the dataset, not continuous, or whose full-video negatives are not `standard`;
@@ -213,11 +213,13 @@ With no finding at all the bound is 1 − 0.1^(1/n), which is within 5 % from *n
 - A void record (§7) supplies nothing. An edited recording supplies no `NON_RALLY` whatever any record says. A recording with an `edited_footage` finding supplies none until its type is re-confirmed. No audited negative is used in an experiment while the pilot has not passed (§8).
 - In the dataset manifest, per recording: `coverage.audit: {state, auditSha256, drawId, cleanIntervals: [{startTick, endTick}], findings}` with the findings' counts; `labelProvenance.method` gains `declared_audited`. Because this changes the labeling rule, the label schema is versioned: `rally_activity_truth_v2`. A `v1` dataset stays readable and is reported as "negatives declared, not audited". **Neither existing dataset is touched**; `rc-v1-20261112` and its frozen folds file stay as they are, and audited negatives arrive with a new export.
 
-**G6, counted over trusted negatives.** G6 as amended (A3 of the preregistration's update for this dataset, on PR #182): at least two-thirds of the dataset's recording groups contribute valid negatives, and at least two such groups lie in every fold. Under G7 a group contributes only **trusted** negatives. For 25 groups that is at least 17 groups.
+**G6, counted over trusted negatives.** G6 as amended (A3 in §11 of the preregistration): at least two-thirds of the dataset's recording groups contribute valid negatives, and at least two such groups lie in every fold. Under G7 a group contributes only **trusted** negatives. For 25 groups that is at least 17 groups.
 
 - Only 18 groups hold a continuous recording, 2, 4, 4, 4, 4 over folds 0 to 4. The pilot's twelve groups cannot meet G6 alone: **stage 2 is needed**.
 - After stage 2, G6 holds only if at least 17 of the 18 groups end with a reviewed-clean interval that yields a negative, and both groups of fold 0 are among them. At most one group can fall out, and not from fold 0.
 - If fewer than 17 groups contribute, or a fold has fewer than two, the exact deficiency is reported — which groups, which fold. **The gate is not weakened.** The experiment is then *need data*, as the preregistration says of a failed G6.
+
+The preregistration's §11, written on 2026-11-13, lists G7 as proposed and the audit as an open decision. The owner's authorisation of 2026-11-14 decides it: the audit is run and G7 is the rule above. That record is amended in a change of its own; this protocol does not edit it.
 
 `coverage_audit_report.py` estimates this count from the records: a group counts when one of its recordings has a reviewed-clean interval longer than the two 0.5 s ignore bands at its ends (a shorter one holds only `TRANSITION` steps) and no edited-footage finding. The authority is the label count of the `v2` export, checked by the validator.
 
