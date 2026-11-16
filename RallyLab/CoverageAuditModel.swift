@@ -174,9 +174,12 @@ final class CoverageAuditModel {
                   let url = drawFiles.first(where: { $0.lastPathComponent == name }) {
             // The draw that was open last: reopened, and the first interval to review put on screen — not played.
             openDraw(url)
+            // Dropped if anything opens or closes meanwhile (generation): leaving the tab, or a recording picked by hand.
+            let mine = generation
             Task { [weak self] in
                 await self?.statusTask?.value
-                await self?.nextToReview(play: false)
+                guard let self, self.generation == mine, self.draw?.url == url, self.recordingId == nil else { return }
+                await self.nextToReview(play: false)
             }
         }
     }

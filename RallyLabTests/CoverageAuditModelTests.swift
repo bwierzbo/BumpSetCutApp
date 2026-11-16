@@ -341,6 +341,13 @@ final class CoverageAuditModelTests: XCTestCase {
         XCTAssertEqual(again.draw?.draw.drawId, "20261114-120000")
         XCTAssertFalse(again.isPlaying, "put on screen, not played")
         again.deactivate()
+        // Leaving the tab before the reopen finishes: nothing is opened behind it.
+        let left = CoverageAuditModel(sampler: SamplerModel(defaults: defaults, root: root), tool: "RallyLab test", defaults: defaults, signedIn: { .nobody })
+        left.activate()
+        left.deactivate()
+        try await wait("the statuses") { !left.statuses.isEmpty }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertNil(left.recordingId); XCTAssertNil(left.player, "no player installed after the tab left")
     }
 
     func testWhatOneReviewerWatchedNeverCountsForAnother() async throws {
