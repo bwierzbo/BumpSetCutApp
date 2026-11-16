@@ -464,12 +464,10 @@ def withheld_closure(manifest: dict, project: dict, listed: set[str]) -> dict[st
     return why
 
 
-def project_recordings(project_dir: str) -> tuple[list[dict], list[dict]]:
-    """(recordings this tool may decode, recordings it refuses) from the split manifest,
-    validation.json and project.json. A recording the manifest does not list is refused, and so
-    is every recording in the withheld closure (`withheld_closure`) — decided for all of them
-    before any file is opened. Unreadable inputs raise; no validation.json means nothing is listed
-    beyond the manifest's splits."""
+def load_project(project_dir: str) -> tuple[dict, dict, set[str]]:
+    """(the split manifest, project.json, the names validation.json lists) — what `withheld_closure`
+    reads, for every tool that refuses the withheld closure. Unreadable inputs raise; no
+    validation.json means nothing is listed beyond the manifest's splits."""
     with open(os.path.join(project_dir, "manifests", "manifest.json")) as f:
         manifest = json.load(f)
     with open(os.path.join(project_dir, "project.json")) as f:
@@ -480,6 +478,15 @@ def project_recordings(project_dir: str) -> tuple[list[dict], list[dict]]:
         with open(validation) as f:
             data = json.load(f)
         listed = {name for key in LISTED_KEYS for name in data.get(key) or []}
+    return manifest, project, listed
+
+
+def project_recordings(project_dir: str) -> tuple[list[dict], list[dict]]:
+    """(recordings this tool may decode, recordings it refuses) from the split manifest,
+    validation.json and project.json (`load_project`). A recording the manifest does not list is
+    refused, and so is every recording in the withheld closure (`withheld_closure`) — decided for
+    all of them before any file is opened."""
+    manifest, project, listed = load_project(project_dir)
     split = {v["video"]: v["split"] for v in manifest["videos"]}
     confirmed = {v["video"]: v["sourceId"]["value"] for v in manifest["videos"] if v.get("sourceId", {}).get("origin") == "confirmed"}
     withheld = withheld_closure(manifest, project, listed)
