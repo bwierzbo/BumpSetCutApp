@@ -1,8 +1,8 @@
 ---
 id: EXP-20261103-temporal-rally-classifier-prereg
-status: proposed — not approved, not run; the dataset is exported and validated (`rc-v1-20261112`), the folds are drawn and frozen, the trainer is written (PR #178) and its dry run passes; what the owner still has to decide is in §11 (updated 2026-11-13)
+status: proposed — not approved, not run; amendments A1–A13 accepted by the owner on 2026-11-14 with reporting requirements (D-038); gate G7 adopted — the negative-coverage audit's pilot is drawn and frozen and not yet reviewed; the trainer is merged (PR #178); the dataset the experiment will run on is a new export after the audit (§12)
 created: 2026-11-03T19:05:00Z
-updated: 2026-11-13T08:44:57Z
+updated: 2026-11-15T18:39:03Z
 approved_by: not yet
 decision: D-001 (approved production candidate), D-007 (objective), D-021 (scoring contract), D-010, D-017, D-018 (preregistration before training, applied to this model), D-031 (eligibility); D-029 (proposed, PR #132) names this direction
 roadmap_phase: Phase 8 (learned temporal classifier vs FSM; no longer approval-gated, D-001), after the measurement phases
@@ -244,3 +244,70 @@ Each is a place where §§1–10 cannot be run as written, or where the owner's 
 3. The owner decides the negative-coverage question (D6/D8/G7): audit first, or waive with the limitation stated.
 4. The owner approves this preregistration (the checklist under "Approval"), quoting the authorisation. Until then no model is trained, tuned, calibrated or scored.
 
+## 12. Update of 2026-11-14: the amendments accepted, G7 adopted, the coverage audit frozen, and what the final dataset will be
+
+Written on the owner's authorisation of 2026-11-14 ([verbatim](../../decisions/2026-11-14-classifier-readiness-authorization.md); D-038). Sections 1–11 are not rewritten; where this section differs from them, this section is the later word. **Nothing was trained, tuned, calibrated or scored.**
+
+### 12.1 Amendments A1–A13: accepted
+
+"Accept A1–A13 as proposed, with these reporting requirements". The proposals are the right-hand column of §11.5; each is now part of this record.
+
+| # | Accepted as proposed, and the owner's reporting requirement | Where it is implemented |
+|---|---|---|
+| A1, A2 | folds in their own frozen file tied to the dataset's digest; procedure `fold_draw_v1` | `folds.py` (merged, PR #178); the folds file of §11.2 |
+| A3 | G6: at least two-thirds of the groups contribute valid negatives, and at least two such groups in every fold — counted over **trusted** negatives (§12.3) | the trainer's gate (PR #185) |
+| A4 | 49 recordings, 25 groups, 736 rallies; `restrictedUse` is the 18 edited recordings. "retain eligible continuous handheld footage, but report handheld recordings separately and include a sensitivity analysis excluding them" | `evaluate.py`: a handheld scope and the headline recomputed without handheld recordings (PR #185) |
+| A5, A6 | R1 by Newton's method; R2's 150-cell margin | `train.py`, `tcn.py` (merged) |
+| A7 | the four per-rally classes the reference scorecard defines | `evaluate.py` (merged) |
+| A8 | the stated fallbacks for the decode point. "report whenever the decoder-selection fallback is used, including why the recall constraint was not met" | the fold record and the report name the fallback, the best recall any grid point reached against R0's, and the number of points that met the constraint (PR #185) |
+| A9 | temperature scaling alone, no bias term. "document the calibration limitation caused by class-balanced logistic regression" | the report and `RALLY_CLASSIFIER_TRAINER.md` state it (PR #185) |
+| A10 | the above-net asymmetry is stated in every report. "retain the production FSM as the primary baseline and explicitly report its above-net-rule advantage. Investigate a matched baseline without this rule where practical, without changing the primary baseline or silently altering the existing dataset" | practical: the exporter can replay R0 with the rule off from the same evidence. The **next** export carries a third baseline variant `r0_no_net_rule` (PR #187); every candidate table is also reported against it as a secondary, labelled comparison. R0 stays the primary baseline; H1 and H2 are unchanged; `rc-v1-20261112` is not altered and has no such variant |
+| A11, A12 | the trainer command of §11.4; the verdict read by hand from the four reports | merged |
+| A13 | the exposure statement of §11.5. "preserve all historical exposure caveats. This is development evaluation, not independent final-test evidence" | every report's header states it with the counts read from the manifest (PR #185); §10's limitations stand |
+
+### 12.2 The trainer as merged
+
+PR #178 merged as `cac5dd8`; `main` is `8c77f1b` after PR #182. SHA-256 of the scripts at `8c77f1b`:
+
+| Script | SHA-256 |
+|---|---|
+| `scripts/rally_classifier/train.py` | `e7cb39344a9186576e21edecfa74a13f3e5110d2e9e4ac9626827208b5a9b07a` |
+| `scripts/rally_classifier/evaluate.py` | `1ec78d2cd85b95f73903aa9738998ad699316cfd90a2afceeef32108cc7a756d` |
+| `scripts/rally_classifier/decode.py` | `bef7c504c80f1e431608a4c50da08bc7e4e664ec60d3596d02f81587a5a6e228` |
+| `scripts/rally_classifier/folds.py` | `6213f9ac32865ca4111b0a25bca1610f0c34e29ef8785c5e6e4a52a21e42c463` |
+| `scripts/rally_classifier/features.py` | `4912969e997f7b5307fd9fb6d8940419a33313d06cf41b1a3f47eca71e837390` |
+| `scripts/rally_classifier/tcn.py` | `75678e5b652ec252c8e6e2989b684d913e8f641b2024ed0cadc8547acc97f689` |
+| `scripts/rally_classifier/validate_dataset.py` | `6b0fd842211d289b590445d2cd24a538b9fb6698f70dce68fcf7526b2e2a9839` |
+| `scripts/scoring/reference_scorecard.py` | `a1f5aa58fcf83e03538e21666423b7554c918c8e6e74b8a9757366edc4644d96` |
+
+These are the hashes of what is merged today. The accepted reporting requirements (§12.1) and the G7 gate change `train.py`, `evaluate.py` and `validate_dataset.py` in PRs that are open; **§9's script hashes are filled from the commit those PRs merge as, at approval**, not from this table. Environment of the dry runs: Python 3.12.1, numpy 1.26.4, macOS 26.4, Apple M3 Pro.
+
+### 12.3 G7 is adopted; G6 is counted over trusted negatives
+
+"The owner does not waive negative-label verification." "Only explicitly reviewed clean intervals or eligible Stage 1 verified coverage may supply trusted negatives under the adopted G7 policy." "Do not allow edited footage to supply full-video negative labels."
+
+- **G7 (replaces the row of §11.3):** a step is `NON_RALLY` only inside an interval a person reviewed as clean under the [coverage-audit protocol](../RALLY_CLASSIFIER_COVERAGE_AUDIT_PROTOCOL.md) (frozen; PR #183), or under eligible Stage 1 verified coverage. Per interval, not per recording. Everything else that is unmarked is `UNKNOWN`.
+- **G6 (A3)** is counted over trusted negatives: at least 17 of the 25 groups, and two in every fold. Only 18 groups hold a continuous recording, 2, 4, 4, 4, 4 over the folds; at most one may fall out, and not from fold 0. "If fewer than the required groups contribute trusted negatives, report the exact deficiency rather than weakening the gate."
+- **The audit** ([EXP-20261114-negative-coverage-audit](EXP-20261114-negative-coverage-audit.md)): population 31 continuous recordings, 402 unmarked intervals, 6,040.5 s. Pilot draw `20261115-072552` (SHA-256 `e01f685b3052b31c…`), frozen before any review: 12 recordings in 12 groups, four per surface, 150 intervals, 2,508.5 s, 127 rally marks; pass at most 2 missed rallies or serves and no recording with more than 2. **No interval has been reviewed.** A pass leads to stage 2 (the other 19 recordings); it certifies nothing it did not review.
+- **State today:** G7 not met (0 reviewed intervals); G6 over trusted negatives 0 of 25 groups. The dry run of §11.4 stands as a check of the tooling on `rc-v1-20261112`; it is not a dataset a run may be approved on.
+
+### 12.4 The dataset the experiment will run on
+
+`rc-v1-20261108` and `rc-v1-20261112` are preserved and never edited; the frozen folds file of §11.2 belongs to `rc-v1-20261112` and is never edited. "If the coverage audit changes the negative-label contract, existing marks or training masks, create a new versioned export after the reviewed changes are approved." It does change the contract: the label schema becomes `rally_activity_truth_v2`. So:
+
+1. the audit is reviewed (pilot, repeat, then stage 2 on a pass), and any correction it finds goes through the marking pass;
+2. the review queue, the exporter and validator change, and the trainer's gate are reviewed and merged by the owner;
+3. a **new dataset** is exported under a new name from the marks and audit records as they then are, with `r0_no_net_rule` beside `r0` and `r0_prime`; the validator checks every `NON_RALLY` step against the reviewed-clean intervals;
+   The trainer refuses a real run on its audited negatives unless given the audit report (`coverage_audit_report.py --json-out`) showing the pilot passed, on the very records the dataset read (PR #185).
+4. eligibility, group counts, trusted-negative coverage, G6 per fold and baseline parity are recomputed on it; a **new folds file** is drawn for its digest by the same procedure and seed;
+5. §2, §9 and this section are filled from that dataset and from the merged scripts, and only then is this record approvable.
+
+§11.1's figures describe `rc-v1-20261112` and stay as its record. The numbers a run is approved on are the new export's.
+
+### 12.5 What remains before training can begin
+
+1. The owner reviews the pilot (about 40 minutes), and its blind repeat a day later (about 10 minutes); then stage 2 if it passes.
+2. The owner merges the open PRs, in this order: #183 (protocol, inventory, draw, report), #186 (the Audit tab and its save operation), #187 (the exporter and validator, `rally_activity_truth_v2`, `r0_no_net_rule`, evidence reuse; stacked on #186), #185 (the trainer's accepted amendments and gate; stacked on #187); this record (#184) after #183.
+   The next export cannot both reuse `rc-v1-20261112`'s evidence and carry `r0_no_net_rule` — the variant needs the frame evidence, which a dataset does not store — so a matched baseline means a fresh detector run (about five hours over the share). The owner's choice.
+3. The new export, its validation, its folds, the dry runs (item list of §12.4).
+4. The owner approves this preregistration (the checklist under "Approval"). Until then no model is trained, tuned, calibrated or scored.
