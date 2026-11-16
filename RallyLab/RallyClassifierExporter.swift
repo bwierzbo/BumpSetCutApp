@@ -18,10 +18,14 @@
 //      the registry); the rest listed with why. Written first, never overwritten;
 //   4. the marks read through RallyTruth (a rally is kind `rally` or none; missed serves
 //      and other marks are excluded spans; cuts are cut ranges), the footage type and the
-//      time-breaking spans from the footage-properties record as the registry admitted it;
+//      time-breaking spans from the footage-properties record as the registry admitted it,
+//      and the recording's negative-coverage audit record (RallyClassifierTrustedNegatives):
+//      unmarked time is NON_RALLY only inside an interval a person reviewed clean (G7);
 //   5. per recording, the detector's evidence (VideoProcessor live, the committed config
-//      with the card's camera) as steps (rcf_v1, causal) with the contract's labels, and
-//      the committed decider's clips per baseline variant with their pre-merge raw spans;
+//      with the card's camera — or, with `reuseEvidenceFrom`, a sealed dataset's stored
+//      evidence where it is proven to be this recording's: RallyClassifierEvidenceReuse)
+//      as steps (rcf_v1, causal) with the contract's labels, and the committed decider's
+//      clips per baseline variant with their pre-merge raw spans;
 //   6. staging, file hashes, the manifest last; a Swift preflight and then the repository's
 //      validator (`scripts/rally_classifier/validate_dataset.py`), which must pass — no
 //      python3, no dataset;
@@ -31,9 +35,9 @@
 //  A failure before the manifest is written (a recording's evidence, a write) leaves the
 //  staging folder and its journal so `--resume` keeps the finished recordings (their files
 //  re-hashed); a failure from the manifest on (preflight, validator, ledger) removes them.
-//  No ledger row is written for a dataset that did not pass. The coverage-audit gate (G7)
-//  proposed on PR #138 is not applied: each recording carries `coverage.state`, and the
-//  gate would layer on it.
+//  No ledger row is written for a dataset that did not pass. A recording with a Stage 1
+//  boundary record is still left out (this exporter reads declared marks only), so the
+//  audit record is the one source of a negative here.
 //
 
 import AVFoundation
@@ -43,7 +47,7 @@ import Foundation
 enum RallyClassifierExporter {
     static let schemaVersion = "rally_classifier_dataset_v1"
     static let featureVersion = "rcf_v1"
-    static let labelVersion = "rally_activity_truth_v1"
+    static let labelVersion = "rally_activity_truth_v2"
     static let replayer = "EvidenceReplayer.decidedRallies"
     static let timescale = 600
     /// A gap between processed frames longer than this breaks the segment.
@@ -80,14 +84,16 @@ enum RallyClassifierExporter {
 
     // MARK: - Baseline variants
 
-    /// A decider variant the baseline is replayed at: `r0` the committed config (the benchmark), `r0_prime` the
-    /// D-029 settings (reference only; the preregistration's R0′).
+    /// A decider variant the baseline is replayed at: `r0` the committed config (the benchmark, and the primary
+    /// baseline), `r0_prime` the D-029 settings (reference only; the preregistration's R0′), `r0_no_net_rule` the
+    /// committed config with the above-net rule off (A10's matched baseline: the rule drops whole built segments
+    /// after the decider and the builder, so this is r0 plus the clips the rule removed, at r0's settings).
     struct Variant {
         var name: String
         var config: ProcessorConfig
     }
 
-    static let variantNames = ["r0", "r0_prime"]
+    static let variantNames = ["r0", "r0_prime", "r0_no_net_rule"]
 
     static func variant(named name: String) -> Variant? {
         switch name {
@@ -98,6 +104,10 @@ enum RallyClassifierExporter {
             c.postroll = 1.0
             c.preroll = 2.0
             c.minSegmentLength = 1.5
+            return Variant(name: name, config: c)
+        case "r0_no_net_rule":
+            var c = ProcessorConfig()
+            c.enableAboveNetRequirement = false
             return Variant(name: name, config: c)
         default: return nil
         }
@@ -118,6 +128,9 @@ enum RallyClassifierExporter {
     /// The detector run over one recording at a config (the live pipeline in production; synthetic in tests).
     typealias EvidenceSource = (VideoSession, ProcessorConfig) async throws -> Evidence
 
+    /// A recording's duration in seconds as its file has it now (the asset's in production; synthetic in tests).
+    typealias DurationProbe = (VideoSession) async throws -> Double
+
     struct Options {
         /// The dataset's name: its folder.
         var name: String
@@ -126,6 +139,11 @@ enum RallyClassifierExporter {
         var variants: [String] = RallyClassifierExporter.variantNames
         /// A staging folder of a run cut short (`<out>/.staging-<name>`): its verified recordings are kept.
         var resume: URL? = nil
+        /// A sealed dataset whose stored detector evidence is used for every recording it is proven to be the
+        /// evidence of (EvidenceReuse); the rest run the detector. Opened read-only, never changed.
+        var reuseEvidenceFrom: URL? = nil
+        /// Part of a reuse's proof: the recording's duration now.
+        var duration: DurationProbe = RallyClassifierExporter.liveDuration
         /// `scripts/rally_classifier/validate_dataset.py`.
         var validator: URL
         var python = "python3"
@@ -157,6 +175,8 @@ enum RallyClassifierExporter {
         var recordings: [String]
         var leftOut: [LeftOut]
         var reused: [String]
+        /// The recordings whose evidence is a sealed dataset's (`reuseEvidenceFrom`), proven theirs.
+        var evidenceReused: [String]
         var plan: URL
         var report: URL
     }
@@ -166,6 +186,7 @@ enum RallyClassifierExporter {
         case exists(URL)
         case stagingExists(URL)
         case resumeMismatch(String)
+        case reuseRefused(String)
         case noManifest(URL)
         case staleManifest(String)
         case emptyClosure
@@ -188,6 +209,7 @@ enum RallyClassifierExporter {
             case .exists(let u): return "\(u.path) already exists; a dataset is never overwritten."
             case .stagingExists(let u): return "\(u.path) holds an earlier run cut short: give it to --resume, or remove it."
             case .resumeMismatch(let why): return "The folder given to --resume is not this dataset's staging folder: \(why)."
+            case .reuseRefused(let why): return "The evidence of the dataset given to --reuse-evidence-from can't be reused: \(why). Nothing was processed."
             case .noManifest(let u): return "No split manifest at \(u.path)."
             case .staleManifest(let why): return "The split manifest is not the project's current one (\(why)); rebuild it before exporting."
             case .emptyClosure: return "The withheld closure is empty (no validation.json reservations): an empty closure proves nothing, so nothing is written."
@@ -244,6 +266,7 @@ enum RallyClassifierExporter {
         guard let modelDigest = DatasetSplitManifest.canonicalDigest(ofDirectory: model) else { throw Failure.detectorUnknown("\(model.path) can't be read") }
         let detector = Detector(name: model.deletingPathExtension().lastPathComponent, canonicalDigest: String(modelDigest.prefix(16)))
         let configSha = config.canonicalSHA256
+        let variantDTOs = variants.map { VariantDTO(name: $0.name, configSha256: $0.config.canonicalSHA256, settings: Settings($0.config)) }
 
         // 1. The split manifest, current, and its audit.
         let manifest: DatasetSplitManifest, manifestSha: String
@@ -259,6 +282,11 @@ enum RallyClassifierExporter {
         let (_, isolated) = try LineagePackage.isolation(manifest: manifest, audit: audit, withheldClosure: closure)
         let sources = try ReservedVideos.sources(in: projectDir)
         let withheld = Withheld(closure: closure, sources: sources)
+
+        // A dataset to take evidence from: what makes it unusable whole is refused here, before any video is read.
+        let reuse = try options.reuseEvidenceFrom.map {
+            try EvidenceReuse.open($0, projectDir: projectDir, detector: detector, pipelineConfigSha256: configSha, variants: variantDTOs, writing: [final, staging])
+        }
 
         // 3. The plan.
         let registry = try SourceRegistry.load(root: projectDir, now: options.now)
@@ -320,8 +348,16 @@ enum RallyClassifierExporter {
                 log("⚠️ \(e.video): \(why)")
                 out(why); continue
             }
+            // The negative-coverage audit record, read only now — for a recording that is not withheld by any identity.
+            // None is no error (positives only); one that can't be read is, and is never taken as "no audit".
+            let audit: AuditUse
+            do {
+                audit = try auditUse(of: e.video, video: video, content: content, negatives: source.eligibility.fullVideoNegatives.level == .standard,
+                                     typeConfirmedAt: properties[e.video]?.recordingTypeAt, projectDir: projectDir)
+            } catch { out("its coverage-audit record can't be read (\(error.localizedDescription)): an unreadable record is not taken as no audit"); continue }
             planned.append(Planned(video: e.video, session: session, row: row, source: source, records: records, truth: truth,
-                                   marksSha256: DatasetSplitManifest.sha256(of: marksURL) ?? "", properties: properties[e.video], fileFingerprint: content))
+                                   marksSha256: DatasetSplitManifest.sha256(of: marksURL) ?? "", properties: properties[e.video], fileFingerprint: content,
+                                   audit: audit))
         }
 
         let stamp = stampFormatter.string(from: options.now)
@@ -350,13 +386,13 @@ enum RallyClassifierExporter {
 
         // 4–5. Evidence, steps, baseline — into staging, journaled per recording.
         let identity = JournalIdentity(dataset: name, codeSha: options.codeSha, binarySha: options.binarySha, pipelineConfigSha256: configSha, detector: detector,
-                                       variants: variants.map { VariantDTO(name: $0.name, configSha256: $0.config.canonicalSHA256, settings: Settings($0.config)) })
+                                       variants: variantDTOs, reuse: reuse.map { ReuseIdentity(dataset: $0.name, manifestSha256: $0.manifestSha256) })
         var journal = Journal(identity: identity, recordings: [:])
         if options.resume != nil {
             guard fm.fileExists(atPath: staging.path), let data = try? Data(contentsOf: journalURL), let read = try? JSONDecoder().decode(Journal.self, from: data) else {
                 throw Failure.resumeMismatch("no readable journal at \(journalURL.path)")
             }
-            guard read.identity == identity else { throw Failure.resumeMismatch("it was written with another code, config, detector or variant set") }
+            guard read.identity == identity else { throw Failure.resumeMismatch("it was written with another code, config, detector, variant set or evidence source") }
             journal = read
         }
         try fm.createDirectory(at: staging.appendingPathComponent("steps"), withIntermediateDirectories: true)
@@ -365,10 +401,12 @@ enum RallyClassifierExporter {
         try encode(journal).write(to: journalURL, options: .atomic)
         var recordingsOut: [Recording] = []
         var reused: [String] = []
+        /// With an evidence source: the recordings the detector ran on in this run, and why theirs was not reused.
+        var evidenceRun: [LeftOut] = []
         for (i, p) in planned.enumerated() {
             let key = inputKey(p)
             let exposure = ledger.filter { $0.video == p.video }.map { ExposureDTO(date: $0.date, kind: $0.kind.rawValue, ref: $0.ref) }
-            if let done = journal.recordings[p.video], done.inputKey == key,
+            if let done = journal.recordings[p.video], done.inputKey == key, done.audit == p.audit,
                DatasetSplitManifest.sha256(of: staging.appendingPathComponent(done.record.stepsFile)) == done.record.stepsSha256,
                DatasetSplitManifest.sha256(of: staging.appendingPathComponent(done.record.baselineFile)) == done.record.baselineSha256 {
                 var r = done.record
@@ -380,16 +418,34 @@ enum RallyClassifierExporter {
                 log("  [\(i + 1)/\(planned.count)] \(p.video): kept from the run cut short (files verified)")
                 continue
             }
-            log("  [\(i + 1)/\(planned.count)] \(p.video): running the detector…")
-            let ev = try await evidence(p.session, config.withCamera(of: p.session))
-            // The evidence must be the named detector's alone: the model loaded (no fallback to YOLO), every detection its own.
-            guard ev.detector?.standardizedFileURL.path == model.standardizedFileURL.path else {
-                throw Failure.detectorNotUsed("\(p.video): the multi-frame model \(model.lastPathComponent) did not load for it (the pipeline fell back)")
+            // The evidence: a sealed dataset's, where it is proven to be this recording's; else the detector's, now.
+            let cameraConfig = config.withCamera(of: p.session)
+            var stored: Measured?
+            if let reuse {
+                switch await reuse.measured(p, variants: variants, cameraConfigSha256: cameraConfig.canonicalSHA256, duration: options.duration) {
+                case .success(let m):
+                    stored = m
+                    log("  [\(i + 1)/\(planned.count)] \(p.video): evidence of \(reuse.name) reused (\(m.reusedFrom?.identityProof ?? "") proof); labels made now")
+                case .failure(let why):
+                    evidenceRun.append(LeftOut(video: p.video, reason: why.reason))
+                    log("  [\(i + 1)/\(planned.count)] \(p.video): ⚠️ evidence of \(reuse.name) NOT reused — \(why.reason)")
+                }
             }
-            if let yolo = ev.frames.first(where: { $0.detections.contains { !$0.fromHeatmap } }) {
-                throw Failure.detectorNotUsed("\(p.video): a detection at \(clockText(yolo.time)) is not the multi-frame model's")
+            let measured: Measured
+            if let stored { measured = stored } else {
+                log("  [\(i + 1)/\(planned.count)] \(p.video): running the detector…")
+                let ev = try await evidence(p.session, cameraConfig)
+                // The evidence must be the named detector's alone: the model loaded (no fallback to YOLO), every detection its own.
+                guard ev.detector?.standardizedFileURL.path == model.standardizedFileURL.path else {
+                    throw Failure.detectorNotUsed("\(p.video): the multi-frame model \(model.lastPathComponent) did not load for it (the pipeline fell back)")
+                }
+                if let yolo = ev.frames.first(where: { $0.detections.contains { !$0.fromHeatmap } }) {
+                    throw Failure.detectorNotUsed("\(p.video): a detection at \(clockText(yolo.time)) is not the multi-frame model's")
+                }
+                measured = measure(ev, session: p.session, variants: variants, config: config,
+                                   evidence: EvidenceDTO(sourceFingerprint: p.fileFingerprint, configSha256: cameraConfig.canonicalSHA256, codeSha: options.codeSha))
             }
-            let built = try build(p, evidence: ev, variants: variants, config: config, groupId: groups[p.video] ?? p.video, exposure: exposure)
+            let built = try assemble(p, measured, groupId: groups[p.video] ?? p.video, exposure: exposure)
             let stepsURL = staging.appendingPathComponent(built.record.stepsFile)
             let baselineURL = staging.appendingPathComponent(built.record.baselineFile)
             try built.steps.write(to: stepsURL, options: .atomic)
@@ -398,9 +454,10 @@ enum RallyClassifierExporter {
             record.stepsSha256 = DatasetSplitManifest.sha256(of: stepsURL) ?? ""
             record.baselineSha256 = DatasetSplitManifest.sha256(of: baselineURL) ?? ""
             recordingsOut.append(record)
-            journal.recordings[p.video] = JournalEntry(inputKey: key, record: record)
+            journal.recordings[p.video] = JournalEntry(inputKey: key, audit: p.audit, record: record)
             try encode(journal).write(to: journalURL, options: .atomic)
-            log("    \(record.stepCount) steps · " + State.allCases.map { "\($0.name) \(record.labelCounts[$0.name] ?? 0)" }.joined(separator: " · "))
+            log("    \(record.stepCount) steps · " + State.allCases.map { "\($0.name) \(record.labelCounts[$0.name] ?? 0)" }.joined(separator: " · ")
+                + " · audit \(record.coverage.audit.state)" + (p.audit.note.map { " — \($0)" } ?? ""))
         }
 
         // 6–7. From the manifest on, a failure leaves nothing: no folder, no journal, no ledger row.
@@ -432,7 +489,7 @@ enum RallyClassifierExporter {
                                    protectedContent: protectedContent)
             let failed = checks.filter { !$0.passed }
             guard failed.isEmpty else { throw Failure.preflightFailed(failed.map { "\($0.name) (\($0.detail))" }) }
-            let validation = await validate(staging: staging, closure: closureURL, options: options)
+            let validation = await validate(staging: staging, closure: closureURL, project: projectDir, evidenceSource: reuse?.dataset, options: options)
             try validation.raw.write(to: records.appendingPathComponent("\(stamp)-validation.json"), options: .atomic)
             switch validation.outcome {
             case .unavailable(let why): throw Failure.validatorUnavailable(why)
@@ -451,16 +508,21 @@ enum RallyClassifierExporter {
             let journalCopy = records.appendingPathComponent("\(name)-journal.json")
             try? fm.removeItem(at: journalCopy)
             try? fm.moveItem(at: journalURL, to: journalCopy)
+            let evidenceReused = recordingsOut.filter { $0.evidenceReusedFrom != nil }.map(\.recordingId)
             let report = ExportReport(dataset: name, path: final.path, digest: digest, manifestSha256: datasetManifestSha, splitManifest: manifestOut.splitManifest,
                                       detector: detector, pipelineConfigSha256: configSha, codeSha: options.codeSha, binarySha: options.binarySha,
                                       recordings: recordingsOut.map(\.recordingId),
                                       reused: reused, leftOut: leftOut, preflight: checks,
-                                      labelCounts: Dictionary(State.allCases.map { s in (s.name, recordingsOut.reduce(0) { $0 + ($1.labelCounts[s.name] ?? 0) }) }, uniquingKeysWith: +))
+                                      labelVersion: labelVersion,
+                                      labelCounts: Dictionary(State.allCases.map { s in (s.name, recordingsOut.reduce(0) { $0 + ($1.labelCounts[s.name] ?? 0) }) }, uniquingKeysWith: +),
+                                      negatives: NegativesReport(planned: planned, recordings: recordingsOut),
+                                      evidence: EvidenceReport(source: reuse.map { ReusedDataset(dataset: $0.name, manifestSha256: $0.manifestSha256, digest: $0.digest) },
+                                                               reused: evidenceReused, detectorRun: evidenceRun))
             let reportURL = records.appendingPathComponent("\(stamp)-export.json")
             try encode(report, pretty: true).write(to: reportURL, options: .atomic)
             try reportMarkdown(report).write(to: records.appendingPathComponent("\(stamp)-export.md"), atomically: true, encoding: .utf8)
             return Result(dataset: final, digest: digest, manifestSha256: datasetManifestSha, recordings: recordingsOut.map(\.recordingId),
-                          leftOut: leftOut, reused: reused, plan: planURL, report: reportURL)
+                          leftOut: leftOut, reused: reused, evidenceReused: evidenceReused, plan: planURL, report: reportURL)
         } catch {
             if !fm.fileExists(atPath: final.path) { discard() }
             throw error
@@ -494,6 +556,8 @@ enum RallyClassifierExporter {
         var properties: FootageProperties.File?
         /// The original's content fingerprint read at planning (ProjectsModel.fileFingerprint).
         var fileFingerprint: String
+        /// What the recording's negative-coverage audit record gives the dataset.
+        var audit: AuditUse
     }
 
     static func isSafeName(_ name: String) -> Bool {
@@ -537,8 +601,15 @@ enum RallyClassifierExporter {
         }.sorted()
     }
 
-    /// What a recording's files are made from: if it is the same, a resumed run keeps them.
-    static func inputKey(_ p: Planned) -> String {
+    /// What a recording's evidence and declared labels are made from, as one hash: the recording, its card's
+    /// fingerprint, its file's content, where the file is, the marks, the cuts, the footage properties, the
+    /// eligibility, the footage type and the config with the recording's camera. If it is the same — and the
+    /// audit's use is (`JournalEntry.audit`) — a resumed run keeps the recording's files.
+    ///
+    /// It is also the journal's record of the file a detector run was made from, for a dataset written before the
+    /// manifest carried `evidence` (rc-v1-20261108, rc-v1-20261112): computed with `marksSha256` as such a dataset
+    /// recorded it, an equal key proves everything else in it is unchanged (EvidenceReuse). Its shape must not change.
+    static func inputKey(_ p: Planned, marksSha256: String? = nil) -> String {
         struct Key: Encodable {
             var video: String
             var fingerprint: String?
@@ -551,12 +622,14 @@ enum RallyClassifierExporter {
             var recordingType: String
             var camera: String
         }
-        let key = Key(video: p.video, fingerprint: p.row.fingerprint, fileFingerprint: p.fileFingerprint, sourcePath: p.session.sourcePath, marksSha256: p.marksSha256,
+        let key = Key(video: p.video, fingerprint: p.row.fingerprint, fileFingerprint: p.fileFingerprint, sourcePath: p.session.sourcePath,
+                      marksSha256: marksSha256 ?? p.marksSha256,
                       cuts: p.session.cutRanges, properties: p.properties, eligibility: p.source.eligibility,
                       recordingType: p.source.recordingType.rawValue, camera: ProcessorConfig().withCamera(of: p.session).canonicalSHA256)
-        let data = (try? encode(key)) ?? Data()
-        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        return sha256Hex((try? encode(key)) ?? Data())
     }
+
+    static func sha256Hex(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 
     // MARK: - One recording
 
@@ -573,11 +646,22 @@ enum RallyClassifierExporter {
         var cuts: [SpanDTO]
         var timeBreaking: [TimeBreakingDTO]
         var nonRallyActivity: [SpanDTO]
-        var negatives: Bool
+        /// The only time that may be NON_RALLY: unmarked now and inside an interval a person reviewed clean
+        /// (`trustedSpans`); empty for a recording with no audit record that counts, and for edited footage.
+        var trusted: [CoverageAudit.Span]
         var ignoreTicks: Int
     }
 
     static func tick(_ seconds: Double) -> Int { Int((seconds * Double(timescale)).rounded(.toNearestOrEven)) }
+
+    /// Where the dataset starts a rally: the serve contact when one was marked on it (contacts[0], a serve, inside the
+    /// mark), else the mark's start. `piece` is the rally as RallyTruth keeps it; `records` the sidecar's marks. One
+    /// rule for the dataset's rallies and for the coverage audit's unmarked intervals (CoverageAudit), which must
+    /// agree to the tick.
+    static func rallyStart(_ piece: RallyTruth.Mark, in records: [RallyMarkRecord]) -> Double {
+        let record = records.first { $0.startTime == piece.start && $0.endTime == piece.end && RallyTruth.isRally($0.kind) }
+        return record?.contacts?.first.flatMap { $0.kind == .serve && $0.time >= piece.start && $0.time < piece.end ? $0.time : nil } ?? piece.start
+    }
 
     /// The contract's §5 rule: EXCLUDED > TRANSITION > ACTIVE_RALLY > NON_RALLY_ACTIVITY > NON_RALLY > UNKNOWN.
     static func state(_ tick: Int, _ l: LabelInputs) -> State {
@@ -591,7 +675,7 @@ enum RallyClassifierExporter {
         if l.excluded.contains(where: { abs(tick - $0.startTick) < l.ignoreTicks || abs(tick - $0.endTick) < l.ignoreTicks }) { return .transition }
         if l.rallies.contains(where: { inside($0.startTick, $0.endTick) }) { return .activeRally }
         if l.nonRallyActivity.contains(where: { inside($0.startTick, $0.endTick) }) { return .nonRallyActivity }
-        return l.negatives ? .nonRally : .unknown
+        return l.trusted.contains(where: { inside($0.startTick, $0.endTick) }) ? .nonRally : .unknown
     }
 
     /// A boundary of a cut range or a time-breaking span in `(prev, tick]`: the segment breaks there.
@@ -641,25 +725,68 @@ enum RallyClassifierExporter {
         }
     }
 
-    static func build(_ p: Planned, evidence ev: Evidence, variants: [Variant], config: ProcessorConfig, groupId: String,
-                      exposure: [ExposureDTO]) throws -> Built {
-        let durationTicks = tick(ev.duration)
+    /// A recording's evidence as a dataset keeps it — nothing of it depends on a mark, a cut or an audit: each
+    /// step's time and feature columns as their JSON text, what the record takes from the run, and the decider's
+    /// clips per baseline variant. Made from a detector run (`measure`) or read back from a sealed dataset whose
+    /// evidence is proven to be this recording's (`EvidenceReuse.measured`); `assemble` adds the labels.
+    struct Measured {
+        var steps: [(t: Double, time: String, features: String)]
+        var duration: Double
+        var frameRate: Double
+        var aspect: Double
+        var upright: Bool
+        var net: NetDTO?
+        var baseline: [String: [BaselineClip]]
+        var evidence: EvidenceDTO
+        var reusedFrom: ReusedFromDTO?
+    }
+
+    static func measure(_ ev: Evidence, session: VideoSession, variants: [Variant], config: ProcessorConfig, evidence: EvidenceDTO) -> Measured {
         // Frames in presentation order; a frame at a time already seen is dropped (the steps' times strictly increase).
         var frames: [VideoProcessor.FrameEvidence] = []
         for f in ev.frames.sorted(by: { $0.time < $1.time }) where f.time.isFinite && (frames.last.map { f.time > $0.time } ?? true) { frames.append(f) }
         let net = frames.lazy.compactMap(\.detectedNet).first
+        let emissions = serveEmissions(frames)
+        var steps: [(t: Double, time: String, features: String)] = []
+        steps.reserveCapacity(frames.count)
+        var previous: Double?
+        for (i, f) in frames.enumerated() {
+            let row = featureRow(f, previous: previous, net: net, serve: emissions[i])
+            steps.append((f.time, number(f.time), zip(features, row).map { feature, v in
+                guard let v else { return "null" }
+                return feature.nullable ? number(v) : String(Int(v))
+            }.joined(separator: ",")))
+            previous = f.time
+        }
+        // Baseline: the committed decider (and the variants) on the full evidence as the pipeline produced it — not
+        // the steps, which drop a frame at a time already seen — with each clip's pre-merge raws.
+        var baseline: [String: [BaselineClip]] = [:]
+        for v in variants {
+            let clips = EvidenceReplayer.decidedRallies(evidence: ev.frames, duration: ev.duration, config: v.config.withCamera(of: session),
+                                                        minRallySec: minRallySec, padded: true)
+            baseline[v.name] = clips.map { c in
+                BaselineClip(rawSpans: c.parts.map { BaselineSpan(startTick: tick($0.start), endTick: tick($0.end)) }.filter { $0.startTick < $0.endTick },
+                             startTick: tick(c.range.start), endTick: tick(c.range.end), serveContactTick: c.serve.map { tick($0.contact) })
+            }
+        }
+        return Measured(steps: steps, duration: ev.duration, frameRate: ev.frameRate, aspect: ev.aspect, upright: frames.first?.upright ?? config.applyVideoRotation,
+                        net: net.map { NetDTO(x: Double($0.box.minX), y: Double($0.box.minY), w: Double($0.box.width), h: Double($0.box.height), confidence: $0.confidence) },
+                        baseline: baseline, evidence: evidence, reusedFrom: nil)
+    }
+
+    /// The recording's files and record from its evidence and its truth as it is now: the marks, the cuts, the
+    /// time-breaking spans and the audit's trusted time give every step its segment, label and weight.
+    static func assemble(_ p: Planned, _ m: Measured, groupId: String, exposure: [ExposureDTO]) throws -> Built {
+        let durationTicks = tick(m.duration)
 
         // Truth, in ticks.
         let rallies: [RallyDTO] = p.truth.pieces.filter { RallyTruth.isRally($0.kind) }.map { m in
-            let record = p.records.first { $0.startTime == m.start && $0.endTime == m.end && RallyTruth.isRally($0.kind) }
-            // The serve contact starts the rally when one was marked (contacts[0], a serve), else the mark's start.
-            let contact = record?.contacts?.first.flatMap { $0.kind == .serve && $0.time >= m.start && $0.time < m.end ? $0.time : nil }
-            return RallyDTO(rallyId: nil, startTick: tick(contact ?? m.start), endTick: tick(m.end), kind: "rally",
-                            provenance: m.kind == nil ? "legacy_nil_kind" : "legacy_declared", contactUncertaintyTicks: nil, deadUncertaintyTicks: nil)
+            RallyDTO(rallyId: nil, startTick: tick(rallyStart(m, in: p.records)), endTick: tick(m.end), kind: "rally",
+                     provenance: m.kind == nil ? "legacy_nil_kind" : "legacy_declared", contactUncertaintyTicks: nil, deadUncertaintyTicks: nil)
         }.filter { $0.startTick < $0.endTick }
-        let excluded = p.truth.pieces.filter { !RallyTruth.isRally($0.kind) }.compactMap { m -> SpanDTO? in
-            let s = tick(m.start), e = tick(m.end)
-            return s < e ? SpanDTO(startTick: s, endTick: e, kind: (m.kind ?? .other).rawValue) : nil
+        let excluded = p.truth.pieces.filter { !RallyTruth.isRally($0.kind) }.compactMap { mark -> SpanDTO? in
+            let s = tick(mark.start), e = tick(mark.end)
+            return s < e ? SpanDTO(startTick: s, endTick: e, kind: (mark.kind ?? .other).rawValue) : nil
         }
         let cuts = p.truth.cuts.compactMap { c -> SpanDTO? in
             let s = tick(c.start), e = tick(c.end)
@@ -673,42 +800,26 @@ enum RallyClassifierExporter {
                 timeBreaking.append(TimeBreakingDTO(startTick: s, endTick: e, trait: trait.rawValue, origin: span.origin.rawValue))
             }
         }
-        let negatives = p.source.eligibility.fullVideoNegatives.level == .standard
+        // G7: unmarked time is a negative only where a person reviewed it clean and it is still unmarked.
+        let trusted = trustedSpans(clean: p.audit.clean, marks: p.records, cuts: p.truth.cuts, durationTicks: durationTicks)
         let labels = LabelInputs(rallies: rallies, excluded: excluded, cuts: cuts, timeBreaking: timeBreaking, nonRallyActivity: [],
-                                 negatives: negatives, ignoreTicks: tick(boundaryIgnoreSec))
+                                 trusted: trusted, ignoreTicks: tick(boundaryIgnoreSec))
 
         // Steps.
-        let emissions = serveEmissions(frames)
         var counts = Dictionary(uniqueKeysWithValues: State.allCases.map { ($0.name, 0) })
         var text = ""
-        text.reserveCapacity(frames.count * 160)
+        text.reserveCapacity(m.steps.count * 160)
         var previous: (t: Double, tick: Int)?
         var seg = 0
-        for (i, f) in frames.enumerated() {
-            let k = tick(f.time)
-            if let prev = previous, f.time - prev.t > gapSec || crossesNonFootage(prev.tick, k, labels) { seg += 1 }
+        for step in m.steps {
+            let k = tick(step.t)
+            if let prev = previous, step.t - prev.t > gapSec || crossesNonFootage(prev.tick, k, labels) { seg += 1 }
             let y = state(k, labels)
             counts[y.name, default: 0] += 1
-            let row = featureRow(f, previous: previous?.t, net: net, serve: emissions[i])
-            text += "{\"t\":\(number(f.time)),\"tick\":\(k),\"seg\":\(seg),\"f\":[" + zip(features, row).map { feature, v in
-                guard let v else { return "null" }
-                return feature.nullable ? number(v) : String(Int(v))
-            }.joined(separator: ",") + "],\"y\":\(y.rawValue),\"w\":\(y.weight == 1 ? "1.0" : "0.0")}\n"
-            previous = (f.time, k)
+            text += "{\"t\":\(step.time),\"tick\":\(k),\"seg\":\(seg),\"f\":[\(step.features)],\"y\":\(y.rawValue),\"w\":\(y.weight == 1 ? "1.0" : "0.0")}\n"
+            previous = (step.t, k)
         }
-
-        // Baseline: the committed decider (and the variants) on the full evidence as the pipeline produced it — not
-        // the steps, which drop a frame at a time already seen — with each clip's pre-merge raws.
-        var baseline: [String: [BaselineClip]] = [:]
-        for v in variants {
-            let clips = EvidenceReplayer.decidedRallies(evidence: ev.frames, duration: ev.duration, config: v.config.withCamera(of: p.session),
-                                                        minRallySec: minRallySec, padded: true)
-            baseline[v.name] = clips.map { c in
-                BaselineClip(rawSpans: c.parts.map { BaselineSpan(startTick: tick($0.start), endTick: tick($0.end)) }.filter { $0.startTick < $0.endTick },
-                             startTick: tick(c.range.start), endTick: tick(c.range.end), serveContactTick: c.serve.map { tick($0.contact) })
-            }
-        }
-        let baselineData = try encode(BaselineFile(recordingId: p.video, variants: baseline))
+        let baselineData = try encode(BaselineFile(recordingId: p.video, variants: m.baseline))
 
         let verdict = p.source.eligibility[.rallyClassifier]
         let negativesVerdict = p.source.eligibility.fullVideoNegatives
@@ -717,17 +828,18 @@ enum RallyClassifierExporter {
         let record = Recording(
             recordingId: p.video, sourceId: confirmedSourceId(row), fingerprint: row.fingerprint,
             groupId: groupId, split: row.split.rawValue, fold: nil, surface: row.surface, camera: row.camera, orientation: row.orientation,
-            originKind: row.originKind, uploader: row.uploader, durationSec: ev.duration, frameRateNominal: ev.frameRate, vfr: nil,
-            aspect: ev.aspect, upright: frames.first?.upright ?? config.applyVideoRotation,
-            net: net.map { NetDTO(x: Double($0.box.minX), y: Double($0.box.minY), w: Double($0.box.width), h: Double($0.box.height), confidence: $0.confidence) },
+            originKind: row.originKind, uploader: row.uploader, durationSec: m.duration, frameRateNominal: m.frameRate, vfr: nil,
+            aspect: m.aspect, upright: m.upright, net: m.net,
             recordingType: p.source.recordingType.rawValue,
             eligibility: EligibilityDTO(rallyClassifier: verdict.level.rawValue, fullVideoNegatives: negativesVerdict.level.rawValue, reasons: reasons),
             restrictedUse: verdict.level == .restricted,
-            coverage: CoverageDTO(state: "declared_complete", verifiedCoverageSec: nil),
-            labelProvenance: ProvenanceDTO(method: "legacy_declared", marksSha256: p.marksSha256, rallyEventsSha256: nil),
+            coverage: CoverageDTO(state: "declared_complete", verifiedCoverageSec: nil,
+                                  audit: AuditDTO(state: p.audit.state, auditSha256: p.audit.auditSha256, drawId: p.audit.drawId, cleanIntervals: trusted, findings: p.audit.findings)),
+            labelProvenance: ProvenanceDTO(method: trusted.isEmpty ? "legacy_declared" : "declared_audited", marksSha256: p.marksSha256, rallyEventsSha256: nil),
             rallies: rallies, excludedSpans: excluded, cutRanges: cuts.map { SpanDTO(startTick: $0.startTick, endTick: $0.endTick, kind: nil) },
             timeBreakingSpans: timeBreaking, nonRallyActivitySpans: [], exposure: exposure,
-            stepsFile: "steps/\(p.video).jsonl", stepsSha256: "", stepCount: frames.count, labelCounts: counts,
+            evidence: m.evidence, evidenceReusedFrom: m.reusedFrom,
+            stepsFile: "steps/\(p.video).jsonl", stepsSha256: "", stepCount: m.steps.count, labelCounts: counts,
             baselineFile: "baseline/\(p.video).json", baselineSha256: "")
         return Built(record: record, steps: Data(text.utf8), baseline: baselineData)
     }
@@ -776,6 +888,12 @@ enum RallyClassifierExporter {
         }, "every exported recording's original is fingerprinted and matches none of the \(protectedContent.count) withheld identities")
         check("groups-in-one-split", groupsAcrossSplits(recs.map { (video: $0.recordingId, group: $0.groupId, split: $0.split) }),
               "every recording group sits in one split")
+        check("negatives-audited", recs.compactMap { r in
+            let trusted = r.coverage.audit.cleanIntervals
+            if r.eligibility.fullVideoNegatives != "standard", !trusted.isEmpty { return "\(r.recordingId): trusted intervals on footage that supplies no negatives" }
+            if trusted.isEmpty, (r.labelCounts[State.nonRally.name] ?? 0) > 0 { return "\(r.recordingId): NON_RALLY steps without a reviewed-clean interval" }
+            return (r.labelProvenance.method == "declared_audited") == !trusted.isEmpty ? nil : "\(r.recordingId): labelProvenance.method \(r.labelProvenance.method) does not say whether an audit supplied negatives"
+        }, "a NON_RALLY step only in a recording with reviewed-clean intervals and standard full-video negatives")
         check("admitted-and-eligible", recs.compactMap { r in
             guard let s = registry[r.recordingId] else { return "\(r.recordingId) not in the registry" }
             guard s.admission == .admitted else { return "\(r.recordingId) \(s.admission.rawValue)" }
@@ -786,10 +904,13 @@ enum RallyClassifierExporter {
 
     enum ValidationOutcome: Equatable { case passed, refused([String]), unavailable(String) }
 
-    /// `validate_dataset.py <staging> --withheld <closure> --json`: the repository's validator, the contract's backstop.
-    static func validate(staging: URL, closure: URL, options: Options) async -> (outcome: ValidationOutcome, raw: Data) {
+    /// `validate_dataset.py <staging> --withheld <closure> --project <project> [--evidence-source <dataset>] --json`: the
+    /// repository's validator, the contract's backstop. With the project it reads each audit record itself and holds
+    /// the manifest's trusted intervals against it; with the evidence source, every reused step and clip against it.
+    static func validate(staging: URL, closure: URL, project: URL, evidenceSource: URL?, options: Options) async -> (outcome: ValidationOutcome, raw: Data) {
         guard FileManager.default.fileExists(atPath: options.validator.path) else { return (.unavailable("\(options.validator.path) not found"), Data()) }
-        let run = await ToolEnvironment.run(options.python, ["-I", options.validator.path, staging.path, "--withheld", closure.path, "--json"])
+        let run = await ToolEnvironment.run(options.python, ["-I", options.validator.path, staging.path, "--withheld", closure.path, "--project", project.path]
+                                            + (evidenceSource.map { ["--evidence-source", $0.path] } ?? []) + ["--json"])
         let text = run.lines.joined(separator: "\n")
         guard let start = text.firstIndex(of: "{"), let data = String(text[start...]).data(using: .utf8),
               let report = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let ok = report["ok"] as? Bool else {
@@ -804,7 +925,7 @@ enum RallyClassifierExporter {
     static func closureSha256(_ w: Withheld) -> String {
         func list(_ a: [String]) -> String { "[" + a.sorted().map(pythonString).joined(separator: ",") + "]" }
         let text = "{\"fingerprints\":\(list(w.fingerprints)),\"names\":\(list(w.names)),\"sourceIds\":\(list(w.sourceIds))}"
-        return SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
+        return sha256Hex(Data(text.utf8))
     }
 
     /// A string as Python's `json.dumps` writes it (ensure_ascii).
@@ -863,7 +984,26 @@ enum RallyClassifierExporter {
         md += "| Detector | \(r.detector.name) `\(r.detector.canonicalDigest)` |\n| Config SHA-256 | `\(r.pipelineConfigSha256)` |\n| Code | `\(r.codeSha)` |\n| Executable SHA-256 | `\(r.binarySha)` |\n\n"
         md += "Recordings: \(r.recordings.count)" + (r.reused.isEmpty ? "" : " (\(r.reused.count) kept from a run cut short)") + " · left out: \(r.leftOut.count)\n\n"
         md += "Steps by label: " + State.allCases.map { "\($0.name) \(r.labelCounts[$0.name] ?? 0)" }.joined(separator: " · ") + "\n\n"
-        md += "| Preflight check | Passed | Detail |\n|---|---|---|\n" + r.preflight.map { "| \($0.name) | \($0.passed ? "yes" : "NO") | \($0.detail) |" }.joined(separator: "\n") + "\n"
+        md += "| Preflight check | Passed | Detail |\n|---|---|---|\n" + r.preflight.map { "| \($0.name) | \($0.passed ? "yes" : "NO") | \($0.detail) |" }.joined(separator: "\n") + "\n\n"
+        let n = r.negatives
+        func sec(_ v: Double) -> String { String(format: "%.1f", v) }
+        md += "## Trusted negatives (\(r.labelVersion))\n\n"
+        md += "A step is NON_RALLY only inside an interval a person reviewed clean in the negative-coverage audit that is still unmarked; every other unmarked step is UNKNOWN.\n\n"
+        md += "Trusted \(sec(n.trustedNegativeSec)) s of \(sec(n.unmarkedSec)) s unmarked · NON_RALLY steps \(n.nonRallySteps) · groups contributing negatives: \(n.groupsWithTrustedNegatives.count) of \(n.groups)"
+        md += n.groupsWithTrustedNegatives.isEmpty ? "\n\n" : " (\(n.groupsWithTrustedNegatives.joined(separator: ", ")))\n\n"
+        md += "| Recording | Group | Type | Audit | Unmarked s | Trusted s | NON_RALLY steps | Note |\n|---|---|---|---|---|---|---|---|\n"
+        md += n.recordings.map { "| \($0.video) | \($0.groupId) | \($0.recordingType) | \($0.auditState) | \(sec($0.unmarkedSec)) | \(sec($0.trustedNegativeSec)) | \($0.nonRallySteps) | \($0.note ?? "") |" }
+            .joined(separator: "\n") + "\n\n"
+        md += "## Evidence\n\n"
+        if let source = r.evidence.source {
+            md += "Reused from `\(source.dataset)` (manifest `\(source.manifestSha256)`, digest `\(source.digest)`) for \(r.evidence.reused.count) recording(s), each proven to be that dataset's recording; labels, segments and weights made now.\n\n"
+            if !r.evidence.detectorRun.isEmpty {
+                md += "The detector ran on \(r.evidence.detectorRun.count) recording(s) whose evidence could not be proven:\n\n"
+                    + r.evidence.detectorRun.map { "- \($0.video): \($0.reason)" }.joined(separator: "\n") + "\n"
+            }
+        } else {
+            md += "The detector ran on every recording; no stored evidence was reused.\n"
+        }
         return md
     }
 
@@ -1047,6 +1187,49 @@ enum RallyClassifierExporter {
     struct CoverageDTO: Codable, Equatable {
         var state: String
         @Null var verifiedCoverageSec: Double?
+        var audit: AuditDTO
+    }
+
+    /// The negative-coverage audit as the dataset used it (contract §2.2): `cleanIntervals` are the trusted ones —
+    /// reviewed clean and unmarked at export — and the only time a step is NON_RALLY.
+    struct AuditDTO: Codable, Equatable {
+        /// `audited_clean` · `partial` · `contaminated` (CoverageAudit.state), or `none` without a record that counts.
+        var state: String
+        @Null var auditSha256: String?
+        @Null var drawId: String?
+        var cleanIntervals: [CoverageAudit.Span]
+        /// The findings that count (after the repeat and its resolution), by kind.
+        var findings: [String: Int]
+    }
+
+    /// The detector run a recording's steps and baseline come from (contract §2.3): enough for a later export to
+    /// prove, from the manifest alone, that this evidence is a recording's.
+    struct EvidenceDTO: Codable, Equatable {
+        /// The content fingerprint (ProjectsModel.fileFingerprint) of the file the detector ran on.
+        var sourceFingerprint: String
+        /// The config it ran at: the committed one with the recording's camera applied.
+        var configSha256: String
+        /// The commit of the build that ran the detector (an earlier export's, when the evidence was reused).
+        var codeSha: String
+    }
+
+    /// Whose stored evidence a recording's is, and what proved it (contract §2.3).
+    struct ReusedFromDTO: Codable, Equatable {
+        var dataset: String
+        var manifestSha256: String
+        var digest: String
+        /// The source's files the evidence was read from, as its manifest hashes them.
+        var stepsSha256: String
+        var baselineSha256: String
+        var detector: Detector
+        var pipelineConfigSha256: String
+        var featureVersion: String
+        /// The recording's file at this export: equal to the one the source's detector ran on.
+        var sourceFingerprint: String
+        var durationSec: Double
+        /// `manifest`: the source's manifest records that fingerprint and config. `journal`: the source export's
+        /// journal commits to them (`inputKey`).
+        var identityProof: String
     }
 
     struct ProvenanceDTO: Codable, Equatable {
@@ -1114,6 +1297,8 @@ enum RallyClassifierExporter {
         var timeBreakingSpans: [TimeBreakingDTO]
         var nonRallyActivitySpans: [SpanDTO]
         var exposure: [ExposureDTO]
+        var evidence: EvidenceDTO
+        @Null var evidenceReusedFrom: ReusedFromDTO?
         var stepsFile: String
         var stepsSha256: String
         var stepCount: Int
@@ -1177,10 +1362,19 @@ enum RallyClassifierExporter {
         var pipelineConfigSha256: String
         var detector: Detector
         var variants: [VariantDTO]
+        var reuse: ReuseIdentity?
+    }
+
+    /// The dataset a run takes evidence from: a resume must be given the same one.
+    struct ReuseIdentity: Codable, Equatable {
+        var dataset: String
+        var manifestSha256: String
     }
 
     struct JournalEntry: Codable, Equatable {
         var inputKey: String
+        /// The audit's use the record's labels were made with: a resume keeps the files only under the same one.
+        var audit: AuditUse
         var record: Recording
     }
 
@@ -1203,7 +1397,65 @@ enum RallyClassifierExporter {
         var reused: [String]
         var leftOut: [LeftOut]
         var preflight: [Check]
+        var labelVersion: String
         var labelCounts: [String: Int]
+        var negatives: NegativesReport
+        var evidence: EvidenceReport
+    }
+
+    /// Where the dataset's negatives come from (G7): per recording the seconds no mark covers and how many of them a
+    /// person reviewed clean, and the groups that contribute any — what gate G6 counts.
+    struct NegativesReport: Codable, Equatable {
+        struct Row: Codable, Equatable {
+            var video: String
+            var groupId: String
+            var recordingType: String
+            var fullVideoNegatives: String
+            var auditState: String
+            var unmarkedSec: Double
+            var trustedNegativeSec: Double
+            var nonRallySteps: Int
+            /// Why the audit record supplies nothing (none, void, edited footage); nil when it is used.
+            var note: String?
+        }
+        var recordings: [Row]
+        var unmarkedSec: Double
+        var trustedNegativeSec: Double
+        var nonRallySteps: Int
+        var groups: Int
+        /// The groups with at least one NON_RALLY step.
+        var groupsWithTrustedNegatives: [String]
+
+        init(planned: [Planned], recordings: [Recording]) {
+            let byVideo = Dictionary(planned.map { ($0.video, $0) }, uniquingKeysWith: { a, _ in a })
+            self.recordings = recordings.map { r in
+                let unmarked = byVideo[r.recordingId].map { CoverageAudit.unmarkedIntervals(marks: $0.records, cuts: $0.truth.cuts, durationTicks: tick(r.durationSec)) } ?? []
+                return Row(video: r.recordingId, groupId: r.groupId, recordingType: r.recordingType, fullVideoNegatives: r.eligibility.fullVideoNegatives,
+                           auditState: r.coverage.audit.state, unmarkedSec: CoverageAudit.seconds(unmarked.reduce(0) { $0 + $1.span.ticks }),
+                           trustedNegativeSec: CoverageAudit.seconds(r.coverage.audit.cleanIntervals.reduce(0) { $0 + $1.ticks }),
+                           nonRallySteps: r.labelCounts[State.nonRally.name] ?? 0, note: byVideo[r.recordingId]?.audit.note)
+            }
+            unmarkedSec = self.recordings.reduce(0) { $0 + $1.unmarkedSec }
+            trustedNegativeSec = self.recordings.reduce(0) { $0 + $1.trustedNegativeSec }
+            nonRallySteps = self.recordings.reduce(0) { $0 + $1.nonRallySteps }
+            groups = Set(recordings.map(\.groupId)).count
+            groupsWithTrustedNegatives = Set(self.recordings.filter { $0.nonRallySteps > 0 }.map(\.groupId)).sorted()
+        }
+    }
+
+    struct ReusedDataset: Codable, Equatable {
+        var dataset: String
+        var manifestSha256: String
+        var digest: String
+    }
+
+    /// Where the dataset's evidence comes from: the sealed dataset given to `reuseEvidenceFrom` (nil without one),
+    /// the recordings whose evidence is its, and the ones the detector ran on in the last run although it was
+    /// given, each with what could not be proven.
+    struct EvidenceReport: Codable, Equatable {
+        @Null var source: ReusedDataset?
+        var reused: [String]
+        var detectorRun: [LeftOut]
     }
 
     // MARK: - The live detector
@@ -1226,6 +1478,11 @@ enum RallyClassifierExporter {
         let aspect = abs(upright.height) > 0 ? abs(upright.width) / abs(upright.height) : 0
         return Evidence(frames: processor.frameEvidence, duration: processor.lastVideoDurationSec, frameRate: Double(rate), aspect: Double(aspect),
                         detector: processor.loadedHeatmapModel)
+    }
+
+    /// The recording's duration as the pipeline reads it (`VideoProcessor.analyzeVideo`: the asset's).
+    static func liveDuration(_ session: VideoSession) async throws -> Double {
+        CMTimeGetSeconds(try await AVURLAsset(url: URL(fileURLWithPath: session.sourcePath)).load(.duration))
     }
 
     /// The commit this RallyLab build was compiled from (the Record Source Revision build phase writes

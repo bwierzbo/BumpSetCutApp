@@ -135,6 +135,11 @@ def prepare(dataset_dir: str, folds_file: str, withheld: str | None, net: str) -
     if not report.ok:
         raise Refused(f"the dataset does not validate ({len(report.errors)} error(s)): " + "; ".join(report.errors[:5]))
     manifest = v.load_manifest(dataset_dir)
+    labels = manifest["labelSchema"]["version"]
+    if labels != v.LABEL_VERSION:
+        # The validator reads rally_activity_truth_v2 (audited negatives); this trainer's scoring and identity are v1's.
+        raise Refused(f"the dataset's label schema is {labels!r}; this trainer reads {v.LABEL_VERSION} only — a "
+                      f"{v.LABEL_VERSION_V2} dataset needs the trainer that applies the negative-coverage gate")
     variants = {var["name"]: var["settings"] for var in manifest["baseline"]["variants"]}
     for name, named in (("r0", COMMITTED), ("r0_prime", D029)):
         if name in variants and {k: variants[name][k] for k in named} != named:
