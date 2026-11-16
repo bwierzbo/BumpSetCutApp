@@ -386,6 +386,20 @@ maintainer = "implementer"
 decisions = ["D-016", "D-017"]
 triggers = ["scripts/provenance_review.py"]
 
+[[item]]
+id = "CI-BSC-037"
+name = "Negative-coverage audit protocol for rc-v1-20261112"
+type = "process"
+path = "docs/ml-roadmap/RALLY_CLASSIFIER_COVERAGE_AUDIT_PROTOCOL.md"
+lifecycle = "active"
+change_class = "frozen"
+approval = "owner"
+maintainer = "implementer"
+decisions = ["D-001", "D-002", "D-021", "D-028", "D-030", "D-032", "D-033", "D-036", "D-037"]
+sources = ["docs/ml-roadmap/RALLY_CLASSIFIER_DATASET_CONTRACT.md", "docs/ml-roadmap/experiments/EXP-20261103-temporal-rally-classifier-prereg.md"]
+frozen_sha256 = "bdb28442173588d25581ce904a78005e1c3b4d88f880864ca5ae5182c1293eab"
+notes = "Frozen on the owner's authorisation of 2026-11-14: the sample, the verdicts, the record and the pass/fail criterion are fixed before any draw. Every draw file records this file's SHA-256 and commit (scripts/rally_classifier/coverage_audit_draw.py refuses an unfrozen or uncommitted protocol). Results go into their own record; a change is a new document that supersedes this one."
+
 # ---------------------------------------------------------------- product and release (milestone 4 groundwork)
 
 [[item]]
