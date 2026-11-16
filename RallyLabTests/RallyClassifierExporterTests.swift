@@ -2,11 +2,14 @@
 //  RallyClassifierExporterTests.swift
 //  RallyLabTests
 //
-//  The rally-classifier dataset (rally_classifier_dataset_v1): a synthetic project on disk, synthetic detector
-//  evidence, the whole operation — guards, plan, steps, labels, baseline, preflight, the repository's validator,
-//  the ledger — and every refusal: a closure that proves nothing, a stale manifest, a withheld or shared identity,
-//  an unconfirmed footage type, missing footage, a validator that refuses or can't run, a ledger that can't be
-//  written. Nothing here runs the detector on a real video.
+//  The rally-classifier dataset (rally_classifier_dataset_v1, labels rally_activity_truth_v2): a synthetic project
+//  on disk, synthetic detector evidence, the whole operation — guards, plan, steps, labels, baseline, preflight, the
+//  repository's validator, the ledger — and every refusal: a closure that proves nothing, a stale manifest, a
+//  withheld or shared identity, an unconfirmed footage type, missing footage, a validator that refuses or can't
+//  run, a ledger that can't be written. Trusted negatives (G7): unmarked time is NON_RALLY only inside an interval
+//  the recording's audit record says clean and that is still unmarked — a record that is absent, void, of edited
+//  footage or unreadable gives none. Evidence reuse: a sealed dataset's steps and clips, taken only where proven.
+//  The matched baseline r0_no_net_rule. Nothing here runs the detector on a real video.
 //
 
 import CoreGraphics
@@ -122,18 +125,110 @@ final class RallyClassifierExporterTests: XCTestCase {
         var o = X.Options(name: name, out: out, resume: resume, validator: validator ?? self.validator, codeSha: String(repeating: "a", count: 40),
                           binarySha: String(repeating: "c", count: 64), tool: "test", now: now)
         o.python = python
+        o.duration = { _ in 60 }        // the fixture's footage is not a video: its duration is the synthetic evidence's
         return o
+    }
+
+    /// A later export (`minutes` after the fixture's time: its own plan and report), taking evidence from `source`.
+    private func reusing(_ source: URL, as name: String, minutes: Double = 1) -> X.Options {
+        var o = options(name)
+        o.reuseEvidenceFrom = source
+        o.now = now.addingTimeInterval(minutes * 60)
+        return o
+    }
+
+    // MARK: - Fixture: the negative-coverage audit
+
+    /// The fixture's unmarked intervals at a Spec's default marks, in ticks (60 s): what a draw holds for it.
+    private let unmarked: [(Int, Int)] = [(0, 3000), (7200, 12000), (18600, 20400), (21600, 24000), (28800, 36000)]
+
+    private enum Look {
+        case clean, unreviewed
+        case found(CoverageAudit.FindingKind)
+    }
+
+    /// A frozen draw holding `name` with the fixture's unmarked intervals, and its audit record beside the footage:
+    /// one first review per interval as `looks` says (a clean one played whole at 2×). Returns the record's URL.
+    @discardableResult
+    private func audit(_ name: String, _ looks: [Look] = [.clean, .clean, .clean, .clean, .clean], reviewedAt: String = "2026-11-14T12:30:00Z",
+                       mutate: (inout CoverageAudit.File) -> Void = { _ in }) throws -> URL {
+        let content = try XCTUnwrap(ProjectsModel.fileFingerprint(atPath: footage(name).path))
+        let drawId = "20261114-120000"
+        let draw: [String: Any] = [
+            "schemaVersion": CoverageAudit.drawVersion, "drawId": drawId, "dataset": ["name": "Fixture-rc-0", "timescale": 600],
+            "recordings": [["recordingId": name, "groupId": name, "contentFingerprint": content, "marksSha256": "marks-at-the-draw", "durationTicks": 36000,
+                            "intervals": unmarked.enumerated().map { ["index": $0.offset, "startTick": $0.element.0, "endTick": $0.element.1] },
+                            "repeatIndices": [Int]()] as [String: Any]],
+        ]
+        let draws = CoverageAudit.drawsDirectory(in: root)
+        try FileManager.default.createDirectory(at: draws, withIntermediateDirectories: true)
+        let drawURL = draws.appendingPathComponent("\(drawId)-\(name)-draw.json")
+        try JSONSerialization.data(withJSONObject: draw, options: [.sortedKeys]).write(to: drawURL)
+        var file = CoverageAudit.File(recordingId: name, sourceFingerprint: content, drawId: drawId, drawSha256: try XCTUnwrap(DatasetSplitManifest.sha256(of: drawURL)),
+                                      datasetName: "Fixture-rc-0", marksSha256: "marks-at-the-review", tool: "test")
+        for (i, look) in looks.enumerated() {
+            var findings: [CoverageAudit.Finding] = []
+            switch look {
+            case .unreviewed: continue
+            case .clean: break
+            case .found(let kind): findings = [CoverageAudit.Finding(kind: kind, note: kind == .uncertain ? "occluded" : nil)]
+            }
+            file.intervals.append(CoverageAudit.Review(index: i, startTick: unmarked[i].0, endTick: unmarked[i].1, verdict: findings.isEmpty ? .clean : .notClean,
+                                                       reviewer: "BW", reviewedAt: reviewedAt, playedAllAtMaxRate: 2, findings: findings))
+        }
+        mutate(&file)
+        let url = CoverageAudit.url(forVideo: footage(name))
+        try CoverageAudit.write(file, to: url)
+        return url
+    }
+
+    /// A dataset's steps for one recording: the tick, the label, and the time and feature columns as written.
+    private func steps(_ dataset: URL, _ name: String) throws -> [(tick: Int, y: Int, evidence: String)] {
+        try String(contentsOf: dataset.appendingPathComponent("steps/\(name).jsonl"), encoding: .utf8).split(separator: "\n").map { line in
+            let step = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+            let tickAt = try XCTUnwrap(line.range(of: ",\"tick\":")), open = try XCTUnwrap(line.range(of: ",\"f\":[")), close = try XCTUnwrap(line.range(of: "],\"y\":"))
+            return (try XCTUnwrap(step["tick"] as? Int), try XCTUnwrap(step["y"] as? Int), String(line[..<tickAt.lowerBound]) + "|" + String(line[open.upperBound..<close.lowerBound]))
+        }
+    }
+
+    /// The label of the step nearest `second` (the steps are 1/30 s apart).
+    private func label(_ steps: [(tick: Int, y: Int, evidence: String)], at second: Double) throws -> X.State {
+        let tick = X.tick(second)
+        return try XCTUnwrap(X.State(rawValue: try XCTUnwrap(steps.min { abs($0.tick - tick) < abs($1.tick - tick) }).y))
+    }
+
+    private func recording(_ dataset: URL, _ name: String) throws -> [String: Any] {
+        let recs = try XCTUnwrap(try json(dataset.appendingPathComponent("dataset-manifest.json"))["recordings"] as? [[String: Any]])
+        return try XCTUnwrap(recs.first { $0["recordingId"] as? String == name })
+    }
+
+    private func audit(of rec: [String: Any]) throws -> [String: Any] { try XCTUnwrap((rec["coverage"] as? [String: Any])?["audit"] as? [String: Any]) }
+
+    private func cleanIntervals(_ rec: [String: Any]) throws -> [[Int]] {
+        try XCTUnwrap(try audit(of: rec)["cleanIntervals"] as? [[String: Int]]).map { [$0["startTick"] ?? -1, $0["endTick"] ?? -1] }
+    }
+
+    /// The export report written at `stamp` (the fixture's time unless a later export).
+    private func report(_ stamp: String = "20261107-180000") throws -> [String: Any] {
+        try json(root.appendingPathComponent("manifests/rally-classifier/\(stamp)-export.json"))
+    }
+
+    private func negativesNote(_ report: [String: Any], _ name: String) throws -> String? {
+        let rows = try XCTUnwrap((report["negatives"] as? [String: Any])?["recordings"] as? [[String: Any]])
+        return try XCTUnwrap(rows.first { $0["video"] as? String == name })["note"] as? String
     }
 
     /// 60 s at 30 Hz: the ball in flight inside the rallies (a bouncing arc above the net), nothing between — every
     /// detection the multi-frame model's, which loaded (`detector`), unless `yolo` says otherwise.
-    private func evidence(duration: Double = 60, detector: URL? = ProcessorConfig().heatmapModel, yolo: Bool = false) -> X.Evidence {
+    /// `lowRally`: the rally (by index) whose ball bounces, arc after arc, without once rising above the net's top.
+    private func evidence(duration: Double = 60, detector: URL? = ProcessorConfig().heatmapModel, yolo: Bool = false, lowRally: Int? = nil) -> X.Evidence {
         let net = DetectedNet(box: CGRect(x: 0.2, y: 0.4, width: 0.6, height: 0.1), confidence: 0.8)
         var frames: [VideoProcessor.FrameEvidence] = []
         var t = 0.0
         while t < duration {
-            let inRally = rallyTimes.contains { $0.0 <= t && t < $0.1 }
-            let y = 0.7 + 0.2 * abs(sin(t * .pi))
+            let rally = rallyTimes.firstIndex { $0.0 <= t && t < $0.1 }
+            let inRally = rally != nil
+            let y = (rally == lowRally && inRally ? 0.15 : 0.7) + 0.2 * abs(sin(t * .pi))
             let point = CGPoint(x: 0.5, y: y)
             let detection = VideoProcessor.BallDetection(bbox: CGRect(x: 0.49, y: y - 0.01, width: 0.02, height: 0.02), confidence: 0.9, isOffCourt: false,
                                                          fromHeatmap: !yolo)
@@ -175,6 +270,7 @@ final class RallyClassifierExporterTests: XCTestCase {
                      Spec(name: "grs_b", split: "val", type: .edited),
                      Spec(name: "bch_c", spans: [replay]),
                      Spec(name: "ind_u", type: nil)])
+        try audit("bch_a")          // every unmarked interval of bch_a reviewed clean; bch_c has no audit record
         let calls = Calls()
         let result = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(calls))
         XCTAssertEqual(result.recordings.sorted(), ["bch_a", "bch_c", "grs_b"])
@@ -198,7 +294,9 @@ final class RallyClassifierExporterTests: XCTestCase {
         let withheldFile = try XCTUnwrap(ProjectsModel.fileFingerprint(atPath: footage("bch_w").path))
         XCTAssertEqual(withheld["fingerprints"] as? [String], [withheldFile, "youtube:bch_w"].sorted(), "the card's identity and the file's content")
         let variants = try XCTUnwrap((m["baseline"] as? [String: Any])?["variants"] as? [[String: Any]])
-        XCTAssertEqual(variants.map { $0["name"] as? String }, ["r0", "r0_prime"])
+        XCTAssertEqual(variants.map { $0["name"] as? String }, ["r0", "r0_prime", "r0_no_net_rule"])
+        XCTAssertEqual(m["schemaVersion"] as? String, "rally_classifier_dataset_v1")
+        XCTAssertEqual((m["labelSchema"] as? [String: Any])?["version"] as? String, "rally_activity_truth_v2")
         let recs = try XCTUnwrap(m["recordings"] as? [[String: Any]])
         let a = try XCTUnwrap(recs.first { $0["recordingId"] as? String == "bch_a" })
         XCTAssertTrue(a.keys.contains("sourceId") && a["sourceId"] is NSNull, "a null is written, not left out")
@@ -212,6 +310,39 @@ final class RallyClassifierExporterTests: XCTestCase {
         XCTAssertGreaterThan(((a["labelCounts"] as? [String: Int])?["NON_RALLY"]) ?? 0, 0)
         let c = try XCTUnwrap(recs.first { $0["recordingId"] as? String == "bch_c" })
         XCTAssertEqual((c["timeBreakingSpans"] as? [[String: Any]])?.map { $0["trait"] as? String }, ["replay"], "a proposed replay restricts like a confirmed one")
+
+        // Trusted negatives: bch_a's come from its audit record (its cut at 0.3–1.0 s splits the first clean interval);
+        // bch_c, continuous and declared complete but never audited, has none.
+        XCTAssertEqual(try audit(of: a)["state"] as? String, "audited_clean")
+        XCTAssertEqual(try audit(of: a)["auditSha256"] as? String, DatasetSplitManifest.sha256(of: CoverageAudit.url(forVideo: footage("bch_a"))))
+        XCTAssertEqual(try audit(of: a)["drawId"] as? String, "20261114-120000")
+        XCTAssertEqual(try cleanIntervals(a), [[0, 180], [600, 3000], [7200, 12000], [18600, 20400], [21600, 24000], [28800, 36000]])
+        XCTAssertEqual((a["labelProvenance"] as? [String: Any])?["method"] as? String, "declared_audited")
+        XCTAssertEqual(try audit(of: c)["state"] as? String, "none")
+        XCTAssertTrue(try audit(of: c)["auditSha256"] is NSNull)
+        XCTAssertEqual((c["labelCounts"] as? [String: Int])?["NON_RALLY"], 0, "a declaration alone gives no negative")
+        XCTAssertGreaterThan((c["labelCounts"] as? [String: Int])?["UNKNOWN"] ?? 0, 0)
+        XCTAssertEqual((c["labelProvenance"] as? [String: Any])?["method"] as? String, "legacy_declared")
+        // The evidence's own identity, for a later export to prove a reuse from.
+        let made = try XCTUnwrap(a["evidence"] as? [String: Any])
+        XCTAssertEqual(made["sourceFingerprint"] as? String, ProjectsModel.fileFingerprint(atPath: footage("bch_a").path))
+        XCTAssertEqual(made["codeSha"] as? String, String(repeating: "a", count: 40))
+        XCTAssertTrue(a["evidenceReusedFrom"] is NSNull)
+        // The validator read the audit record itself, through the project.
+        XCTAssertEqual(((report["info"] as? [String: Any])?["negatives"] as? [String: Any])?["auditRecordsChecked"] as? Int, 1)
+        // The export report: seconds trusted against seconds unmarked, per recording and in all, and the groups.
+        let exported = try self.report()
+        let negatives = try XCTUnwrap(exported["negatives"] as? [String: Any])
+        XCTAssertEqual(negatives["groupsWithTrustedNegatives"] as? [String], ["bch_a"])
+        XCTAssertEqual(negatives["groups"] as? Int, 3)
+        let rowA = try XCTUnwrap((negatives["recordings"] as? [[String: Any]])?.first { $0["video"] as? String == "bch_a" })
+        XCTAssertEqual(try XCTUnwrap(rowA["trustedNegativeSec"] as? Double), 31.3, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(rowA["unmarkedSec"] as? Double), 31.3, accuracy: 1e-9)
+        XCTAssertNil(try negativesNote(exported, "bch_a"))
+        XCTAssertEqual(try negativesNote(exported, "bch_c"), "no coverage-audit record: positives only")
+        XCTAssertTrue(try XCTUnwrap(try negativesNote(exported, "grs_b")).contains("no coverage-audit record"))
+        let text = try String(contentsOf: root.appendingPathComponent("manifests/rally-classifier/20261107-180000-export.md"), encoding: .utf8)
+        XCTAssertTrue(text.contains("groups contributing negatives: 1 of 3") && text.contains("The detector ran on every recording"), text)
 
         // The ledger: one training_package row per exported recording, none for the rest.
         let rows = try ledger()
@@ -628,15 +759,18 @@ final class RallyClassifierExporterTests: XCTestCase {
                                                     contactUncertaintyTicks: nil, deadUncertaintyTicks: nil)],
                               excluded: [X.SpanDTO(startTick: 12000, endTick: 13000, kind: "missedServe")],
                               cuts: [X.SpanDTO(startTick: 20000, endTick: 20005, kind: nil)], timeBreaking: [], nonRallyActivity: [],
-                              negatives: true, ignoreTicks: ignore)
+                              trusted: [CoverageAudit.Span(startTick: 6500, endTick: 16000)], ignoreTicks: ignore)
         XCTAssertEqual(X.state(7000, l), .activeRally)
         XCTAssertEqual(X.state(6100, l), .transition)
         XCTAssertEqual(X.state(12500, l), .excluded)
         XCTAssertEqual(X.state(11900, l), .transition, "the band around an excluded span's edge")
-        XCTAssertEqual(X.state(15000, l), .nonRally)
+        XCTAssertEqual(X.state(15000, l), .nonRally, "inside a trusted interval")
+        XCTAssertEqual(X.state(16000, l), .unknown, "a trusted interval is half-open")
+        XCTAssertEqual(X.state(17000, l), .unknown, "unmarked and outside every trusted interval")
         var unknown = l
-        unknown.negatives = false
+        unknown.trusted = []
         XCTAssertEqual(X.state(15000, unknown), .unknown)
+        XCTAssertEqual(X.state(7000, unknown), .activeRally)
         // A cut of 5 ticks falls between frames at 19990 and 20010: the boundary test breaks the segment.
         XCTAssertTrue(X.crossesNonFootage(19990, 20010, l))
         XCTAssertFalse(X.crossesNonFootage(20010, 20030, l))
@@ -654,6 +788,413 @@ final class RallyClassifierExporterTests: XCTestCase {
         XCTAssertEqual(X.variant(named: "r0_prime")?.config.canonicalSHA256 == ProcessorConfig().canonicalSHA256, false)
         XCTAssertTrue(ProcessorConfig().canonicalJSON.hasPrefix("{\"parabolaMinPoints\":4,"), ProcessorConfig().canonicalJSON)
         XCTAssertFalse(ProcessorConfig().canonicalJSON.contains("heatmapModel"))
+    }
+
+    // MARK: - Trusted negatives (G7)
+
+    func testOnlyAnIntervalReviewedCleanSuppliesNegatives() async throws {
+        try project([Spec(name: "bch_a")])
+        // 0–5 s clean; 12–20 s holds a missed rally; 31–34 s not reviewed yet; 36–40 s clean; 48–60 s uncertain.
+        try audit("bch_a", [.clean, .found(.missedRally), .unreviewed, .clean, .found(.uncertain)])
+        let result = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(Calls()))
+        let labels = try steps(result.dataset, "bch_a")
+        XCTAssertEqual(try label(labels, at: 2), .nonRally, "inside an interval reviewed clean")
+        XCTAssertEqual(try label(labels, at: 4.8), .transition, "the ignore band around a rally's start is unchanged")
+        XCTAssertEqual(try label(labels, at: 8), .activeRally)
+        XCTAssertEqual(try label(labels, at: 16), .unknown, "an interval with a finding is not clean")
+        XCTAssertEqual(try label(labels, at: 32.5), .unknown, "an interval nobody reviewed")
+        XCTAssertEqual(try label(labels, at: 35), .excluded)
+        XCTAssertEqual(try label(labels, at: 38), .nonRally)
+        XCTAssertEqual(try label(labels, at: 55), .unknown, "an uncertain interval")
+        let rec = try recording(result.dataset, "bch_a")
+        XCTAssertEqual(try cleanIntervals(rec), [[0, 3000], [21600, 24000]])
+        XCTAssertEqual(try audit(of: rec)["state"] as? String, "contaminated", "a missed rally outranks the intervals still open")
+        XCTAssertEqual(try audit(of: rec)["findings"] as? [String: Int], ["missed_rally": 1, "uncertain": 1])
+        XCTAssertEqual((rec["labelProvenance"] as? [String: Any])?["method"] as? String, "declared_audited")
+        // Every NON_RALLY step lies in one of the two clean intervals.
+        XCTAssertTrue(labels.filter { $0.y == X.State.nonRally.rawValue }.allSatisfy { (0..<3000).contains($0.tick) || (21600..<24000).contains($0.tick) })
+    }
+
+    func testMarksChangedAfterTheReviewTrustOnlyWhatWasReviewedCleanAndIsStillUnmarked() async throws {
+        try project([Spec(name: "bch_a")])
+        try audit("bch_a")      // every interval between the marks as they were, reviewed clean
+        // Afterwards the first rally is shortened to end at 10 s (10–12 s was under the mark at the review) and a rally
+        // is marked at 14–16 s, inside the interval reviewed clean.
+        let marks = [RallyMarkRecord(startTime: 5, endTime: 10, kind: .rally, contacts: nil), RallyMarkRecord(startTime: 14, endTime: 16, kind: .rally, contacts: nil),
+                     RallyMarkRecord(startTime: 20, endTime: 31, kind: nil, contacts: nil), RallyMarkRecord(startTime: 34, endTime: 36, kind: .missedServe, contacts: nil),
+                     RallyMarkRecord(startTime: 40, endTime: 48, kind: .rally, contacts: nil)]
+        try JSONEncoder().encode(marks).write(to: RallyMarkModel.labelsURL(for: footage("bch_a")))
+        let result = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(Calls()))
+        let labels = try steps(result.dataset, "bch_a")
+        XCTAssertEqual(try label(labels, at: 11), .unknown, "unmarked now, but under a mark when the interval was reviewed: in no clean interval")
+        XCTAssertEqual(try label(labels, at: 13), .nonRally, "a part of a clean interval is clean")
+        XCTAssertEqual(try label(labels, at: 15), .activeRally)
+        XCTAssertEqual(try label(labels, at: 18), .nonRally)
+        let rec = try recording(result.dataset, "bch_a")
+        XCTAssertEqual(try cleanIntervals(rec), [[0, 3000], [7200, 8400], [9600, 12000], [18600, 20400], [21600, 24000], [28800, 36000]],
+                       "(the time unmarked now) ∩ (the intervals reviewed clean)")
+        XCTAssertEqual(X.trustedSpans(clean: [CoverageAudit.Span(startTick: 7200, endTick: 12000)],
+                                      marks: marks, cuts: [],
+                                      durationTicks: 9000),
+                       [CoverageAudit.Span(startTick: 7200, endTick: 8400)], "and inside the recording")
+    }
+
+    func testAVoidAuditRecordIsTreatedAsAbsentAndTheReportSaysWhy() async throws {
+        try project([Spec(name: "bch_a"), Spec(name: "bch_c"), Spec(name: "bch_d"), Spec(name: "bch_e"), Spec(name: "bch_ok")])
+        // bch_a: a record of another file (the footage was replaced after the review).
+        try audit("bch_a") { $0.sourceFingerprint = "file:the-file-that-was-reviewed" }
+        // bch_c: not valid — a clean verdict on an interval that was not played whole.
+        let invalid = try audit("bch_c")
+        var raw = try json(invalid)
+        var reviews = try XCTUnwrap(raw["intervals"] as? [[String: Any]])
+        reviews[0]["playedAllAtMaxRate"] = nil
+        raw["intervals"] = reviews
+        try JSONSerialization.data(withJSONObject: raw).write(to: invalid)
+        // bch_d: its draw is not in the project as the record hashed it.
+        try audit("bch_d")
+        try Data("{}".utf8).write(to: CoverageAudit.drawsDirectory(in: root).appendingPathComponent("20261114-120000-bch_d-draw.json"))
+        // bch_e: another recording's record, copied beside it.
+        try FileManager.default.copyItem(at: try audit("bch_ok"), to: CoverageAudit.url(forVideo: footage("bch_e")))
+
+        let result = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(Calls()))
+        XCTAssertEqual(result.recordings.sorted(), ["bch_a", "bch_c", "bch_d", "bch_e", "bch_ok"], "a void record is no error: positives only")
+        let exported = try report()
+        for (name, why) in [("bch_a", "not the one that was reviewed"), ("bch_c", "not valid"), ("bch_d", "its draw"), ("bch_e", "bch_ok's record")] {
+            let rec = try recording(result.dataset, name)
+            XCTAssertEqual((rec["labelCounts"] as? [String: Int])?["NON_RALLY"], 0, name)
+            XCTAssertEqual(try audit(of: rec)["state"] as? String, "none", name)
+            XCTAssertEqual(try cleanIntervals(rec), [], name)
+            XCTAssertEqual((rec["labelProvenance"] as? [String: Any])?["method"] as? String, "legacy_declared", name)
+            let note = try XCTUnwrap(try negativesNote(exported, name), name)
+            XCTAssertTrue(note.contains("void") && note.contains(why), note)
+        }
+        XCTAssertGreaterThan((try recording(result.dataset, "bch_ok")["labelCounts"] as? [String: Int])?["NON_RALLY"] ?? 0, 0)
+        XCTAssertEqual((exported["negatives"] as? [String: Any])?["groupsWithTrustedNegatives"] as? [String], ["bch_ok"])
+    }
+
+    func testAnAuditRecordThatCantBeReadStopsThatRecordingAndIsNeverTakenAsNoAudit() async throws {
+        try project([Spec(name: "bch_a"), Spec(name: "bch_c"), Spec(name: "bch_ok")])
+        try Data("half a rec".utf8).write(to: CoverageAudit.url(forVideo: footage("bch_a")))
+        var newer = try json(try audit("bch_c"))
+        newer["annotationVersion"] = "coverage_audit_v3"       // a record of a later build: not half-read
+        try JSONSerialization.data(withJSONObject: newer).write(to: CoverageAudit.url(forVideo: footage("bch_c")))
+        let calls = Calls()
+        let result = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(calls))
+        XCTAssertEqual(result.recordings, ["bch_ok"])
+        XCTAssertEqual(calls.names, ["bch_ok"], "the detector never ran on a recording whose record could not be read")
+        XCTAssertEqual(result.leftOut.map(\.video).sorted(), ["bch_a", "bch_c"])
+        XCTAssertTrue(result.leftOut.allSatisfy { $0.reason.contains("coverage-audit record can't be read") && $0.reason.contains("not taken as no audit") }, "\(result.leftOut)")
+        XCTAssertEqual(Set(try ledger().map(\.video)), ["bch_ok"])
+    }
+
+    func testEditedFootageSuppliesNoNegativeWhateverItsAuditRecordSays() async throws {
+        try project([Spec(name: "grs_b", type: .edited), Spec(name: "bch_ok")])
+        try audit("grs_b")
+        let result = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(Calls()))
+        let rec = try recording(result.dataset, "grs_b")
+        XCTAssertEqual((rec["eligibility"] as? [String: Any])?["fullVideoNegatives"] as? String, "restricted")
+        XCTAssertEqual((rec["labelCounts"] as? [String: Int])?["NON_RALLY"], 0)
+        XCTAssertEqual(try cleanIntervals(rec), [])
+        XCTAssertEqual(try audit(of: rec)["state"] as? String, "audited_clean", "what the record says is told; none of it is used")
+        XCTAssertEqual((rec["labelProvenance"] as? [String: Any])?["method"] as? String, "legacy_declared")
+        XCTAssertTrue(try XCTUnwrap(try negativesNote(try report(), "grs_b")).contains("not eligible for full-video negatives"))
+    }
+
+    func testEditedFootageFoundByTheAuditSuppliesNothingUntilTheTypeIsConfirmedAgain() async throws {
+        try project([Spec(name: "bch_a")])
+        // The type was confirmed continuous on 7 November; on the 14th the audit found a replay in 12–20 s.
+        try audit("bch_a", [.clean, .found(.editedFootage), .clean, .clean, .clean])
+        let first = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(Calls()))
+        var rec = try recording(first.dataset, "bch_a")
+        XCTAssertEqual((rec["labelCounts"] as? [String: Int])?["NON_RALLY"], 0)
+        XCTAssertEqual(try cleanIntervals(rec), [])
+        XCTAssertEqual(try audit(of: rec)["state"] as? String, "audited_clean")
+        XCTAssertEqual(try audit(of: rec)["findings"] as? [String: Int], ["edited_footage": 1])
+        XCTAssertTrue(try XCTUnwrap(try negativesNote(try report(), "bch_a")).contains("found edited footage"))
+        // A person confirms the type again after the finding: the clean intervals count (the replay's own never does).
+        try FootageProperties.Store(root: root).save(FootageProperties.File(video: "bch_a", sourceFingerprint: "youtube:bch_a", recordingType: .continuous,
+                                                                            recordingTypeBy: "BW", recordingTypeAt: "2026-11-15T09:00:00Z", updatedAt: "2026-11-15T09:00:00Z"))
+        var later = options("Fixture-rc-2")
+        later.now = now.addingTimeInterval(60)
+        let second = try await X.export(projectDir: root, manifestURL: manifestURL, options: later, evidence: source(Calls()))
+        rec = try recording(second.dataset, "bch_a")
+        XCTAssertEqual(try cleanIntervals(rec), [[0, 3000], [18600, 20400], [21600, 24000], [28800, 36000]])
+        XCTAssertGreaterThan((rec["labelCounts"] as? [String: Int])?["NON_RALLY"] ?? 0, 0)
+    }
+
+    func testARecordingWithAStage1BoundaryRecordIsStillLeftOut() async throws {
+        // The Stage 1 path is as it was: this exporter reads declared marks only, so such a recording is not exported
+        // (and no audit record is read for it).
+        try project([Spec(name: "bch_a"), Spec(name: "bch_s")])
+        try Data("{}".utf8).write(to: EventReview.url(forVideo: footage("bch_s")))
+        try Data("not a record".utf8).write(to: CoverageAudit.url(forVideo: footage("bch_s")))
+        let result = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(Calls()))
+        XCTAssertEqual(result.recordings, ["bch_a"])
+        XCTAssertTrue(try XCTUnwrap(result.leftOut.first { $0.video == "bch_s" }).reason.contains("Stage 1 boundary record"))
+    }
+
+    // MARK: - The matched baseline (A10)
+
+    func testTheMatchedBaselineHoldsTheClipTheAboveNetRuleDropsAndEveryR0ClipUnchanged() async throws {
+        try project([Spec(name: "bch_a")])
+        // The second rally's ball never rises above the net's top: arc after arc below it, which the rule drops.
+        let result = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(Calls(), evidence: evidence(lowRally: 1)))
+        let m = try json(result.dataset.appendingPathComponent("dataset-manifest.json"))
+        let variants = try XCTUnwrap((m["baseline"] as? [String: Any])?["variants"] as? [[String: Any]])
+        let r0 = try XCTUnwrap(variants.first { $0["name"] as? String == "r0" }), matched = try XCTUnwrap(variants.first { $0["name"] as? String == "r0_no_net_rule" })
+        XCTAssertEqual(r0["configSha256"] as? String, m["pipelineConfigSha256"] as? String, "r0 stays the committed decider: the primary baseline")
+        XCTAssertNotEqual(matched["configSha256"] as? String, r0["configSha256"] as? String, "its own config hash")
+        XCTAssertEqual(matched["settings"] as? NSDictionary, r0["settings"] as? NSDictionary, "r0's settings: only the rule differs")
+        var off = ProcessorConfig()
+        off.enableAboveNetRequirement = false
+        XCTAssertEqual(matched["configSha256"] as? String, off.canonicalSHA256)
+        XCTAssertEqual(X.variant(named: "r0_no_net_rule")?.config.canonicalSHA256, off.canonicalSHA256)
+
+        let file = try JSONDecoder().decode(X.BaselineFile.self, from: Data(contentsOf: result.dataset.appendingPathComponent("baseline/bch_a.json")))
+        let kept = try XCTUnwrap(file.variants["r0"]), all = try XCTUnwrap(file.variants["r0_no_net_rule"])
+        func overlapsSecondRally(_ c: X.BaselineClip) -> Bool { c.startTick < X.tick(31) && X.tick(20) < c.endTick }
+        XCTAssertFalse(kept.isEmpty)
+        XCTAssertFalse(kept.contains(where: overlapsSecondRally), "r0 lacks the clip the rule dropped")
+        XCTAssertEqual(all.filter(overlapsSecondRally).count, 1, "the matched baseline holds it")
+        XCTAssertTrue(kept.allSatisfy(all.contains), "every r0 clip is in the no-rule variant unchanged")
+        XCTAssertEqual(all.count, kept.count + 1)
+        // Without a rally the rule drops, the two variants hold the same clips.
+        var plain = options("Fixture-rc-2")
+        plain.now = now.addingTimeInterval(60)
+        let same = try await X.export(projectDir: root, manifestURL: manifestURL, options: plain, evidence: source(Calls()))
+        let both = try JSONDecoder().decode(X.BaselineFile.self, from: Data(contentsOf: same.dataset.appendingPathComponent("baseline/bch_a.json")))
+        XCTAssertEqual(both.variants["r0"], both.variants["r0_no_net_rule"])
+    }
+
+    // MARK: - Evidence reuse
+
+    func testASealedDatasetsEvidenceIsReusedWhereProvenAndTheLabelsAreMadeNow() async throws {
+        try project([Spec(name: "bch_a"), Spec(name: "grs_b", split: "val", type: .edited)])
+        let first = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(Calls()))
+        let sealed = try XCTUnwrap(DatasetSplitManifest.canonicalFileHashes(ofDirectory: first.dataset)).map { "\($0.path) \($0.sha256)" }
+        let before = try steps(first.dataset, "bch_a")
+        XCTAssertFalse(before.contains { $0.y == X.State.nonRally.rawValue }, "no audit yet: no negative")
+
+        // Since then: bch_a was audited, and a rally was marked inside 12–20 s.
+        try audit("bch_a")
+        var marks = Spec(name: "bch_a").marks
+        marks.append(RallyMarkRecord(startTime: 14, endTime: 16, kind: .rally, contacts: nil))
+        try JSONEncoder().encode(marks).write(to: RallyMarkModel.labelsURL(for: footage("bch_a")))
+        let calls = Calls()
+        let second = try await X.export(projectDir: root, manifestURL: manifestURL, options: reusing(first.dataset, as: "Fixture-rc-2"), evidence: source(calls))
+        XCTAssertEqual(calls.names, [], "the detector ran on nothing")
+        XCTAssertEqual(second.evidenceReused, ["bch_a", "grs_b"])
+
+        // The times and feature columns are the source's, text for text; the labels are of the project as it is now.
+        let after = try steps(second.dataset, "bch_a")
+        XCTAssertEqual(after.map(\.evidence), before.map(\.evidence))
+        XCTAssertEqual(after.map(\.tick), before.map(\.tick))
+        XCTAssertEqual(try label(after, at: 15), .activeRally)
+        XCTAssertEqual(try label(before, at: 15), .unknown)
+        XCTAssertEqual(try label(after, at: 2), .nonRally)
+        XCTAssertEqual(try Data(contentsOf: second.dataset.appendingPathComponent("baseline/bch_a.json")), try Data(contentsOf: first.dataset.appendingPathComponent("baseline/bch_a.json")))
+
+        // The record of it: whose evidence, the proof, and the commit whose detector made it.
+        let rec = try recording(second.dataset, "bch_a"), source = try recording(first.dataset, "bch_a")
+        let from = try XCTUnwrap(rec["evidenceReusedFrom"] as? [String: Any])
+        XCTAssertEqual(from["dataset"] as? String, "Fixture-rc-1")
+        XCTAssertEqual(from["manifestSha256"] as? String, first.manifestSha256)
+        XCTAssertEqual(from["digest"] as? String, first.digest)
+        XCTAssertEqual(from["stepsSha256"] as? String, source["stepsSha256"] as? String)
+        XCTAssertEqual(from["baselineSha256"] as? String, source["baselineSha256"] as? String)
+        XCTAssertEqual(from["identityProof"] as? String, "manifest")
+        XCTAssertEqual(from["sourceFingerprint"] as? String, ProjectsModel.fileFingerprint(atPath: footage("bch_a").path))
+        XCTAssertEqual(from["pipelineConfigSha256"] as? String, ProcessorConfig().canonicalSHA256)
+        XCTAssertEqual(rec["evidence"] as? NSDictionary, source["evidence"] as? NSDictionary)
+        XCTAssertNotEqual(rec["stepsSha256"] as? String, source["stepsSha256"] as? String, "the labels changed, so the file did")
+        for key in ["durationSec", "frameRateNominal", "aspect", "upright", "net", "stepCount"] { XCTAssertEqual(rec[key] as? NSObject, source[key] as? NSObject, key) }
+
+        // The validator compared the reused evidence with the source itself; the source was only read.
+        let validation = try json(root.appendingPathComponent("manifests/rally-classifier/20261107-180100-validation.json"))
+        XCTAssertEqual(validation["ok"] as? Bool, true, "\(validation["errors"] ?? "")")
+        let checked = try XCTUnwrap((validation["info"] as? [String: Any])?["evidence"] as? [String: Any])
+        XCTAssertEqual(checked["reused"] as? Int, 2)
+        XCTAssertEqual(checked["checkedAgainstSource"] as? Bool, true)
+        XCTAssertEqual(try XCTUnwrap(DatasetSplitManifest.canonicalFileHashes(ofDirectory: first.dataset)).map { "\($0.path) \($0.sha256)" }, sealed, "the sealed dataset is untouched")
+        let exported = try report("20261107-180100")
+        XCTAssertEqual(((exported["evidence"] as? [String: Any])?["source"] as? [String: Any])?["digest"] as? String, first.digest)
+        XCTAssertEqual((exported["evidence"] as? [String: Any])?["reused"] as? [String], ["bch_a", "grs_b"])
+        // Both exports are on the ledger; the second names its own dataset.
+        XCTAssertEqual(Set(try ledger().map(\.ref)), ["--export-rally-classifier-dataset Fixture-rc-1", "--export-rally-classifier-dataset Fixture-rc-2"])
+    }
+
+    /// A copy of `dataset` as one written before the manifest carried `evidence` (rc-v1-20261112's shape), under its own name.
+    private func withoutEvidenceFields(_ dataset: URL) throws -> URL {
+        let copy = base.appendingPathComponent("before-evidence/\(dataset.lastPathComponent)", isDirectory: true)
+        try FileManager.default.createDirectory(at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: dataset, to: copy)
+        try rewriteManifest(copy) { m in
+            m["recordings"] = (m["recordings"] as? [[String: Any]])?.map { r in
+                var r = r
+                r["evidence"] = nil
+                r["evidenceReusedFrom"] = nil
+                return r
+            }
+        }
+        return copy
+    }
+
+    private func rewriteManifest(_ dataset: URL, _ change: (inout [String: Any]) -> Void) throws {
+        let url = dataset.appendingPathComponent("dataset-manifest.json")
+        var m = try json(url)
+        change(&m)
+        try JSONSerialization.data(withJSONObject: m, options: [.sortedKeys]).write(to: url)
+    }
+
+    func testADatasetWrittenBeforeTheManifestCarriedTheFileIsProvenThroughItsExportsJournal() async throws {
+        try project([Spec(name: "bch_a"), Spec(name: "bch_c")])
+        let first = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(Calls()))
+        let old = try withoutEvidenceFields(first.dataset)
+        // The marks of bch_a changed since; nothing else did. The journal's key, recomputed with the marks hash the
+        // source recorded, still opens: the file, its path, the cuts, the footage properties and the camera are the same.
+        var marks = Spec(name: "bch_a").marks
+        marks.append(RallyMarkRecord(startTime: 14, endTime: 16, kind: .rally, contacts: nil))
+        try JSONEncoder().encode(marks).write(to: RallyMarkModel.labelsURL(for: footage("bch_a")))
+        // bch_c's footage type was confirmed again since: its key no longer opens, so its file is not proven.
+        try FootageProperties.Store(root: root).save(FootageProperties.File(video: "bch_c", sourceFingerprint: "youtube:bch_c", recordingType: .continuous,
+                                                                            recordingTypeBy: "BW", recordingTypeAt: "2026-11-15T09:00:00Z", updatedAt: "2026-11-15T09:00:00Z"))
+        let calls = Calls()
+        let second = try await X.export(projectDir: root, manifestURL: manifestURL, options: reusing(old, as: "Fixture-rc-2"), evidence: source(calls))
+        XCTAssertEqual(calls.names, ["bch_c"], "the detector ran on the one recording whose file was not proven")
+        XCTAssertEqual(second.evidenceReused, ["bch_a"])
+        let from = try XCTUnwrap(try recording(second.dataset, "bch_a")["evidenceReusedFrom"] as? [String: Any])
+        XCTAssertEqual(from["identityProof"] as? String, "journal")
+        XCTAssertEqual((try recording(second.dataset, "bch_a")["evidence"] as? [String: Any])?["codeSha"] as? String, String(repeating: "a", count: 40), "the source's generator made it")
+        XCTAssertTrue(try recording(second.dataset, "bch_c")["evidenceReusedFrom"] is NSNull)
+        let run = try XCTUnwrap(((try report("20261107-180100")["evidence"] as? [String: Any])?["detectorRun"] as? [[String: Any]])?.first)
+        XCTAssertEqual(run["video"] as? String, "bch_c")
+        XCTAssertTrue((run["reason"] as? String ?? "").contains("journal's key does not match"), "\(run)")
+
+        // Without that export's journal nothing proves the file: the detector runs on both.
+        try FileManager.default.removeItem(at: root.appendingPathComponent("manifests/rally-classifier/Fixture-rc-1-journal.json"))
+        let third = Calls()
+        _ = try await X.export(projectDir: root, manifestURL: manifestURL, options: reusing(old, as: "Fixture-rc-3", minutes: 2), evidence: source(third))
+        XCTAssertEqual(third.names, ["bch_a", "bch_c"])
+    }
+
+    func testEvidenceIsNotReusedForARecordingWhoseProofFails() async throws {
+        try project([Spec(name: "bch_a"), Spec(name: "bch_c"), Spec(name: "bch_d"), Spec(name: "bch_e")])
+        let first = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(Calls()))
+        // A copy of the sealed dataset in which bch_c's steps are not the bytes its manifest hashes, and bch_d is missing.
+        let copy = base.appendingPathComponent("copy/Fixture-rc-1", isDirectory: true)
+        try FileManager.default.createDirectory(at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: first.dataset, to: copy)
+        let tampered = copy.appendingPathComponent("steps/bch_c.jsonl")
+        try (try Data(contentsOf: tampered) + Data("\n".utf8)).write(to: tampered)
+        try FileManager.default.removeItem(at: copy.appendingPathComponent("steps/bch_d.jsonl"))
+        try FileManager.default.removeItem(at: copy.appendingPathComponent("baseline/bch_d.json"))
+        try rewriteManifest(copy) { m in m["recordings"] = (m["recordings"] as? [[String: Any]])?.filter { $0["recordingId"] as? String != "bch_d" } }
+        // bch_a's footage was replaced since the source was made; bch_e's file now reports another duration.
+        try Data("another file of bch_a, re-downloaded".utf8).write(to: footage("bch_a"))
+        var o = reusing(copy, as: "Fixture-rc-2")
+        o.duration = { $0.name == "bch_e" ? 61 : 60 }
+        let calls = Calls()
+        let second = try await X.export(projectDir: root, manifestURL: manifestURL, options: o, evidence: source(calls))
+        XCTAssertEqual(calls.names, ["bch_a", "bch_c", "bch_d", "bch_e"], "each ran the detector, as without the option")
+        XCTAssertEqual(second.evidenceReused, [])
+        let runs = try XCTUnwrap((try report("20261107-180100")["evidence"] as? [String: Any])?["detectorRun"] as? [[String: String]])
+        let why = Dictionary(uniqueKeysWithValues: runs.map { ($0["video"] ?? "", $0["reason"] ?? "") })
+        XCTAssertTrue(why["bch_a"]?.contains("content fingerprint") == true, "\(why)")
+        XCTAssertTrue(why["bch_c"]?.contains("does not hash") == true, "\(why)")
+        XCTAssertTrue(why["bch_d"]?.contains("not in Fixture-rc-1") == true, "\(why)")
+        XCTAssertTrue(why["bch_e"]?.contains("duration") == true, "\(why)")
+        XCTAssertTrue(try recording(second.dataset, "bch_a")["evidenceReusedFrom"] is NSNull)
+    }
+
+    func testADatasetWhoseEvidenceIsNotThisBuildsIsRefusedWholeBeforeAnyVideoIsRead() async throws {
+        try project([Spec(name: "bch_a")])
+        var narrow = options()
+        narrow.variants = ["r0", "r0_prime"]        // as rc-v1-20261112 was exported
+        let first = try await X.export(projectDir: root, manifestURL: manifestURL, options: narrow, evidence: source(Calls()))
+        func refused(_ o: X.Options, _ expect: String, line: UInt = #line) async {
+            let calls = Calls()
+            do {
+                _ = try await X.export(projectDir: root, manifestURL: manifestURL, options: o, evidence: source(calls))
+                XCTFail("reused evidence that is not this build's", line: line)
+            } catch let f as X.Failure {
+                guard case .reuseRefused(let why) = f else { return XCTFail("\(f)", line: line) }
+                XCTAssertTrue(why.contains(expect), why, line: line)
+            } catch { XCTFail("\(error)", line: line) }
+            XCTAssertEqual(calls.names, [], line: line)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: out.appendingPathComponent(".staging-\(o.name)").path), line: line)
+        }
+        // A variant the source lacks can't be made from it: the dataset stores clips, not the frames they are replayed from.
+        await refused(reusing(first.dataset, as: "Fixture-rc-2"), "no baseline variant r0_no_net_rule")
+        // With the source's own variants the same reuse goes through.
+        var same = reusing(first.dataset, as: "Fixture-rc-2")
+        same.variants = ["r0", "r0_prime"]
+        let calls = Calls()
+        let second = try await X.export(projectDir: root, manifestURL: manifestURL, options: same, evidence: source(calls))
+        XCTAssertEqual(calls.names, [])
+        XCTAssertEqual(second.evidenceReused, ["bch_a"])
+
+        // Another detector, config, feature schema or dataset schema; no manifest; the folder being written.
+        func changed(_ label: String, _ change: (inout [String: Any]) -> Void) throws -> X.Options {
+            let copy = base.appendingPathComponent("\(label)/Fixture-rc-1", isDirectory: true)
+            try FileManager.default.createDirectory(at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: first.dataset, to: copy)
+            try rewriteManifest(copy, change)
+            var o = reusing(copy, as: "Fixture-rc-3", minutes: 2)
+            o.variants = ["r0", "r0_prime"]
+            return o
+        }
+        let detector = try changed("detector") { $0["detector"] = ["name": "ball_heat", "canonicalDigest": "0000000000000000"] }
+        await refused(detector, "detector")
+        let config = try changed("config") { $0["pipelineConfigSha256"] = String(repeating: "0", count: 64) }
+        await refused(config, "another pipeline config")
+        let features = try changed("features") { m in
+            var schema = m["featureSchema"] as? [String: Any] ?? [:]
+            schema["version"] = "rcf_v0"
+            m["featureSchema"] = schema
+        }
+        await refused(features, "feature schema")
+        let schema = try changed("schema") { $0["schemaVersion"] = "rally_classifier_dataset_v0" }
+        await refused(schema, "schemaVersion")
+        let variantConfig = try changed("variant-config") { m in
+            var block = m["baseline"] as? [String: Any] ?? [:]
+            block["variants"] = (block["variants"] as? [[String: Any]])?.map { v in
+                var v = v
+                if v["name"] as? String == "r0_prime" { v["configSha256"] = String(repeating: "1", count: 64) }
+                return v
+            }
+            m["baseline"] = block
+        }
+        await refused(variantConfig, "no baseline variant r0_prime")
+        var none = reusing(base.appendingPathComponent("no-such-dataset"), as: "Fixture-rc-3", minutes: 2)
+        none.variants = ["r0", "r0_prime"]
+        await refused(none, "no readable dataset-manifest.json")
+        var itself = reusing(out.appendingPathComponent("Fixture-rc-3"), as: "Fixture-rc-3", minutes: 2)
+        itself.variants = ["r0", "r0_prime"]
+        await refused(itself, "the dataset being written")
+    }
+
+    func testAResumeMustBeGivenTheSameEvidenceSource() async throws {
+        try project([Spec(name: "bch_a"), Spec(name: "grs_b", split: "val")])
+        let first = try await X.export(projectDir: root, manifestURL: manifestURL, options: options(), evidence: source(Calls()))
+        // A reuse cut short in grs_b (its file was replaced, so the detector ran on it — and failed).
+        try Data("another file of grs_b".utf8).write(to: footage("grs_b"))
+        _ = try? await X.export(projectDir: root, manifestURL: manifestURL, options: reusing(first.dataset, as: "Fixture-rc-2"), evidence: source(Calls(), failing: "grs_b"))
+        let staging = out.appendingPathComponent(".staging-Fixture-rc-2", isDirectory: true)
+        var without = options("Fixture-rc-2", resume: staging)
+        without.now = now.addingTimeInterval(120)
+        do {
+            _ = try await X.export(projectDir: root, manifestURL: manifestURL, options: without, evidence: source(Calls()))
+            XCTFail("resumed a reuse without its source")
+        } catch let f as X.Failure {
+            guard case .resumeMismatch = f else { return XCTFail("\(f)") }
+        }
+        var with = reusing(first.dataset, as: "Fixture-rc-2", minutes: 3)
+        with.resume = staging
+        let calls = Calls()
+        let result = try await X.export(projectDir: root, manifestURL: manifestURL, options: with, evidence: source(calls))
+        XCTAssertEqual(calls.names, ["grs_b"])
+        XCTAssertEqual(result.reused, ["bch_a"], "kept from the run cut short")
+        XCTAssertEqual(result.evidenceReused, ["bch_a"], "and still recorded as the source's evidence")
     }
 
     // MARK: - The builder's pre-merge raws (C3)
