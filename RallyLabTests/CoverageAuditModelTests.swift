@@ -87,7 +87,7 @@ final class CoverageAuditModelTests: XCTestCase {
     private func model() async throws -> CoverageAuditModel {
         try writeDraw(["v", "w"])
         // Nobody signed in, whatever session the test host keeps: the reviewer is the typed name.
-        let model = CoverageAuditModel(sampler: SamplerModel(defaults: defaults, root: root), tool: "RallyLab test", signedIn: { .nobody })
+        let model = CoverageAuditModel(sampler: SamplerModel(defaults: defaults, root: root), tool: "RallyLab test", defaults: defaults, signedIn: { .nobody })
         model.typedName = "bw"
         model.activate()
         // Until the account is told, no verdict would be taken.
@@ -263,7 +263,7 @@ final class CoverageAuditModelTests: XCTestCase {
         }
         let account = Account()
         try writeDraw(["v", "w"])
-        let model = CoverageAuditModel(sampler: SamplerModel(defaults: defaults, root: root), tool: "RallyLab test", signedIn: { account.get() })
+        let model = CoverageAuditModel(sampler: SamplerModel(defaults: defaults, root: root), tool: "RallyLab test", defaults: defaults, signedIn: { account.get() })
         model.typedName = "bw"
         model.activate()
         model.openDraw(try XCTUnwrap(model.drawFiles.first))
@@ -317,6 +317,30 @@ final class CoverageAuditModelTests: XCTestCase {
         model.setPass(.first)
         XCTAssertEqual(model.visibleIntervals.map(\.index), [0, 1])
         model.deactivate()
+    }
+
+    func testTheTabReopensItsDrawAtTheFirstIntervalToReviewAndCountsTheWholeDraw() async throws {
+        let model = try await model()
+        try await wait("the statuses") { model.totals != nil }
+        XCTAssertEqual(model.totals?.hasPrefix("0 of 4 intervals reviewed · 4 to go · 0 of 2 recordings done · findings: none"), true, model.totals ?? "nil")
+        await model.open("v")
+        try await wait("interval 0 to play through") { !model.isPlaying }
+        model.markClean()
+        try await wait("the clean") { !model.busy && model.intervalIndex == 1 }
+        try await wait("the totals") { model.totals?.hasPrefix("1 of 4 intervals reviewed · 3 to go") == true }
+        model.setPass(.repeatLook)
+        XCTAssertEqual(model.totals, "second looks: 0 of 2", "the repeat's own counts only")
+        model.setPass(.first)
+        model.deactivate()
+        // Relaunched: a new model with the same preferences reopens the draw and puts the first interval to review on
+        // screen, without playing it.
+        let again = CoverageAuditModel(sampler: SamplerModel(defaults: defaults, root: root), tool: "RallyLab test", defaults: defaults, signedIn: { .nobody })
+        again.typedName = "bw"
+        again.activate()
+        try await wait("the draw and the first interval to review") { again.recordingId == "v" && again.intervalIndex == 1 }
+        XCTAssertEqual(again.draw?.draw.drawId, "20261114-120000")
+        XCTAssertFalse(again.isPlaying, "put on screen, not played")
+        again.deactivate()
     }
 
     func testWhatOneReviewerWatchedNeverCountsForAnother() async throws {
