@@ -106,13 +106,40 @@ final class CoverageAuditModel {
     /// What was open when the tab was left, to come back to.
     @ObservationIgnored private var resume: (recordingId: String, index: Int?)?
     @ObservationIgnored private var statusTask: Task<Void, Never>?
+    /// Which draw was open last in each project: the tab reopens it (`RallyLab.audit.lastDraw.<project folder>`).
+    @ObservationIgnored private let defaults: UserDefaults
 
     init(sampler: SamplerModel,
          tool: String = "RallyLab " + (RallyClassifierExporter.buildRevision() ?? Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"),
+         defaults: UserDefaults = .standard,
          signedIn: @escaping @Sendable () async -> SignedIn = { await CoverageAuditModel.signedInLabeler() }) {
         self.sampler = sampler
         self.tool = tool
+        self.defaults = defaults
         lookUpSignedIn = signedIn
+    }
+
+    static func lastDrawKey(for root: URL) -> String { "RallyLab.audit.lastDraw." + root.standardizedFileURL.path }
+
+    /// The draw's progress for the pass on screen, summed over its recordings. In the repeat pass only the repeat's
+    /// own counts: nothing of the first verdicts.
+    var totals: String? {
+        guard draw != nil, !statuses.isEmpty else { return nil }
+        switch pass {
+        case .first:
+            let total = statuses.reduce(0) { $0 + $1.total }, reviewed = statuses.reduce(0) { $0 + $1.reviewed }
+            let left = statuses.reduce(0) { $0 + $1.firstLeft }
+            var findings: [CoverageAudit.FindingKind: Int] = [:]
+            for s in statuses { findings.merge(s.findings, uniquingKeysWith: +) }
+            let done = statuses.filter { $0.problem == nil && $0.firstLeft == 0 }.count
+            return "\(reviewed) of \(total) intervals reviewed · \(left) to go · \(done) of \(statuses.count) recordings done"
+                + " · findings: " + (findings.isEmpty ? "none" : CoverageAudit.countsText(findings))
+        case .repeatLook:
+            return "second looks: \(statuses.reduce(0) { $0 + $1.repeatDone }) of \(statuses.reduce(0) { $0 + $1.repeatOwed })"
+        case .resolution:
+            let left = statuses.reduce(0) { $0 + $1.resolveLeft }
+            return left == 0 ? "nothing to resolve" : "\(left) disagreement(s) to resolve"
+        }
     }
 
     /// The labeling account of this Mac: its id once the session is in use; when a session is kept but not yet
@@ -143,6 +170,17 @@ final class CoverageAuditModel {
         if let resume {
             self.resume = nil
             Task { await open(resume.recordingId, at: resume.index, play: false) }
+        } else if draw == nil, let name = defaults.string(forKey: Self.lastDrawKey(for: root)),
+                  let url = drawFiles.first(where: { $0.lastPathComponent == name }) {
+            // The draw that was open last: reopened, and the first interval to review put on screen — not played.
+            openDraw(url)
+            // Dropped if anything opens or closes meanwhile (generation): leaving the tab, or a recording picked by hand.
+            let mine = generation
+            Task { [weak self] in
+                await self?.statusTask?.value
+                guard let self, self.generation == mine, self.draw?.url == url, self.recordingId == nil else { return }
+                await self.nextToReview(play: false)
+            }
         }
     }
 
@@ -160,6 +198,7 @@ final class CoverageAuditModel {
         do {
             draw = try CoverageAudit.loadDraw(url)
             drawRoot = root
+            defaults.set(url.lastPathComponent, forKey: Self.lastDrawKey(for: root))
             statuses = []
             status = "Draw \(draw?.draw.drawId ?? "") — pick a recording, or Return for the next interval to review."
             lastRefused = false
@@ -344,11 +383,12 @@ final class CoverageAuditModel {
     }
 
     /// Return: the next interval the pass on screen has no verdict on — in this recording, then in the draw's next.
-    func nextToReview() async {
+    /// `play: false` puts it on screen without starting it (the tab reopening its draw).
+    func nextToReview(play: Bool = true) async {
         guard draw != nil else { return }
         // Findings recorded before the interval had played whole, and it has by now: said on the verdict first.
         if let interval, let look = currentLook, look.verdict == .notClean, !look.playedWhole, played.covers(interval.span) { _ = await commit(.playedWhole).value }
-        if let next = firstOpen(after: intervalIndex) ?? firstOpen(after: nil), next != intervalIndex { select(next); return }
+        if let next = firstOpen(after: intervalIndex) ?? firstOpen(after: nil), next != intervalIndex { select(next, play: play); return }
         let names = statuses.map(\.recordingId)
         let from = recordingId.flatMap(names.firstIndex(of:)).map { $0 + 1 } ?? 0
         let order = Array(statuses[min(from, statuses.count)...] + statuses[..<min(from, statuses.count)])
@@ -357,7 +397,7 @@ final class CoverageAuditModel {
             say(interval.map { needsLook($0.index) } == true ? "This is the last interval to review in this pass: play it whole, then its verdict." : "Nothing left to review in this pass.")
             return
         }
-        await open(target.recordingId)
+        await open(target.recordingId, play: play)
     }
 
     // MARK: - Playback

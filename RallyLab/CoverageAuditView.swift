@@ -59,6 +59,7 @@ struct CoverageAuditView: View {
                 Text("No draw in manifests/coverage-audit/ — the draw tool (scripts/rally_classifier/coverage_audit_draw.py) writes one.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            if let totals = model.totals { Text(totals).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
             Picker("Pass", selection: Binding(get: { model.pass }, set: { model.setPass($0) })) {
                 Text("Review").tag(CoverageAudit.Pass.first)
                 Text("Repeat").tag(CoverageAudit.Pass.repeatLook)
