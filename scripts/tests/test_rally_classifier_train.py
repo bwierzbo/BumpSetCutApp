@@ -657,5 +657,20 @@ class TCN(unittest.TestCase):
         self.assertEqual(sorted(os.listdir(out)), ["readiness.json", "readiness.md"])
 
 
+class LabelSchemas(unittest.TestCase):
+    def test_an_audited_v2_dataset_is_refused_before_anything_is_read(self):
+        tmp = tempfile.mkdtemp(prefix="rc-train-v2-")
+        try:
+            dataset = os.path.join(tmp, "Synthetic-v2")
+            v.write_synthetic(dataset, seed=1, label_version=v.LABEL_VERSION_V2)
+            closure = syn.write_closure(tmp, dataset)
+            code, _, err = quiet(train.main, argv(dataset, closure, os.path.join(tmp, "no-folds.json"), os.path.join(tmp, "run"), "r1", "present", "--dry-run"))
+            self.assertEqual(code, 1)
+            self.assertIn(f"label schema is '{v.LABEL_VERSION_V2}'; this trainer reads {v.LABEL_VERSION} only", err)
+            self.assertFalse(os.path.exists(os.path.join(tmp, "run")))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()
