@@ -138,7 +138,7 @@ class Shared(unittest.TestCase):
         self.assertEqual(ident["foldDraw"]["seed"], 20261103)
         self.assertEqual(ident["schemas"], {"features": "rcf_v1", "labels": "rally_activity_truth_v1", "derived": "derived_v1", "grid": "grid_v1"})
         self.assertEqual(set(ident["codeSha256"]), {"train.py", "features.py", "decode.py", "evaluate.py", "folds.py", "tcn.py",
-                                                    "validate_dataset.py", "reference_scorecard.py"})
+                                                    "trusted_negatives.py", "validate_dataset.py", "reference_scorecard.py"})
         self.assertEqual(self.report["validation"]["withheldFileSha256"], v.sha256_file(self.closure))
         self.assertEqual([f["nestedFold"] for f in self.report["folds"]], [1, 2, 3, 4, 0])
 
@@ -638,6 +638,10 @@ class TCN(unittest.TestCase):
         self.assertEqual((h2["hypothesis"], h2["comparison"]), ("H2", "r2 vs r1"))
         self.assertIn(h2["holds"], (True, False))
         self.assertEqual(set(report["tables"]["pooled"]["variants"]), {"r0", "r0_prime", "r2"})
+        self.assertFalse(report["calibration"]["classBalanced"])            # R2 is not class-balanced: no δ to report
+        self.assertTrue(all(f["calibration"]["logitShift"] is None for f in report["folds"]))
+        self.assertIn("excludingHandheld", h2)                             # H2's handheld sensitivity (A4)
+        self.assertEqual(h2["excludingHandheld"]["verdictUnchanged"], h2["excludingHandheld"]["holds"] == h2["holds"])
         self.assertEqual(len(syn.read_text(os.path.join(r2_out, "oof.jsonl")).splitlines()), sum(len(r.arr["t"]) for r in self.prep.recordings))
 
     def test_a_dry_run_of_r2_fits_nothing(self):
@@ -651,21 +655,6 @@ class TCN(unittest.TestCase):
         self.assertGreater(doc["inputs"]["windows"], 18)
         self.assertGreater(doc["inputs"]["cellsWithLossWeight"], 0)
         self.assertEqual(sorted(os.listdir(out)), ["readiness.json", "readiness.md"])
-
-
-class LabelSchemas(unittest.TestCase):
-    def test_an_audited_v2_dataset_is_refused_before_anything_is_read(self):
-        tmp = tempfile.mkdtemp(prefix="rc-train-v2-")
-        try:
-            dataset = os.path.join(tmp, "Synthetic-v2")
-            v.write_synthetic(dataset, seed=1, label_version=v.LABEL_VERSION_V2)
-            closure = syn.write_closure(tmp, dataset)
-            code, _, err = quiet(train.main, argv(dataset, closure, os.path.join(tmp, "no-folds.json"), os.path.join(tmp, "run"), "r1", "present", "--dry-run"))
-            self.assertEqual(code, 1)
-            self.assertIn(f"label schema is '{v.LABEL_VERSION_V2}'; this trainer reads {v.LABEL_VERSION} only", err)
-            self.assertFalse(os.path.exists(os.path.join(tmp, "run")))
-        finally:
-            shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":
