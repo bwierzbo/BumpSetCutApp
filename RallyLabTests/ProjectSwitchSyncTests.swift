@@ -791,6 +791,43 @@ final class ProjectSwitchSyncTests: XCTestCase {
         XCTAssertEqual(server.audits["\(d.draw.drawId)/bch_01"]?.revision, 2)
     }
 
+    func testAVerdictGivenHereWhileTheUploadIsInFlightIsKeptAndGoesUpNextWithNoConflict() async throws {
+        let d = try auditProject()
+        open("A")
+        let root = base.appendingPathComponent("A", isDirectory: true)
+        let recording = try XCTUnwrap(d.draw.recording("bch_01"))
+        var all = CoverageAudit.PlayedCoverage(); all.credit(fromTick: 0, toTick: 6000, rate: 2)
+        // The phone's clean on interval 0 is on the server; the Mac has its own on interval 1, not sent yet.
+        var phone = CoverageAudit.File(recordingId: "bch_01", sourceFingerprint: recording.contentFingerprint, drawId: d.draw.drawId, drawSha256: d.sha256,
+                                       datasetName: "rc-test", marksSha256: "m-old", tool: "Labeler test")
+        phone = try CoverageAudit.applying(.init(recordingId: "bch_01", index: 0, pass: .first, entry: .clean, reviewer: "phone-account", played: all),
+                                           reviewer: "phone-account", to: phone, interval: recording.intervals[0], recording: recording, now: now)
+        server.audits["\(d.draw.drawId)/bch_01"] = LabelCoverageAudit(project: "A", drawId: d.draw.drawId, recordingId: "bch_01", record: phone, revision: 1, updatedBy: nil, updatedAt: now)
+        try CoverageAudit.record(.init(recordingId: "bch_01", index: 1, pass: .first, entry: .clean, reviewer: "bw", played: all), draw: d, root: root, tool: "t", now: now)
+        // The merged record goes up; while the save is in flight the reviewer here takes interval 1 back and calls interval 2 clean.
+        server.hold("saveCoverageAudit")
+        let round = Task { await self.sync.sync(videos: false) }
+        let reached = await server.arrived()
+        XCTAssertTrue(reached, "calls: \(server.calls)")
+        XCTAssertEqual(try CoverageAudit.read(CoverageAudit.url(forVideo: footage("A", "bch_01"))).review(0)?.reviewer, "phone-account",
+                       "the merged record is this Mac's before it goes up")
+        try CoverageAudit.record(.init(recordingId: "bch_01", index: 1, pass: .first, entry: .withdraw, reviewer: "bw"), draw: d, root: root, tool: "t", now: now)
+        try CoverageAudit.record(.init(recordingId: "bch_01", index: 2, pass: .first, entry: .clean, reviewer: "bw", played: all), draw: d, root: root, tool: "t", now: now)
+        server.release()
+        let first = await round.value
+        XCTAssertTrue(first, sync.status)
+        XCTAssertEqual(server.audits["\(d.draw.drawId)/bch_01"]?.record.intervals.map(\.index), [0, 1], "what was sent")
+        // The next round sends the newer verdicts as this Mac's changes — no conflict, nobody's look lost.
+        let second = await sync.sync(videos: false)
+        XCTAssertTrue(second, sync.status)
+        XCTAssertFalse(sync.status.contains("changed on both devices"), sync.status)
+        let up = try XCTUnwrap(server.audits["\(d.draw.drawId)/bch_01"])
+        XCTAssertEqual(up.record.intervals.map(\.index), [0, 2])
+        XCTAssertEqual(try CoverageAudit.read(CoverageAudit.url(forVideo: footage("A", "bch_01"))).intervals.map(\.index), [0, 2])
+        let dir = footage("A", "bch_01").deletingLastPathComponent()
+        XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: dir.path).contains { $0.contains("coverageaudit.conflict") }, "no conflict file")
+    }
+
     func testAnAccountThatIsNotALeadSyncsNoAuditAndTheRestOfTheRoundGoesOn() async throws {
         _ = try auditProject()
         open("A")
@@ -1217,6 +1254,7 @@ final class FakeLabeling: LabelingService {
         }
         let row = LabelCoverageAudit(project: project, drawId: drawId, recordingId: record.recordingId, record: record, revision: current + 1, updatedBy: nil, updatedAt: Date())
         audits[key] = row
+        try await park("saveCoverageAudit")
         return row
     }
 

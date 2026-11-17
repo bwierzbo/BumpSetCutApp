@@ -98,7 +98,7 @@ struct AuditView: View {
         }
         return VStack(alignment: .leading, spacing: 2) {
             Text(line).font(.subheadline.weight(.medium))
-            Text("findings: \(findings)" + (t.unavailable > 0 ? " · \(t.unavailable) recording(s) not available on this phone" : ""))
+            Text((t.findingsHidden ? "findings hidden during the blind repeat" : "findings: \(findings)") + (t.unavailable > 0 ? " · \(t.unavailable) recording(s) not available on this phone" : ""))
                 .font(.caption).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

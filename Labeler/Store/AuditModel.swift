@@ -73,7 +73,12 @@ final class AuditModel {
 
     init(labeler: LabelerModel) {
         self.labeler = labeler
-        audit = Self.loadStore()
+        switch CoverageAuditPhone.load(from: Self.storeURL) {
+        case .none: audit = nil
+        case .store(let kept): audit = kept
+        case .setAside(let url, _): syncNote = "The audit store on this phone could not be read; it is kept as \(url.lastPathComponent) and a new one starts."
+        case .blocked(let why): storeBlocked = why; syncNote = "The audit store on this phone could not be read, and nothing is written over it: \(why.prefix(160))"
+        }
         if let audit { pass = audit.position?.pass ?? .first; position = audit.position }
     }
 
@@ -85,13 +90,12 @@ final class AuditModel {
         return dir.appendingPathComponent(storeName)
     }
 
-    private static func loadStore() -> CoverageAuditPhone? {
-        guard let data = try? Data(contentsOf: storeURL) else { return nil }
-        return try? JSONDecoder().decode(CoverageAuditPhone.self, from: data)
-    }
+    /// Why nothing may be written to the store: it is there but could neither be read nor set aside.
+    private var storeBlocked: String?
 
     /// Writes the store now; a failure is said and thrown — a verdict that is not on the phone is not taken.
     private func persist(_ audit: CoverageAuditPhone) throws {
+        if let storeBlocked { throw CoverageAudit.Failure.unreadable("the audit store on this phone: \(storeBlocked)") }
         let data = try JSONEncoder().encode(audit)
         try data.write(to: Self.storeURL, options: .atomic)
         self.audit = audit

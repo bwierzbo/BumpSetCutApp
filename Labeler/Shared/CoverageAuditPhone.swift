@@ -86,6 +86,31 @@ struct CoverageAuditPhone: Codable, Equatable {
         return loaded
     }
 
+    // MARK: - The file on the phone
+
+    enum Stored: Equatable {
+        /// No store yet.
+        case none
+        case store(CoverageAuditPhone)
+        /// The store could not be read; it was moved, whole, to `keptAt` (never overwritten, never half-read).
+        case setAside(keptAt: URL, why: String)
+        /// The store could not be read nor moved aside: nothing may be written over it.
+        case blocked(String)
+    }
+
+    /// Reads the store at `url`. A file that is there but can't be read or decoded may hold verdicts not on the server
+    /// yet: it is moved aside under a dated name, so that a new store never replaces it.
+    static func load(from url: URL, now: Date = Date()) -> Stored {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: url.path) else { return .none }
+        let why: String
+        do { return .store(try JSONDecoder().decode(CoverageAuditPhone.self, from: Data(contentsOf: url))) } catch { why = String(describing: error) }
+        let stamp = ISO8601DateFormatter().string(from: now).replacingOccurrences(of: ":", with: "")
+        let kept = url.deletingPathExtension().appendingPathExtension("unreadable-\(stamp).json")
+        do { try fm.moveItem(at: url, to: kept) } catch { return .blocked("\(why); and it could not be set aside: \(error.localizedDescription)") }
+        return .setAside(keptAt: kept, why: why)
+    }
+
     // MARK: - What may be reviewed
 
     /// Why `recordingId` cannot be reviewed on this phone now, or nil. `video`: its published copy's row as last
@@ -182,7 +207,9 @@ struct CoverageAuditPhone: Codable, Equatable {
         var left = 0
         var recordingsDone = 0
         var recordings = 0
+        /// The findings that count, by kind — never in the blind repeat (they come from the first verdicts).
         var findings: [CoverageAudit.FindingKind: Int] = [:]
+        var findingsHidden = false
         /// Recordings that may not be reviewed on this phone now (not published, withheld, no checked copy).
         var unavailable = 0
         /// Verdicts on this phone not on the server yet.
@@ -190,13 +217,13 @@ struct CoverageAuditPhone: Codable, Equatable {
     }
 
     func totals(_ pass: CoverageAudit.Pass, reviewable: (String) -> Bool) -> Totals {
-        var t = Totals(recordings: draw.draw.recordings.count)
+        var t = Totals(recordings: draw.draw.recordings.count, findingsHidden: pass == .repeatLook)
         for recording in draw.draw.recordings {
             let id = recording.recordingId
             let tally = CoverageAudit.tally(of: recording, file: local[id], asDrawn: asDrawn(id))
             t.total += tally.total
             t.reviewed += tally.reviewed
-            for (kind, n) in tally.findings { t.findings[kind, default: 0] += n }
+            if !t.findingsHidden { for (kind, n) in tally.findings { t.findings[kind, default: 0] += n } }
             if local[id] != shadow[id] { t.pending += 1 }
             guard reviewable(id) else { t.unavailable += 1; continue }
             let left = tally.left(in: pass)

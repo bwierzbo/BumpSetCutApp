@@ -167,6 +167,9 @@ final class CoverageAuditPhoneTests: XCTestCase {
         try p.give(.clean, pass: .first, recordingId: "a", index: 1, video: video(), withheld: false, played: played(1200, 3000), reviewer: me, tool: "t", now: t0)
         XCTAssertEqual(p.shown(.first, recordingId: "a", index: 1).count, 1)
         XCTAssertEqual(p.shown(.repeatLook, recordingId: "a", index: 1), [], "the blind repeat shows no first verdict")
+        XCTAssertEqual(p.totals(.first, reviewable: { _ in true }).findings, [.uncertain: 1])
+        XCTAssertEqual(p.totals(.repeatLook, reviewable: { _ in true }).findings, [:], "nor what the first verdicts found")
+        XCTAssertTrue(p.totals(.repeatLook, reviewable: { _ in true }).findingsHidden)
         let all: (String) -> Bool = { _ in true }
         // Owed: the draw's repeat interval 1 and interval 0, left uncertain. Neither is offered to the same reviewer yet.
         XCTAssertEqual(p.queue(.repeatLook, reviewable: all, reviewer: me, now: t0.addingTimeInterval(3600)), [])
@@ -189,7 +192,7 @@ final class CoverageAuditPhoneTests: XCTestCase {
     func testTotalsAndResumingAfterTheAppIsKilled() throws {
         var p = try phone()
         let reviewable: (String) -> Bool = { $0 == "a" }
-        XCTAssertEqual(p.totals(.first, reviewable: reviewable), P.Totals(reviewed: 0, total: 4, left: 2, recordingsDone: 0, recordings: 2, unavailable: 1, pending: 0))
+        XCTAssertEqual(p.totals(.first, reviewable: reviewable), P.Totals(reviewed: 0, total: 4, left: 2, recordingsDone: 0, recordings: 2, findingsHidden: false, unavailable: 1, pending: 0))
         try p.give(.clean, pass: .first, recordingId: "a", index: 0, video: video(), withheld: false, played: played(0, 600), reviewer: me, tool: "t", now: t0)
         p.position = P.Position(pass: .first, recordingId: "a", index: 1)
         let t = p.totals(.first, reviewable: reviewable)
@@ -202,6 +205,22 @@ final class CoverageAuditPhoneTests: XCTestCase {
         try done.give(.clean, pass: .first, recordingId: "a", index: 1, video: video(), withheld: false, played: played(1200, 3000), reviewer: me, tool: "t", now: t0)
         XCTAssertNil(done.resume(reviewable: reviewable, reviewer: me, now: t0), "nothing left in the pass: no interval is offered")
         XCTAssertEqual(done.totals(.first, reviewable: reviewable).recordingsDone, 1)
+    }
+
+    func testAStoreThatCantBeReadIsSetAsideNeverReplaced() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("store-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("coverage-audit.json")
+        XCTAssertEqual(P.load(from: url), .none)
+        let p = try phone()
+        try JSONEncoder().encode(p).write(to: url)
+        XCTAssertEqual(P.load(from: url), .store(p))
+        let garbled = Data("{\"project\":\"Scratch\",\"local\":".utf8)
+        try garbled.write(to: url)
+        guard case .setAside(let kept, _) = P.load(from: url, now: t0) else { return XCTFail("set aside") }
+        XCTAssertEqual(try Data(contentsOf: kept), garbled, "kept whole")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "a new store starts beside it, not over it")
     }
 
     // MARK: - Synchronising

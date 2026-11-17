@@ -906,27 +906,24 @@ final class LabelingSync {
                     notes.append("\(name): \(merged.conflicts.count) look(s) changed on both devices — the phone's kept, this Mac's beside the video")
                 }
                 guard var record = merged.record else { continue }
-                var adopt: LabelCoverageAudit? = server
-                if record != server?.record {
+                let push = record != server?.record
+                if push {
                     record.marksSha256 = admission.marksSha256
                     record.tool = CoverageAuditModel.defaultTool
-                    do {
-                        adopt = try await client.saveCoverageAudit(project: project, drawId: drawId, expected: server?.revision ?? 0, record: record)
-                        sent += 1
-                    } catch LabelingClient.Failure.server(_, let message) where CoverageAuditSync.refusal(in: message) != nil {
-                        notes.append("\(name): not sent (\(message))")
-                        continue
-                    }
                 }
-                guard let adopt else { continue }
-                if adopt.record != local {
+                // The merged record is this Mac's first (held to every local rule, the use on the ledger first), then
+                // it goes up: a verdict given here while the save is in flight is made on top of it, so the shadow
+                // can move to what the server acknowledges without reading that verdict, or the server's, as a conflict.
+                if record != local {
                     do {
-                        let use = firstUse[name]
+                        let use = firstUse[name], taken = record
                         try await Task.detached(priority: .utility) {
-                            try CoverageAudit.adoptSynced(adopt.record, draw: draw, root: root, firstUse: use, expectedLocal: local)
+                            try CoverageAudit.adoptSynced(taken, draw: draw, root: root, firstUse: use, expectedLocal: local)
                         }.value
-                        let slots = CoverageAuditSync.slots(of: local).union(CoverageAuditSync.slots(of: adopt.record))
-                        if slots.contains(where: { CoverageAuditSync.look($0, in: local) != CoverageAuditSync.look($0, in: adopt.record) }) { received += 1 }
+                        let slots = CoverageAuditSync.slots(of: local).union(CoverageAuditSync.slots(of: record))
+                        if slots.contains(where: { CoverageAuditSync.look($0, in: local) != CoverageAuditSync.look($0, in: record) && CoverageAuditSync.look($0, in: record) == CoverageAuditSync.look($0, in: server?.record) }) {
+                            received += 1
+                        }
                         onAuditSynced?(root, name)
                     } catch is CoverageAudit.LocalChanged {
                         continue
@@ -935,7 +932,17 @@ final class LabelingSync {
                         continue
                     }
                 }
-                try CoverageAudit.write(adopt.record, to: shadowURL)
+                var agreed = server?.record
+                if push {
+                    do {
+                        agreed = try await client.saveCoverageAudit(project: project, drawId: drawId, expected: server?.revision ?? 0, record: record).record
+                        sent += 1
+                    } catch LabelingClient.Failure.server(_, let message) where CoverageAuditSync.refusal(in: message) != nil {
+                        notes.append("\(name): not sent (\(message))")
+                        continue
+                    }
+                }
+                if let agreed { try CoverageAudit.write(agreed, to: shadowURL) }
             }
         }
         return "coverage audit \(sent) sent · \(received) received" + (notes.isEmpty ? "" : " · " + notes.joined(separator: "; "))
