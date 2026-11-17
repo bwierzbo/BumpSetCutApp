@@ -170,9 +170,35 @@ final class AuditModel {
         }
     }
 
+    /// The exchange with the server running now, and whether another was asked for while it ran.
+    @ObservationIgnored private var exchange: Task<Void, Error>?
+    @ObservationIgnored private var exchangeAgain = false
+
+    /// One exchange with the server at a time, whoever asks (a verdict, Undo, a conflict decided, a refresh, the app's
+    /// automatic sync): a reply read before another exchange moved the shadow on is never merged against the newer
+    /// shadow (it would read verdicts already acknowledged as deleted on the server). A request made while an exchange
+    /// runs waits for it, and the running one goes round once more so what was given meanwhile goes up too.
+    private func sendAndReceive() async throws {
+        if let running = exchange {
+            exchangeAgain = true
+            try await running.value
+            return
+        }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            repeat {
+                self.exchangeAgain = false
+                try await self.exchangeOnce()
+            } while self.exchangeAgain
+        }
+        exchange = task
+        defer { exchange = nil }
+        try await task.value
+    }
+
     /// Every recording's record merged with the server's; this phone's new looks sent at the revision they were
     /// merged on. A stale revision is merged again (once); a refusal keeps the record here and says why.
-    private func sendAndReceive() async throws {
+    private func exchangeOnce() async throws {
         guard var a = audit else { return }
         let project = a.project, drawId = a.drawId
         let remote = Dictionary(try await client.coverageAudits(project: a.project, drawId: a.drawId).map { ($0.recordingId, $0) }, uniquingKeysWith: { x, _ in x })
