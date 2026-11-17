@@ -36,6 +36,11 @@ struct AuditView: View {
                     } else {
                         ContentUnavailableView("Nothing left in this pass", systemImage: "checkmark.circle",
                                                description: Text(audit.pass == .repeatLook ? "Your own repeat of an interval opens 24 hours after its first verdict." : ""))
+                        // The last verdict can still be taken back from here (Undo reopens its interval).
+                        if !audit.undoStack.isEmpty {
+                            Button { audit.undo() } label: { Label("Undo the last verdict", systemImage: "arrow.uturn.backward").frame(minHeight: 44) }
+                                .buttonStyle(.bordered)
+                        }
                     }
                     conflicts
                     if let message = audit.message {
