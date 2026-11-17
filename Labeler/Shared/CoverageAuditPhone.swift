@@ -198,11 +198,14 @@ struct CoverageAuditPhone: Codable, Equatable {
     // MARK: - Giving a verdict
 
     /// `entry` by `reviewer` on interval `index` of `recordingId` in `pass`, applied by the shared rules to this phone's
-    /// record (a new one when it has none), stamped with the marks hash the Mac published. Refuses an interval the Mac
-    /// no longer publishes as unmarked as drawn. Returns the record as it now is (kept in `local`).
+    /// record (a new one when it has none), stamped with the marks hash the Mac published. Refuses, first, a recording
+    /// that may not be reviewed here now (`unavailable`, judged on `video` and `withheld` as the phone knows them at
+    /// this moment: a recording withheld since it was opened is refused), and an interval the Mac no longer publishes
+    /// as unmarked as drawn. Returns the record as it now is (kept in `local`).
     @discardableResult
-    mutating func give(_ entry: CoverageAudit.Entry, pass: CoverageAudit.Pass, recordingId: String, index: Int, played: CoverageAudit.PlayedCoverage,
-                       reviewer: String, note: String? = nil, tool: String, now: Date = Date()) throws -> CoverageAudit.File {
+    mutating func give(_ entry: CoverageAudit.Entry, pass: CoverageAudit.Pass, recordingId: String, index: Int, video: LabelVideo?, withheld: Bool?,
+                       played: CoverageAudit.PlayedCoverage, reviewer: String, note: String? = nil, tool: String, now: Date = Date()) throws -> CoverageAudit.File {
+        if let why = unavailable(recordingId, video: video, withheld: withheld) { throw CoverageAudit.Failure.notOnThisDevice(recording: recordingId, why: why) }
         let reviewer = reviewer.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !reviewer.isEmpty else { throw CoverageAudit.Failure.noReviewer }
         let loaded = draw

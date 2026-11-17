@@ -524,6 +524,8 @@ enum CoverageAudit {
         case othersLook(index: Int, reviewer: String)
         case supersededRecordKept(path: String)
         case ledgerNotWritten(String)
+        /// The phone: the recording may not be reviewed on this device now (CoverageAuditPhone.unavailable).
+        case notOnThisDevice(recording: String, why: String)
 
         var errorDescription: String? {
             switch self {
@@ -563,6 +565,7 @@ enum CoverageAudit {
             case .supersededRecordKept(let path): return "A record of the superseded draw is already kept at \(path); nothing is moved over it."
             case .othersLook(let index, let reviewer): return "Interval \(index)'s look in this pass is \(reviewer)'s: only \(reviewer) can change, complete or withdraw it."
             case .ledgerNotWritten(let why): return "The exposure ledger could not record this audit, so nothing is saved: \(why)"
+            case .notOnThisDevice(let recording, let why): return "\(recording) can't be reviewed on this phone now: \(why)."
             }
         }
     }

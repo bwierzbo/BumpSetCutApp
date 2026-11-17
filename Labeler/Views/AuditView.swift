@@ -52,7 +52,10 @@ struct AuditView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await audit.refresh(); if audit.footage == .none, let p = audit.position { audit.go(to: p, play: false) } }
         .onChange(of: scenePhase) { _, phase in if phase != .active { audit.leftApp() } }
-        .onDisappear { audit.unload() }
+        // A recording withheld (or its copy withdrawn) while it is open stops here at once.
+        .onChange(of: audit.labeler.snapshot.withheld) { _, _ in audit.recheck() }
+        .onChange(of: audit.labeler.snapshot.videos) { _, _ in audit.recheck() }
+        .onDisappear { audit.leave() }
         .sheet(item: $finding) { kind in
             FindingSheet(audit: audit, kind: kind) { finding = nil }
                 .presentationDetents([.medium, .large])

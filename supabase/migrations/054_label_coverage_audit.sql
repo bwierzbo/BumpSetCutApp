@@ -266,7 +266,9 @@ DECLARE
     v_change record;
 BEGIN
     PERFORM private.coverage_audit_require(p_project, p_draw, p_recording);
-    SELECT * INTO v_state FROM public.label_coverage_audit_recordings WHERE project = p_project AND draw_id = p_draw AND recording_id = p_recording;
+    -- The published recording's row is locked first: every save of one recording runs one at a time, the first save
+    -- (no record yet, so nothing else to lock) included — a second save made on revision 0 meets the first's record.
+    SELECT * INTO v_state FROM public.label_coverage_audit_recordings WHERE project = p_project AND draw_id = p_draw AND recording_id = p_recording FOR UPDATE;
     IF NOT FOUND THEN
         RAISE EXCEPTION 'identity: % of draw % is not published for review', p_recording, p_draw USING ERRCODE = '22023';
     END IF;
@@ -331,10 +333,17 @@ BEGIN
 
     INSERT INTO public.label_coverage_audit_uses (project, draw_id, recording_id, reviewer) VALUES (p_project, p_draw, p_recording, (SELECT auth.uid()))
         ON CONFLICT DO NOTHING;
-    INSERT INTO public.label_coverage_audits (project, draw_id, recording_id, record, revision, updated_by, updated_at)
-        VALUES (p_project, p_draw, p_recording, p_record, v_current + 1, (SELECT auth.uid()), now())
-        ON CONFLICT (project, draw_id, recording_id) DO UPDATE
-           SET record = excluded.record, revision = excluded.revision, updated_by = excluded.updated_by, updated_at = excluded.updated_at;
+    IF v_current = 0 THEN
+        -- No ON CONFLICT: a record that appeared meanwhile is an error, never overwritten.
+        INSERT INTO public.label_coverage_audits (project, draw_id, recording_id, record, revision, updated_by, updated_at)
+            VALUES (p_project, p_draw, p_recording, p_record, 1, (SELECT auth.uid()), now());
+    ELSE
+        UPDATE public.label_coverage_audits SET record = p_record, revision = v_current + 1, updated_by = (SELECT auth.uid()), updated_at = now()
+         WHERE project = p_project AND draw_id = p_draw AND recording_id = p_recording AND revision = v_current;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'conflict: the record changed on the server (expected revision %)', v_current USING ERRCODE = 'P0001';
+        END IF;
+    END IF;
     RETURN QUERY SELECT * FROM public.label_coverage_audits WHERE project = p_project AND draw_id = p_draw AND recording_id = p_recording;
 END;
 $$;

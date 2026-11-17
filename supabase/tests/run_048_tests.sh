@@ -44,4 +44,5 @@ if [[ -f "$here/../migrations/054_label_coverage_audit.sql" ]]; then
     psqla -f "$here/../migrations/049_protect_withheld_footage.sql" 2>/dev/null
     psqla -f "${MIGRATION_054:-$here/../migrations/054_label_coverage_audit.sql}"
     psqla -At -f "$here/054_audit_tests.sql" | grep -v '^$' | tail -1
+    zsh "$here/054_concurrency.sh" "$bin/psql" "$tmp" 55448 taudit
 fi

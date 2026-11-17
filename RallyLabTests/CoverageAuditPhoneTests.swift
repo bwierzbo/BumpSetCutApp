@@ -55,7 +55,7 @@ final class CoverageAuditPhoneTests: XCTestCase {
 
     func testARecordMadeOnThePhoneIsTheMacsCoverageAuditV2Record() throws {
         var p = try phone()
-        try p.give(.clean, pass: .first, recordingId: "a", index: 0, played: played(0, 600), reviewer: me, tool: "Labeler test", now: t0)
+        try p.give(.clean, pass: .first, recordingId: "a", index: 0, video: video(), withheld: false, played: played(0, 600), reviewer: me, tool: "Labeler test", now: t0)
         let record = try XCTUnwrap(p.local["a"])
         // The Mac reads it as any sidecar it wrote: the same reader, the same validation.
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("phone-\(UUID().uuidString).coverageaudit.json")
@@ -89,11 +89,11 @@ final class CoverageAuditPhoneTests: XCTestCase {
         XCTAssertEqual(A.timescale, RallyClassifierExporter.timescale)
         for s in [0.0, 0.0008, 1.2345, 299.99916, 300.135] { XCTAssertEqual(A.tick(s), RallyClassifierExporter.tick(s)) }
         var p = try phone()
-        try p.give(.finding(.init(kind: .missedServe, approxStartSec: 2.5)), pass: .first, recordingId: "a", index: 1, played: .init(), reviewer: me, tool: "t", now: t0)
+        try p.give(.finding(.init(kind: .missedServe, approxStartSec: 2.5)), pass: .first, recordingId: "a", index: 1, video: video(), withheld: false, played: .init(), reviewer: me, tool: "t", now: t0)
         let review = try XCTUnwrap(p.local["a"]?.review(1))
         XCTAssertEqual([review.startTick, review.endTick], [1200, 3000], "the verdict is on the interval's own ticks")
         refused(.badFinding("its approximate time is outside interval 1")) {
-            try p.give(.finding(.init(kind: .missedServe, approxStartSec: 6.5)), pass: .first, recordingId: "a", index: 1, played: .init(), reviewer: me, tool: "t", now: t0)
+            try p.give(.finding(.init(kind: .missedServe, approxStartSec: 6.5)), pass: .first, recordingId: "a", index: 1, video: video(), withheld: false, played: .init(), reviewer: me, tool: "t", now: t0)
         }
     }
 
@@ -101,8 +101,8 @@ final class CoverageAuditPhoneTests: XCTestCase {
 
     func testCleanNeedsTheWholeIntervalPlayedForwardAtTwiceOrSlower() throws {
         var p = try phone()
-        refused(.notPlayed(index: 1, missingSec: 3)) { try p.give(.clean, pass: .first, recordingId: "a", index: 1, played: .init(), reviewer: me, tool: "t", now: t0) }
-        refused(.notPlayed(index: 1, missingSec: 3)) { try p.give(.clean, pass: .first, recordingId: "a", index: 1, played: played(1200, 3000, rate: 2.5), reviewer: me, tool: "t", now: t0) }
+        refused(.notPlayed(index: 1, missingSec: 3)) { try p.give(.clean, pass: .first, recordingId: "a", index: 1, video: video(), withheld: false, played: .init(), reviewer: me, tool: "t", now: t0) }
+        refused(.notPlayed(index: 1, missingSec: 3)) { try p.give(.clean, pass: .first, recordingId: "a", index: 1, video: video(), withheld: false, played: played(1200, 3000, rate: 2.5), reviewer: me, tool: "t", now: t0) }
         // A seek mid-way and a pause: what was skipped earns nothing.
         var tracker = A.PlayTracker()
         tracker.began(at: 1.0)
@@ -112,12 +112,12 @@ final class CoverageAuditPhoneTests: XCTestCase {
         (1...40).forEach { tracker.observed(4.0 + Double($0) * 0.05, rate: 2) }
         tracker.stopped(at: 6.0, rate: 2)
         XCTAssertFalse(tracker.played.covers(A.Span(startTick: 1200, endTick: 3000)), "3–4 s was jumped over")
-        refused(.notPlayed(index: 1, missingSec: 1.0)) { try p.give(.clean, pass: .first, recordingId: "a", index: 1, played: tracker.played, reviewer: me, tool: "t", now: t0) }
+        refused(.notPlayed(index: 1, missingSec: 1.0)) { try p.give(.clean, pass: .first, recordingId: "a", index: 1, video: video(), withheld: false, played: tracker.played, reviewer: me, tool: "t", now: t0) }
         // Paused, then a step longer than could have played (the app was away): nothing across it.
         var away = A.PlayTracker()
         away.began(at: 1.0); away.observed(1.5, rate: 1); away.observed(4.0, rate: 1)
         XCTAssertEqual(away.played.playedTicks(in: A.Span(startTick: 0, endTick: 6000)), 300, "only the half second actually seen")
-        try p.give(.clean, pass: .first, recordingId: "a", index: 1, played: played(1200, 3000, rate: 0.5), reviewer: me, tool: "t", now: t0)
+        try p.give(.clean, pass: .first, recordingId: "a", index: 1, video: video(), withheld: false, played: played(1200, 3000, rate: 0.5), reviewer: me, tool: "t", now: t0)
         XCTAssertEqual(p.local["a"]?.review(1)?.playedAllAtMaxRate, 0.5)
     }
 
@@ -125,10 +125,10 @@ final class CoverageAuditPhoneTests: XCTestCase {
 
     func testTheReviewerIsTheSignedInAccountAndALookIsItsReviewersAlone() throws {
         var p = try phone()
-        refused(.noReviewer) { try p.give(.clean, pass: .first, recordingId: "a", index: 0, played: played(0, 600), reviewer: "  ", tool: "t", now: t0) }
-        try p.give(.clean, pass: .first, recordingId: "a", index: 0, played: played(0, 600), reviewer: other, tool: "t", now: t0)
+        refused(.noReviewer) { try p.give(.clean, pass: .first, recordingId: "a", index: 0, video: video(), withheld: false, played: played(0, 600), reviewer: "  ", tool: "t", now: t0) }
+        try p.give(.clean, pass: .first, recordingId: "a", index: 0, video: video(), withheld: false, played: played(0, 600), reviewer: other, tool: "t", now: t0)
         XCTAssertEqual(p.local["a"]?.review(0)?.reviewer, other)
-        refused(.othersLook(index: 0, reviewer: other)) { try p.give(.withdraw, pass: .first, recordingId: "a", index: 0, played: .init(), reviewer: me, tool: "t", now: t0) }
+        refused(.othersLook(index: 0, reviewer: other)) { try p.give(.withdraw, pass: .first, recordingId: "a", index: 0, video: video(), withheld: false, played: .init(), reviewer: me, tool: "t", now: t0) }
     }
 
     func testWithheldUnpublishedOtherFootageAndMovedIntervalsAreRefused() throws {
@@ -144,11 +144,17 @@ final class CoverageAuditPhoneTests: XCTestCase {
         XCTAssertNotNil(p.unavailable("a", video: video(), withheld: false), "not published by the Mac")
         p = try phone()
         // Interval 2 is no longer unmarked as drawn (the marks moved): no verdict on it; taking one back stays possible.
-        refused(.marksChanged(recording: "a", index: 2)) { try p.give(.clean, pass: .first, recordingId: "a", index: 2, played: played(4000, 6000), reviewer: me, tool: "t", now: t0) }
+        refused(.marksChanged(recording: "a", index: 2)) { try p.give(.clean, pass: .first, recordingId: "a", index: 2, video: video(), withheld: false, played: played(4000, 6000), reviewer: me, tool: "t", now: t0) }
         // The Mac published other footage than the draw's: nothing is recorded against it.
         p.recordings["a"]?.sourceFingerprint = "file:changed"
-        refused(.sourceChanged(recording: "a", draw: "file:a", current: "file:changed")) {
-            try p.give(.clean, pass: .first, recordingId: "a", index: 0, played: played(0, 600), reviewer: me, tool: "t", now: t0)
+        refused(.notOnThisDevice(recording: "a", why: "the Mac published other footage than the draw's")) {
+            try p.give(.clean, pass: .first, recordingId: "a", index: 0, video: video(), withheld: false, played: played(0, 600), reviewer: me, tool: "t", now: t0)
+        }
+        XCTAssertNil(p.local["a"])
+        // Withheld after it was opened: the next verdict is refused (the phone asks at every verdict, not only at opening).
+        p = try phone()
+        refused(.notOnThisDevice(recording: "a", why: "withheld: no review of it anywhere")) {
+            try p.give(.clean, pass: .first, recordingId: "a", index: 0, video: video(), withheld: true, played: played(0, 600), reviewer: me, tool: "t", now: t0)
         }
         XCTAssertNil(p.local["a"])
     }
@@ -157,8 +163,8 @@ final class CoverageAuditPhoneTests: XCTestCase {
 
     func testTheRepeatHidesTheFirstVerdictAndWaitsADayForTheSameReviewer() throws {
         var p = try phone()
-        try p.give(.finding(.init(kind: .uncertain, approxStartSec: 1, note: "blocked")), pass: .first, recordingId: "a", index: 0, played: played(0, 600), reviewer: me, tool: "t", now: t0)
-        try p.give(.clean, pass: .first, recordingId: "a", index: 1, played: played(1200, 3000), reviewer: me, tool: "t", now: t0)
+        try p.give(.finding(.init(kind: .uncertain, approxStartSec: 1, note: "blocked")), pass: .first, recordingId: "a", index: 0, video: video(), withheld: false, played: played(0, 600), reviewer: me, tool: "t", now: t0)
+        try p.give(.clean, pass: .first, recordingId: "a", index: 1, video: video(), withheld: false, played: played(1200, 3000), reviewer: me, tool: "t", now: t0)
         XCTAssertEqual(p.shown(.first, recordingId: "a", index: 1).count, 1)
         XCTAssertEqual(p.shown(.repeatLook, recordingId: "a", index: 1), [], "the blind repeat shows no first verdict")
         let all: (String) -> Bool = { _ in true }
@@ -166,11 +172,11 @@ final class CoverageAuditPhoneTests: XCTestCase {
         XCTAssertEqual(p.queue(.repeatLook, reviewable: all, reviewer: me, now: t0.addingTimeInterval(3600)), [])
         XCTAssertEqual(p.queue(.repeatLook, reviewable: all, reviewer: other, now: t0.addingTimeInterval(3600)).map(\.index), [0, 1], "a second reviewer at once")
         refused(.sameReviewerTooSoon(index: 1, acceptedFrom: "2026-11-18T10:00:00Z")) {
-            try p.give(.clean, pass: .repeatLook, recordingId: "a", index: 1, played: played(1200, 3000), reviewer: me, tool: "t", now: t0.addingTimeInterval(23 * 3600))
+            try p.give(.clean, pass: .repeatLook, recordingId: "a", index: 1, video: video(), withheld: false, played: played(1200, 3000), reviewer: me, tool: "t", now: t0.addingTimeInterval(23 * 3600))
         }
         let later = t0.addingTimeInterval(24 * 3600)
         XCTAssertEqual(p.queue(.repeatLook, reviewable: all, reviewer: me, now: later).map(\.index), [0, 1])
-        try p.give(.finding(.init(kind: .missedServe, approxStartSec: 3)), pass: .repeatLook, recordingId: "a", index: 1, played: played(1200, 3000), reviewer: me, tool: "t", now: later)
+        try p.give(.finding(.init(kind: .missedServe, approxStartSec: 3)), pass: .repeatLook, recordingId: "a", index: 1, video: video(), withheld: false, played: played(1200, 3000), reviewer: me, tool: "t", now: later)
         XCTAssertEqual(p.local["a"]?.repeatPass?.method, A.Repeat.sameReviewer, "never counted as independent agreement")
         // A disagreement stays unresolved until it is resolved explicitly; the resolution shows both looks.
         XCTAssertEqual(p.queue(.resolution, reviewable: all, reviewer: me, now: later).map(\.index), [1])
@@ -184,7 +190,7 @@ final class CoverageAuditPhoneTests: XCTestCase {
         var p = try phone()
         let reviewable: (String) -> Bool = { $0 == "a" }
         XCTAssertEqual(p.totals(.first, reviewable: reviewable), P.Totals(reviewed: 0, total: 4, left: 2, recordingsDone: 0, recordings: 2, unavailable: 1, pending: 0))
-        try p.give(.clean, pass: .first, recordingId: "a", index: 0, played: played(0, 600), reviewer: me, tool: "t", now: t0)
+        try p.give(.clean, pass: .first, recordingId: "a", index: 0, video: video(), withheld: false, played: played(0, 600), reviewer: me, tool: "t", now: t0)
         p.position = P.Position(pass: .first, recordingId: "a", index: 1)
         let t = p.totals(.first, reviewable: reviewable)
         XCTAssertEqual([t.reviewed, t.left, t.recordingsDone, t.pending], [1, 1, 0, 1])
@@ -193,7 +199,7 @@ final class CoverageAuditPhoneTests: XCTestCase {
         XCTAssertEqual(back, p)
         XCTAssertEqual(back.resume(reviewable: reviewable, reviewer: me, now: t0), P.Position(pass: .first, recordingId: "a", index: 1))
         var done = back
-        try done.give(.clean, pass: .first, recordingId: "a", index: 1, played: played(1200, 3000), reviewer: me, tool: "t", now: t0)
+        try done.give(.clean, pass: .first, recordingId: "a", index: 1, video: video(), withheld: false, played: played(1200, 3000), reviewer: me, tool: "t", now: t0)
         XCTAssertNil(done.resume(reviewable: reviewable, reviewer: me, now: t0), "nothing left in the pass: no interval is offered")
         XCTAssertEqual(done.totals(.first, reviewable: reviewable).recordingsDone, 1)
     }
@@ -206,7 +212,7 @@ final class CoverageAuditPhoneTests: XCTestCase {
 
     func testAnUnsentVerdictSurvivesBeingOfflineAndIsSentOnceNotTwice() throws {
         var p = try phone()
-        try p.give(.clean, pass: .first, recordingId: "a", index: 0, played: played(0, 600), reviewer: me, tool: "t", now: t0)
+        try p.give(.clean, pass: .first, recordingId: "a", index: 0, video: video(), withheld: false, played: played(0, 600), reviewer: me, tool: "t", now: t0)
         // Offline: the send never happened. The next round decides the same push from what is kept.
         guard case .push(let first, let expected) = p.merge("a", server: nil) else { return XCTFail("a new record goes up") }
         XCTAssertEqual(expected, 0)
@@ -226,9 +232,9 @@ final class CoverageAuditPhoneTests: XCTestCase {
     func testTheOtherDevicesLooksComeInAndAConflictKeepsTheirsAndMineAside() throws {
         var mac = try phone(), phone = try phone()
         // The Mac reviewed interval 0, the server has it (revision 1); the phone has its own look on interval 1, unsent.
-        try mac.give(.clean, pass: .first, recordingId: "a", index: 0, played: played(0, 600), reviewer: me, tool: "RallyLab", now: t0)
+        try mac.give(.clean, pass: .first, recordingId: "a", index: 0, video: video(), withheld: false, played: played(0, 600), reviewer: me, tool: "RallyLab", now: t0)
         let server1 = row(try XCTUnwrap(mac.local["a"]), revision: 1)
-        try phone.give(.clean, pass: .first, recordingId: "a", index: 1, played: played(1200, 3000), reviewer: me, tool: "Labeler", now: t0)
+        try phone.give(.clean, pass: .first, recordingId: "a", index: 1, video: video(), withheld: false, played: played(1200, 3000), reviewer: me, tool: "Labeler", now: t0)
         guard case .push(let merged, 1) = phone.merge("a", server: server1) else { return XCTFail("merged, then sent on revision 1") }
         XCTAssertEqual(merged.intervals.map(\.index), [0, 1], "both looks: nobody's overwritten")
         phone.pushed(merged, saved: row(merged, revision: 2))
@@ -238,7 +244,7 @@ final class CoverageAuditPhoneTests: XCTestCase {
                                                                                                  reviewer: me, reviewedAt: "2026-11-17T11:00:00Z", playedAllAtMaxRate: 2,
                                                                                                  findings: [.init(kind: .missedRally, approxStartSec: 3)])), in: macRecord)
         let server3 = row(macRecord, revision: 3)
-        try phone.give(.withdraw, pass: .first, recordingId: "a", index: 1, played: .init(), reviewer: me, tool: "Labeler", now: t0)
+        try phone.give(.withdraw, pass: .first, recordingId: "a", index: 1, video: video(), withheld: false, played: .init(), reviewer: me, tool: "Labeler", now: t0)
         XCTAssertEqual(phone.merge("a", server: server3), .upToDate, "the server's look stays; nothing is sent over it")
         XCTAssertEqual(phone.local["a"]?.review(1)?.verdict, .notClean)
         let conflict = try XCTUnwrap(phone.conflicts["a"]?.first)
@@ -252,7 +258,7 @@ final class CoverageAuditPhoneTests: XCTestCase {
 
     func testARecordOfOtherFootageOrAnotherDrawIsNeverMerged() throws {
         var p = try phone()
-        try p.give(.clean, pass: .first, recordingId: "a", index: 0, played: played(0, 600), reviewer: me, tool: "t", now: t0)
+        try p.give(.clean, pass: .first, recordingId: "a", index: 0, video: video(), withheld: false, played: played(0, 600), reviewer: me, tool: "t", now: t0)
         var foreign = try XCTUnwrap(p.local["a"])
         foreign.sourceFingerprint = "file:other"
         guard case .refused(let why) = p.merge("a", server: row(foreign, revision: 4)) else { return XCTFail("refused") }
@@ -266,14 +272,14 @@ final class CoverageAuditPhoneTests: XCTestCase {
         // The server has a resolution of a disagreement this phone has since withdrawn the repeat of — merged, the
         // record would hold a resolution with nothing to resolve: refused, not sent, not adopted.
         var p = try phone()
-        try p.give(.clean, pass: .first, recordingId: "a", index: 1, played: played(1200, 3000), reviewer: me, tool: "t", now: t0)
-        try p.give(.finding(.init(kind: .missedServe, approxStartSec: 3)), pass: .repeatLook, recordingId: "a", index: 1, played: played(1200, 3000), reviewer: other, tool: "t", now: t0)
+        try p.give(.clean, pass: .first, recordingId: "a", index: 1, video: video(), withheld: false, played: played(1200, 3000), reviewer: me, tool: "t", now: t0)
+        try p.give(.finding(.init(kind: .missedServe, approxStartSec: 3)), pass: .repeatLook, recordingId: "a", index: 1, video: video(), withheld: false, played: played(1200, 3000), reviewer: other, tool: "t", now: t0)
         let base = try XCTUnwrap(p.local["a"])
         p.pushed(base, saved: row(base, revision: 1))
         var server = base
         server = CoverageAuditSync.setting(.init(pass: .resolution, index: 1), to: .resolution(A.Resolution(index: 1, verdict: .clean, reviewer: me, resolvedAt: "2026-11-17T12:00:00Z",
                                                                                                             playedAllAtMaxRate: 2)), in: server)
-        try p.give(.withdraw, pass: .repeatLook, recordingId: "a", index: 1, played: .init(), reviewer: other, tool: "t", now: t0)
+        try p.give(.withdraw, pass: .repeatLook, recordingId: "a", index: 1, video: video(), withheld: false, played: .init(), reviewer: other, tool: "t", now: t0)
         guard case .refused(let why) = p.merge("a", server: row(server, revision: 2)) else { return XCTFail("refused") }
         XCTAssertTrue(why.contains("breaks a rule"), why)
     }

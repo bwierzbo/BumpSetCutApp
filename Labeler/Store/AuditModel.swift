@@ -51,6 +51,9 @@ final class AuditModel {
     @ObservationIgnored private var observer: Any?
     @ObservationIgnored private var endObserver: Any?
     @ObservationIgnored private var openedRecording: String?
+    /// Bumped by every move to another interval and by leaving the tab: an open still in flight for an older one stops
+    /// at its next step and never touches the player.
+    @ObservationIgnored private var generation = 0
     /// Copies checked against the original's frame identity in this run (file path → verdict).
     @ObservationIgnored private var checked: [String: CommitGate] = [:]
     /// What this phone gave, newest last, for Undo.
@@ -104,25 +107,33 @@ final class AuditModel {
         defer { syncing = false }
         reviewer = await Self.signedInAccount()
         do {
-            var current = audit
+            // Everything is fetched first; what is fetched is then applied to the audit as it is after the fetches (a
+            // verdict given meanwhile is in it, and is never replaced by an older copy).
             let projects = Set(labeler.snapshot.videos.compactMap(\.project)).sorted()
             var rows: [LabelCoverageAuditDraw] = []
             for project in projects { rows += try await client.coverageAuditDraws(project: project) }
-            if let have = current, !rows.contains(where: { $0.project == have.project && $0.drawId == have.drawId && $0.drawSha256 == have.drawSha256 }) {
-                // The draw this phone holds is no longer served (withdrawn, or superseded): kept while it holds verdicts the
-                // server doesn't have, so nothing given here is lost; otherwise it gives way to the newest.
-                if have.local.contains(where: { have.shadow[$0.key] != $0.value }) {
-                    syncNote = "Draw \(have.drawId) is no longer published; \(have.local.count) record(s) kept on this phone."
-                    return
-                }
-                current = nil
+            func served(_ a: CoverageAuditPhone) -> Bool { rows.contains { $0.project == a.project && $0.drawId == a.drawId && $0.drawSha256 == a.drawSha256 } }
+            func holdsUnsent(_ a: CoverageAuditPhone) -> Bool { a.local.contains { a.shadow[$0.key] != $0.value } }
+            guard let target = audit.flatMap({ served($0) ? LabelCoverageAuditDraw(project: $0.project, drawId: $0.drawId, drawSha256: $0.drawSha256, body: "") : nil })
+                    ?? rows.max(by: { $0.drawId < $1.drawId }) else {
+                if let have = audit, holdsUnsent(have) {
+                    syncNote = "Draw \(have.drawId) is no longer published; its unsent verdicts are kept on this phone."
+                } else { audit = nil; syncNote = "No coverage-audit draw is published." }
+                return
             }
-            if current == nil, let newest = rows.max(by: { $0.drawId < $1.drawId }) {
-                current = try CoverageAuditPhone(row: newest)
+            let published = try await client.coverageAuditRecordings(project: target.project, drawId: target.drawId)
+            var a: CoverageAuditPhone
+            if let latest = audit, latest.project == target.project, latest.drawId == target.drawId, latest.drawSha256 == target.drawSha256 {
+                a = latest
+            } else if let latest = audit, holdsUnsent(latest) {
+                // The draw this phone holds is no longer served (withdrawn, or superseded): kept while it holds verdicts
+                // the server doesn't have, so nothing given here is lost.
+                syncNote = "Draw \(latest.drawId) is no longer published; its unsent verdicts are kept on this phone."
+                return
+            } else {
+                a = try CoverageAuditPhone(row: target)
             }
-            guard var a = current else { audit = nil; syncNote = "No coverage-audit draw is published."; return }
-            a.recordings = Dictionary(try await client.coverageAuditRecordings(project: a.project, drawId: a.drawId).map { ($0.recordingId, $0) },
-                                      uniquingKeysWith: { x, _ in x })
+            a.recordings = Dictionary(published.map { ($0.recordingId, $0) }, uniquingKeysWith: { x, _ in x })
             try persist(a)
             try await sendAndReceive()
             syncNote = nil
@@ -245,6 +256,7 @@ final class AuditModel {
 
     /// Opens `target`: its recording's use on the server's ledger first, then its copy checked, then the interval.
     func go(to target: CoverageAuditPhone.Position?, play: Bool) {
+        generation += 1
         pause()
         tracker = CoverageAudit.PlayTracker()
         position = target
@@ -254,29 +266,39 @@ final class AuditModel {
             message = "Nothing left to review in this pass."
             return
         }
-        Task { await open(target, play: play) }
+        let mine = generation
+        Task { await open(target, play: play, generation: mine) }
     }
 
-    private func open(_ target: CoverageAuditPhone.Position, play: Bool) async {
+    /// The tab left the screen: the player is let go, and the interval reopens when it comes back.
+    func leave() {
+        generation += 1
+        unload()
+        footage = .none
+    }
+
+    private func open(_ target: CoverageAuditPhone.Position, play: Bool, generation mine: Int) async {
         let name = target.recordingId
-        if let why = unavailable(name) { footage = .unavailable(why); return }
+        guard mine == generation else { return }
+        if let why = unavailable(name) { unload(); footage = .unavailable(why); return }
         guard let video = video(name), var a = audit else { return }
         guard let reviewer else { footage = .unavailable("Sign in: the audit's ledger records who opened the recording."); return }
         let use = reviewer + "|" + name
         if !a.opened.contains(use) {
             do {
                 try await client.openCoverageAudit(project: a.project, drawId: a.drawId, recordingId: name)
+                guard mine == generation else { return }
                 a = audit ?? a
                 a.opened.insert(use)
                 try persist(a)
             } catch {
+                guard mine == generation else { return }
                 footage = .unavailable("Opening \(name) for review needs a connection the first time (it goes on the audit's ledger before a frame is shown): \(error.localizedDescription)")
                 return
             }
         }
-        guard LocalStore.hasClip(video) else { footage = .needsDownload; unload(); return }
-        await load(video, recordingId: name)
-        guard position == target, case .ready = footage, let shown else { return }
+        guard LocalStore.hasClip(video) else { unload(); footage = .needsDownload; return }
+        guard await load(video, recordingId: name, generation: mine), mine == generation, position == target, case .ready = footage, let shown else { return }
         if let interval, CoverageAudit.seconds(interval.endTick) > shown.upperBound + 0.001 {
             footage = .unavailable("The phone's copy ends before this interval does: review it on the Mac.")
             return
@@ -288,31 +310,41 @@ final class AuditModel {
     /// Downloads the open recording's copy, then checks and opens it.
     func download() async {
         guard let position, let video = video(position.recordingId) else { return }
+        let mine = generation
         footage = .downloading(0)
         do {
             _ = try await labeler.localClip(for: video)
-            await open(position, play: false)
+            await open(position, play: false, generation: mine)
         } catch {
+            guard mine == generation else { return }
             footage = .unavailable("Download failed: \(error.localizedDescription)")
         }
     }
 
-    private func load(_ video: LabelVideo, recordingId: String) async {
+    /// Checks the copy against the original's frame identity and puts it in the player. False when the copy can't
+    /// stand in for the original, or when another interval was opened meanwhile (nothing of the player is touched then).
+    private func load(_ video: LabelVideo, recordingId: String, generation mine: Int) async -> Bool {
         let file = LocalStore.clip(for: video)
-        if openedRecording == recordingId, player.currentItem != nil, case .ready = footage { return }
+        if openedRecording == recordingId, player.currentItem != nil, case .ready = footage { return true }
         unload()
         footage = .checking
         let gate: CommitGate
-        if let known = checked[file.path] { gate = known } else {
+        let key = file.path + "|" + (video.frameTimesDigest ?? "")
+        if let known = checked[key] { gate = known } else {
             let frames: Result<[Double], Error>
             do { frames = .success(try await FrameIdentity.allFrameTimes(of: file)) } catch { frames = .failure(error) }
-            gate = CommitGate.decide(reviewable: withheld(recordingId) == false, publishedDigest: video.frameTimesDigest, copyFrames: frames)
-            checked[file.path] = gate
+            guard mine == generation else { return false }
+            gate = CommitGate.decide(reviewable: true, publishedDigest: video.frameTimesDigest, copyFrames: frames)
+            checked[key] = gate
         }
-        guard gate.allowed else { footage = .unavailable("The copy can't stand in for the original: \(gate.reason)."); return }
-        let item = AVPlayerItem(url: file)
+        guard gate.allowed else { footage = .unavailable("The copy can't stand in for the original: \(gate.reason)."); return false }
+        let asset = AVURLAsset(url: file)
+        let duration = (try? await asset.load(.duration).seconds) ?? 0
+        // The recording may have been withheld, or another interval opened, while the copy was read.
+        guard mine == generation else { return false }
+        if let why = unavailable(recordingId) { footage = .unavailable(why); return false }
+        let item = AVPlayerItem(asset: asset)
         player.replaceCurrentItem(with: item)
-        let duration = (try? await item.asset.load(.duration).seconds) ?? 0
         openedRecording = recordingId
         footage = .ready(duration: duration)
         observer = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 30), queue: .main) { [weak self] t in
@@ -327,6 +359,7 @@ final class AuditModel {
                 self.isPlaying = false
             }
         }
+        return true
     }
 
     func unload() {
@@ -350,6 +383,7 @@ final class AuditModel {
 
     func play() {
         guard case .ready = footage, let shown else { return }
+        guard recheck() else { return }
         if playhead < shown.lowerBound - 0.05 || playhead >= shown.upperBound - 0.05 { seek(to: shown.lowerBound) }
         player.playImmediately(atRate: rate)
         isPlaying = true
@@ -364,6 +398,18 @@ final class AuditModel {
     }
 
     func togglePlay() { isPlaying ? pause() : play() }
+
+    /// Whether the open recording may still be reviewed here, as the phone knows now (the withheld list is pulled in the
+    /// background): when it may not — withheld, its list no longer known, its copy no longer published — playback stops,
+    /// the footage is let go, and why is shown. Called before playing, before every verdict, and whenever the list changes.
+    @discardableResult
+    func recheck() -> Bool {
+        guard let position, let why = unavailable(position.recordingId) else { return true }
+        generation += 1
+        unload()
+        footage = .unavailable(why)
+        return false
+    }
 
     func setRate(_ rate: Float) {
         guard rate != self.rate else { return }
@@ -404,9 +450,11 @@ final class AuditModel {
     func give(_ entry: CoverageAudit.Entry, note: String? = nil) {
         guard var a = audit, let position else { return }
         guard let reviewer, !reviewer.isEmpty else { say("Sign in again: the reviewer must be this phone's signed-in account.", refused: true); return }
+        guard recheck() else { say("Not saved: \(position.recordingId) may not be reviewed on this phone now.", refused: true); return }
         if isPlaying { tracker.stopped(at: player.currentTime().seconds, rate: Double(rate)); tracker.began(at: player.currentTime().seconds) }
         do {
-            try a.give(entry, pass: pass, recordingId: position.recordingId, index: position.index, played: tracker.played, reviewer: reviewer, note: note, tool: Self.tool)
+            try a.give(entry, pass: pass, recordingId: position.recordingId, index: position.index, video: video(position.recordingId),
+                       withheld: withheld(position.recordingId), played: tracker.played, reviewer: reviewer, note: note, tool: Self.tool)
             try persist(a)
         } catch {
             say(error.localizedDescription, refused: true)
@@ -443,7 +491,8 @@ final class AuditModel {
         if last != position { go(to: last, play: false) }
         guard var a = audit, let reviewer else { return }
         do {
-            try a.give(.withdrawLast, pass: last.pass, recordingId: last.recordingId, index: last.index, played: .init(), reviewer: reviewer, tool: Self.tool)
+            try a.give(.withdrawLast, pass: last.pass, recordingId: last.recordingId, index: last.index, video: video(last.recordingId),
+                       withheld: withheld(last.recordingId), played: .init(), reviewer: reviewer, tool: Self.tool)
             try persist(a)
             say("Interval \(last.index): last verdict taken back.")
             Task { try? await sendAndReceive() }
