@@ -177,6 +177,20 @@ enum CoverageAuditSync {
         return Merge(record: merged, conflicts: conflicts)
     }
 
+    /// The merge base once `merged` is this device's record and not yet on the server: every look `merged` holds as
+    /// the server had it is agreed (the server's), every other look stays as the old base had it (this device's change,
+    /// still to go up). So a send that fails — a stale revision — leaves nothing taken from the server looking like this
+    /// device's own change, and a later change on the other device to such a look is that device's, not a conflict.
+    static func base(after merged: CoverageAudit.File, server: CoverageAudit.File?, shadow: CoverageAudit.File?) -> CoverageAudit.File? {
+        guard let server else { return shadow }
+        var base = shadow ?? server
+        for slot in slots(of: merged).union(slots(of: server)).union(slots(of: shadow)) {
+            let theirs = look(slot, in: server)
+            base = setting(slot, to: look(slot, in: merged) == theirs ? theirs : look(slot, in: shadow), in: base)
+        }
+        return base
+    }
+
     /// `file` with this device's look at a conflict's slot put back, explicitly (the person chose it over the
     /// other device's), and the shadow moved to the server's look there, so the next merge sends it as this device's change.
     static func keepMine(_ conflict: Conflict, local: CoverageAudit.File, shadow: CoverageAudit.File?, server: CoverageAudit.File)

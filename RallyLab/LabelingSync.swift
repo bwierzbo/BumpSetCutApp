@@ -925,6 +925,10 @@ final class LabelingSync {
                             received += 1
                         }
                         onAuditSynced?(root, name)
+                        // What was taken from the server is agreed now, whether or not the send below goes through.
+                        if push, let base = CoverageAuditSync.base(after: record, server: server?.record, shadow: shadow) {
+                            try CoverageAudit.write(base, to: shadowURL)
+                        }
                     } catch is CoverageAudit.LocalChanged {
                         continue
                     } catch {

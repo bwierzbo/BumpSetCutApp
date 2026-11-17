@@ -289,6 +289,8 @@ struct CoverageAuditPhone: Codable, Equatable {
             revision[recordingId] = server?.revision
             return .upToDate
         }
+        // What was taken from the server is agreed now, whether or not the send that follows goes through.
+        shadow[recordingId] = CoverageAuditSync.base(after: record, server: server?.record, shadow: shadow[recordingId])
         return .push(record, expected: server?.revision ?? 0)
     }
 

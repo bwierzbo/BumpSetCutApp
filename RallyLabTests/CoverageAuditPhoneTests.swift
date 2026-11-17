@@ -279,6 +279,23 @@ final class CoverageAuditPhoneTests: XCTestCase {
         XCTAssertNil(mine.review(1))
     }
 
+    func testLooksTakenFromTheServerStayAgreedWhenTheSendThatFollowsFails() throws {
+        // The phone holds its own look on interval 1 (unsent); the server has the Mac's look X on interval 0.
+        var p = try phone(), mac = try phone()
+        try mac.give(.clean, pass: .first, recordingId: "a", index: 0, video: video(), withheld: false, played: played(0, 600), reviewer: me, tool: "RallyLab", now: t0)
+        let x = try XCTUnwrap(mac.local["a"])
+        try p.give(.clean, pass: .first, recordingId: "a", index: 1, video: video(), withheld: false, played: played(1200, 3000), reviewer: me, tool: "Labeler", now: t0)
+        guard case .push(_, 1) = p.merge("a", server: row(x, revision: 1)) else { return XCTFail("merged and sent") }
+        // The send fails: the Mac changed interval 0 to Y first (revision 2). The phone never touched interval 0.
+        let y = CoverageAuditSync.setting(.init(pass: .first, index: 0), to: .first(A.Review(index: 0, startTick: 0, endTick: 600, verdict: .notClean, reviewer: me,
+                                                                                           reviewedAt: "2026-11-17T11:00:00Z", playedAllAtMaxRate: 2,
+                                                                                           findings: [.init(kind: .editedFootage, approxStartSec: 0.5)])), in: x)
+        guard case .push(let again, 2) = p.merge("a", server: row(y, revision: 2)) else { return XCTFail("merged again on revision 2") }
+        XCTAssertNil(p.conflicts["a"], "the Mac's change to a look the phone only took from the server is not a conflict")
+        XCTAssertEqual(again.review(0)?.verdict, .notClean, "the Mac's newer look")
+        XCTAssertEqual(again.review(1)?.verdict, .clean, "and the phone's own, still to go up")
+    }
+
     func testARecordOfOtherFootageOrAnotherDrawIsNeverMerged() throws {
         var p = try phone()
         try p.give(.clean, pass: .first, recordingId: "a", index: 0, video: video(), withheld: false, played: played(0, 600), reviewer: me, tool: "t", now: t0)
