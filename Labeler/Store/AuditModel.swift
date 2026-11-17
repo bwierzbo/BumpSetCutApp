@@ -156,6 +156,20 @@ final class AuditModel {
         return await client.userId?.uuidString.lowercased()
     }
 
+    /// The labeling app's automatic sync (coming back to the app, a live notice, every half minute): this phone's unsent
+    /// verdicts go up and the other device's come down. Nothing when no audit is held or a sync is running.
+    func sync() async {
+        guard audit != nil, !syncing else { return }
+        syncing = true
+        defer { syncing = false }
+        do {
+            try await sendAndReceive()
+            syncNote = nil
+        } catch {
+            syncNote = "Offline — working from this phone. \(error.localizedDescription.prefix(160))"
+        }
+    }
+
     /// Every recording's record merged with the server's; this phone's new looks sent at the revision they were
     /// merged on. A stale revision is merged again (once); a refusal keeps the record here and says why.
     private func sendAndReceive() async throws {
@@ -443,7 +457,7 @@ final class AuditModel {
 
     var conflicts: [CoverageAuditSync.Conflict] {
         guard let position else { return [] }
-        return audit?.conflicts[position.recordingId] ?? []
+        return audit?.shownConflicts(pass, recordingId: position.recordingId) ?? []
     }
 
     /// Gives `entry` on the interval on screen: written to the phone first, then sent. Clean moves on to the next interval.

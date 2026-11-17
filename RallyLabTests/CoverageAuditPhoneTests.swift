@@ -249,6 +249,10 @@ final class CoverageAuditPhoneTests: XCTestCase {
         XCTAssertEqual(phone.local["a"]?.review(1)?.verdict, .notClean)
         let conflict = try XCTUnwrap(phone.conflicts["a"]?.first)
         XCTAssertEqual(conflict, CoverageAuditSync.Conflict(slot: .init(pass: .first, index: 1), mine: nil))
+        // A conflict over a first look carries that look: shown in the first pass and the resolution, never in the blind repeat.
+        XCTAssertEqual(phone.shownConflicts(.first, recordingId: "a"), [conflict])
+        XCTAssertEqual(phone.shownConflicts(.repeatLook, recordingId: "a"), [])
+        XCTAssertEqual(phone.shownConflicts(.resolution, recordingId: "a"), [conflict])
         // The reviewer chooses this phone's: it goes up as an explicit change on revision 3.
         phone.resolve(conflict, recordingId: "a", keep: true)
         XCTAssertNil(phone.conflicts["a"])

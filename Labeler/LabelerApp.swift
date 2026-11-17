@@ -89,6 +89,11 @@ struct MainTabs: View {
         self.model = model
         _audit = State(initialValue: AuditModel(labeler: model))
     }
+
+    /// The audit's part of the automatic sync (the lead's only): unsent verdicts go up, the Mac's come down.
+    private func syncAudit() async {
+        if model.snapshot.lead { await audit.sync() }
+    }
     @Environment(\.scenePhase) private var scenePhase
     /// Someone else's save comes down at once (the 30-second look stays as a backstop).
     @State private var live: LabelingLive?
@@ -126,19 +131,19 @@ struct MainTabs: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 live?.start()
-                Task { await model.reload() }
+                Task { await model.reload(); await syncAudit() }
             } else {
                 live?.stop()
             }
         }
         .onAppear {
-            if live == nil { live = LabelingLive { await model.pullChanges() } }
+            if live == nil { live = LabelingLive { await model.pullChanges(); await syncAudit() } }
             live?.start()
         }
         .task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(30))
-                if scenePhase == .active { await model.pullChanges() }
+                if scenePhase == .active { await model.pullChanges(); await syncAudit() }
             }
         }
     }

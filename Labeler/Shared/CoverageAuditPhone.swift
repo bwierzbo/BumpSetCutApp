@@ -155,13 +155,24 @@ struct CoverageAuditPhone: Codable, Equatable {
     /// the repeat look only — never the first verdict; in the resolution all three, side by side.
     func shown(_ pass: CoverageAudit.Pass, recordingId: String, index: Int) -> [CoverageAuditSync.Look] {
         let file = local[recordingId]
-        let passes: [CoverageAudit.Pass]
+        return Self.visible(in: pass).compactMap { CoverageAuditSync.look(.init(pass: $0, index: index), in: file) }
+    }
+
+    /// Whose looks a pass may show: the first pass its own; the blind repeat its own only (never the first verdict);
+    /// the resolution all three.
+    static func visible(in pass: CoverageAudit.Pass) -> [CoverageAudit.Pass] {
         switch pass {
-        case .first: passes = [.first]
-        case .repeatLook: passes = [.repeatLook]
-        case .resolution: passes = [.first, .repeatLook, .resolution]
+        case .first: return [.first]
+        case .repeatLook: return [.repeatLook]
+        case .resolution: return [.first, .repeatLook, .resolution]
         }
-        return passes.compactMap { CoverageAuditSync.look(.init(pass: $0, index: index), in: file) }
+    }
+
+    /// The conflicts of a recording the reviewer may see and decide in `pass`: only those of the passes it shows — a
+    /// conflict over a first look carries that look, and is never shown during the blind repeat.
+    func shownConflicts(_ pass: CoverageAudit.Pass, recordingId: String) -> [CoverageAuditSync.Conflict] {
+        let visible = Self.visible(in: pass)
+        return (conflicts[recordingId] ?? []).filter { visible.contains($0.slot.pass) }
     }
 
     struct Totals: Equatable {
