@@ -1,6 +1,6 @@
 ---
 name: iphone-coverage-audit-direction
-status: accepted (owner direction); its decision is D-039 (proposed until the owner approves migration 054 and merges the PR)
+status: accepted (owner direction); its decision is D-039 (accepted 2026-11-17)
 created: 2026-11-17T19:42:39Z
 updated: 2026-11-17T19:42:39Z
 source: owner, delivered to Claude Code on 2026-11-17
