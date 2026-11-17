@@ -150,13 +150,22 @@ final class AuditModel {
         if position == nil { position = audit?.resume(reviewable: isReviewable, reviewer: reviewer ?? "", now: Date()) }
     }
 
-    /// The signed-in account's id, restoring a kept session first (a token refresh) when this run has not used it yet.
+    /// The account a kept session was last confirmed as (offline after a relaunch, the session can't be restored, but
+    /// it is still that account's): set on every confirmation, cleared on sign-out (`LabelerModel.signOut`). The server
+    /// takes a verdict only from the account it names (054), so a wrong one is refused there, never counted.
+    static let confirmedAccountKey = "Labeler.audit.confirmedAccount"
+
+    /// The signed-in account's id: as confirmed now (restoring a kept session first, a token refresh, when this run
+    /// has not used it yet), else — offline, a session still kept — the account it was last confirmed as.
     private static func signedInAccount() async -> String? {
         let client = LabelingClient.shared
-        if let id = await client.userId { return id.uuidString.lowercased() }
-        guard await client.hasSession else { return nil }
-        _ = try? await client.liveToken()
-        return await client.userId?.uuidString.lowercased()
+        guard await client.hasSession else { UserDefaults.standard.removeObject(forKey: confirmedAccountKey); return nil }
+        if await client.userId == nil { _ = try? await client.liveToken() }
+        if let id = await client.userId?.uuidString.lowercased() {
+            UserDefaults.standard.set(id, forKey: confirmedAccountKey)
+            return id
+        }
+        return UserDefaults.standard.string(forKey: confirmedAccountKey)
     }
 
     /// The labeling app's automatic sync (coming back to the app, a live notice, every half minute): this phone's unsent
@@ -307,6 +316,8 @@ final class AuditModel {
     /// Opens `target`: its recording's use on the server's ledger first, then its copy checked, then the interval.
     func go(to target: CoverageAuditPhone.Position?, play: Bool) {
         generation += 1
+        // The pass on screen is always the opened look's: what is shown and given next is that look's.
+        if let target, target.pass != pass { pass = target.pass }
         pause()
         tracker = CoverageAudit.PlayTracker()
         position = target
@@ -536,8 +547,6 @@ final class AuditModel {
     /// Takes back the last thing given on the most recent interval this phone gave a verdict on (and goes there).
     func undo() {
         guard let last = undoStack.popLast() else { return }
-        // Back to the look being taken back: its pass too, so what is shown and given next is that look's.
-        if last.pass != pass { pass = last.pass }
         if last != position { go(to: last, play: false) }
         guard var a = audit, let reviewer else { return }
         do {
