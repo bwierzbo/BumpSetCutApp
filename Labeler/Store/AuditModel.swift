@@ -545,8 +545,13 @@ final class AuditModel {
 
     func resolve(_ open: CoverageAuditPhone.OpenConflict, keepMine: Bool) {
         guard var a = audit else { return }
-        a.resolve(open.conflict, recordingId: open.recordingId, keep: keepMine)
-        try? persist(a)
+        do {
+            try a.resolve(open.conflict, recordingId: open.recordingId, keep: keepMine)
+            try persist(a)
+        } catch {
+            say(error.localizedDescription, refused: true)
+            return
+        }
         Task { try? await sendAndReceive() }
     }
 

@@ -784,7 +784,7 @@ final class ProjectSwitchSyncTests: XCTestCase {
         XCTAssertEqual(up.revision, 2)
         XCTAssertEqual(up.record.intervals.map(\.reviewer), ["phone-account", "bw"], "both looks, neither overwritten")
         XCTAssertEqual(up.record.marksSha256, published.marksSha256)
-        XCTAssertEqual(try CoverageAudit.read(CoverageAudit.syncedURL(forVideo: footage("A", "bch_01"))), up.record, "the shadow is the server's")
+        XCTAssertEqual(try CoverageAudit.read(CoverageAudit.syncedURL(forVideo: footage("A", "bch_01"), drawId: d.draw.drawId)), up.record, "the shadow is the server's")
         // Nothing changed: the next round sends nothing.
         let third = await sync.sync(videos: false)
         XCTAssertTrue(third, sync.status)

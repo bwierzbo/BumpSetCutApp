@@ -311,13 +311,20 @@ struct CoverageAuditPhone: Codable, Equatable {
         refusals[saved.recordingId] = nil
     }
 
-    /// The reviewer chose this phone's look over the other device's (`keep`) or the other's (`!keep`).
-    mutating func resolve(_ conflict: CoverageAuditSync.Conflict, recordingId: String, keep: Bool) {
+    /// The reviewer chose this phone's look over the other device's (`keep`) or the other's (`!keep`). This phone's is
+    /// put back only when the record stays valid with it (a later look may stand on the other device's — a repeat on a
+    /// first look, a resolution on both): otherwise nothing changes, the conflict stays, and why is thrown.
+    mutating func resolve(_ conflict: CoverageAuditSync.Conflict, recordingId: String, keep: Bool) throws {
+        if keep, let local = local[recordingId], let server = shadow[recordingId] {
+            let kept = CoverageAuditSync.keepMine(conflict, local: local, shadow: shadow[recordingId], server: server)
+            do { try CoverageAudit.validate(kept.local) } catch {
+                throw CoverageAudit.Failure.invalid("this phone's look can't be put back on interval \(conflict.slot.index): \(error.localizedDescription) "
+                                                    + "Withdraw the later look first, or keep the other device's")
+            }
+            self.local[recordingId] = kept.local
+            shadow[recordingId] = kept.shadow
+        }
         conflicts[recordingId]?.removeAll { $0 == conflict }
         if conflicts[recordingId]?.isEmpty == true { conflicts[recordingId] = nil }
-        guard keep, let local = local[recordingId], let server = shadow[recordingId] else { return }
-        let kept = CoverageAuditSync.keepMine(conflict, local: local, shadow: shadow[recordingId], server: server)
-        self.local[recordingId] = kept.local
-        shadow[recordingId] = kept.shadow
     }
 }

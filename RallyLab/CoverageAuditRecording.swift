@@ -217,14 +217,15 @@ extension CoverageAudit {
     /// Every change of a sidecar — a verdict here, a record synchronised from the server — reads and writes it under this.
     static let sidecarLock = NSLock()
 
-    /// Where this Mac keeps the record as it last agreed with the server (LabelingSync's shadow; never read as a record).
-    static func syncedURL(forVideo video: URL) -> URL {
-        video.deletingPathExtension().appendingPathExtension("coverageaudit.synced.json")
+    /// Where this Mac keeps a draw's record as it last agreed with the server (LabelingSync's shadow; never read as a
+    /// record). One per draw: a replacement draw's audit of the same video never meets another draw's shadow.
+    static func syncedURL(forVideo video: URL, drawId: String) -> URL {
+        video.deletingPathExtension().appendingPathExtension("coverageaudit.\(drawId).synced.json")
     }
 
     /// Where a look this Mac gave is kept when the phone changed the same look meanwhile (the server's stays in the record).
-    static func conflictURL(forVideo video: URL, serverRevision: Int) -> URL {
-        video.deletingPathExtension().appendingPathExtension("coverageaudit.conflict-r\(serverRevision).json")
+    static func conflictURL(forVideo video: URL, drawId: String, serverRevision: Int) -> URL {
+        video.deletingPathExtension().appendingPathExtension("coverageaudit.\(drawId).conflict-r\(serverRevision).json")
     }
 
     /// The local record changed while a synchronised one was being prepared: nothing was written.

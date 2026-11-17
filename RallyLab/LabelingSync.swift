@@ -893,7 +893,7 @@ final class LabelingSync {
             try projects.require(opening)
             for (name, admission) in admitted.sorted(by: { $0.key < $1.key }) {
                 try projects.require(opening)
-                let shadowURL = CoverageAudit.syncedURL(forVideo: admission.video)
+                let shadowURL = CoverageAudit.syncedURL(forVideo: admission.video, drawId: drawId)
                 let local: CoverageAudit.File?
                 do { local = try CoverageAudit.existingRecord(of: admission.recording, video: admission.video, contentFingerprint: admission.contentFingerprint, draw: draw) }
                 catch { notes.append("\(name): local record left untouched (\(error.localizedDescription))"); continue }
@@ -902,7 +902,7 @@ final class LabelingSync {
                 let merged = CoverageAuditSync.merge(local: local, shadow: shadow, server: server?.record)
                 if let why = merged.refusal { notes.append("\(name): nothing merged — \(why)"); continue }
                 if !merged.conflicts.isEmpty, let local, let server {
-                    try? CoverageAudit.write(local, to: CoverageAudit.conflictURL(forVideo: admission.video, serverRevision: server.revision))
+                    try? CoverageAudit.write(local, to: CoverageAudit.conflictURL(forVideo: admission.video, drawId: drawId, serverRevision: server.revision))
                     notes.append("\(name): \(merged.conflicts.count) look(s) changed on both devices — the phone's kept, this Mac's beside the video")
                 }
                 guard var record = merged.record else { continue }

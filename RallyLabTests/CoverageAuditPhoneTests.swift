@@ -273,8 +273,17 @@ final class CoverageAuditPhoneTests: XCTestCase {
         XCTAssertEqual(phone.shownConflicts(.first), [P.OpenConflict(recordingId: "a", conflict: conflict)])
         XCTAssertEqual(phone.shownConflicts(.repeatLook), [])
         XCTAssertEqual(phone.shownConflicts(.resolution), [P.OpenConflict(recordingId: "a", conflict: conflict)])
+        // While another reviewer's repeat stands on the other device's first look, this phone's withdrawal can't be put
+        // back (a repeat with no first verdict): nothing changes and the conflict stays, with why.
+        var blocked = phone
+        blocked.local["a"] = CoverageAuditSync.setting(.init(pass: .repeatLook, index: 1), to: .repeatLook(A.RepeatReview(index: 1, verdict: .clean, reviewer: other,
+                                                                                                                       reviewedAt: "2026-11-17T12:00:00Z", playedAllAtMaxRate: 2)),
+                                                      in: try XCTUnwrap(blocked.local["a"]))
+        let before = blocked
+        XCTAssertThrowsError(try blocked.resolve(conflict, recordingId: "a", keep: true))
+        XCTAssertEqual(blocked, before)
         // The reviewer chooses this phone's: it goes up as an explicit change on revision 3.
-        phone.resolve(conflict, recordingId: "a", keep: true)
+        try phone.resolve(conflict, recordingId: "a", keep: true)
         XCTAssertNil(phone.conflicts["a"])
         guard case .push(let mine, 3) = phone.merge("a", server: server3) else { return XCTFail("the chosen look is sent") }
         XCTAssertNil(mine.review(1))
