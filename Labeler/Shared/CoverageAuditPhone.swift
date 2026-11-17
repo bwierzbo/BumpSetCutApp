@@ -1,0 +1,272 @@
+//
+//  CoverageAuditPhone.swift
+//  Labeler/Shared — compiled by the Labeler iPhone app and RallyLab (whose tests hold it)
+//
+//  The coverage audit as the phone keeps it between launches: one frozen draw, as the Mac
+//  published it (its bytes, checked against their SHA-256), what the Mac's admission found
+//  for each drawn recording, this phone's record of each recording with the copy it last
+//  agreed with the server on (the shadow), and where the reviewer was. Nothing here plays a
+//  video or talks to the server; every verdict goes through `CoverageAudit.applying`, the
+//  rules the Mac's own verdicts follow, and the record format is the Mac's coverage_audit_v2.
+//
+//  What the phone refuses besides the rules: a recording the Mac has not published (or no
+//  longer offers), one whose project's withheld list names it or is not known, one whose
+//  published copy is not of the draw's footage, and an interval the Mac no longer publishes
+//  as unmarked as drawn (its marks or cut ranges moved: a new draw is needed).
+//
+
+import Foundation
+
+struct CoverageAuditPhone: Codable, Equatable {
+    var project: String
+    var drawId: String
+    var drawSha256: String
+    /// The draw file's bytes as published (their SHA-256 is `drawSha256`).
+    var drawBody: Data
+    /// What the Mac's admission found, by recording.
+    var recordings: [String: LabelCoverageAuditRecording] = [:]
+    /// This phone's record of each recording, verdicts not yet on the server included.
+    var local: [String: CoverageAudit.File] = [:]
+    /// Each record as this phone last agreed with the server, and the server's revision then.
+    var shadow: [String: CoverageAudit.File] = [:]
+    var revision: [String: Int] = [:]
+    /// Looks both this phone and another device changed: the other's kept, this phone's here until the reviewer decides.
+    var conflicts: [String: [CoverageAuditSync.Conflict]] = [:]
+    /// Why the server refused a recording's record (kept on the phone, not sent again until it is reloaded).
+    var refusals: [String: String] = [:]
+    /// "<account>|<recording>": the uses an account of this phone put on the server's ledger (`coverage_audit_open`)
+    /// before any frame was shown.
+    var opened: Set<String> = []
+    /// Where the reviewer was: the next launch opens here.
+    var position: Position?
+    /// The draw, read from `drawBody` (checked when it came, and again whenever the store is read).
+    private(set) var draw: CoverageAudit.LoadedDraw
+
+    enum CodingKeys: String, CodingKey {
+        case project, drawId, drawSha256, drawBody, recordings, local, shadow, revision, conflicts, refusals, opened, position
+    }
+
+    struct Position: Codable, Equatable, Hashable {
+        var pass: CoverageAudit.Pass
+        var recordingId: String
+        var index: Int
+    }
+
+    /// The draw's bytes from the server, checked: their SHA-256 must be the one published with them, and they must
+    /// read as a draw (`CoverageAudit.loadDraw`'s checks).
+    init(row: LabelCoverageAuditDraw) throws {
+        let body = Data(row.body.utf8)
+        draw = try Self.read(body, drawId: row.drawId, sha256: row.drawSha256)
+        (project, drawId, drawSha256, drawBody) = (row.project, row.drawId, row.drawSha256, body)
+    }
+
+    /// The store as kept: the draw's bytes are checked again (a store that no longer holds them whole is refused, not half-read).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        project = try c.decode(String.self, forKey: .project)
+        drawId = try c.decode(String.self, forKey: .drawId)
+        drawSha256 = try c.decode(String.self, forKey: .drawSha256)
+        drawBody = try c.decode(Data.self, forKey: .drawBody)
+        recordings = try c.decodeIfPresent([String: LabelCoverageAuditRecording].self, forKey: .recordings) ?? [:]
+        local = try c.decodeIfPresent([String: CoverageAudit.File].self, forKey: .local) ?? [:]
+        shadow = try c.decodeIfPresent([String: CoverageAudit.File].self, forKey: .shadow) ?? [:]
+        revision = try c.decodeIfPresent([String: Int].self, forKey: .revision) ?? [:]
+        conflicts = try c.decodeIfPresent([String: [CoverageAuditSync.Conflict]].self, forKey: .conflicts) ?? [:]
+        refusals = try c.decodeIfPresent([String: String].self, forKey: .refusals) ?? [:]
+        opened = try c.decodeIfPresent(Set<String>.self, forKey: .opened) ?? []
+        position = try c.decodeIfPresent(Position.self, forKey: .position)
+        draw = try Self.read(drawBody, drawId: drawId, sha256: drawSha256)
+    }
+
+    private static func read(_ body: Data, drawId: String, sha256: String) throws -> CoverageAudit.LoadedDraw {
+        let loaded = try CoverageAudit.loadDraw(body, url: URL(fileURLWithPath: "/\(drawId)-draw.json"))
+        guard loaded.sha256 == sha256, loaded.draw.drawId == drawId else {
+            throw CoverageAudit.Failure.drawUnreadable("its bytes are not the ones published (SHA-256 or draw id differs)")
+        }
+        return loaded
+    }
+
+    // MARK: - What may be reviewed
+
+    /// Why `recordingId` cannot be reviewed on this phone now, or nil. `video`: its published copy's row as last
+    /// loaded; `withheld`: its project's withheld list says so (true), says not (false), or is not known (nil).
+    func unavailable(_ recordingId: String, video: LabelVideo?, withheld: Bool?) -> String? {
+        guard let drawn = draw.draw.recording(recordingId) else { return "not a recording of draw \(drawId)" }
+        guard let published = recordings[recordingId] else { return "not offered for review yet — RallyLab publishes it when its original is on the Mac" }
+        switch withheld {
+        case true?: return "withheld: no review of it anywhere"
+        case nil: return "its project's withheld list is not known here yet — nothing is reviewed until it is"
+        case false?: break
+        }
+        guard published.sourceFingerprint == drawn.contentFingerprint else { return "the Mac published other footage than the draw's" }
+        guard let video, video.id == published.videoId, video.sourceFingerprint == drawn.contentFingerprint else {
+            return "no copy of the draw's footage is published for it"
+        }
+        guard let digest = video.frameTimesDigest, !digest.isEmpty else { return "the Mac has not published its frame identity: the copy can't be checked" }
+        return nil
+    }
+
+    /// The draw's intervals the Mac last published as still unmarked as drawn (none when it published nothing).
+    func asDrawn(_ recordingId: String) -> Set<Int> { Set(recordings[recordingId]?.openIndices ?? []) }
+
+    func tally(_ recordingId: String) -> CoverageAudit.Tally? {
+        draw.draw.recording(recordingId).map { CoverageAudit.tally(of: $0, file: local[recordingId], asDrawn: asDrawn(recordingId)) }
+    }
+
+    /// When the reviewer's own repeat of `index` is accepted, if that is later than `now` (the 24-hour rule), else nil.
+    func waitsUntil(_ recordingId: String, index: Int, reviewer: String, now: Date) -> Date? {
+        guard let first = local[recordingId]?.review(index), first.reviewer == reviewer, let at = CoverageAudit.date(first.reviewedAt) else { return nil }
+        let from = at.addingTimeInterval(CoverageAudit.sameReviewerWait)
+        return from > now ? from : nil
+    }
+
+    /// The intervals `pass` owes a look, in the draw's order, of the recordings that may be reviewed now
+    /// (`reviewable`) — leaving out a repeat the reviewer may not give yet (their own first verdict is under 24 hours old).
+    func queue(_ pass: CoverageAudit.Pass, reviewable: (String) -> Bool, reviewer: String, now: Date) -> [Position] {
+        draw.draw.recordings.flatMap { recording -> [Position] in
+            guard reviewable(recording.recordingId) else { return [] }
+            let owed = CoverageAudit.owed(pass, recording: recording, file: local[recording.recordingId], asDrawn: asDrawn(recording.recordingId))
+            return owed.filter { index in
+                pass != .repeatLook || waitsUntil(recording.recordingId, index: index, reviewer: reviewer, now: now) == nil
+            }.map { Position(pass: pass, recordingId: recording.recordingId, index: $0) }
+        }
+    }
+
+    /// The next interval to review after `position` in its pass (wrapping round), or the first; nil when none is owed.
+    func next(after position: Position?, pass: CoverageAudit.Pass, reviewable: (String) -> Bool, reviewer: String, now: Date) -> Position? {
+        let queue = queue(pass, reviewable: reviewable, reviewer: reviewer, now: now)
+        guard let position, position.pass == pass else { return queue.first }
+        let order = draw.draw.recordings.map(\.recordingId)
+        func key(_ p: Position) -> (Int, Int) { (order.firstIndex(of: p.recordingId) ?? .max, p.index) }
+        return queue.first { key($0) > key(position) } ?? queue.first
+    }
+
+    /// Where to open on launch: the interval the reviewer was on while it still owes a look, else the next one.
+    func resume(reviewable: (String) -> Bool, reviewer: String, now: Date) -> Position? {
+        let pass = position?.pass ?? .first
+        let queue = queue(pass, reviewable: reviewable, reviewer: reviewer, now: now)
+        if let position, queue.contains(position) { return position }
+        return next(after: position, pass: pass, reviewable: reviewable, reviewer: reviewer, now: now)
+    }
+
+    // MARK: - What the reviewer sees
+
+    /// The looks the reviewer may see on an interval in `pass`: in the first pass the first look; in the blind repeat
+    /// the repeat look only — never the first verdict; in the resolution all three, side by side.
+    func shown(_ pass: CoverageAudit.Pass, recordingId: String, index: Int) -> [CoverageAuditSync.Look] {
+        let file = local[recordingId]
+        let passes: [CoverageAudit.Pass]
+        switch pass {
+        case .first: passes = [.first]
+        case .repeatLook: passes = [.repeatLook]
+        case .resolution: passes = [.first, .repeatLook, .resolution]
+        }
+        return passes.compactMap { CoverageAuditSync.look(.init(pass: $0, index: index), in: file) }
+    }
+
+    struct Totals: Equatable {
+        var reviewed = 0
+        var total = 0
+        /// Intervals the pass still owes a look, of the recordings that may be reviewed.
+        var left = 0
+        var recordingsDone = 0
+        var recordings = 0
+        var findings: [CoverageAudit.FindingKind: Int] = [:]
+        /// Recordings that may not be reviewed on this phone now (not published, withheld, no checked copy).
+        var unavailable = 0
+        /// Verdicts on this phone not on the server yet.
+        var pending = 0
+    }
+
+    func totals(_ pass: CoverageAudit.Pass, reviewable: (String) -> Bool) -> Totals {
+        var t = Totals(recordings: draw.draw.recordings.count)
+        for recording in draw.draw.recordings {
+            let id = recording.recordingId
+            let tally = CoverageAudit.tally(of: recording, file: local[id], asDrawn: asDrawn(id))
+            t.total += tally.total
+            t.reviewed += tally.reviewed
+            for (kind, n) in tally.findings { t.findings[kind, default: 0] += n }
+            if local[id] != shadow[id] { t.pending += 1 }
+            guard reviewable(id) else { t.unavailable += 1; continue }
+            let left = tally.left(in: pass)
+            t.left += left
+            if left == 0 { t.recordingsDone += 1 }
+        }
+        return t
+    }
+
+    // MARK: - Giving a verdict
+
+    /// `entry` by `reviewer` on interval `index` of `recordingId` in `pass`, applied by the shared rules to this phone's
+    /// record (a new one when it has none), stamped with the marks hash the Mac published. Refuses an interval the Mac
+    /// no longer publishes as unmarked as drawn. Returns the record as it now is (kept in `local`).
+    @discardableResult
+    mutating func give(_ entry: CoverageAudit.Entry, pass: CoverageAudit.Pass, recordingId: String, index: Int, played: CoverageAudit.PlayedCoverage,
+                       reviewer: String, note: String? = nil, tool: String, now: Date = Date()) throws -> CoverageAudit.File {
+        let reviewer = reviewer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !reviewer.isEmpty else { throw CoverageAudit.Failure.noReviewer }
+        let loaded = draw
+        guard let recording = loaded.draw.recording(recordingId), let published = recordings[recordingId] else { throw CoverageAudit.Failure.notInDraw(recordingId) }
+        guard let interval = recording.interval(index) else { throw CoverageAudit.Failure.intervalNotInDraw(recording: recordingId, index: index) }
+        if entry.adds, !published.openIndices.contains(index) { throw CoverageAudit.Failure.marksChanged(recording: recordingId, index: index) }
+        guard published.sourceFingerprint == recording.contentFingerprint else {
+            throw CoverageAudit.Failure.sourceChanged(recording: recordingId, draw: recording.contentFingerprint, current: published.sourceFingerprint)
+        }
+        let file = local[recordingId] ?? CoverageAudit.File(recordingId: recordingId, sourceFingerprint: recording.contentFingerprint, drawId: drawId,
+                                                            drawSha256: drawSha256, datasetName: loaded.draw.datasetName, marksSha256: published.marksSha256, tool: tool)
+        var next = try CoverageAudit.applying(CoverageAudit.Request(recordingId: recordingId, index: index, pass: pass, entry: entry, reviewer: reviewer, played: played, note: note),
+                                              reviewer: reviewer, to: file, interval: interval, recording: recording, now: now)
+        next.marksSha256 = published.marksSha256
+        next.tool = tool
+        try CoverageAudit.validate(next)
+        local[recordingId] = next
+        return next
+    }
+
+    // MARK: - Synchronising
+
+    enum Step: Equatable {
+        /// Nothing to send: the server's record (or none) is this phone's.
+        case upToDate
+        /// Send this record at the server's revision `expected`.
+        case push(CoverageAudit.File, expected: Int)
+        /// Nothing can be merged (the server's record is of other footage, or the merge breaks a rule): kept, not sent.
+        case refused(String)
+    }
+
+    /// Merges a recording's record with the server's row (nil: none there) and says what to do; the server's looks
+    /// and any conflict are taken in here at once (the phone shows the merged record).
+    mutating func merge(_ recordingId: String, server: LabelCoverageAudit?) -> Step {
+        let result = CoverageAuditSync.merge(local: local[recordingId], shadow: shadow[recordingId], server: server?.record)
+        if let why = result.refusal { return .refused(why) }
+        if !result.conflicts.isEmpty { conflicts[recordingId] = (conflicts[recordingId] ?? []) + result.conflicts }
+        guard var record = result.record else { return .upToDate }
+        if let published = recordings[recordingId] { record.marksSha256 = published.marksSha256 }
+        local[recordingId] = record
+        if record == server?.record {
+            shadow[recordingId] = record
+            revision[recordingId] = server?.revision
+            return .upToDate
+        }
+        return .push(record, expected: server?.revision ?? 0)
+    }
+
+    /// The server took `sent` and saved it as `saved`: the shadow moves to it, and the phone's record too unless the
+    /// reviewer gave another verdict meanwhile (that one stays, and goes next).
+    mutating func pushed(_ sent: CoverageAudit.File, saved: LabelCoverageAudit) {
+        shadow[saved.recordingId] = saved.record
+        revision[saved.recordingId] = saved.revision
+        if local[saved.recordingId] == sent { local[saved.recordingId] = saved.record }
+        refusals[saved.recordingId] = nil
+    }
+
+    /// The reviewer chose this phone's look over the other device's (`keep`) or the other's (`!keep`).
+    mutating func resolve(_ conflict: CoverageAuditSync.Conflict, recordingId: String, keep: Bool) {
+        conflicts[recordingId]?.removeAll { $0 == conflict }
+        if conflicts[recordingId]?.isEmpty == true { conflicts[recordingId] = nil }
+        guard keep, let local = local[recordingId], let server = shadow[recordingId] else { return }
+        let kept = CoverageAuditSync.keepMine(conflict, local: local, shadow: shadow[recordingId], server: server)
+        self.local[recordingId] = kept.local
+        shadow[recordingId] = kept.shadow
+    }
+}

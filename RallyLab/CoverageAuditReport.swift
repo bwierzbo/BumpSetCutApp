@@ -15,38 +15,19 @@ import Foundation
 
 extension CoverageAudit {
     /// One drawn recording's audit as its files say.
+    @dynamicMemberLookup
     struct RecordingStatus: Equatable, Identifiable, Sendable {
         var id: String { recordingId }
         var recordingId: String
         var surface: String?
-        /// The draw's intervals, and how many have a first verdict on the bounds drawn.
-        var total: Int
-        var reviewed = 0
-        /// The intervals owed a second look (the draw's repeat set and the ones first left uncertain), and how many have one
-        /// that is finished — a look with findings counts only once the interval has played whole in it.
-        var repeatOwed: Int
-        var repeatDone = 0
-        /// Disagreements between the first and the repeat verdict nobody has resolved.
-        var unresolved = 0
-        /// Intervals still unmarked as drawn that the repeat pass owes a finished look: in the repeat set, with no repeat
-        /// look yet, or one with findings not played whole. A moved interval is not counted: no verdict is taken on it.
-        var repeatLeft = 0
-        /// Disagreements on intervals still unmarked as drawn without a finished resolution: the resolution pass's work.
-        var resolveLeft = 0
-        /// Intervals whose findings come from a look that did not cover the interval: not reviewed whole yet.
-        var partialLooks = 0
-        var state: RecordingState
-        /// The findings that count, by kind.
-        var findings: [FindingKind: Int] = [:]
+        /// What its record says, counted the way the phone counts it (CoverageAudit.Tally).
+        var tally: Tally
         /// The rallies marked in the recording now (what missed rallies and serves are counted against).
         var rallyMarks = 0
-        /// Draw intervals that are no longer unmarked intervals as drawn: the marks or cut ranges changed.
-        var movedIntervals = 0
-        /// Draw intervals still unmarked as drawn that the first look has not finished: no verdict yet, or findings
-        /// given before the interval had played whole. The first pass's work left in the recording.
-        var firstLeft = 0
         /// Why the recording is not read, or its record does not count; nil when nothing is wrong.
         var problem: String?
+
+        subscript<T>(dynamicMember path: KeyPath<Tally, T>) -> T { tally[keyPath: path] }
     }
 
     /// What a report judges the draw's recordings against: the withheld closure (an empty one is refused, as
@@ -80,8 +61,9 @@ extension CoverageAudit {
     static func status(draw: LoadedDraw, root: URL) throws -> [RecordingStatus] {
         let project = try projectAsRead(root)
         return draw.draw.recordings.map { recording in
-            var status = RecordingStatus(recordingId: recording.recordingId, surface: recording.surface, total: recording.intervals.count,
-                                         repeatOwed: recording.repeatIndices.count, state: state(of: nil, intervals: recording.intervals))
+            var status = RecordingStatus(recordingId: recording.recordingId, surface: recording.surface,
+                                         tally: Tally(total: recording.intervals.count, repeatOwed: recording.repeatIndices.count,
+                                                      state: state(of: nil, intervals: recording.intervals)))
             if let why = listedRefusal(of: recording, closures: project.closures, sources: project.sources) {
                 status.problem = "withheld (\(why)) — not read"
                 return status
@@ -96,11 +78,12 @@ extension CoverageAudit {
             }
             var problems: [String] = []
             var current: Set<Span> = []
+            var marksRead = false
             do {
                 if let marks = try RallyTruth.records(inSidecarOf: session.sourceURL) {
                     status.rallyMarks = RallyTruth(marks: marks.map(RallyTruth.Mark.init), cuts: session.cutRanges, complete: true).positives.count
                     current = Set(unmarkedIntervals(marks: marks, cuts: session.cutRanges, durationTicks: recording.durationTicks).map(\.span))
-                    status.movedIntervals = recording.intervals.filter { !current.contains($0.span) }.count
+                    marksRead = true
                 } else {
                     problems.append("no rally marks beside the video")
                 }
@@ -110,49 +93,21 @@ extension CoverageAudit {
             } else if ProjectsModel.fileFingerprint(atPath: session.sourcePath) != recording.contentFingerprint {
                 problems.append("its file is not the one the draw was made from")
             }
-            // The first pass's work left: drawn intervals still unmarked as drawn without a finished first look.
-            func firstLeft(_ file: File?) -> Int {
-                recording.intervals.filter { interval in
-                    guard current.contains(interval.span) else { return false }
-                    guard let look = file?.review(interval.index), look.span == interval.span else { return true }
-                    return look.playedAllAtMaxRate == nil
-                }.count
-            }
-            status.firstLeft = firstLeft(nil)
+            let asDrawn = Set(recording.intervals.filter { current.contains($0.span) }.map(\.index))
+            status.tally = tally(of: recording, file: nil, asDrawn: asDrawn)
             do {
                 if let file = try existingRecord(of: recording, video: session.sourceURL, contentFingerprint: recording.contentFingerprint, draw: draw) {
-                    status.firstLeft = firstLeft(file)
-                    let owed = repeatSet(recording, file: file)
-                    status.repeatOwed = owed.count
-                    status.repeatDone = owed.filter { file.repeatReview($0)?.playedAllAtMaxRate != nil }.count
-                    let asDrawn = Set(recording.intervals.filter { current.contains($0.span) }.map(\.index))
-                    status.repeatLeft = owed.filter { asDrawn.contains($0) && file.repeatReview($0)?.playedAllAtMaxRate == nil }.count
-                    status.resolveLeft = disagreements(in: file).filter { asDrawn.contains($0) && file.resolution($0)?.playedAllAtMaxRate == nil }.count
-                    status.state = state(of: file, intervals: recording.intervals)
-                    for interval in recording.intervals where file.review(interval.index)?.span == interval.span {
-                        status.reviewed += 1
-                        switch standing(of: interval.index, in: file) {
-                        case .disputed: status.unresolved += 1
-                        case .settled(_, let findings, let playedWhole):
-                            for f in findings { status.findings[f.kind, default: 0] += 1 }
-                            if !playedWhole { status.partialLooks += 1 }
-                        case .unreviewed: break
-                        }
-                    }
+                    status.tally = tally(of: recording, file: file, asDrawn: asDrawn)
                 }
             } catch Failure.otherDraw(_, let recorded, _) where draw.draw.supersedes?.contains(recorded) == true {
                 // Not read here (the status writes nothing): opening the recording sets it aside and starts afresh.
                 problems.append("its record is of draw \(recorded), which this draw supersedes: kept, and set aside when the recording is opened")
             } catch { problems.append(error.localizedDescription) }
+            // Unread marks say nothing of which intervals moved (the problem says why).
+            if !marksRead { status.tally.movedIntervals = 0 }
             status.problem = problems.isEmpty ? nil : problems.joined(separator: "; ")
             return status
         }
-    }
-
-    /// The findings of `counts` in the kinds' fixed order: "missed_rally 2, uncertain 1"; "none" when there is none.
-    static func countsText(_ counts: [FindingKind: Int]) -> String {
-        let parts = FindingKind.allCases.compactMap { kind in counts[kind].map { "\(kind.rawValue) \($0)" } }
-        return parts.isEmpty ? "none" : parts.joined(separator: ", ")
     }
 
     /// The status as the headless command prints it: a line per recording, then the totals. The pilot's pass or

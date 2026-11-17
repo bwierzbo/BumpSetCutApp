@@ -81,7 +81,14 @@ struct SyncProblemBanner: View {
 /// navigation; tasks and videos open their screens.
 struct MainTabs: View {
     @Bindable var model: LabelerModel
+    /// Audit mode (the coverage-audit pilot): the lead's only, in this release.
+    @State private var audit: AuditModel
     @State private var nextPath = NavigationPath()
+
+    init(model: LabelerModel) {
+        self.model = model
+        _audit = State(initialValue: AuditModel(labeler: model))
+    }
     @Environment(\.scenePhase) private var scenePhase
     /// Someone else's save comes down at once (the 30-second look stays as a backstop).
     @State private var live: LabelingLive?
@@ -107,6 +114,11 @@ struct MainTabs: View {
             }
             Tab("Videos", systemImage: "film.stack") {
                 NavigationStack { VideoListView(model: model).destinations(model) }
+            }
+            if model.snapshot.lead {
+                Tab("Audit", systemImage: "checklist") {
+                    NavigationStack { AuditView(audit: audit) }
+                }
             }
         }
         // Back in the app: send what's waiting and pick up the Mac's changes,

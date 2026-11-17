@@ -191,6 +191,70 @@ final class CoverageAuditRecordingTests: XCTestCase {
         }
     }
 
+    // MARK: - A record from the phone (adoptSynced)
+
+    /// A record made the way the phone makes one (the shared rules), for this Mac's draw.
+    private func phoneRecord(_ d: A.LoadedDraw, _ name: String, reviewer: String = "phone-account", looks: [(Int, A.Entry)]) throws -> A.File {
+        let recording = try XCTUnwrap(d.draw.recording(name))
+        var file = A.File(recordingId: name, sourceFingerprint: recording.contentFingerprint, drawId: d.draw.drawId, drawSha256: d.sha256,
+                          datasetName: d.draw.datasetName, marksSha256: "m", tool: "Labeler test")
+        for (index, entry) in looks {
+            let interval = try XCTUnwrap(recording.interval(index))
+            file = try A.applying(A.Request(recordingId: name, index: index, pass: .first, entry: entry, reviewer: reviewer, played: all),
+                                  reviewer: reviewer, to: file, interval: interval, recording: recording, now: now)
+        }
+        return file
+    }
+
+    func testAPhoneRecordIsTakenOnlyAfterItsUseIsOnTheLedgerAndByEveryLocalRule() throws {
+        try recording("a")
+        let d = try draw(["a"])
+        let phone = try phoneRecord(d, "a", looks: [(0, .clean), (2, .finding(A.Finding(kind: .missedServe, approxStartSec: 9)))])
+        let used = now.addingTimeInterval(-3600)
+        try A.adoptSynced(phone, draw: d, root: root, firstUse: used, expectedLocal: nil, now: now)
+        XCTAssertEqual(try onDisk("a"), phone)
+        let rows = try auditRows()
+        XCTAssertEqual(rows.map(\.video), ["a"], "one ledger row, the phone's use")
+        XCTAssertEqual(try A.status(draw: d, root: root).first?.reviewed, 2, "the Mac counts the phone's looks as its own")
+        // Another verdict here meanwhile: the synchronised record is not written over it.
+        try A.record(request("a", 1, .clean, played: all), draw: d, root: root, tool: "t", now: now)
+        XCTAssertThrowsError(try A.adoptSynced(phone, draw: d, root: root, firstUse: used, expectedLocal: phone, now: now)) { XCTAssertTrue($0 is A.LocalChanged, "\($0)") }
+        XCTAssertEqual(try onDisk("a")?.review(1)?.verdict, .clean)
+    }
+
+    func testAPhoneRecordIsRefusedForOtherFootageAnotherDrawWrongBoundsABrokenRuleOrNoLedger() throws {
+        try recording("a")
+        let d = try draw(["a"])
+        let good = try phoneRecord(d, "a", looks: [(0, .clean)])
+        var other = good; other.sourceFingerprint = "file:other"
+        XCTAssertThrowsError(try A.adoptSynced(other, draw: d, root: root, firstUse: nil, expectedLocal: nil, now: now), "other footage")
+        other = good; other.drawSha256 = "beef"
+        XCTAssertThrowsError(try A.adoptSynced(other, draw: d, root: root, firstUse: nil, expectedLocal: nil, now: now), "another draw's bytes")
+        other = good; other.intervals[0].endTick += 1
+        XCTAssertThrowsError(try A.adoptSynced(other, draw: d, root: root, firstUse: nil, expectedLocal: nil, now: now), "not the draw's bounds")
+        other = good; other.intervals[0].playedAllAtMaxRate = nil
+        XCTAssertThrowsError(try A.adoptSynced(other, draw: d, root: root, firstUse: nil, expectedLocal: nil, now: now), "a clean never played whole")
+        XCTAssertNil(try onDisk("a"))
+        XCTAssertEqual(try auditRows(), [], "a refused record puts nothing on the ledger")
+        // The ledger can't be written: nothing is taken.
+        let manifests = root.appendingPathComponent("manifests")
+        try FileManager.default.removeItem(at: manifests)
+        try "not a folder".write(to: manifests, atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try A.adoptSynced(good, draw: d, root: root, firstUse: nil, expectedLocal: nil, now: now)) { error in
+            guard case A.Failure.ledgerNotWritten = error else { return XCTFail("\(error)") }
+        }
+        XCTAssertNil(try onDisk("a"))
+    }
+
+    func testAPhoneRecordOfAWithheldRecordingIsRefused() throws {
+        try recording("a")
+        let d = try draw(["a"])
+        let phone = try phoneRecord(d, "a", looks: [(0, .clean)])
+        try writeValidation(#"{"tune":[],"holdout":["held","a"]}"#)
+        refusedAsWithheld("a", containing: "holdout") { try A.adoptSynced(phone, draw: d, root: root, firstUse: nil, expectedLocal: nil, now: now) }
+        XCTAssertNil(try onDisk("a"))
+    }
+
     // MARK: - The withheld closure
 
     func testAWithheldRecordingIsRefusedByNameByTheDrawsIdentitiesAndByContent() throws {

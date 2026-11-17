@@ -49,7 +49,8 @@ enum RallyClassifierExporter {
     static let featureVersion = "rcf_v1"
     static let labelVersion = "rally_activity_truth_v2"
     static let replayer = "EvidenceReplayer.decidedRallies"
-    static let timescale = 600
+    /// One clock with the coverage audit (kept in its shared core, which the phone compiles too).
+    static let timescale = CoverageAudit.timescale
     /// A gap between processed frames longer than this breaks the segment.
     static let gapSec = 0.5
     static let boundaryIgnoreSec = 0.5
@@ -652,7 +653,7 @@ enum RallyClassifierExporter {
         var ignoreTicks: Int
     }
 
-    static func tick(_ seconds: Double) -> Int { Int((seconds * Double(timescale)).rounded(.toNearestOrEven)) }
+    static func tick(_ seconds: Double) -> Int { CoverageAudit.tick(seconds) }
 
     /// Where the dataset starts a rally: the serve contact when one was marked on it (contacts[0], a serve, inside the
     /// mark), else the mark's start. `piece` is the rally as RallyTruth keeps it; `records` the sidecar's marks. One
