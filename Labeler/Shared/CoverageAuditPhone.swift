@@ -193,11 +193,19 @@ struct CoverageAuditPhone: Codable, Equatable {
         }
     }
 
-    /// The conflicts of a recording the reviewer may see and decide in `pass`: only those of the passes it shows — a
-    /// conflict over a first look carries that look, and is never shown during the blind repeat.
-    func shownConflicts(_ pass: CoverageAudit.Pass, recordingId: String) -> [CoverageAuditSync.Conflict] {
+    struct OpenConflict: Equatable, Identifiable {
+        var recordingId: String
+        var conflict: CoverageAuditSync.Conflict
+        var id: String { "\(recordingId)/\(conflict.slot.pass.rawValue)/\(conflict.slot.index)" }
+    }
+
+    /// Every conflict the reviewer may see and decide in `pass`, whatever is left to review: only those of the passes
+    /// it shows — a conflict over a first look carries that look, and is never shown during the blind repeat.
+    func shownConflicts(_ pass: CoverageAudit.Pass) -> [OpenConflict] {
         let visible = Self.visible(in: pass)
-        return (conflicts[recordingId] ?? []).filter { visible.contains($0.slot.pass) }
+        return draw.draw.recordings.flatMap { recording in
+            (conflicts[recording.recordingId] ?? []).filter { visible.contains($0.slot.pass) }.map { OpenConflict(recordingId: recording.recordingId, conflict: $0) }
+        }
     }
 
     struct Totals: Equatable {

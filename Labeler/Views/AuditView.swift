@@ -33,11 +33,11 @@ struct AuditView: View {
                             verdicts
                         }
                         looks
-                        conflicts
                     } else {
                         ContentUnavailableView("Nothing left in this pass", systemImage: "checkmark.circle",
                                                description: Text(audit.pass == .repeatLook ? "Your own repeat of an interval opens 24 hours after its first verdict." : ""))
                     }
+                    conflicts
                     if let message = audit.message {
                         Text(message).font(.callout).foregroundStyle(audit.refused ? .red : .secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -260,13 +260,15 @@ struct AuditView: View {
     }
 
     @ViewBuilder private var conflicts: some View {
-        ForEach(Array(audit.conflicts.enumerated()), id: \.offset) { _, c in
+        ForEach(audit.conflicts) { open in
+            let c = open.conflict
             VStack(alignment: .leading, spacing: 6) {
-                Text("Interval \(c.slot.index) (\(c.slot.pass.rawValue)) was changed on another device too. Theirs is kept; this phone's was: "
+                Text("\(open.recordingId), interval \(c.slot.index + 1) (\(c.slot.pass.rawValue)) was changed on another device too. Theirs is kept; this phone's was: "
                      + (c.mine.map(Self.describe) ?? "taken back")).font(.caption)
                 HStack {
-                    Button("Keep theirs") { audit.resolve(c, keepMine: false) }
-                    Button("Use this phone's") { audit.resolve(c, keepMine: true) }
+                    Button("Open") { audit.go(to: .init(pass: audit.pass, recordingId: open.recordingId, index: c.slot.index), play: false) }
+                    Button("Keep theirs") { audit.resolve(open, keepMine: false) }
+                    Button("Use this phone's") { audit.resolve(open, keepMine: true) }
                 }
                 .buttonStyle(.bordered)
             }

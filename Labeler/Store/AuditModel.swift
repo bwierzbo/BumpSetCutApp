@@ -485,10 +485,8 @@ final class AuditModel {
         return audit?.shown(pass, recordingId: position.recordingId, index: position.index) ?? []
     }
 
-    var conflicts: [CoverageAuditSync.Conflict] {
-        guard let position else { return [] }
-        return audit?.shownConflicts(pass, recordingId: position.recordingId) ?? []
-    }
+    /// The conflicts this pass may show, of every recording (decidable even when nothing is left to review).
+    var conflicts: [CoverageAuditPhone.OpenConflict] { audit?.shownConflicts(pass) ?? [] }
 
     /// Gives `entry` on the interval on screen: written to the phone first, then sent. Clean moves on to the next interval.
     func give(_ entry: CoverageAudit.Entry, note: String? = nil) {
@@ -532,6 +530,8 @@ final class AuditModel {
     /// Takes back the last thing given on the most recent interval this phone gave a verdict on (and goes there).
     func undo() {
         guard let last = undoStack.popLast() else { return }
+        // Back to the look being taken back: its pass too, so what is shown and given next is that look's.
+        if last.pass != pass { pass = last.pass }
         if last != position { go(to: last, play: false) }
         guard var a = audit, let reviewer else { return }
         do {
@@ -543,9 +543,9 @@ final class AuditModel {
         } catch { say(error.localizedDescription, refused: true) }
     }
 
-    func resolve(_ conflict: CoverageAuditSync.Conflict, keepMine: Bool) {
-        guard var a = audit, let position else { return }
-        a.resolve(conflict, recordingId: position.recordingId, keep: keepMine)
+    func resolve(_ open: CoverageAuditPhone.OpenConflict, keepMine: Bool) {
+        guard var a = audit else { return }
+        a.resolve(open.conflict, recordingId: open.recordingId, keep: keepMine)
         try? persist(a)
         Task { try? await sendAndReceive() }
     }
