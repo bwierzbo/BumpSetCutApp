@@ -111,6 +111,41 @@ struct CoverageAuditPhone: Codable, Equatable {
         return .setAside(keptAt: kept, why: why)
     }
 
+    // MARK: - Which draw
+
+    /// Whether this store holds anything not settled with the server: a verdict not sent, or a conflict not decided.
+    var holdsUnsettled: Bool { local.contains { shadow[$0.key] != $0.value } || conflicts.values.contains { !$0.isEmpty } }
+
+    enum DrawChoice: Equatable {
+        /// Go on with the draw held.
+        case keep
+        /// Start the audit of this published draw (none held, or the held one is settled and replaced or withdrawn).
+        case start(LabelCoverageAuditDraw)
+        /// The held draw is no longer served, or another replaces it, but it holds unsettled work: kept, and said so.
+        case keepUnsettled(String)
+        /// Nothing held and nothing published.
+        case nothing
+    }
+
+    /// Which draw the phone audits, from the draws published now: the held one while it is served and not replaced; a
+    /// draw that names it in `supersedes` (the newest such) once nothing of the held one is unsettled; the newest
+    /// published draw when none is held. Unsettled work is never dropped for another draw.
+    static func choose(held: CoverageAuditPhone?, published rows: [LabelCoverageAuditDraw]) -> DrawChoice {
+        guard let held else { return rows.max(by: { $0.drawId < $1.drawId }).map(DrawChoice.start) ?? .nothing }
+        let served = rows.contains { $0.project == held.project && $0.drawId == held.drawId && $0.drawSha256 == held.drawSha256 }
+        let replacement = rows.filter { row in
+            row.project == held.project && row.drawId != held.drawId
+                && ((try? CoverageAudit.loadDraw(Data(row.body.utf8), url: URL(fileURLWithPath: "/")))?.draw.supersedes ?? []).contains(held.drawId)
+        }.max { $0.drawId < $1.drawId }
+        if served && replacement == nil { return .keep }
+        if held.holdsUnsettled {
+            return .keepUnsettled("Draw \(held.drawId) is " + (served ? "replaced by \(replacement!.drawId)" : "no longer published")
+                                  + "; its unsent verdicts or undecided conflicts are kept on this phone until they are settled.")
+        }
+        if let replacement { return .start(replacement) }
+        return rows.max(by: { $0.drawId < $1.drawId }).map(DrawChoice.start) ?? .nothing
+    }
+
     // MARK: - What may be reviewed
 
     /// Why `recordingId` cannot be reviewed on this phone now, or nil. `video`: its published copy's row as last

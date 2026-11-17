@@ -116,30 +116,29 @@ final class AuditModel {
             let projects = Set(labeler.snapshot.videos.compactMap(\.project)).sorted()
             var rows: [LabelCoverageAuditDraw] = []
             for project in projects { rows += try await client.coverageAuditDraws(project: project) }
-            func served(_ a: CoverageAuditPhone) -> Bool { rows.contains { $0.project == a.project && $0.drawId == a.drawId && $0.drawSha256 == a.drawSha256 } }
-            func holdsUnsent(_ a: CoverageAuditPhone) -> Bool { a.local.contains { a.shadow[$0.key] != $0.value } }
-            guard let target = audit.flatMap({ served($0) ? LabelCoverageAuditDraw(project: $0.project, drawId: $0.drawId, drawSha256: $0.drawSha256, body: "") : nil })
-                    ?? rows.max(by: { $0.drawId < $1.drawId }) else {
-                if let have = audit, holdsUnsent(have) {
-                    syncNote = "Draw \(have.drawId) is no longer published; its unsent verdicts are kept on this phone."
-                } else { audit = nil; syncNote = "No coverage-audit draw is published." }
+            switch CoverageAuditPhone.choose(held: audit, published: rows) {
+            case .nothing:
+                audit = nil
+                syncNote = "No coverage-audit draw is published."
                 return
-            }
-            let published = try await client.coverageAuditRecordings(project: target.project, drawId: target.drawId)
-            var a: CoverageAuditPhone
-            if let latest = audit, latest.project == target.project, latest.drawId == target.drawId, latest.drawSha256 == target.drawSha256 {
-                a = latest
-            } else if let latest = audit, holdsUnsent(latest) {
-                // The draw this phone holds is no longer served (withdrawn, or superseded): kept while it holds verdicts
-                // the server doesn't have, so nothing given here is lost.
-                syncNote = "Draw \(latest.drawId) is no longer published; its unsent verdicts are kept on this phone."
+            case .keepUnsettled(let why):
+                // Unsettled work of the held draw is sent and received as ever; nothing of it is dropped for another draw.
+                syncNote = why
+                try await sendAndReceive()
                 return
-            } else {
-                a = try CoverageAuditPhone(row: target)
+            case .keep:
+                try await sendAndReceive()
+            case .start(let row):
+                // Chosen from the audit as it was after the fetch: still nothing unsettled to lose.
+                guard audit?.holdsUnsettled != true else { return }
+                generation += 1
+                unload()
+                footage = .none
+                undoStack = []
+                try persist(try CoverageAuditPhone(row: row))
+                try await sendAndReceive()
+                go(to: audit?.resume(reviewable: isReviewable, reviewer: reviewer ?? "", now: Date()), play: false)
             }
-            a.recordings = Dictionary(published.map { ($0.recordingId, $0) }, uniquingKeysWith: { x, _ in x })
-            try persist(a)
-            try await sendAndReceive()
             syncNote = nil
         } catch LabelingClient.Failure.server(_, let message) where CoverageAuditSync.refusal(in: message) == .notLead {
             syncNote = "Audit mode is for the project lead in this release."
@@ -205,6 +204,13 @@ final class AuditModel {
     private func exchangeOnce() async throws {
         guard var a = audit else { return }
         let project = a.project, drawId = a.drawId
+        // What the Mac publishes of the recordings now (marks hash, intervals still as drawn, newly offered ones) comes
+        // first: verdicts are stamped and checked against it, so a stale copy here would only be refused by the server.
+        let published = try await client.coverageAuditRecordings(project: project, drawId: drawId)
+        a = audit ?? a
+        guard a.project == project, a.drawId == drawId else { return }
+        a.recordings = Dictionary(published.map { ($0.recordingId, $0) }, uniquingKeysWith: { x, _ in x })
+        try persist(a)
         let remote = Dictionary(try await client.coverageAudits(project: a.project, drawId: a.drawId).map { ($0.recordingId, $0) }, uniquingKeysWith: { x, _ in x })
         // A recording withheld, or whose list is not known here, is not merged or sent: its record stays on the phone.
         for name in Set(a.local.keys).union(remote.keys).sorted() where withheld(name) == false {

@@ -207,6 +207,24 @@ final class CoverageAuditPhoneTests: XCTestCase {
         XCTAssertEqual(done.totals(.first, reviewable: reviewable).recordingsDone, 1)
     }
 
+    func testTheDrawIsKeptUntilAReplacementComesAndNothingUnsettledIsDropped() throws {
+        let held = try phone()
+        let d1 = LabelCoverageAuditDraw(project: "Scratch", drawId: "d1", drawSha256: sha(body), body: body, publishedAt: nil)
+        let body2 = body.replacingOccurrences(of: #""drawId":"d1""#, with: #""drawId":"d2","supersedes":["d1"]"#)
+        let d2 = LabelCoverageAuditDraw(project: "Scratch", drawId: "d2", drawSha256: sha(body2), body: body2, publishedAt: nil)
+        let other = LabelCoverageAuditDraw(project: "Scratch", drawId: "d9", drawSha256: sha(body.replacingOccurrences(of: #""drawId":"d1""#, with: #""drawId":"d9""#)),
+                                           body: body.replacingOccurrences(of: #""drawId":"d1""#, with: #""drawId":"d9""#), publishedAt: nil)
+        XCTAssertEqual(P.choose(held: nil, published: [d1]), .start(d1))
+        XCTAssertEqual(P.choose(held: nil, published: []), .nothing)
+        XCTAssertEqual(P.choose(held: held, published: [d1, other]), .keep, "a newer draw that does not replace it changes nothing")
+        XCTAssertEqual(P.choose(held: held, published: [d1, d2]), .start(d2), "settled, and replaced: the replacement")
+        var busy = held
+        try busy.give(.clean, pass: .first, recordingId: "a", index: 0, video: video(), withheld: false, played: played(0, 600), reviewer: me, tool: "t", now: t0)
+        guard case .keepUnsettled = P.choose(held: busy, published: [d1, d2]) else { return XCTFail("an unsent verdict keeps the draw") }
+        guard case .keepUnsettled = P.choose(held: busy, published: []) else { return XCTFail("withdrawn too") }
+        XCTAssertEqual(P.choose(held: held, published: [other]), .start(other), "settled and withdrawn: the newest published")
+    }
+
     func testAStoreThatCantBeReadIsSetAsideNeverReplaced() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("store-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
