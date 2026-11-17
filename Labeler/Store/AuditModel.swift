@@ -320,6 +320,12 @@ final class AuditModel {
         if let target, target.pass != pass { pass = target.pass }
         pause()
         tracker = CoverageAudit.PlayTracker()
+        // Another recording: the one in the player is let go now, so nothing of it plays, or earns credit, or takes a
+        // verdict under the new one's name while that opens.
+        if target?.recordingId != openedRecording {
+            unload()
+            footage = target == nil ? .none : .checking
+        }
         position = target
         if var a = audit { a.position = target; try? persist(a) }
         guard let target else {
@@ -442,8 +448,14 @@ final class AuditModel {
         if let shown, t >= shown.upperBound - 0.001 { pause() }
     }
 
+    /// The player holds the recording on screen (and only then may it play, or a verdict be given on what it showed).
+    private var playerHoldsPosition: Bool {
+        guard case .ready = footage, let position else { return false }
+        return openedRecording == position.recordingId && player.currentItem != nil
+    }
+
     func play() {
-        guard case .ready = footage, let shown else { return }
+        guard playerHoldsPosition, let shown else { return }
         guard recheck() else { return }
         if playhead < shown.lowerBound - 0.05 || playhead >= shown.upperBound - 0.05 { seek(to: shown.lowerBound) }
         player.playImmediately(atRate: rate)
@@ -510,6 +522,7 @@ final class AuditModel {
         guard var a = audit, let position else { return }
         guard let reviewer, !reviewer.isEmpty else { say("Sign in again: the reviewer must be this phone's signed-in account.", refused: true); return }
         guard recheck() else { say("Not saved: \(position.recordingId) may not be reviewed on this phone now.", refused: true); return }
+        if entry.adds, !playerHoldsPosition { say("Not saved: \(position.recordingId) is not open in the player yet.", refused: true); return }
         if isPlaying { tracker.stopped(at: player.currentTime().seconds, rate: Double(rate)); tracker.began(at: player.currentTime().seconds) }
         do {
             try a.give(entry, pass: pass, recordingId: position.recordingId, index: position.index, video: video(position.recordingId),
