@@ -131,6 +131,7 @@ final class LabelerModel: ReviewStore {
 
     func signOut() async {
         await client.signOut()
+        UserDefaults.standard.removeObject(forKey: AuditModel.confirmedAccountKey)
         snapshot = LabelSnapshot()
         LocalStore.saveInBackground(snapshot, "snapshot.json") {}
         phase = .signedOut

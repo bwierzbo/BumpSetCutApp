@@ -720,6 +720,124 @@ final class ProjectSwitchSyncTests: XCTestCase {
         XCTAssertEqual(server.savedVideos, [], "no row was filled from B's cards")
     }
 
+    // MARK: - The coverage audit with the phone (054)
+
+    /// Project `A`: bch_01 marked complete (rallies 2–4 s and 6–8 s of 10 s: unmarked 0–2, 4–6, 8–10 s), `held` the
+    /// legacy holdout, a frozen draw of bch_01, and the server's row of bch_01's published copy. Returns the draw.
+    private func auditProject() throws -> CoverageAudit.LoadedDraw {
+        let root = try project("A", videos: ["bch_01", "held"])
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("pipeline_tuning"), withIntermediateDirectories: true)
+        try #"{"tune":[],"holdout":["held"]}"#.write(to: PipelineTuner.ValidationSet.file(in: root), atomically: true, encoding: .utf8)
+        try #"[{"startTime":2,"endTime":4,"kind":"rally"},{"startTime":6,"endTime":8,"kind":"rally"}]"#.write(to: labels("A", "bch_01"), atomically: true, encoding: .utf8)
+        var session = try XCTUnwrap(DatasetStore(root: root).loadSessionsStrict().first { $0.name == "bch_01" })
+        session.ralliesMarked = true
+        try DatasetStore(root: root).save(session)
+        let content = try XCTUnwrap(ProjectsModel.fileFingerprint(atPath: footage("A", "bch_01").path))
+        let marks = try XCTUnwrap(RallyTruth.records(inSidecarOf: footage("A", "bch_01")))
+        let intervals = CoverageAudit.unmarkedIntervals(marks: marks, cuts: [], durationTicks: 6000)
+        let json: [String: Any] = ["schemaVersion": CoverageAudit.drawVersion, "drawId": "20261117-000000", "dataset": ["name": "rc-test", "timescale": 600],
+                                   "recordings": [["recordingId": "bch_01", "groupId": "g", "contentFingerprint": content, "marksSha256": "m0", "durationTicks": 6000,
+                                                   "intervals": intervals.map { ["index": $0.index, "startTick": $0.startTick, "endTick": $0.endTick] }, "repeatIndices": [1]]]]
+        let url = CoverageAudit.drawsDirectory(in: root).appendingPathComponent("20261117-000000-draw.json")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys]).write(to: url)
+        var copy = row("A", "bch_01", clipPath: "rallylab/A/bch_01-v3.mp4")
+        copy.sourceFingerprint = content
+        server.videos[server.videos.count - 1] = copy
+        return try CoverageAudit.loadDraw(url)
+    }
+
+    func testThePhonesAuditComesInThroughTheLedgerAndTheMacsGoesUpLookByLook() async throws {
+        let d = try auditProject()
+        open("A")
+        var synced: [String] = []
+        sync.onAuditSynced = { _, name in synced.append(name) }
+        let root = base.appendingPathComponent("A", isDirectory: true)
+        let recording = try XCTUnwrap(d.draw.recording("bch_01"))
+        // On the server: the phone's clean on interval 0 (revision 1), and its use of the recording an hour ago.
+        var phone = CoverageAudit.File(recordingId: "bch_01", sourceFingerprint: recording.contentFingerprint, drawId: d.draw.drawId, drawSha256: d.sha256,
+                                       datasetName: "rc-test", marksSha256: "m-old", tool: "Labeler test")
+        var all = CoverageAudit.PlayedCoverage(); all.credit(fromTick: 0, toTick: 6000, rate: 2)
+        phone = try CoverageAudit.applying(.init(recordingId: "bch_01", index: 0, pass: .first, entry: .clean, reviewer: "phone-account", played: all),
+                                           reviewer: "phone-account", to: phone, interval: recording.intervals[0], recording: recording, now: now)
+        server.audits["\(d.draw.drawId)/bch_01"] = LabelCoverageAudit(project: "A", drawId: d.draw.drawId, recordingId: "bch_01", record: phone, revision: 1, updatedBy: nil, updatedAt: now)
+        server.auditUses = [LabelCoverageAuditUse(project: "A", drawId: d.draw.drawId, recordingId: "bch_01", reviewer: UUID(), firstUsedAt: now.addingTimeInterval(-3600))]
+
+        let first = await sync.sync(videos: false)
+        XCTAssertTrue(first, sync.status)
+        XCTAssertEqual(server.auditDraws[d.draw.drawId], try Data(contentsOf: d.url), "the draw's bytes, exactly")
+        let published = try XCTUnwrap(server.auditRecordings["\(d.draw.drawId)/bch_01"])
+        XCTAssertEqual(published.openIndices, [0, 1, 2])
+        XCTAssertEqual(published.sourceFingerprint, recording.contentFingerprint)
+        XCTAssertEqual(published.marksSha256, DatasetSplitManifest.sha256(of: labels("A", "bch_01")))
+        let sidecar = CoverageAudit.url(forVideo: footage("A", "bch_01"))
+        XCTAssertEqual(try CoverageAudit.read(sidecar).review(0)?.reviewer, "phone-account", "the phone's look is in the Mac's record")
+        XCTAssertEqual(try ExposureLog.readStrict(in: root).filter { $0.kind == .coverageAudit }.map(\.video), ["bch_01"], "its use on the Mac's ledger")
+        XCTAssertEqual(synced, ["bch_01"])
+        XCTAssertEqual(server.audits["\(d.draw.drawId)/bch_01"]?.revision, 1, "nothing of the Mac's to send")
+
+        // A verdict on the Mac: it goes up next to the phone's, on the revision it was merged on, with the marks as they are now.
+        try CoverageAudit.record(.init(recordingId: "bch_01", index: 1, pass: .first, entry: .clean, reviewer: "bw", played: all), draw: d, root: root, tool: "t", now: now)
+        let second = await sync.sync(videos: false)
+        XCTAssertTrue(second, sync.status)
+        let up = try XCTUnwrap(server.audits["\(d.draw.drawId)/bch_01"])
+        XCTAssertEqual(up.revision, 2)
+        XCTAssertEqual(up.record.intervals.map(\.reviewer), ["phone-account", "bw"], "both looks, neither overwritten")
+        XCTAssertEqual(up.record.marksSha256, published.marksSha256)
+        XCTAssertEqual(try CoverageAudit.read(CoverageAudit.syncedURL(forVideo: footage("A", "bch_01"), drawId: d.draw.drawId)), up.record, "the shadow is the server's")
+        // Nothing changed: the next round sends nothing.
+        let third = await sync.sync(videos: false)
+        XCTAssertTrue(third, sync.status)
+        XCTAssertEqual(server.audits["\(d.draw.drawId)/bch_01"]?.revision, 2)
+    }
+
+    func testAVerdictGivenHereWhileTheUploadIsInFlightIsKeptAndGoesUpNextWithNoConflict() async throws {
+        let d = try auditProject()
+        open("A")
+        let root = base.appendingPathComponent("A", isDirectory: true)
+        let recording = try XCTUnwrap(d.draw.recording("bch_01"))
+        var all = CoverageAudit.PlayedCoverage(); all.credit(fromTick: 0, toTick: 6000, rate: 2)
+        // The phone's clean on interval 0 is on the server; the Mac has its own on interval 1, not sent yet.
+        var phone = CoverageAudit.File(recordingId: "bch_01", sourceFingerprint: recording.contentFingerprint, drawId: d.draw.drawId, drawSha256: d.sha256,
+                                       datasetName: "rc-test", marksSha256: "m-old", tool: "Labeler test")
+        phone = try CoverageAudit.applying(.init(recordingId: "bch_01", index: 0, pass: .first, entry: .clean, reviewer: "phone-account", played: all),
+                                           reviewer: "phone-account", to: phone, interval: recording.intervals[0], recording: recording, now: now)
+        server.audits["\(d.draw.drawId)/bch_01"] = LabelCoverageAudit(project: "A", drawId: d.draw.drawId, recordingId: "bch_01", record: phone, revision: 1, updatedBy: nil, updatedAt: now)
+        try CoverageAudit.record(.init(recordingId: "bch_01", index: 1, pass: .first, entry: .clean, reviewer: "bw", played: all), draw: d, root: root, tool: "t", now: now)
+        // The merged record goes up; while the save is in flight the reviewer here takes interval 1 back and calls interval 2 clean.
+        server.hold("saveCoverageAudit")
+        let round = Task { await self.sync.sync(videos: false) }
+        let reached = await server.arrived()
+        XCTAssertTrue(reached, "calls: \(server.calls)")
+        XCTAssertEqual(try CoverageAudit.read(CoverageAudit.url(forVideo: footage("A", "bch_01"))).review(0)?.reviewer, "phone-account",
+                       "the merged record is this Mac's before it goes up")
+        try CoverageAudit.record(.init(recordingId: "bch_01", index: 1, pass: .first, entry: .withdraw, reviewer: "bw"), draw: d, root: root, tool: "t", now: now)
+        try CoverageAudit.record(.init(recordingId: "bch_01", index: 2, pass: .first, entry: .clean, reviewer: "bw", played: all), draw: d, root: root, tool: "t", now: now)
+        server.release()
+        let first = await round.value
+        XCTAssertTrue(first, sync.status)
+        XCTAssertEqual(server.audits["\(d.draw.drawId)/bch_01"]?.record.intervals.map(\.index), [0, 1], "what was sent")
+        // The next round sends the newer verdicts as this Mac's changes — no conflict, nobody's look lost.
+        let second = await sync.sync(videos: false)
+        XCTAssertTrue(second, sync.status)
+        XCTAssertFalse(sync.status.contains("changed on both devices"), sync.status)
+        let up = try XCTUnwrap(server.audits["\(d.draw.drawId)/bch_01"])
+        XCTAssertEqual(up.record.intervals.map(\.index), [0, 2])
+        XCTAssertEqual(try CoverageAudit.read(CoverageAudit.url(forVideo: footage("A", "bch_01"))).intervals.map(\.index), [0, 2])
+        let dir = footage("A", "bch_01").deletingLastPathComponent()
+        XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: dir.path).contains { $0.contains("coverageaudit.conflict") }, "no conflict file")
+    }
+
+    func testAnAccountThatIsNotALeadSyncsNoAuditAndTheRestOfTheRoundGoesOn() async throws {
+        _ = try auditProject()
+        open("A")
+        server.auditLead = false
+        let outcome = await sync.sync(videos: false)
+        XCTAssertTrue(outcome, sync.status)
+        XCTAssertTrue(server.auditDraws.isEmpty)
+        XCTAssertFalse(sync.status.contains("coverage audit"), sync.status)
+    }
+
     func testATypeIsPublishedForARecordingWhoseFootageIsNotOnThisMac() async throws {
         // bch_01's original is here; bch_02's and bch_03's were moved off the Mac. All three have the type on file.
         let root = try project("A", videos: ["bch_01", "bch_02", "bch_03", "bch_04"])
@@ -1089,6 +1207,55 @@ final class FakeLabeling: LabelingService {
     func publishWithheld(project: String, names: [String]) async throws -> Int {
         try begin("publishWithheld"); try await park("publishWithheld")
         return names.count
+    }
+
+    /// The coverage audit as migration 054 keeps it: drawn bytes by draw id, published recordings, records at a revision, uses.
+    /// `auditLead` false: every call is refused as the server refuses a labeler who is not a lead.
+    var auditLead = true
+    var auditDraws: [String: Data] = [:]
+    var auditRecordings: [String: LabelCoverageAuditRecording] = [:]
+    var audits: [String: LabelCoverageAudit] = [:]
+    var auditUses: [LabelCoverageAuditUse] = []
+
+    private func requireAuditLead() throws {
+        guard auditLead else { throw LabelingClient.Failure.server(403, "coverage audit: leads only in this release") }
+    }
+
+    func coverageAudits(project: String, drawId: String) async throws -> [LabelCoverageAudit] {
+        try begin("coverageAudits"); try requireAuditLead()
+        return audits.values.filter { $0.project == project && $0.drawId == drawId }
+    }
+
+    func coverageAuditUses(project: String, drawId: String) async throws -> [LabelCoverageAuditUse] {
+        try begin("coverageAuditUses"); try requireAuditLead()
+        return auditUses.filter { $0.project == project && $0.drawId == drawId }
+    }
+
+    func publishCoverageAuditDraw(project: String, body: Data) async throws -> String {
+        try begin("publishCoverageAuditDraw"); try requireAuditLead()
+        let id = (try JSONSerialization.jsonObject(with: body) as? [String: Any])?["drawId"] as? String ?? ""
+        if let have = auditDraws[id], have != body { throw LabelingClient.Failure.server(400, "frozen: draw \(id) is published with other bytes") }
+        auditDraws[id] = body
+        return SHA256.hash(data: body).map { String(format: "%02x", $0) }.joined()
+    }
+
+    func publishCoverageAuditRecordings(project: String, drawId: String, rows: [LabelCoverageAuditRecording]) async throws {
+        try begin("publishCoverageAuditRecordings"); try requireAuditLead()
+        for row in rows { auditRecordings[drawId + "/" + row.recordingId] = row }
+    }
+
+    func saveCoverageAudit(project: String, drawId: String, expected: Int, record: CoverageAudit.File) async throws -> LabelCoverageAudit {
+        try begin("saveCoverageAudit"); try requireAuditLead()
+        let key = drawId + "/" + record.recordingId
+        let current = audits[key]?.revision ?? 0
+        guard current == expected else { throw LabelingClient.Failure.server(400, "conflict: the record changed on the server (revision \(current), expected \(expected))") }
+        guard let published = auditRecordings[key], published.marksSha256 == record.marksSha256, published.sourceFingerprint == record.sourceFingerprint else {
+            throw LabelingClient.Failure.server(400, "identity: the record is not of the published recording, footage or marks")
+        }
+        let row = LabelCoverageAudit(project: project, drawId: drawId, recordingId: record.recordingId, record: record, revision: current + 1, updatedBy: nil, updatedAt: Date())
+        audits[key] = row
+        try await park("saveCoverageAudit")
+        return row
     }
 
     /// Claims by id, and what the Mac settled, in order (the server's settle rules: the same settlement again is a

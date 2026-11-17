@@ -35,42 +35,34 @@
 import Foundation
 
 extension CoverageAudit {
+    // MARK: - Unmarked intervals
+
+    /// The maximal intervals of `0 ..< durationTicks` that no mark of any kind and no cut range covers: the marks
+    /// as RallyTruth keeps them (every kind, outside the cuts; a rally from where the dataset starts it) and the
+    /// cut ranges, each `tick(start) ..< tick(end)`, clamped to the recording, overlapping or touching ones merged
+    /// — the dataset's rallies, excluded spans and cut ranges. Every interval counts, whatever its length.
+    static func unmarkedIntervals(marks: [RallyMarkRecord], cuts: [CutRange], durationTicks: Int) -> [Interval] {
+        guard durationTicks > 0 else { return [] }
+        let truth = RallyTruth(marks: marks.map(RallyTruth.Mark.init), cuts: cuts, complete: true)
+        let covered = truth.pieces.map { piece in
+            (tick(RallyTruth.isRally(piece.kind) ? RallyClassifierExporter.rallyStart(piece, in: marks) : piece.start), tick(piece.end))
+        }
+        let taken = (covered + truth.cuts.map { (tick($0.start), tick($0.end)) })
+            .map { (max(0, $0.0), min(durationTicks, $0.1)) }
+            .filter { $0.0 < $0.1 }
+            .sorted { $0.0 < $1.0 }
+        var out: [Interval] = []
+        var cursor = 0
+        for (start, end) in taken {
+            if start > cursor { out.append(Interval(index: out.count, startTick: cursor, endTick: start)) }
+            cursor = max(cursor, end)
+        }
+        if cursor < durationTicks { out.append(Interval(index: out.count, startTick: cursor, endTick: durationTicks)) }
+        return out
+    }
+
     /// The ledger reference of one draw's audit.
     static func ledgerRef(_ drawId: String) -> String { "coverage-audit \(drawId)" }
-
-    /// Which look at an interval: the first review, the blind repeat, or the resolution of their disagreement.
-    enum Pass: String, CaseIterable, Sendable {
-        case first
-        case repeatLook = "repeat"
-        case resolution
-    }
-
-    /// What a reviewer does to one interval in one pass.
-    enum Entry: Equatable, Sendable {
-        /// Nothing was left unmarked here. Only for an interval played whole.
-        case clean
-        /// Something was: added to the interval's findings (the interval is `not_clean`).
-        case finding(Finding)
-        /// The interval has now been played whole under its findings: recorded on the `not_clean` verdict, which
-        /// until then holds findings from a partial look (and leaves the recording partial).
-        case playedWhole
-        /// Takes back the last finding added — or the verdict, when it is a clean or holds one finding.
-        case withdrawLast
-        /// Takes back the pass's whole verdict on the interval.
-        case withdraw
-    }
-
-    struct Request: Sendable {
-        var recordingId: String
-        var index: Int
-        var pass: Pass
-        var entry: Entry
-        var reviewer: String
-        /// What the reviewer has played of the recording in this look.
-        var played = PlayedCoverage()
-        /// A resolution's note.
-        var note: String?
-    }
 
     /// A drawn recording that may be audited, as it is now.
     struct Admission: Sendable {
@@ -156,7 +148,7 @@ extension CoverageAudit {
     /// A person's use of the recording, on the ledger: one row per recording per draw. Once the row is there the
     /// ledger is left alone — a verdict is saved at every key press, and the ledger is one file every other
     /// operation's uses are appended to as well, so it is not rewritten for nothing.
-    private static func logUse(of recordingId: String, draw: LoadedDraw, root: URL, now: Date) throws {
+    static func logUse(of recordingId: String, draw: LoadedDraw, root: URL, now: Date) throws {
         let ref = ledgerRef(draw.draw.drawId)
         if let rows = try? ExposureLog.readStrict(in: root), rows.contains(where: { $0.video == recordingId && $0.kind == .coverageAudit && $0.ref == ref }) { return }
         do {
@@ -192,57 +184,6 @@ extension CoverageAudit {
 
     // MARK: - Saving a verdict
 
-    /// One look's verdict on an interval, whichever pass holds it.
-    private struct Look {
-        var verdict: Verdict
-        var findings: [Finding]
-        var reviewer: String
-        var at: String
-        var playedAllAtMaxRate: Double?
-    }
-
-    /// `entry` applied to what a pass holds for `interval` (nil: nothing yet): the look as it becomes, nil when it is
-    /// withdrawn. `clean` needs the interval played whole and no findings under it; a finding must be well-formed
-    /// and lie in the interval (a second either side allowed, the context the reviewer was shown).
-    private static func applied(_ entry: Entry, to existing: Look?, interval: Interval, played: PlayedCoverage, reviewer: String, at: String) throws -> Look? {
-        // A look is its reviewer's: what they saw, how much of it they played, when. Another person changes nothing of
-        // it — not a finding, not its completion, not its withdrawal — so no one's viewing is ever counted for another.
-        if let existing, existing.reviewer != reviewer { throw Failure.othersLook(index: interval.index, reviewer: existing.reviewer) }
-        let whole = played.covers(interval.span) ? played.maxRate : nil
-        switch entry {
-        case .clean:
-            if existing?.verdict == .notClean { throw Failure.hasFindings(index: interval.index) }
-            guard let whole else {
-                throw Failure.notPlayed(index: interval.index, missingSec: seconds(interval.span.ticks - played.playedTicks(in: interval.span)))
-            }
-            return Look(verdict: .clean, findings: [], reviewer: reviewer, at: at, playedAllAtMaxRate: whole)
-        case .finding(let finding):
-            if finding.kind == .uncertain, (finding.note ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { throw Failure.uncertainWithoutNote }
-            if let why = problem(finding) { throw Failure.badFinding(why) }
-            let shown = (seconds(interval.startTick) - contextSec - 0.01)...(seconds(interval.endTick) + contextSec + 0.01)
-            guard [finding.approxStartSec, finding.approxEndSec].compactMap({ $0 }).allSatisfy(shown.contains) else {
-                throw Failure.badFinding("its approximate time is outside interval \(interval.index)")
-            }
-            let kept = existing?.verdict == .notClean ? existing?.findings ?? [] : []
-            return Look(verdict: .notClean, findings: kept + [finding], reviewer: reviewer, at: at, playedAllAtMaxRate: whole ?? existing?.playedAllAtMaxRate)
-        case .playedWhole:
-            guard var look = existing, look.verdict == .notClean else { throw Failure.noFindings(index: interval.index) }
-            guard let whole else {
-                throw Failure.notPlayed(index: interval.index, missingSec: seconds(interval.span.ticks - played.playedTicks(in: interval.span)))
-            }
-            look.playedAllAtMaxRate = whole
-            return look
-        case .withdrawLast:
-            guard var look = existing else { throw Failure.nothingToWithdraw(index: interval.index) }
-            guard look.verdict == .notClean, look.findings.count > 1 else { return nil }
-            look.findings.removeLast()
-            return look
-        case .withdraw:
-            guard existing != nil else { throw Failure.nothingToWithdraw(index: interval.index) }
-            return nil
-        }
-    }
-
     /// Records one entry of a reviewer on one interval of a drawn recording and returns the record as written.
     /// Every refusal comes first (the file header lists them); then the ledger row; then the sidecar, atomically.
     @discardableResult
@@ -253,73 +194,69 @@ extension CoverageAudit {
         let recording = admission.recording
         let index = request.index
         guard let interval = recording.interval(index) else { throw Failure.intervalNotInDraw(recording: request.recordingId, index: index) }
-        let adds = request.entry != .withdraw && request.entry != .withdrawLast
         // A verdict is on the interval as drawn: once the marks or cut ranges moved its bounds it is another interval.
-        if adds, !admission.currentIntervals.contains(where: { $0.span == interval.span }) {
+        if request.entry.adds, !admission.currentIntervals.contains(where: { $0.span == interval.span }) {
             throw Failure.marksChanged(recording: request.recordingId, index: index)
         }
+        sidecarLock.lock()
+        defer { sidecarLock.unlock() }
         var file = try existingRecord(of: recording, video: admission.video, contentFingerprint: admission.contentFingerprint, draw: draw)
             ?? File(recordingId: request.recordingId, sourceFingerprint: admission.contentFingerprint, drawId: draw.draw.drawId, drawSha256: draw.sha256,
                     datasetName: draw.draw.datasetName, marksSha256: admission.marksSha256, tool: tool)
-        let at = EventReview.stamp(now)
-        func apply(to existing: Look?) throws -> Look? {
-            try applied(request.entry, to: existing, interval: interval, played: request.played, reviewer: reviewer, at: at)
-        }
-
-        switch request.pass {
-        case .first:
-            // Playing an unfinished look to its end changes no verdict, finding or time, so it is taken beneath a later look.
-            if file.repeatReview(index) != nil, request.entry != .playedWhole { throw Failure.frozen(index: index, by: "repeat verdict") }
-            let next = try apply(to: file.review(index).map {
-                Look(verdict: $0.verdict, findings: $0.findings, reviewer: $0.reviewer, at: $0.reviewedAt, playedAllAtMaxRate: $0.playedAllAtMaxRate)
-            })
-            file.intervals.removeAll { $0.index == index }
-            if let next {
-                file.intervals.append(Review(index: index, startTick: interval.startTick, endTick: interval.endTick, verdict: next.verdict, reviewer: next.reviewer,
-                                             reviewedAt: next.at, playedAllAtMaxRate: next.playedAllAtMaxRate, findings: next.findings))
-                file.intervals.sort { $0.index < $1.index }
-            }
-        case .repeatLook:
-            guard let first = file.review(index) else { throw Failure.noFirstVerdict(index: index) }
-            guard repeatSet(recording, file: file).contains(index) else { throw Failure.notInRepeatSet(index: index) }
-            if file.resolution(index) != nil, request.entry != .playedWhole { throw Failure.frozen(index: index, by: "resolution") }
-            // The first reviewer's own second look is blind only once the first is a day old.
-            if adds, reviewer == first.reviewer, let firstAt = date(first.reviewedAt), now.timeIntervalSince(firstAt) < sameReviewerWait {
-                throw Failure.sameReviewerTooSoon(index: index, acceptedFrom: EventReview.stamp(firstAt.addingTimeInterval(sameReviewerWait)))
-            }
-            let next = try apply(to: file.repeatReview(index).map {
-                Look(verdict: $0.verdict, findings: $0.findings, reviewer: $0.reviewer, at: $0.reviewedAt, playedAllAtMaxRate: $0.playedAllAtMaxRate)
-            })
-            var looks = (file.repeatPass?.intervals ?? []).filter { $0.index != index }
-            if let next {
-                looks.append(RepeatReview(index: index, verdict: next.verdict, reviewer: next.reviewer, reviewedAt: next.at,
-                                          playedAllAtMaxRate: next.playedAllAtMaxRate, findings: next.findings))
-            }
-            file.repeatPass = looks.isEmpty ? nil : Repeat(method: Repeat.secondReviewer, intervals: looks.sorted { $0.index < $1.index })
-            let method = repeatMethod(of: file)
-            file.repeatPass?.method = method
-        case .resolution:
-            guard let first = file.review(index), let second = file.repeatReview(index),
-                  !agree((first.verdict, first.findings), (second.verdict, second.findings)) else { throw Failure.noDisagreement(index: index) }
-            let before = file.resolution(index)
-            let next = try apply(to: before.map {
-                Look(verdict: $0.verdict, findings: $0.findings, reviewer: $0.reviewer, at: $0.resolvedAt, playedAllAtMaxRate: $0.playedAllAtMaxRate)
-            })
-            file.resolutions.removeAll { $0.index == index }
-            if let next {
-                let note = request.note?.trimmingCharacters(in: .whitespacesAndNewlines)
-                file.resolutions.append(Resolution(index: index, verdict: next.verdict, findings: next.findings, reviewer: next.reviewer, resolvedAt: next.at,
-                                                   playedAllAtMaxRate: next.playedAllAtMaxRate, note: (note ?? "").isEmpty ? before?.note : note))
-                file.resolutions.sort { $0.index < $1.index }
-            }
-        }
-
+        file = try applying(request, reviewer: reviewer, to: file, interval: interval, recording: recording, now: now)
         file.marksSha256 = admission.marksSha256
         file.tool = tool
         try validate(file)
         try logUse(of: request.recordingId, draw: draw, root: root, now: now)
         try write(file, to: admission.sidecar)
         return file
+    }
+
+    // MARK: - A record from the other device
+
+    /// Every change of a sidecar — a verdict here, a record synchronised from the server — reads and writes it under this.
+    static let sidecarLock = NSLock()
+
+    /// Where this Mac keeps a draw's record as it last agreed with the server (LabelingSync's shadow; never read as a
+    /// record). One per draw: a replacement draw's audit of the same video never meets another draw's shadow.
+    static func syncedURL(forVideo video: URL, drawId: String) -> URL {
+        video.deletingPathExtension().appendingPathExtension("coverageaudit.\(drawId).synced.json")
+    }
+
+    /// Where a look this Mac gave is kept when the phone changed the same look meanwhile (the server's stays in the record).
+    static func conflictURL(forVideo video: URL, drawId: String, serverRevision: Int) -> URL {
+        video.deletingPathExtension().appendingPathExtension("coverageaudit.\(drawId).conflict-r\(serverRevision).json")
+    }
+
+    /// The local record changed while a synchronised one was being prepared: nothing was written.
+    struct LocalChanged: Error {}
+
+    /// A record merged with the server's (CoverageAuditSync) taken as this recording's, by the rules a verdict given here
+    /// is held to: the recording admitted now (`admit`: the draw's, not withheld, complete, its original here and
+    /// unchanged), the record of this draw, recording and file, valid (`validate`: clean only played whole, the 24-hour
+    /// wait, …), every first look on the bounds the draw gave its interval. Then the ledger row — dated at the earliest
+    /// use the server recorded, the review having happened on the other device — and only then the sidecar, whole and
+    /// atomically, and only while it still is `expectedLocal` (`LocalChanged` otherwise: a verdict here came first).
+    static func adoptSynced(_ file: File, draw: LoadedDraw, root: URL, firstUse: Date?, expectedLocal: File?, now: Date = Date()) throws {
+        let admission = try admit(file.recordingId, draw: draw, root: root)
+        let recording = admission.recording
+        guard file.drawId == draw.draw.drawId, file.drawSha256 == draw.sha256 else {
+            throw Failure.otherDraw(recording: file.recordingId, recorded: file.drawId, given: draw.draw.drawId)
+        }
+        guard file.sourceFingerprint == admission.contentFingerprint else {
+            throw Failure.sourceChanged(recording: file.recordingId, draw: file.sourceFingerprint, current: admission.contentFingerprint)
+        }
+        try validate(file)
+        for review in file.intervals where recording.interval(review.index)?.span != review.span {
+            throw Failure.invalid("interval \(review.index) is not on the bounds the draw gave it")
+        }
+        sidecarLock.lock()
+        defer { sidecarLock.unlock() }
+        guard try existingRecord(of: recording, video: admission.video, contentFingerprint: admission.contentFingerprint, draw: draw) == expectedLocal else {
+            throw LocalChanged()
+        }
+        try logUse(of: file.recordingId, draw: draw, root: root, now: min(firstUse ?? now, now))
+        try write(file, to: admission.sidecar)
     }
 
     // MARK: - The project's sessions

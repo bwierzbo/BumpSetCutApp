@@ -42,6 +42,8 @@ final class CoverageAuditModel {
     }
 
     static let rates: [Float] = [0.5, 1, 2]
+    /// What a record says wrote it, from this Mac (a verdict here, or a record the sync sends).
+    nonisolated static let defaultTool = "RallyLab " + (RallyClassifierExporter.buildRevision() ?? Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")
 
     let sampler: SamplerModel
     let tool: String
@@ -108,7 +110,7 @@ final class CoverageAuditModel {
     @ObservationIgnored private var statusTask: Task<Void, Never>?
 
     init(sampler: SamplerModel,
-         tool: String = "RallyLab " + (RallyClassifierExporter.buildRevision() ?? Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"),
+         tool: String = CoverageAuditModel.defaultTool,
          signedIn: @escaping @Sendable () async -> SignedIn = { await CoverageAuditModel.signedInLabeler() }) {
         self.sampler = sampler
         self.tool = tool
@@ -185,6 +187,21 @@ final class CoverageAuditModel {
                 self.statuses = []
                 self.refuse(error.localizedDescription)
             }
+        }
+    }
+
+    /// The sync wrote a recording's record (looks given on the phone): the counts, and the open recording's record, read again.
+    func recordSynced(root: URL, recordingId: String) {
+        guard root == self.root, draw != nil else { return }
+        refreshStatus()
+        guard recordingId == self.recordingId, let draw, let admission else { return }
+        let mine = generation
+        Task { [weak self] in
+            let read = await Task.detached(priority: .userInitiated) {
+                try? CoverageAudit.existingRecord(of: admission.recording, video: admission.video, contentFingerprint: admission.contentFingerprint, draw: draw)
+            }.value
+            guard let self, self.generation == mine, self.recordingId == recordingId else { return }
+            self.file = read
         }
     }
 

@@ -71,6 +71,11 @@ protocol LabelingService: Sendable {
     func rallyEvents(since: Date?) async throws -> [LabelRallyEvents]
     func saveRallyEvents(videoId: UUID, expected: Int, record: EventReview.File) async throws -> LabelRallyEvents
     func publishWithheld(project: String, names: [String]) async throws -> Int
+    func coverageAudits(project: String, drawId: String) async throws -> [LabelCoverageAudit]
+    func coverageAuditUses(project: String, drawId: String) async throws -> [LabelCoverageAuditUse]
+    func publishCoverageAuditDraw(project: String, body: Data) async throws -> String
+    func publishCoverageAuditRecordings(project: String, drawId: String, rows: [LabelCoverageAuditRecording]) async throws
+    func saveCoverageAudit(project: String, drawId: String, expected: Int, record: CoverageAudit.File) async throws -> LabelCoverageAudit
     func recordingTypeClaims(since: Date?) async throws -> [RecordingTypeClaim]
     func recordingTypeClaim(id: UUID) async throws -> RecordingTypeClaim?
     func settleRecordingTypeClaim(_ id: UUID, status: RecordingTypeClaim.Status, reason: String?, confirmedAt: Date?) async throws -> RecordingTypeClaim
@@ -102,10 +107,16 @@ final class LabelingSync {
     /// whatever has that session open takes the new ones.
     var onTracksChanged: ((String) -> Void)?
     var onTimesChanged: ((String) -> Void)?
+    /// A recording's coverage-audit record was written by a sync (root, recording): the Audit tab reads it again.
+    var onAuditSynced: ((URL, String) -> Void)?
     /// After each automatic sync (e.g. fitting new rallies' boxes); true if
     /// it changed something worth sending at once.
     var afterSync: (() async -> Bool)?
     @ObservationIgnored private var auto: Task<Void, Never>?
+    /// What this run already published of the coverage audit (project/draw → hash; project/draw/recording → row): the
+    /// same is not sent again every round. A new run, or a change, publishes again (the server keeps what is the same).
+    @ObservationIgnored private var auditPublished: [String: String] = [:]
+    @ObservationIgnored private var auditRowsPublished: [String: LabelCoverageAuditRecording] = [:]
     @ObservationIgnored private var activation: Any?
     @ObservationIgnored private var live: LabelingLive?
     @ObservationIgnored private var soon: Task<Void, Never>?
@@ -308,6 +319,7 @@ final class LabelingSync {
             let events = try await syncRallyEvents(opening)
             parts.append("boundary records \(events.pushed) sent · \(events.pulled) received" + (events.conflicts.isEmpty ? "" : " · conflicts kept for: \(events.conflicts.joined(separator: ", "))")
                          + (events.withheldPublished.map { " · withheld list published (\($0))" } ?? " · withheld list NOT published — no boundary record sent"))
+            if events.withheldPublished != nil, let audit = try await syncCoverageAudit(opening) { parts.append(audit) }
             let claims = try await syncRecordingTypeClaims(opening)
             if claims.accepted + claims.rejected + claims.awaiting + claims.deferred.count > 0 {
                 parts.append("footage types from the phone \(claims.accepted) confirmed · \(claims.rejected) declined"
@@ -806,6 +818,138 @@ final class LabelingSync {
             }
         }
         return (pushed, pulled, conflicts, published)
+    }
+
+    // MARK: - Coverage audit (054; the phone's Audit mode)
+
+    /// One logical audit on both devices, for every frozen draw of the project (`manifests/coverage-audit/*-draw.json`):
+    /// the draw's bytes are published (frozen: the server refuses other bytes under its id); for each drawn recording
+    /// this Mac admits now (`CoverageAudit.admit`, the guard every verdict passes), what the admission found — its copy,
+    /// footage, marks hash and the intervals still unmarked as drawn — so the phone takes verdicts on those only. The
+    /// server's ledger of uses goes into this Mac's ledger first (an unwritable ledger stops here: nothing is merged);
+    /// then each record is merged with the server's look by look (CoverageAuditSync): this Mac's new looks go up at the
+    /// revision they were merged on, the phone's come down through `adoptSynced`, which holds them to every rule a local
+    /// verdict meets, and a look both changed keeps the server's, with this Mac's beside the video
+    /// (`…coverageaudit.conflict-r<n>.json`). Runs only after the withheld list was published (the server refuses
+    /// everything of a project without one). nil when the project has no draw or this account is not a lead.
+    private func syncCoverageAudit(_ opening: ProjectsModel.Opening) async throws -> String? {
+        let project = opening.name, root = opening.root
+        let dir = CoverageAudit.drawsDirectory(in: root)
+        let drawFiles = ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.lastPathComponent.hasSuffix("-draw.json") }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        guard !drawFiles.isEmpty else { return nil }
+        let videos = try await client.videos().filter { $0.project == project }
+        var sent = 0, received = 0
+        var notes: [String] = []
+        for url in drawFiles {
+            try projects.require(opening)
+            let draw: CoverageAudit.LoadedDraw
+            do { draw = try CoverageAudit.loadDraw(url) } catch { notes.append("\(url.lastPathComponent): \(error.localizedDescription)"); continue }
+            let drawId = draw.draw.drawId
+            do {
+                if auditPublished[project + "/" + drawId] != draw.sha256 {
+                    let sha = try await client.publishCoverageAuditDraw(project: project, body: try Data(contentsOf: url))
+                    guard sha == draw.sha256 else { notes.append("\(drawId): the server's hash of the draw is not this file's — nothing synced"); continue }
+                    auditPublished[project + "/" + drawId] = sha
+                }
+            } catch LabelingClient.Failure.server(_, let message) where CoverageAuditSync.refusal(in: message) == .notLead {
+                return nil
+            } catch LabelingClient.Failure.server(_, let message) {
+                notes.append("\(drawId): draw not published (\(message))")
+                continue
+            }
+            // What this Mac admits now, recording by recording (file work off the main actor).
+            let admitted: [String: CoverageAudit.Admission] = await Task.detached(priority: .utility) {
+                var out: [String: CoverageAudit.Admission] = [:]
+                for r in draw.draw.recordings { if let a = try? CoverageAudit.admit(r.recordingId, draw: draw, root: root) { out[r.recordingId] = a } }
+                return out
+            }.value
+            try projects.require(opening)
+            for (name, admission) in admitted.sorted(by: { $0.key < $1.key }) {
+                guard let video = videos.first(where: { $0.sessionName == name && $0.sourceFingerprint == admission.contentFingerprint }) else {
+                    notes.append("\(name): no published copy of its original yet — not offered to the phone")
+                    continue
+                }
+                let current = Set(admission.currentIntervals.map(\.span))
+                let row = LabelCoverageAuditRecording(project: project, drawId: drawId, recordingId: name, videoId: video.id,
+                                                      sourceFingerprint: admission.contentFingerprint, marksSha256: admission.marksSha256,
+                                                      openIndices: admission.recording.intervals.filter { current.contains($0.span) }.map(\.index))
+                let key = project + "/" + drawId + "/" + name
+                guard auditRowsPublished[key] != row else { continue }
+                do {
+                    try await client.publishCoverageAuditRecordings(project: project, drawId: drawId, rows: [row])
+                    auditRowsPublished[key] = row
+                } catch LabelingClient.Failure.server(_, let message) {
+                    notes.append("\(name): not offered to the phone (\(message))")
+                }
+            }
+            // The server's ledger first: every use the phone recorded is on this Mac's ledger before any of its verdicts is taken.
+            let uses = try await client.coverageAuditUses(project: project, drawId: drawId)
+            let firstUse = Dictionary(uses.map { ($0.recordingId, $0.firstUsedAt) }, uniquingKeysWith: min)
+            try await Task.detached(priority: .utility) {
+                for (name, at) in firstUse { try CoverageAudit.logUse(of: name, draw: draw, root: root, now: min(at, Date())) }
+            }.value
+            let remote = Dictionary(try await client.coverageAudits(project: project, drawId: drawId).map { ($0.recordingId, $0) }, uniquingKeysWith: { a, _ in a })
+            try projects.require(opening)
+            for (name, admission) in admitted.sorted(by: { $0.key < $1.key }) {
+                try projects.require(opening)
+                let shadowURL = CoverageAudit.syncedURL(forVideo: admission.video, drawId: drawId)
+                let local: CoverageAudit.File?
+                do { local = try CoverageAudit.existingRecord(of: admission.recording, video: admission.video, contentFingerprint: admission.contentFingerprint, draw: draw) }
+                catch { notes.append("\(name): local record left untouched (\(error.localizedDescription))"); continue }
+                let shadow = FileManager.default.fileExists(atPath: shadowURL.path) ? try? CoverageAudit.read(shadowURL) : nil
+                let server = remote[name]
+                let merged = CoverageAuditSync.merge(local: local, shadow: shadow, server: server?.record)
+                if let why = merged.refusal { notes.append("\(name): nothing merged — \(why)"); continue }
+                if !merged.conflicts.isEmpty, let local, let server {
+                    try? CoverageAudit.write(local, to: CoverageAudit.conflictURL(forVideo: admission.video, drawId: drawId, serverRevision: server.revision))
+                    notes.append("\(name): \(merged.conflicts.count) look(s) changed on both devices — the phone's kept, this Mac's beside the video")
+                }
+                guard var record = merged.record else { continue }
+                let push = record != server?.record
+                if push {
+                    record.marksSha256 = admission.marksSha256
+                    record.tool = CoverageAuditModel.defaultTool
+                }
+                // The merged record is this Mac's first (held to every local rule, the use on the ledger first), then
+                // it goes up: a verdict given here while the save is in flight is made on top of it, so the shadow
+                // can move to what the server acknowledges without reading that verdict, or the server's, as a conflict.
+                if record != local {
+                    do {
+                        let use = firstUse[name], taken = record
+                        try await Task.detached(priority: .utility) {
+                            try CoverageAudit.adoptSynced(taken, draw: draw, root: root, firstUse: use, expectedLocal: local)
+                        }.value
+                        let slots = CoverageAuditSync.slots(of: local).union(CoverageAuditSync.slots(of: record))
+                        if slots.contains(where: { CoverageAuditSync.look($0, in: local) != CoverageAuditSync.look($0, in: record) && CoverageAuditSync.look($0, in: record) == CoverageAuditSync.look($0, in: server?.record) }) {
+                            received += 1
+                        }
+                        onAuditSynced?(root, name)
+                        // What was taken from the server is agreed now, whether or not the send below goes through.
+                        if push, let base = CoverageAuditSync.base(after: record, server: server?.record, shadow: shadow) {
+                            try CoverageAudit.write(base, to: shadowURL)
+                        }
+                    } catch is CoverageAudit.LocalChanged {
+                        continue
+                    } catch {
+                        notes.append("\(name): the server's record not taken (\(error.localizedDescription))")
+                        continue
+                    }
+                }
+                var agreed = server?.record
+                if push {
+                    do {
+                        agreed = try await client.saveCoverageAudit(project: project, drawId: drawId, expected: server?.revision ?? 0, record: record).record
+                        sent += 1
+                    } catch LabelingClient.Failure.server(_, let message) where CoverageAuditSync.refusal(in: message) != nil {
+                        notes.append("\(name): not sent (\(message))")
+                        continue
+                    }
+                }
+                if let agreed { try CoverageAudit.write(agreed, to: shadowURL) }
+            }
+        }
+        return "coverage audit \(sent) sent · \(received) received" + (notes.isEmpty ? "" : " · " + notes.joined(separator: "; "))
     }
 
     /// The legacy rally-times file beside a recording, as the sync reads it.

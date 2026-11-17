@@ -60,7 +60,8 @@ struct RallyLabApp: App {
         _marker = State(initialValue: marker)
         let boundaries = RallyBoundariesModel(sampler: sampler)
         _boundaries = State(initialValue: boundaries)
-        _coverage = State(initialValue: CoverageAuditModel(sampler: sampler))
+        let coverage = CoverageAuditModel(sampler: sampler)
+        _coverage = State(initialValue: coverage)
         _netLabels = State(initialValue: NetLabelsModel(projects: projects))
         _queue = State(initialValue: WorkQueueModel(projects: projects))
         // Records every stall of the main thread (≥ 0.5 s) to the unified log and ~/Library/Logs/RallyLab/stalls.log.
@@ -70,6 +71,8 @@ struct RallyLabApp: App {
         // Rally times pulled from the phone carry the cut ranges: the Pipeline tab scores over them again (D-030).
         phone.onTimesChanged = { marker.reloadMarks(session: $0); pipeline.refreshCuts() }
         phone.onRecordSynced = { boundaries.recordSynced(root: $0, $1, $2) }
+        // A coverage-audit record merged with the phone's: the Audit tab reads it again.
+        phone.onAuditSynced = { coverage.recordSynced(root: $0, recordingId: $1) }
         // A rally finished here or on the phone gets its boxes fitted to the
         // ball before it's reviewed.
         let fitter = ProjectReviewStore(sampler: sampler, tracker: tracker, sync: phone, projects: projects)

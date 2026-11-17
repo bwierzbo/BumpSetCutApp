@@ -1,6 +1,6 @@
 //
 //  CoverageAudit.swift
-//  RallyLab
+//  Labeler/Shared — compiled by RallyLab (macOS) and the Labeler iPhone app
 //
 //  The negative-coverage audit's record (owner, 2026-11-14: "The owner does not waive
 //  negative-label verification"): a person watches every *unmarked interval* of a drawn
@@ -23,9 +23,12 @@
 //
 //  `clean` exists only as a reviewer's explicit verdict on an interval played whole at no
 //  more than 2× (`PlayedCoverage`): a record that says clean without it does not read.
-//  Nothing here opens a video, runs a model or writes a rally mark; the one way a record
-//  changes is `CoverageAudit.record` (CoverageAuditRecording.swift), which holds the
-//  refusals and the ledger row.
+//  Nothing here opens a video, runs a model or writes a rally mark. A verdict changes a
+//  record only through `applying` (below), the one set of rules both devices use: on the
+//  Mac `CoverageAudit.record` (CoverageAuditRecording.swift) wraps it with the admission,
+//  the ledger row and the sidecar; on the phone the audit (CoverageAuditPhone.swift) wraps
+//  it with the published draw state and the server's save. The unmarked intervals are
+//  derived from the marks on the Mac only (CoverageAuditRecording.swift).
 //
 
 import CryptoKit
@@ -34,7 +37,8 @@ import Foundation
 enum CoverageAudit {
     static let annotationVersion = "coverage_audit_v2"
     static let drawVersion = "coverage_audit_draw_v2"
-    static let timescale = RallyClassifierExporter.timescale
+    /// The classifier dataset's clock (RallyClassifierExporter reads it from here, so both count the same ticks).
+    static let timescale = 600
     /// Nothing played faster than this earns coverage.
     static let maxCreditRate = 2.0
     /// What is played either side of an interval for context, in seconds (clamped to the recording).
@@ -42,7 +46,7 @@ enum CoverageAudit {
     /// A repeat by the reviewer who gave the first verdict is accepted this long after it, not before.
     static let sameReviewerWait: TimeInterval = 24 * 3600
 
-    static func tick(_ seconds: Double) -> Int { RallyClassifierExporter.tick(seconds) }
+    static func tick(_ seconds: Double) -> Int { Int((seconds * Double(timescale)).rounded(.toNearestOrEven)) }
     static func seconds(_ tick: Int) -> Double { Double(tick) / Double(timescale) }
 
     /// Ticks `startTick ..< endTick`.
@@ -58,32 +62,6 @@ enum CoverageAudit {
         var startTick: Int
         var endTick: Int
         var span: Span { Span(startTick: startTick, endTick: endTick) }
-    }
-
-    // MARK: - Unmarked intervals
-
-    /// The maximal intervals of `0 ..< durationTicks` that no mark of any kind and no cut range covers: the marks
-    /// as RallyTruth keeps them (every kind, outside the cuts; a rally from where the dataset starts it) and the
-    /// cut ranges, each `tick(start) ..< tick(end)`, clamped to the recording, overlapping or touching ones merged
-    /// — the dataset's rallies, excluded spans and cut ranges. Every interval counts, whatever its length.
-    static func unmarkedIntervals(marks: [RallyMarkRecord], cuts: [CutRange], durationTicks: Int) -> [Interval] {
-        guard durationTicks > 0 else { return [] }
-        let truth = RallyTruth(marks: marks.map(RallyTruth.Mark.init), cuts: cuts, complete: true)
-        let covered = truth.pieces.map { piece in
-            (tick(RallyTruth.isRally(piece.kind) ? RallyClassifierExporter.rallyStart(piece, in: marks) : piece.start), tick(piece.end))
-        }
-        let taken = (covered + truth.cuts.map { (tick($0.start), tick($0.end)) })
-            .map { (max(0, $0.0), min(durationTicks, $0.1)) }
-            .filter { $0.0 < $0.1 }
-            .sorted { $0.0 < $1.0 }
-        var out: [Interval] = []
-        var cursor = 0
-        for (start, end) in taken {
-            if start > cursor { out.append(Interval(index: out.count, startTick: cursor, endTick: start)) }
-            cursor = max(cursor, end)
-        }
-        if cursor < durationTicks { out.append(Interval(index: out.count, startTick: cursor, endTick: durationTicks)) }
-        return out
     }
 
     // MARK: - The draw
@@ -142,6 +120,11 @@ enum CoverageAudit {
     static func loadDraw(_ url: URL) throws -> LoadedDraw {
         let data: Data
         do { data = try Data(contentsOf: url) } catch { throw Failure.drawUnreadable(error.localizedDescription) }
+        return try loadDraw(data, url: url)
+    }
+
+    /// The same checks on a draw's bytes (the phone has them from the server, published by the Mac); `url` is where they are kept.
+    static func loadDraw(_ data: Data, url: URL) throws -> LoadedDraw {
         guard let head = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw Failure.drawUnreadable("not a JSON object") }
         let version = head["schemaVersion"] as? String ?? "(none)"
         guard version == drawVersion else { throw Failure.drawUnreadable("schemaVersion \(version); this build reads \(drawVersion) only") }
@@ -350,6 +333,163 @@ enum CoverageAudit {
         func resolution(_ index: Int) -> Resolution? { resolutions.first { $0.index == index } }
     }
 
+    /// Which look at an interval: the first review, the blind repeat, or the resolution of their disagreement.
+    enum Pass: String, CaseIterable, Codable, Sendable {
+        case first
+        case repeatLook = "repeat"
+        case resolution
+    }
+
+    /// What a reviewer does to one interval in one pass.
+    enum Entry: Equatable, Sendable {
+        /// Nothing was left unmarked here. Only for an interval played whole.
+        case clean
+        /// Something was: added to the interval's findings (the interval is `not_clean`).
+        case finding(Finding)
+        /// The interval has now been played whole under its findings: recorded on the `not_clean` verdict, which
+        /// until then holds findings from a partial look (and leaves the recording partial).
+        case playedWhole
+        /// Takes back the last finding added — or the verdict, when it is a clean or holds one finding.
+        case withdrawLast
+        /// Takes back the pass's whole verdict on the interval.
+        case withdraw
+
+        /// Gives or adds to a verdict (anything but taking one back).
+        var adds: Bool { self != .withdraw && self != .withdrawLast }
+    }
+
+    struct Request: Sendable {
+        var recordingId: String
+        var index: Int
+        var pass: Pass
+        var entry: Entry
+        var reviewer: String
+        /// What the reviewer has played of the recording in this look.
+        var played = PlayedCoverage()
+        /// A resolution's note.
+        var note: String?
+    }
+
+    /// One look's verdict on an interval, whichever pass holds it.
+    struct Look: Equatable {
+        var verdict: Verdict
+        var findings: [Finding]
+        var reviewer: String
+        var at: String
+        var playedAllAtMaxRate: Double?
+    }
+
+    /// `entry` applied to what a pass holds for `interval` (nil: nothing yet): the look as it becomes, nil when it is
+    /// withdrawn. `clean` needs the interval played whole and no findings under it; a finding must be well-formed
+    /// and lie in the interval (a second either side allowed, the context the reviewer was shown).
+    static func applied(_ entry: Entry, to existing: Look?, interval: Interval, played: PlayedCoverage, reviewer: String, at: String) throws -> Look? {
+        // A look is its reviewer's: what they saw, how much of it they played, when. Another person changes nothing of
+        // it — not a finding, not its completion, not its withdrawal — so no one's viewing is ever counted for another.
+        if let existing, existing.reviewer != reviewer { throw Failure.othersLook(index: interval.index, reviewer: existing.reviewer) }
+        let whole = played.covers(interval.span) ? played.maxRate : nil
+        switch entry {
+        case .clean:
+            if existing?.verdict == .notClean { throw Failure.hasFindings(index: interval.index) }
+            guard let whole else {
+                throw Failure.notPlayed(index: interval.index, missingSec: seconds(interval.span.ticks - played.playedTicks(in: interval.span)))
+            }
+            return Look(verdict: .clean, findings: [], reviewer: reviewer, at: at, playedAllAtMaxRate: whole)
+        case .finding(let finding):
+            if finding.kind == .uncertain, (finding.note ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { throw Failure.uncertainWithoutNote }
+            if let why = problem(finding) { throw Failure.badFinding(why) }
+            let shown = (seconds(interval.startTick) - contextSec - 0.01)...(seconds(interval.endTick) + contextSec + 0.01)
+            guard [finding.approxStartSec, finding.approxEndSec].compactMap({ $0 }).allSatisfy(shown.contains) else {
+                throw Failure.badFinding("its approximate time is outside interval \(interval.index)")
+            }
+            let kept = existing?.verdict == .notClean ? existing?.findings ?? [] : []
+            return Look(verdict: .notClean, findings: kept + [finding], reviewer: reviewer, at: at, playedAllAtMaxRate: whole ?? existing?.playedAllAtMaxRate)
+        case .playedWhole:
+            guard var look = existing, look.verdict == .notClean else { throw Failure.noFindings(index: interval.index) }
+            guard let whole else {
+                throw Failure.notPlayed(index: interval.index, missingSec: seconds(interval.span.ticks - played.playedTicks(in: interval.span)))
+            }
+            look.playedAllAtMaxRate = whole
+            return look
+        case .withdrawLast:
+            guard var look = existing else { throw Failure.nothingToWithdraw(index: interval.index) }
+            guard look.verdict == .notClean, look.findings.count > 1 else { return nil }
+            look.findings.removeLast()
+            return look
+        case .withdraw:
+            guard existing != nil else { throw Failure.nothingToWithdraw(index: interval.index) }
+            return nil
+        }
+    }
+
+    // MARK: - Applying a verdict
+
+    /// `request`'s entry, by `reviewer`, applied to `file` for the draw's `interval` of `recording`: the record as it
+    /// becomes, validated. The rules both devices apply — clean only over an interval played whole at 2× or slower
+    /// and without findings, a look changed only by its own reviewer, a first look frozen under a later one, the
+    /// repeat only in the repeat set after a first verdict and, by the first reviewer, a day after it, a resolution
+    /// only where the two looks disagree. What a device must check besides (the recording admitted, the interval
+    /// still as drawn, the ledger) is its caller's.
+    static func applying(_ request: Request, reviewer: String, to file: File, interval: Interval, recording: Draw.Recording, now: Date) throws -> File {
+        var file = file
+        let index = interval.index
+        let adds = request.entry.adds
+        let at = EventReview.stamp(now)
+        func apply(to existing: Look?) throws -> Look? {
+            try applied(request.entry, to: existing, interval: interval, played: request.played, reviewer: reviewer, at: at)
+        }
+
+        switch request.pass {
+        case .first:
+            // Playing an unfinished look to its end changes no verdict, finding or time, so it is taken beneath a later look.
+            if file.repeatReview(index) != nil, request.entry != .playedWhole { throw Failure.frozen(index: index, by: "repeat verdict") }
+            let next = try apply(to: file.review(index).map {
+                Look(verdict: $0.verdict, findings: $0.findings, reviewer: $0.reviewer, at: $0.reviewedAt, playedAllAtMaxRate: $0.playedAllAtMaxRate)
+            })
+            file.intervals.removeAll { $0.index == index }
+            if let next {
+                file.intervals.append(Review(index: index, startTick: interval.startTick, endTick: interval.endTick, verdict: next.verdict, reviewer: next.reviewer,
+                                             reviewedAt: next.at, playedAllAtMaxRate: next.playedAllAtMaxRate, findings: next.findings))
+                file.intervals.sort { $0.index < $1.index }
+            }
+        case .repeatLook:
+            guard let first = file.review(index) else { throw Failure.noFirstVerdict(index: index) }
+            guard repeatSet(recording, file: file).contains(index) else { throw Failure.notInRepeatSet(index: index) }
+            if file.resolution(index) != nil, request.entry != .playedWhole { throw Failure.frozen(index: index, by: "resolution") }
+            // The first reviewer's own second look is blind only once the first is a day old.
+            if adds, reviewer == first.reviewer, let firstAt = date(first.reviewedAt), now.timeIntervalSince(firstAt) < sameReviewerWait {
+                throw Failure.sameReviewerTooSoon(index: index, acceptedFrom: EventReview.stamp(firstAt.addingTimeInterval(sameReviewerWait)))
+            }
+            let next = try apply(to: file.repeatReview(index).map {
+                Look(verdict: $0.verdict, findings: $0.findings, reviewer: $0.reviewer, at: $0.reviewedAt, playedAllAtMaxRate: $0.playedAllAtMaxRate)
+            })
+            var looks = (file.repeatPass?.intervals ?? []).filter { $0.index != index }
+            if let next {
+                looks.append(RepeatReview(index: index, verdict: next.verdict, reviewer: next.reviewer, reviewedAt: next.at,
+                                          playedAllAtMaxRate: next.playedAllAtMaxRate, findings: next.findings))
+            }
+            file.repeatPass = looks.isEmpty ? nil : Repeat(method: Repeat.secondReviewer, intervals: looks.sorted { $0.index < $1.index })
+            let method = repeatMethod(of: file)
+            file.repeatPass?.method = method
+        case .resolution:
+            guard let first = file.review(index), let second = file.repeatReview(index),
+                  !agree((first.verdict, first.findings), (second.verdict, second.findings)) else { throw Failure.noDisagreement(index: index) }
+            let before = file.resolution(index)
+            let next = try apply(to: before.map {
+                Look(verdict: $0.verdict, findings: $0.findings, reviewer: $0.reviewer, at: $0.resolvedAt, playedAllAtMaxRate: $0.playedAllAtMaxRate)
+            })
+            file.resolutions.removeAll { $0.index == index }
+            if let next {
+                let note = request.note?.trimmingCharacters(in: .whitespacesAndNewlines)
+                file.resolutions.append(Resolution(index: index, verdict: next.verdict, findings: next.findings, reviewer: next.reviewer, resolvedAt: next.at,
+                                                   playedAllAtMaxRate: next.playedAllAtMaxRate, note: (note ?? "").isEmpty ? before?.note : note))
+                file.resolutions.sort { $0.index < $1.index }
+            }
+        }
+
+        try validate(file)
+        return file
+    }
+
     // MARK: - Failures
 
     enum Failure: LocalizedError, Equatable {
@@ -384,6 +524,8 @@ enum CoverageAudit {
         case othersLook(index: Int, reviewer: String)
         case supersededRecordKept(path: String)
         case ledgerNotWritten(String)
+        /// The phone: the recording may not be reviewed on this device now (CoverageAuditPhone.unavailable).
+        case notOnThisDevice(recording: String, why: String)
 
         var errorDescription: String? {
             switch self {
@@ -423,6 +565,7 @@ enum CoverageAudit {
             case .supersededRecordKept(let path): return "A record of the superseded draw is already kept at \(path); nothing is moved over it."
             case .othersLook(let index, let reviewer): return "Interval \(index)'s look in this pass is \(reviewer)'s: only \(reviewer) can change, complete or withdraw it."
             case .ledgerNotWritten(let why): return "The exposure ledger could not record this audit, so nothing is saved: \(why)"
+            case .notOnThisDevice(let recording, let why): return "\(recording) can't be reviewed on this phone now: \(why)."
             }
         }
     }
@@ -606,6 +749,96 @@ enum CoverageAudit {
             if case .settled(.clean, _, true) = standing(of: review.index, in: file) { return true }
             return false
         }.map(\.span).sorted { $0.startTick < $1.startTick }
+    }
+
+    // MARK: - Progress
+
+    /// What a recording's record says against the draw, counted the same on the Mac (the status, the Audit tab) and on
+    /// the phone. `asDrawn`: the draw's intervals still unmarked as drawn (the Mac from the marks now; the phone as the
+    /// Mac last published them) — a moved interval takes no verdict, so no pass owes it work.
+    struct Tally: Equatable, Sendable {
+        /// The draw's intervals, and how many have a first verdict on the bounds drawn.
+        var total = 0
+        var reviewed = 0
+        /// The intervals owed a second look (the draw's repeat set and the ones first left uncertain), and how many have one
+        /// that is finished — a look with findings counts only once the interval has played whole in it.
+        var repeatOwed = 0
+        var repeatDone = 0
+        /// Disagreements between the first and the repeat verdict nobody has resolved.
+        var unresolved = 0
+        /// Intervals still unmarked as drawn that the repeat pass owes a finished look: in the repeat set, with no repeat
+        /// look yet, or one with findings not played whole.
+        var repeatLeft = 0
+        /// Disagreements on intervals still unmarked as drawn without a finished resolution: the resolution pass's work.
+        var resolveLeft = 0
+        /// Intervals whose findings come from a look that did not cover the interval: not reviewed whole yet.
+        var partialLooks = 0
+        var state = RecordingState(contaminated: false, partial: true)
+        /// The findings that count, by kind.
+        var findings: [FindingKind: Int] = [:]
+        /// Draw intervals that are no longer unmarked intervals as drawn: the marks or cut ranges changed.
+        var movedIntervals = 0
+        /// Draw intervals still unmarked as drawn that the first look has not finished: no verdict yet, or findings
+        /// given before the interval had played whole. The first pass's work left in the recording.
+        var firstLeft = 0
+
+        /// Work left in `pass`.
+        func left(in pass: Pass) -> Int {
+            switch pass {
+            case .first: return firstLeft
+            case .repeatLook: return repeatLeft
+            case .resolution: return resolveLeft
+            }
+        }
+    }
+
+    /// The intervals `pass` still owes a finished look, in time order: still unmarked as drawn (`asDrawn`), and —
+    /// first: no look on the bounds drawn, or findings from a look that did not play it whole; repeat: in the repeat
+    /// set without a finished second look; resolution: a disagreement without a finished resolution.
+    static func owed(_ pass: Pass, recording: Draw.Recording, file: File?, asDrawn: Set<Int>) -> [Int] {
+        switch pass {
+        case .first:
+            return recording.intervals.filter { interval in
+                guard asDrawn.contains(interval.index) else { return false }
+                guard let look = file?.review(interval.index), look.span == interval.span else { return true }
+                return look.playedAllAtMaxRate == nil
+            }.map(\.index)
+        case .repeatLook:
+            guard let file else { return [] }
+            return repeatSet(recording, file: file).filter { asDrawn.contains($0) && file.repeatReview($0)?.playedAllAtMaxRate == nil }
+        case .resolution:
+            guard let file else { return [] }
+            return disagreements(in: file).filter { asDrawn.contains($0) && file.resolution($0)?.playedAllAtMaxRate == nil }
+        }
+    }
+
+    static func tally(of recording: Draw.Recording, file: File?, asDrawn: Set<Int>) -> Tally {
+        var t = Tally(total: recording.intervals.count, repeatOwed: recording.repeatIndices.count, state: state(of: file, intervals: recording.intervals))
+        t.movedIntervals = recording.intervals.filter { !asDrawn.contains($0.index) }.count
+        t.firstLeft = owed(.first, recording: recording, file: file, asDrawn: asDrawn).count
+        guard let file else { return t }
+        let owedRepeat = repeatSet(recording, file: file)
+        t.repeatOwed = owedRepeat.count
+        t.repeatDone = owedRepeat.filter { file.repeatReview($0)?.playedAllAtMaxRate != nil }.count
+        t.repeatLeft = owed(.repeatLook, recording: recording, file: file, asDrawn: asDrawn).count
+        t.resolveLeft = owed(.resolution, recording: recording, file: file, asDrawn: asDrawn).count
+        for interval in recording.intervals where file.review(interval.index)?.span == interval.span {
+            t.reviewed += 1
+            switch standing(of: interval.index, in: file) {
+            case .disputed: t.unresolved += 1
+            case .settled(_, let findings, let playedWhole):
+                for f in findings { t.findings[f.kind, default: 0] += 1 }
+                if !playedWhole { t.partialLooks += 1 }
+            case .unreviewed: break
+            }
+        }
+        return t
+    }
+
+    /// The findings of `counts` in the kinds' fixed order: "missed_rally 2, uncertain 1"; "none" when there is none.
+    static func countsText(_ counts: [FindingKind: Int]) -> String {
+        let parts = FindingKind.allCases.compactMap { kind in counts[kind].map { "\(kind.rawValue) \($0)" } }
+        return parts.isEmpty ? "none" : parts.joined(separator: ", ")
     }
 
     // MARK: - Played coverage

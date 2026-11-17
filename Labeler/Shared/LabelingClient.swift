@@ -416,6 +416,74 @@ actor LabelingClient {
         return Int(String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)) ?? names.count
     }
 
+    // MARK: - Coverage audit (migration 054; D-038 G7) — leads only in this release
+
+    /// The frozen draws published for `project`.
+    func coverageAuditDraws(project: String) async throws -> [LabelCoverageAuditDraw] {
+        try await get("label_coverage_audit_draws", query: "select=*&project=eq.\(Self.encoded(project))")
+    }
+
+    /// What the Mac last published for each drawn recording of a draw (withheld recordings are never served).
+    func coverageAuditRecordings(project: String, drawId: String) async throws -> [LabelCoverageAuditRecording] {
+        try await get("label_coverage_audit_recordings", query: "select=*&project=eq.\(Self.encoded(project))&draw_id=eq.\(Self.encoded(drawId))")
+    }
+
+    /// A draw's records on the server.
+    func coverageAudits(project: String, drawId: String) async throws -> [LabelCoverageAudit] {
+        try await get("label_coverage_audits", query: "select=*&project=eq.\(Self.encoded(project))&draw_id=eq.\(Self.encoded(drawId))")
+    }
+
+    /// Who opened which recording of a draw for review: the server's ledger, copied into the Mac's.
+    func coverageAuditUses(project: String, drawId: String) async throws -> [LabelCoverageAuditUse] {
+        try await get("label_coverage_audit_uses", query: "select=*&project=eq.\(Self.encoded(project))&draw_id=eq.\(Self.encoded(drawId))")
+    }
+
+    /// Publishes a frozen draw's bytes exactly; returns the SHA-256 the server computed of them (the same bytes again
+    /// change nothing; other bytes under a published draw id are refused).
+    func publishCoverageAuditDraw(project: String, body: Data) async throws -> String {
+        guard let text = String(data: body, encoding: .utf8) else { throw Failure.unreadable }
+        struct Params: Encodable { let p_project: String; let p_body: String }
+        var request = try await rest("rpc/coverage_audit_publish_draw", query: "")
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(Params(p_project: project, p_body: text))
+        return try Self.decoder.decode(String.self, from: try await send(request))
+    }
+
+    /// Publishes what the Mac's admission found for drawn recordings.
+    func publishCoverageAuditRecordings(project: String, drawId: String, rows: [LabelCoverageAuditRecording]) async throws {
+        struct Row: Encodable { let recordingId: String; let videoId: String; let sourceFingerprint: String; let marksSha256: String; let openIndices: [Int] }
+        struct Params: Encodable { let p_project: String; let p_draw: String; let p_rows: [Row] }
+        var request = try await rest("rpc/coverage_audit_publish_recordings", query: "")
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(Params(p_project: project, p_draw: drawId, p_rows: rows.map {
+            Row(recordingId: $0.recordingId, videoId: $0.videoId.uuidString.lowercased(), sourceFingerprint: $0.sourceFingerprint,
+                marksSha256: $0.marksSha256, openIndices: $0.openIndices.sorted())
+        }))
+        _ = try await send(request)
+    }
+
+    /// Puts this account's use of a drawn recording on the server's ledger (before a frame of it is shown); returns
+    /// when it was first used.
+    @discardableResult
+    func openCoverageAudit(project: String, drawId: String, recordingId: String) async throws -> Date {
+        struct Params: Encodable { let p_project: String; let p_draw: String; let p_recording: String }
+        var request = try await rest("rpc/coverage_audit_open", query: "")
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(Params(p_project: project, p_draw: drawId, p_recording: recordingId))
+        return try Self.decoder.decode(Date.self, from: try await send(request))
+    }
+
+    /// Saves a drawn recording's record at the revision it was made from (0: none on the server yet).
+    func saveCoverageAudit(project: String, drawId: String, expected: Int, record: CoverageAudit.File) async throws -> LabelCoverageAudit {
+        struct Params: Encodable { let p_project: String; let p_draw: String; let p_recording: String; let p_expected: Int; let p_record: CoverageAudit.File }
+        var request = try await rest("rpc/coverage_audit_save", query: "")
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(Params(p_project: project, p_draw: drawId, p_recording: record.recordingId, p_expected: expected, p_record: record))
+        let rows = try Self.decoder.decode([LabelCoverageAudit].self, from: try await send(request))
+        guard let row = rows.first else { throw Failure.unreadable }
+        return row
+    }
+
     private static func encoded(_ value: String) -> String {
         value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? value
     }
