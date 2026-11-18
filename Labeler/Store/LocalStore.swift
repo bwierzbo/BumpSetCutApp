@@ -295,7 +295,7 @@ enum LocalStore {
     }()
 }
 
-/// What you labeled today, for the Next tab.
+/// What you labeled today, for the Home tab.
 struct DayStats: Codable {
     var day: String
     var rallies = 0

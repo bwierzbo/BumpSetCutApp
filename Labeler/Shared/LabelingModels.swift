@@ -259,7 +259,7 @@ extension LabelTrack {
 }
 
 /// A project's training plan as the Mac ran it, and each run's scores
-/// ({run name: {"tracked": F1, "indoor": F1, …}}), for the phone's Plan tab.
+/// ({run name: {"tracked": F1, "indoor": F1, …}}), as the Mac publishes them.
 struct LabelProjectState: Codable, Hashable {
     var project: String
     var plan: [TrainedRound]
