@@ -301,9 +301,9 @@ final class LabelingSync {
             if videos {
                 // Phone uploads come in only when this round is allowed to take them (never in a guarded run).
                 let imported = importsPhoneUploads ? try await importPhoneVideos(opening) : 0
-                let (listed, uploaded, failed) = try await publishVideos(opening, remaking: remaking)
+                let (listed, uploaded, failed, unfaithful) = try await publishVideos(opening, remaking: remaking)
                 let paths = try await publishBallPaths(opening)
-                parts.append("\(listed) videos listed (\(uploaded) uploaded\(failed.isEmpty ? "" : ", \(failed.count) failed — next sync retries: \(failed.joined(separator: ", "))")), "
+                parts.append("\(listed) videos listed (\(uploaded) uploaded\(failed.isEmpty ? "" : ", \(failed.count) failed — next sync retries: \(failed.joined(separator: ", "))")\(unfaithful.isEmpty ? "" : ", \(unfaithful.count) whose copy does not reproduce the original's frames — playback only on the phone: \(unfaithful.joined(separator: ", "))")), "
                              + (importsPhoneUploads ? "\(imported) phone videos pulled in" : "phone uploads not pulled in (guarded run)"))
                 if let paths { parts.append(paths) }
             }
@@ -468,14 +468,16 @@ final class LabelingSync {
         }
     }
 
-    private func publishVideos(_ opening: ProjectsModel.Opening, remaking: (String) -> Bool) async throws -> (listed: Int, uploaded: Int, failed: [String]) {
+    private func publishVideos(_ opening: ProjectsModel.Opening, remaking: (String) -> Bool) async throws -> (listed: Int, uploaded: Int, failed: [String], unfaithful: [String]) {
         let project = opening.name, root = opening.root
         let remote = try await client.videos().filter { $0.project == project }
         var listed = 0, uploaded = 0
         var failed: [String] = []
+        /// Uploaded this round, but not the original's frames (`uploadSmallCopy`).
+        var unfaithful: [String] = []
         // Withheld recordings (the L2 closure) are never uploaded for the phone. When the closure cannot be read,
         // nothing is uploaded at all (fail closed). The closure and the sessions are the captured project's (`root`).
-        guard let withheld = await Self.withheldClosure(root: root) else { return (0, 0, []) }
+        guard let withheld = await Self.withheldClosure(root: root) else { return (0, 0, [], []) }
         try projects.require(opening)
         // Decoding every session and asking the share whether each file is there is file work: off the main actor.
         // A recording whose original is not on this Mac (moved to the desktop) keeps its row as it is, copy and
@@ -533,7 +535,7 @@ final class LabelingSync {
                 guard await stillPublished() else { continue }
                 status = "Uploading \(session.name) for the phone (\(i + 1) of \(sessions.count))…"
                 do {
-                    try await uploadSmallCopy(of: source, to: path, unless: { !(await stillPublished()) })
+                    if !(try await uploadSmallCopy(of: source, to: path, digest: video.frameTimesDigest, unless: { !(await stillPublished()) })) { unfaithful.append(session.name) }
                     replaced = video.clipPath
                     video.clipPath = path
                     uploaded += 1
@@ -572,7 +574,7 @@ final class LabelingSync {
                 if video != existing { try await client.save(video) }
             }
         }
-        return (listed, uploaded, failed)
+        return (listed, uploaded, failed, unfaithful)
     }
 
     /// The recording's type as its footage-properties record has it, onto the row to publish. A record is this
@@ -605,23 +607,72 @@ final class LabelingSync {
     /// most 5 Mbps) rather than 2 Mbps flat, which grainy footage fell apart at;
     /// 3 = frame times kept exactly (the encoder's own time base snapped
     /// variable-rate phone footage to a fixed grid, so the phone showed the
-    /// frame next to the one asked for, and frames sharing a time decoded grey).
-    static let copyVersion = 3
+    /// frame next to the one asked for, and frames sharing a time decoded grey);
+    /// 4 = a trimmed original's first, partly shown frame kept and its times
+    /// not shifted (`CopyTrim`): ffmpeg's own reading of the edit list starts
+    /// at the first whole frame, a fraction of a frame early throughout, so
+    /// the phone's frame check refused the copy.
+    static let copyVersion = 4
+
+    /// How a trimmed original is cut for its copy: a single edit that starts inside the footage. The copy keeps the
+    /// frame showing when the edit begins (`keepFrom`, its media time) and every later one before `end`, each at its
+    /// media time less `start` and never before zero — the times `FrameIdentity.presentationTimes` gives the original.
+    struct CopyTrim: Equatable {
+        var keepFrom: Double
+        var start: Double
+        var end: Double
+
+        /// nil when ffmpeg's own reading of the file already gives the original's frames: no edit, no frame before
+        /// the edit, or an edit list this does not reproduce (several edits, a delayed or retimed one).
+        init?(media: [Double], edits: [CMTimeMapping]) {
+            guard edits.count == 1, let edit = edits.first, edit.target.start.seconds == 0,
+                  abs(edit.target.duration.seconds - edit.source.duration.seconds) < 1e-6 else { return nil }
+            let start = edit.source.start.seconds
+            guard media.contains(where: { $0 < start - 1e-9 }), let keepFrom = media.filter({ $0 <= start + 1e-9 }).max() else { return nil }
+            self.keepFrom = keepFrom
+            self.start = start
+            self.end = start + edit.source.duration.seconds
+        }
+
+        /// ffmpeg's input options and the filters ahead of the scaling: the edit list ignored, the frames chosen
+        /// and timed here (a microsecond inside each bound: sample times are far coarser). The new time is rounded
+        /// to the stream's tick: the start written in decimals is a hair off a whole tick, and a time cut down
+        /// instead would land one tick early. `-copyts`: the filters see the file's media times, the ones these
+        /// bounds are in — without it ffmpeg first takes off the stream's start time (a composition delay, in
+        /// footage with B-frames), and the wrong frames are chosen.
+        var inputOptions: [String] { ["-copyts", "-ignore_editlist", "1"] }
+        var filters: String {
+            String(format: "select='gte(t,%.6f)*lt(t,%.6f)',setpts='max(round(PTS-%.9f/TB),0)',", keepFrom - 0.000001, end - 0.000001, start)
+        }
+    }
 
     /// `unless` is asked once the copy is encoded (minutes after the caller's own check), right before it goes up.
-    private func uploadSmallCopy(of source: URL, to path: String, unless withheldMeanwhile: () async -> Bool) async throws {
+    /// Returns whether the copy's frames reproduce `digest`, the original's published frame identity: the phone
+    /// refuses frame-exact work on one that doesn't (playback only), so the round says which. True when there is
+    /// no digest to hold it to.
+    private func uploadSmallCopy(of source: URL, to path: String, digest: String?, unless withheldMeanwhile: () async -> Bool) async throws -> Bool {
         let out = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
         defer { try? FileManager.default.removeItem(at: out) }
         try await smallCopy(source, out)
+        let faithful = await Self.copy(out, reproduces: digest)
         try await client.authorize(forTransfer: true)
         guard !(await withheldMeanwhile()) else { throw SyncError.withheldMeanwhile }
         try await client.uploadFile(out, to: path)
+        return faithful
+    }
+
+    /// Whether the copy at `url` has the frames `digest` names. A copy whose frames can't be read does not.
+    static func copy(_ url: URL, reproduces digest: String?) async -> Bool {
+        guard let digest, !digest.isEmpty else { return true }
+        guard let times = try? await FrameIdentity.allFrameTimes(of: url) else { return false }
+        return FrameIdentity.matches(copy: times, original: digest)
     }
 
     static let encodeSmallCopy: SmallCopy = { source, out in
-        let run = await ToolEnvironment.run("ffmpeg", [
-            "-y", "-loglevel", "error", "-i", source.path, "-an",
-            "-vf", "scale='if(gt(iw,ih),min(1280,iw),-2)':'if(gt(iw,ih),-2,min(1280,ih))'", "-fps_mode", "passthrough",
+        let trim = (try? await FrameIdentity.timeline(of: source)).flatMap { CopyTrim(media: $0.media, edits: $0.edits) }
+        let run = await ToolEnvironment.run("ffmpeg", ["-y", "-loglevel", "error"] + (trim?.inputOptions ?? []) + [
+            "-i", source.path, "-an",
+            "-vf", (trim?.filters ?? "") + "scale='if(gt(iw,ih),min(1280,iw),-2)':'if(gt(iw,ih),-2,min(1280,ih))'", "-fps_mode", "passthrough",
             "-enc_time_base", "demux", "-c:v", "libx264", "-preset", "slow", "-crf", "20", "-maxrate", "5M", "-bufsize", "10M",
             "-pix_fmt", "yuv420p", "-movflags", "+faststart", out.path,
         ])
