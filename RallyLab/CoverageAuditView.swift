@@ -18,8 +18,11 @@ import SwiftUI
 struct CoverageAuditView: View {
     @Bindable var model: CoverageAuditModel
     let isActive: Bool
+    /// A correction moved a mark of this recording: the marking pass takes the file as it is now.
+    let marksChanged: (String) -> Void
     @State private var keyMonitor: Any?
     @State private var showHelp = false
+    @State private var showCorrections = false
     @FocusState private var noteFocused: Bool
 
     var body: some View {
@@ -83,8 +86,44 @@ struct CoverageAuditView: View {
             case .unknown: Text("Reviewer: confirming the signed-in labeler…").font(.caption).foregroundStyle(.orange)
             }
             Button("Export findings for the marking pass") { model.exportFindings() }.controlSize(.small).disabled(model.draw == nil)
+            Button("Boundary corrections…") { model.loadCorrections(); showCorrections = true }.controlSize(.small).disabled(model.draw == nil)
+                .sheet(isPresented: $showCorrections) { corrections }
         }
         .padding(8)
+    }
+
+    /// The recorded boundary errors as proposed mark edits (amendment 1, A1.3): applied or declined one by one.
+    private var corrections: some View {
+        let list = model.corrections ?? .init()
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("Boundary corrections").font(.headline)
+            Text("Each boundary error the audit recorded, as an edit of the mark beside its interval. Applying one moves that mark; the interval is then audited again under a new draw.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if let why = list.blocked { Label(why, systemImage: "lock").font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true) }
+            if list.proposals.isEmpty { Text("Nothing to correct.").foregroundStyle(.secondary) }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(list.proposals) { c in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(c.recordingId) · interval \(c.intervalIndex)").font(.system(.body, design: .monospaced))
+                                Text("mark \(clockText(c.markStartSec))–\(clockText(c.markEndSec)) → "
+                                     + (c.edge == .leading ? "ends \(clockText(c.toSec))" : "starts \(clockText(c.toSec))") + String(format: " (+%.1f s)", c.addedSec))
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("Decline") { model.decide(c, .declined, marksChanged: marksChanged) }
+                            Button("Apply") { model.decide(c, .applied, marksChanged: marksChanged) }.buttonStyle(.borderedProminent)
+                        }
+                        .disabled(list.blocked != nil)
+                    }
+                    ForEach(list.notProposed, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) }
+                }
+            }
+            HStack { Spacer(); Button("Done") { showCorrections = false }.keyboardShortcut(.defaultAction) }
+        }
+        .padding(16)
+        .frame(width: 620, height: 460)
     }
 
     private static func progress(of s: CoverageAudit.RecordingStatus, in pass: CoverageAudit.Pass) -> Double {
