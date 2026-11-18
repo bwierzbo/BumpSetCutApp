@@ -637,8 +637,10 @@ final class LabelingSync {
         /// ffmpeg's input options and the filters ahead of the scaling: the edit list ignored, the frames chosen
         /// and timed here (a microsecond inside each bound: sample times are far coarser). The new time is rounded
         /// to the stream's tick: the start written in decimals is a hair off a whole tick, and a time cut down
-        /// instead would land one tick early.
-        var inputOptions: [String] { ["-ignore_editlist", "1"] }
+        /// instead would land one tick early. `-copyts`: the filters see the file's media times, the ones these
+        /// bounds are in — without it ffmpeg first takes off the stream's start time (a composition delay, in
+        /// footage with B-frames), and the wrong frames are chosen.
+        var inputOptions: [String] { ["-copyts", "-ignore_editlist", "1"] }
         var filters: String {
             String(format: "select='gte(t,%.6f)*lt(t,%.6f)',setpts='max(round(PTS-%.9f/TB),0)',", keepFrom - 0.000001, end - 0.000001, start)
         }

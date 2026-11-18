@@ -8,7 +8,9 @@
 //
 //  Fixture trimmed-mid-frame.mp4: `ffmpeg -f lavfi -i testsrc2=size=64x36:rate=60:duration=2 -c:v libx264 -g 30
 //  -bf 0 -pix_fmt yuv420p base.mp4 && ffmpeg -ss 0.2733 -i base.mp4 -c copy trimmed-mid-frame.mp4` — 120 samples,
-//  one edit from 0.2733 s: 104 frames, the first shown from the edit's start.
+//  one edit from 0.2733 s: 104 frames, the first shown from the edit's start. trimmed-mid-frame-bframes.mp4: the
+//  same with `-bf 2` — its media times start after a composition delay (edit from 0.3066 s), which ffmpeg takes
+//  off its input's times unless told to keep them.
 //
 
 import AVFoundation
@@ -28,7 +30,7 @@ final class PhoneCopyTrimTests: XCTestCase {
         XCTAssertEqual(trim.keepFrom, 16.0 / 60, accuracy: 1e-9, "the frame showing at 0.2733 s")
         XCTAssertEqual(trim.start, 0.2733, accuracy: 1e-6)
         XCTAssertEqual(trim.end, 1.9733, accuracy: 1e-6)
-        XCTAssertEqual(trim.inputOptions, ["-ignore_editlist", "1"])
+        XCTAssertEqual(trim.inputOptions, ["-copyts", "-ignore_editlist", "1"])
         XCTAssertEqual(trim.filters, "select='gte(t,0.266666)*lt(t,1.973299)',setpts='max(round(PTS-0.273300000/TB),0)',")
     }
 
@@ -45,10 +47,29 @@ final class PhoneCopyTrimTests: XCTestCase {
         XCTAssertNil(LabelingSync.CopyTrim(media: sixty, edits: [edit(from: 0.2733, for: 0.5), edit(from: 1, for: 0.5, at: 0.5)]), "several edits")
     }
 
+    private func fixture(_ name: String) throws -> URL {
+        let bundle = Bundle(for: Self.self)
+        return try XCTUnwrap(bundle.url(forResource: name, withExtension: "mp4") ?? bundle.url(forResource: name, withExtension: "mp4", subdirectory: "Fixtures"))
+    }
+
+    func testTheCopyOfATrimmedClipWithBFramesHasTheOriginalsFrames() async throws {
+        guard await ToolEnvironment.run("ffmpeg", ["-version"]).status == 0 else { throw XCTSkip("ffmpeg is not installed") }
+        let source = try fixture("trimmed-mid-frame-bframes")
+        let timeline = try await FrameIdentity.timeline(of: source)
+        XCTAssertGreaterThan(try XCTUnwrap(timeline.media.min()), 0.01, "the media times start after the composition delay")
+        XCTAssertNotNil(LabelingSync.CopyTrim(media: timeline.media, edits: timeline.edits))
+        let original = FrameIdentity.presentationTimes(media: timeline.media, edits: timeline.edits)
+        XCTAssertEqual(original.count, 104)
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("copy-\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: out) }
+        try await LabelingSync.encodeSmallCopy(source, out)
+        let faithful = await LabelingSync.copy(out, reproduces: FrameIdentity.digest(of: original))
+        XCTAssertTrue(faithful)
+    }
+
     func testTheCopyOfATrimmedClipHasTheOriginalsFrames() async throws {
         guard await ToolEnvironment.run("ffmpeg", ["-version"]).status == 0 else { throw XCTSkip("ffmpeg is not installed") }
-        let bundle = Bundle(for: Self.self)
-        let source = try XCTUnwrap(bundle.url(forResource: "trimmed-mid-frame", withExtension: "mp4") ?? bundle.url(forResource: "trimmed-mid-frame", withExtension: "mp4", subdirectory: "Fixtures"))
+        let source = try fixture("trimmed-mid-frame")
         let original = try await FrameIdentity.allFrameTimes(of: source)
         XCTAssertEqual(original.count, 104)
         XCTAssertEqual(original[0], 0)
