@@ -4,11 +4,12 @@
 //
 //  RallyLab on the iPhone (same bundle ID as the Mac app; TestFlight via
 //  scripts/rallylab_ios_release.sh): label BumpSetCut's training data away
-//  from the Mac. Next hands you the most useful task from the training
-//  plan — confirm a video's found rallies, or track a rally's ball by
-//  checking only the frames the model is unsure of; Overview and Plan show
-//  the dataset and the rounds; Videos lists everything and uploads videos
-//  recorded on the phone. Works offline from the last sync. Data lives in
+//  from the Mac. Home shows what needs you — the most useful task from
+//  the training plan (mark a video's rallies, or track a rally's ball by
+//  checking only the frames the model is unsure of) and what each other
+//  tool has waiting; Review checks labels; Audit is the lead's coverage
+//  audit; Videos lists everything, with the dataset's totals, and uploads
+//  videos recorded on the phone. Works offline from the last sync. Data lives in
 //  Supabase (labeling tables + the private "labeling" bucket), synced by
 //  RallyLab on the Mac. Separate from BumpSetCut.
 //
@@ -77,13 +78,16 @@ struct SyncProblemBanner: View {
     }
 }
 
-/// Next (the task queue) · Review (annotation review) · Overview · Plan · Videos. Each tab has its own
-/// navigation; tasks and videos open their screens.
+/// Home (what needs you, and the task queue) · Review (annotation review) · Audit (the lead's) · Videos. Four at
+/// most, so the phone's tab bar shows every one. Each tab has its own navigation; tasks and videos open their screens.
 struct MainTabs: View {
     @Bindable var model: LabelerModel
     /// Audit mode (the coverage-audit pilot): the lead's only, in this release.
     @State private var audit: AuditModel
-    @State private var nextPath = NavigationPath()
+    @State private var homePath = NavigationPath()
+    @State private var selection = Selection.home
+
+    enum Selection: Hashable { case home, review, audit, videos }
 
     init(model: LabelerModel) {
         self.model = model
@@ -99,31 +103,25 @@ struct MainTabs: View {
     @State private var live: LabelingLive?
 
     var body: some View {
-        TabView {
-            Tab("Next", systemImage: "play.circle.fill") {
-                NavigationStack(path: $nextPath) {
-                    NextView(model: model, path: $nextPath).destinations(model)
+        TabView(selection: $selection) {
+            Tab("Home", systemImage: "house.fill", value: Selection.home) {
+                NavigationStack(path: $homePath) {
+                    HomeView(model: model, audit: audit, path: $homePath) { selection = $0 }.destinations(model)
                 }
                 .safeAreaInset(edge: .top) { SyncProblemBanner(model: model) }
             }
-            Tab("Review", systemImage: "checkmark.rectangle.stack") {
+            Tab("Review", systemImage: "checkmark.rectangle.stack", value: Selection.review) {
                 NavigationStack { ReviewHomeView(store: model, progress: model.reviewProgress) }
                     .safeAreaInset(edge: .top) { SyncProblemBanner(model: model) }
             }
             .badge(model.rallyChecks().count + model.reviewItems([.crop, .noBall]).count)
-            Tab("Overview", systemImage: "chart.bar.xaxis") {
-                NavigationStack { OverviewView(model: model).destinations(model) }
-            }
-            Tab("Plan", systemImage: "point.topleft.down.to.point.bottomright.curvepath") {
-                NavigationStack { PlanView(model: model).destinations(model) }
-            }
-            Tab("Videos", systemImage: "film.stack") {
-                NavigationStack { VideoListView(model: model).destinations(model) }
-            }
             if model.snapshot.lead {
-                Tab("Audit", systemImage: "checklist") {
+                Tab("Audit", systemImage: "checklist", value: Selection.audit) {
                     NavigationStack { AuditView(audit: audit) }
                 }
+            }
+            Tab("Videos", systemImage: "film.stack", value: Selection.videos) {
+                NavigationStack { VideoListView(model: model).destinations(model) }
             }
         }
         // Back in the app: send what's waiting and pick up the Mac's changes,
