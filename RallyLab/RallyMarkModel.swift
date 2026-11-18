@@ -401,12 +401,17 @@ final class RallyMarkModel {
             RallyMarkRecord(startTime: $0.start, endTime: $0.end, kind: $0.kind, contacts: $0.contacts.isEmpty ? nil : $0.contacts)
         }
         do {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted]
-            try encoder.encode(labels).write(to: url, options: .atomic)
+            try write(labels, to: url)
             return nil
         } catch {
             return error
         }
+    }
+
+    /// The sidecar's rows as they are stored. Every writer of rally marks goes through here.
+    nonisolated static func write(_ labels: [RallyMarkRecord], to url: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted]
+        try encoder.encode(labels).write(to: url, options: .atomic)
     }
 }

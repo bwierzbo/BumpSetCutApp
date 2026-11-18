@@ -101,7 +101,7 @@ struct ContentView: View {
             // into <video>.coverageaudit.json — the original footage and nothing over it (no ball path, no pipeline).
             Group {
                 if projects.project != nil {
-                    CoverageAuditView(model: coverage, isActive: tab == .audit)
+                    CoverageAuditView(model: coverage, isActive: tab == .audit) { marker.reloadMarks(session: $0) }
                 } else {
                     ProjectWelcomeView(projects: projects) { tab = .pipeline }
                 }

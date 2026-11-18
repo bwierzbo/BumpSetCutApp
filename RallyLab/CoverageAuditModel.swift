@@ -624,4 +624,31 @@ final class CoverageAuditModel {
             say("\(list.findings.count) finding(s) → \(out.text.path) (and .json). The audit wrote no mark.")
         } catch { refuse(error.localizedDescription) }
     }
+
+    // MARK: - Boundary corrections (amendment 1, A1.3)
+
+    /// The recorded boundary errors as proposed mark edits; nil until loaded.
+    private(set) var corrections: CoverageAudit.Corrections?
+
+    func loadCorrections() {
+        guard let draw else { return }
+        do { corrections = try CoverageAudit.corrections(draw: draw, root: root) } catch {
+            corrections = nil
+            refuse(error.localizedDescription)
+        }
+    }
+
+    /// Applies or declines one proposal, then reads the proposals again (a moved mark changes its neighbours').
+    /// `marksChanged` tells the marking pass, which may hold the recording open, to take the file as it is now.
+    func decide(_ correction: CoverageAudit.Correction, _ action: CoverageAudit.CorrectionEntry.Action, marksChanged: (String) -> Void) {
+        guard let draw else { return }
+        do {
+            try CoverageAudit.decide(correction, action, draw: draw, root: root)
+            if action == .applied { marksChanged(correction.recordingId) }
+            say("\(correction.recordingId) interval \(correction.intervalIndex): correction \(action.rawValue)."
+                + (action == .applied ? " The interval's bounds changed: it is audited again under a new draw." : ""))
+        } catch { refuse(error.localizedDescription) }
+        loadCorrections()
+        refreshStatus()
+    }
 }
