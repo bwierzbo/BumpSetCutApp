@@ -150,6 +150,14 @@ extension CoverageAudit {
             }
             out.proposals.append(correction)
         }
+        // Several findings for one edge of one interval: one proposal when they say the same, none when they differ
+        // (which is meant can't be told here; deciding one must not silently drop the other).
+        for (id, same) in Dictionary(grouping: out.proposals, by: \.id) where same.count > 1 {
+            out.proposals.removeAll { $0.id == id }
+            if same.allSatisfy({ $0 == same[0] }) { out.proposals.append(same[0]); continue }
+            out.notProposed.append("\(same[0].recordingId) interval \(same[0].intervalIndex): \(same.count) boundary errors for the same edge disagree (to \(same.map { clockText($0.toSec) }.sorted().joined(separator: ", "))): correct that mark in the marking pass")
+        }
+        out.proposals.sort { ($0.recordingId, $0.intervalIndex, $0.edge.rawValue) < ($1.recordingId, $1.intervalIndex, $1.edge.rawValue) }
         // Two trims of one interval that cross would make its two neighbours overlap: neither is proposed.
         for (key, pair) in Dictionary(grouping: out.proposals, by: { "\($0.recordingId)#\($0.intervalIndex)" }) where pair.count == 2 {
             guard let lead = pair.first(where: { $0.edge == .leading }), let trail = pair.first(where: { $0.edge == .trailing }), lead.toSec > trail.toSec else { continue }

@@ -182,6 +182,18 @@ final class CoverageAuditCorrectionsTests: XCTestCase {
                        [A.Span(startTick: 0, endTick: 1200), A.Span(startTick: 2400, endTick: 2700), A.Span(startTick: 4800, endTick: 6000)], "the next draw's interval ends at the corrected start")
     }
 
+    func testFindingsForTheSameEdgeAreOneProposalWhenTheyAgreeAndNoneWhenTheyDiffer() throws {
+        let d = try draw()
+        try give(0, boundary(.trailing, 0.8, 2), draw: d)
+        try give(0, boundary(.trailing, 0.8, 2), draw: d)
+        try give(1, boundary(.leading, 4, 4.5), draw: d)
+        try give(1, boundary(.leading, 4, 5.5), draw: d)
+        try give(2, .clean, draw: d)
+        let current = try A.corrections(draw: d, root: root)
+        XCTAssertEqual(current.proposals.map(\.id), ["a#0#trailing"])
+        XCTAssertTrue(current.notProposed.contains { $0.contains("interval 1") && $0.contains("disagree") }, "\(current.notProposed)")
+    }
+
     func testAnUnwritableLedgerMovesNoMark() throws {
         let d = try draw()
         try give(0, .clean, draw: d)
