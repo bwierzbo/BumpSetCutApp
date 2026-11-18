@@ -169,6 +169,11 @@ struct AuditView: View {
                         let s0 = max(a, CoverageAudit.seconds(s.startTick)), s1 = min(b, CoverageAudit.seconds(s.endTick))
                         if s1 > s0 { Rectangle().fill(.green).frame(width: x(s1) - x(s0)).offset(x: x(s0)) }
                     }
+                    ForEach(Array(audit.trims.enumerated()), id: \.offset) { _, f in
+                        if let t0 = f.approxStartSec, let t1 = f.approxEndSec, t1 > t0 {
+                            Rectangle().fill(.orange).frame(width: x(t1) - x(t0)).offset(x: x(t0))
+                        }
+                    }
                     Rectangle().fill(.primary).frame(width: 2).offset(x: min(width - 2, max(0, x(audit.playhead))))
                 }
                 .clipShape(Capsule())
@@ -186,10 +191,31 @@ struct AuditView: View {
             }
             .buttonStyle(.borderedProminent)
             Picker("Rate", selection: Binding(get: { audit.rate }, set: { audit.setRate($0) })) {
-                Text("½×").tag(Float(0.5)); Text("1×").tag(Float(1)); Text("2×").tag(Float(2))
+                Text("½×").tag(Float(0.5)); Text("1×").tag(Float(1)); Text("2×").tag(Float(2)); Text("3×").tag(Float(3))
             }
             .pickerStyle(.segmented)
         }
+    }
+
+    /// The two boundary errors, given at the playhead: the stretch of the interval the neighbouring mark should have covered.
+    private var trimButtons: some View {
+        HStack(spacing: 10) {
+            trimButton("Trim start to here", "the rally before is still going", .leading)
+            trimButton("Trim end from here", "the next serve is already hit", .trailing)
+        }
+    }
+
+    private func trimButton(_ title: String, _ why: String, _ edge: CoverageAudit.Edge) -> some View {
+        Button { audit.trim(edge) } label: {
+            VStack(spacing: 2) {
+                Label(title, systemImage: "scissors").font(.callout.weight(.semibold))
+                Text(why).font(.caption2)
+            }
+            .lineLimit(1).minimumScaleFactor(0.7)
+            .frame(maxWidth: .infinity, minHeight: 48)
+        }
+        .buttonStyle(.bordered)
+        .tint(.orange)
     }
 
     // MARK: - Verdicts
@@ -204,8 +230,12 @@ struct AuditView: View {
                 audit.give(.clean)
             }
             .disabled(left > 0.05)
+            if Double(audit.rate) > CoverageAudit.maxCreditRate {
+                Text("3× is for scanning: it earns no viewing credit.").font(.caption).foregroundStyle(.secondary)
+            }
+            trimButtons
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                ForEach(CoverageAudit.FindingKind.allCases, id: \.self) { kind in
+                ForEach(CoverageAudit.FindingKind.allCases.filter { $0 != .boundaryError }, id: \.self) { kind in
                     Button { audit.pause(); finding = kind } label: {
                         Text(Self.title(kind)).font(.callout.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 48)
                     }
@@ -252,9 +282,15 @@ struct AuditView: View {
         }
     }
 
+    /// What a boundary error trims off the interval: which end, and how long.
+    private static func trimText(_ f: CoverageAudit.Finding) -> String {
+        guard f.kind == .boundaryError, let edge = f.edge, let a = f.approxStartSec, let b = f.approxEndSec else { return "" }
+        return String(format: " — %.1f s off the %@", b - a, edge == .leading ? "start" : "end")
+    }
+
     static func describe(_ look: CoverageAuditSync.Look) -> String {
         func text(_ pass: String, _ verdict: CoverageAudit.Verdict, _ findings: [CoverageAudit.Finding], _ whole: Double?) -> String {
-            "\(pass): \(verdict.rawValue)" + (findings.isEmpty ? "" : " — " + findings.map { $0.kind.rawValue + ($0.note.map { " (\($0))" } ?? "") }.joined(separator: ", "))
+            "\(pass): \(verdict.rawValue)" + (findings.isEmpty ? "" : " — " + findings.map { $0.kind.rawValue + trimText($0) + ($0.note.map { " (\($0))" } ?? "") }.joined(separator: ", "))
                 + (whole == nil ? " · not yet played whole" : "")
         }
         switch look {
@@ -306,10 +342,10 @@ private struct FindingSheet: View {
                     if hasEnd { Stepper(value: $end, in: start...range.upperBound, step: 1) { Text("Ends \(clockText(end))") } }
                 }
                 if !kind.edges.isEmpty {
-                    Section(kind == .missedRally ? "Clipped by the recording's" : "Which mark") {
+                    Section("Clipped by the recording's") {
                         Picker("Edge", selection: $edge) {
                             Text("—").tag(CoverageAudit.Edge?.none)
-                            ForEach(kind.edges, id: \.self) { e in Text(Self.edgeTitle(e)).tag(Optional(e)) }
+                            ForEach(kind.edges, id: \.self) { e in Text(e.rawValue).tag(Optional(e)) }
                         }
                         .pickerStyle(.segmented)
                     }
@@ -345,15 +381,6 @@ private struct FindingSheet: View {
         let a = max(0, (CoverageAudit.seconds(interval.startTick) - CoverageAudit.contextSec).rounded(.up))
         let b = (CoverageAudit.seconds(interval.endTick) + CoverageAudit.contextSec).rounded(.down)
         return a...max(a, b)
-    }
-
-    private static func edgeTitle(_ e: CoverageAudit.Edge) -> String {
-        switch e {
-        case .start: return "start"
-        case .end: return "end"
-        case .leading: return "the one before (ends early)"
-        case .trailing: return "the one after (starts late)"
-        }
     }
 
 }

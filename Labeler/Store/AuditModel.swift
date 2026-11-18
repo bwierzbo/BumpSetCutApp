@@ -547,6 +547,42 @@ final class AuditModel {
         Task { try? await sendAndReceive() }
     }
 
+    /// A mark off by this much or less is inside the tolerance (protocol §5: a boundary error is more than 1.0 s).
+    private static let boundaryToleranceSec = 1.0
+
+    /// The boundary errors this pass's look holds on the interval on screen: the stretches trimmed off it.
+    var trims: [CoverageAudit.Finding] {
+        looks.flatMap { look -> [CoverageAudit.Finding] in
+            switch (pass, look) {
+            case (.first, .first(let r)): return r.findings
+            case (.repeatLook, .repeatLook(let r)): return r.findings
+            case (.resolution, .resolution(let r)): return r.findings
+            default: return []
+            }
+        }
+        .filter { $0.kind == .boundaryError && $0.edge != nil }
+    }
+
+    /// A boundary error given as a trim at the playhead: play the neighbouring mark should have covered runs from the
+    /// interval's start to here (`.leading`: the rally before was still going) or from here to its end (`.trailing`:
+    /// the serve of the rally after was already hit). Nothing moves a mark here; the finding goes to the marking pass.
+    func trim(_ edge: CoverageAudit.Edge) {
+        guard let interval else { return }
+        pause()
+        let a = CoverageAudit.seconds(interval.startTick), b = CoverageAudit.seconds(interval.endTick)
+        let t = min(max((playhead * 10).rounded() / 10, a), b)
+        let play = edge == .leading ? a...t : t...b
+        guard play.upperBound - play.lowerBound > Self.boundaryToleranceSec else {
+            say(String(format: "Not trimmed: %.1f s is inside the 1 s tolerance. A mark that close is right — give Clean.", play.upperBound - play.lowerBound), refused: true)
+            return
+        }
+        guard !trims.contains(where: { $0.edge == edge }) else {
+            say("This look already trims the interval's \(edge == .leading ? "start" : "end"). Undo takes it back.", refused: true)
+            return
+        }
+        give(.finding(CoverageAudit.Finding(kind: .boundaryError, approxStartSec: play.lowerBound, approxEndSec: play.upperBound, edge: edge, note: nil)))
+    }
+
     /// The interval just played to its end under a look with findings from a partial look: that look is now whole.
     var canComplete: Bool {
         guard let leftToPlay, leftToPlay <= 0.05, let position, let file = audit?.local[position.recordingId] else { return false }
