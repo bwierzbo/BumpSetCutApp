@@ -536,7 +536,7 @@ sources = ["CI-BSC-031", "CI-BSC-030"]
 notes = "Milestone 3: generated from measured registry rows only; unmeasured values stay 'not measured'."
 
 [[item]]
-id = "CI-BSC-052"
+id = "CI-BSC-055"
 name = "Negative-coverage audit protocol, amendment 1 (viewing at up to 3×; boundary-error corrections)"
 type = "process"
 path = "docs/ml-roadmap/RALLY_CLASSIFIER_COVERAGE_AUDIT_PROTOCOL_AMENDMENT_1.md"
