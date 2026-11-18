@@ -108,7 +108,7 @@ struct CoverageAuditView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("\(c.recordingId) · interval \(c.intervalIndex)").font(.system(.body, design: .monospaced))
                                 Text("mark \(clockText(c.markStartSec))–\(clockText(c.markEndSec)) → "
-                                     + (c.edge == .leading ? "ends \(clockText(c.toSec))" : "starts \(clockText(c.toSec))") + String(format: " (+%.1f s)", c.addedSec))
+                                     + (c.edge == .leading ? "ends \(clockText(c.toSec))" : "starts \(clockText(c.toSec))\(c.movesServeContact ? ", its serve contact with it" : "")") + String(format: " (+%.1f s)", c.addedSec))
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()

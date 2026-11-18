@@ -85,7 +85,7 @@ final class CoverageAuditCorrectionsTests: XCTestCase {
         // Interval 1 (4–6): the rally before runs to 5.5; the others not reviewed yet.
         try give(1, boundary(.leading, 4, 5.5), draw: d)
         let open = try A.corrections(draw: d, root: root)
-        let proposal = A.Correction(recordingId: "a", intervalIndex: 1, edge: .leading, markStartSec: 2, markEndSec: 4, toSec: 5.5)
+        let proposal = A.Correction(recordingId: "a", intervalIndex: 1, edge: .leading, markStartSec: 2, markEndSec: 4, fromSec: 4, toSec: 5.5)
         XCTAssertEqual(open.proposals, [proposal])
         XCTAssertEqual(proposal.addedSec, 1.5)
         XCTAssertNotNil(open.blocked, "two intervals have no verdict")
@@ -141,6 +141,45 @@ final class CoverageAuditCorrectionsTests: XCTestCase {
         let current = try A.corrections(draw: d, root: root)
         XCTAssertEqual(current.proposals, [])
         XCTAssertTrue(current.notProposed.contains { $0.contains("cross") }, "\(current.notProposed)")
+    }
+
+    func testACorrectionWhoseAddedTimeIsMarkedOrCutSinceTheReviewIsNotProposedOrApplied() throws {
+        let d = try draw()
+        try give(0, .clean, draw: d)
+        try give(1, boundary(.leading, 4, 5.8), draw: d)
+        try give(2, .clean, draw: d)
+        let proposal = try XCTUnwrap(A.corrections(draw: d, root: root).proposals.first)
+        // After the review a mark is added inside the interval: 4.5–5.5.
+        try #"[{"startTime":2,"endTime":4,"kind":"rally"},{"startTime":4.5,"endTime":5.5,"kind":"rally"},{"startTime":6,"endTime":8,"kind":"rally"}]"#
+            .write(to: RallyMarkModel.labelsURL(for: video("a")), atomically: true, encoding: .utf8)
+        let current = try A.corrections(draw: d, root: root)
+        XCTAssertEqual(current.proposals, [])
+        XCTAssertTrue(current.notProposed.contains { $0.contains("no longer all unmarked") }, "\(current.notProposed)")
+        XCTAssertThrowsError(try A.decide(proposal, .applied, draw: d, root: root, now: now)) {
+            XCTAssertEqual($0 as? A.CorrectionFailure, .stale("a#1#leading"))
+        }
+        XCTAssertEqual(try marks(), [[2, 4], [4.5, 5.5], [6, 8]])
+        XCTAssertEqual(try A.correctionEntries(in: root, drawId: d.draw.drawId), [])
+    }
+
+    func testARallyThatStartsAtItsServeContactIsFoundByThatStartAndTheContactMovesWithIt() throws {
+        // The second rally is marked 5.5–8 with its serve contact at 6: the audit's interval ends at 6, not 5.5.
+        try #"[{"startTime":2,"endTime":4,"kind":"rally"},{"startTime":5.5,"endTime":8,"kind":"rally","contacts":[{"time":6,"kind":"serve"},{"time":7,"kind":"pass"}]}]"#
+            .write(to: RallyMarkModel.labelsURL(for: video("a")), atomically: true, encoding: .utf8)
+        let d = try draw()
+        try give(0, .clean, draw: d)
+        try give(1, boundary(.trailing, 4.5, 6), draw: d)
+        try give(2, .clean, draw: d)
+        let proposal = try XCTUnwrap(A.corrections(draw: d, root: root).proposals.first)
+        XCTAssertEqual(proposal, A.Correction(recordingId: "a", intervalIndex: 1, edge: .trailing, markStartSec: 5.5, markEndSec: 8, fromSec: 6, toSec: 4.5, movesServeContact: true))
+        XCTAssertEqual(proposal.addedSec, 1.5)
+        try A.decide(proposal, .applied, draw: d, root: root, now: now)
+        let moved = try XCTUnwrap(RallyTruth.records(inSidecarOf: video("a")))
+        XCTAssertEqual(moved[1].startTime, 4.5)
+        XCTAssertEqual(moved[1].contacts?.map(\.time), [4.5, 7])
+        let session = try XCTUnwrap(DatasetStore(root: root).loadSessionsStrict().first { $0.name == "a" })
+        XCTAssertEqual(A.unmarkedIntervals(marks: moved, cuts: session.cutRanges, durationTicks: 6000).map(\.span),
+                       [A.Span(startTick: 0, endTick: 1200), A.Span(startTick: 2400, endTick: 2700), A.Span(startTick: 4800, endTick: 6000)], "the next draw's interval ends at the corrected start")
     }
 
     func testAnUnwritableLedgerMovesNoMark() throws {

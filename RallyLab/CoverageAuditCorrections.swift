@@ -28,11 +28,17 @@ extension CoverageAudit {
         /// The neighbouring mark as it is now.
         var markStartSec: Double
         var markEndSec: Double
+        /// The edge that moves, as it is now: the mark's end (`leading`), or where the rally starts (`trailing`) —
+        /// its serve contact when it has one, else the mark's start (`RallyClassifierExporter.rallyStart`).
+        var fromSec: Double
         var toSec: Double
+        /// `trailing` only: the rally starts at its serve contact, which moves with the start.
+        var movesServeContact = false
 
-        var id: String { "\(recordingId)#\(intervalIndex)#\(edge.rawValue)" }
-        /// How much the mark grows.
-        var addedSec: Double { edge == .leading ? toSec - markEndSec : markStartSec - toSec }
+        var id: String { Self.id(recordingId, intervalIndex, edge) }
+        static func id(_ recordingId: String, _ intervalIndex: Int, _ edge: Edge) -> String { "\(recordingId)#\(intervalIndex)#\(edge.rawValue)" }
+        /// How much the rally grows.
+        var addedSec: Double { abs(toSec - fromSec) }
     }
 
     /// A decision on a correction, as the ledger keeps it.
@@ -93,34 +99,56 @@ extension CoverageAudit {
         return "the review is not finished (\(first) first look(s), \(again) second look(s) and \(resolve) disagreement(s) to go). Corrections wait until it is, so no mark moves under a review in progress"
     }
 
-    /// The boundary errors that count in the draw's records, as proposals against the marks as they are now. Ones
-    /// already applied or declined are left out.
+    /// Where a mark starts for the audit's intervals: a rally at its serve contact when it has one (the exporter's
+    /// rule), anything else at its start.
+    private static func effectiveStart(of mark: RallyMarkRecord, in marks: [RallyMarkRecord]) -> Double {
+        RallyTruth.isRally(mark.kind) ? RallyClassifierExporter.rallyStart(RallyTruth.Mark(mark), in: marks) : mark.startTime
+    }
+
+    /// Whether the rally's start is its first contact, a serve: moving the start then means moving that contact.
+    private static func startsAtServeContact(_ mark: RallyMarkRecord, in marks: [RallyMarkRecord]) -> Bool {
+        guard RallyTruth.isRally(mark.kind), let first = mark.contacts?.first, first.kind == .serve else { return false }
+        return first.time == effectiveStart(of: mark, in: marks)
+    }
+
+    /// The boundary errors that count in the draw's records, as proposals against the marks and cut ranges as they
+    /// are now: the time a correction adds must still be unmarked. Ones already applied or declined are left out.
     static func corrections(draw: LoadedDraw, root: URL) throws -> Corrections {
         var out = Corrections(blocked: incompleteness(of: try status(draw: draw, root: root)))
         let decided = Set(try correctionEntries(in: root, drawId: draw.draw.drawId).map(\.correction.id))
         let sessions = Dictionary(try sessions(in: root).map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
+        let durations = Dictionary(draw.draw.recordings.map { ($0.recordingId, $0.durationTicks) }, uniquingKeysWith: { a, _ in a })
         for item in try findingsList(draw: draw, root: root).findings where item.kind == .boundaryError {
             let what = "\(item.recordingId) interval \(item.intervalIndex)"
             guard let edge = item.edge, edge == .leading || edge == .trailing, let a = item.approxStartSec, let b = item.approxEndSec, b > a else {
                 out.notProposed.append("\(what): the finding does not say which mark or how much (no edge, or no start and end)")
                 continue
             }
+            if decided.contains(Correction.id(item.recordingId, item.intervalIndex, edge)) { continue }
             guard let session = sessions[item.recordingId], let marks = try RallyTruth.records(inSidecarOf: session.sourceURL) else {
                 out.notProposed.append("\(what): no rally marks beside the video")
                 continue
             }
             let at = edge == .leading ? item.intervalStartSec : item.intervalEndSec
-            guard let mark = marks.first(where: { abs((edge == .leading ? $0.endTime : $0.startTime) - at) <= neighbourTolerance }) else {
+            guard let mark = marks.first(where: { abs((edge == .leading ? $0.endTime : effectiveStart(of: $0, in: marks)) - at) <= neighbourTolerance }) else {
                 out.notProposed.append("\(what): no mark \(edge == .leading ? "ends" : "starts") where the interval \(edge == .leading ? "starts" : "ends") any more (moved since, or the interval is bounded by a cut range or the recording's edge)")
                 continue
             }
+            let from = edge == .leading ? mark.endTime : effectiveStart(of: mark, in: marks)
             let correction = Correction(recordingId: item.recordingId, intervalIndex: item.intervalIndex, edge: edge, markStartSec: mark.startTime, markEndSec: mark.endTime,
-                                        toSec: edge == .leading ? b : a)
-            guard correction.addedSec > 0, correction.toSec >= item.intervalStartSec, correction.toSec <= item.intervalEndSec else {
+                                        fromSec: from, toSec: edge == .leading ? b : a, movesServeContact: edge == .trailing && startsAtServeContact(mark, in: marks))
+            guard edge == .leading ? correction.toSec > from : correction.toSec < from, correction.toSec >= item.intervalStartSec, correction.toSec <= item.intervalEndSec else {
                 out.notProposed.append("\(what): the finding's times lie outside the interval")
                 continue
             }
-            if !decided.contains(correction.id) { out.proposals.append(correction) }
+            // Marks and cut ranges may have changed since the review: the added time must lie in one stretch that is unmarked now.
+            let added = Span(startTick: tick(min(from, correction.toSec)), endTick: tick(max(from, correction.toSec)))
+            let unmarked = unmarkedIntervals(marks: marks, cuts: session.cutRanges, durationTicks: durations[item.recordingId] ?? 0)
+            guard unmarked.contains(where: { $0.startTick <= added.startTick && added.endTick <= $0.endTick }) else {
+                out.notProposed.append("\(what): the time it would add (\(clockText(seconds(added.startTick)))–\(clockText(seconds(added.endTick)))) is no longer all unmarked (a mark or a cut range was added or moved since the review)")
+                continue
+            }
+            out.proposals.append(correction)
         }
         // Two trims of one interval that cross would make its two neighbours overlap: neither is proposed.
         for (key, pair) in Dictionary(grouping: out.proposals, by: { "\($0.recordingId)#\($0.intervalIndex)" }) where pair.count == 2 {
@@ -132,6 +160,8 @@ extension CoverageAudit {
     }
 
     /// Applies or declines `correction`: on the ledger first, then — applied — the mark's edge moved in the sidecar.
+    /// A rally that starts at its serve contact has that contact moved with its start, so the start the exporter and
+    /// the next draw read is the corrected one.
     /// Refused while the stage is incomplete, and when the records and the marks no longer propose exactly this.
     static func decide(_ correction: Correction, _ action: CorrectionEntry.Action, draw: LoadedDraw, root: URL, now: Date = Date()) throws {
         let current = try corrections(draw: draw, root: root)
@@ -147,7 +177,12 @@ extension CoverageAudit {
                   let i = marks.firstIndex(where: { $0.startTime == correction.markStartSec && $0.endTime == correction.markEndSec }) else {
                 throw CorrectionFailure.stale(correction.id)
             }
-            if correction.edge == .leading { marks[i].endTime = correction.toSec } else { marks[i].startTime = correction.toSec }
+            switch correction.edge {
+            case .leading: marks[i].endTime = correction.toSec
+            default:
+                if startsAtServeContact(marks[i], in: marks) { marks[i].contacts?[0].time = correction.toSec }
+                marks[i].startTime = min(marks[i].startTime, correction.toSec)
+            }
             try RallyMarkModel.write(marks, to: RallyMarkModel.labelsURL(for: session.sourceURL))
         } catch {
             // The mark was not moved: the ledger must not say it was.
