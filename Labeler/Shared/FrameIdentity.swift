@@ -37,6 +37,13 @@ enum FrameIdentity {
     /// trim) are not frames of the video. A frame that starts before an edit but is still showing when it begins
     /// is presented from the edit's start. A local file only; a streamed item offers no cursor.
     static func allFrameTimes(of url: URL) async throws -> [Double] {
+        let timeline = try await timeline(of: url)
+        return presentationTimes(media: timeline.media, edits: timeline.edits)
+    }
+
+    /// The video track's samples at their media times (presentation order) and its edit list without the empty
+    /// edits: what `presentationTimes` maps onto the presentation timeline.
+    static func timeline(of url: URL) async throws -> (media: [Double], edits: [CMTimeMapping]) {
         let asset = AVURLAsset(url: url)
         guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw EventReview.Failure.videoUnreadable("no video track") }
         let edits = try await track.load(.segments).filter { !$0.isEmpty }.map(\.timeMapping)
@@ -45,7 +52,7 @@ enum FrameIdentity {
         }
         var media: [Double] = []
         repeat { media.append(cursor.presentationTimeStamp.seconds) } while cursor.stepInPresentationOrder(byCount: 1) == 1
-        return presentationTimes(media: media, edits: edits)
+        return (media, edits)
     }
 
     /// The presentation times of frames with these media times (ascending) under these edits. With no edit list
