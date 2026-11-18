@@ -22,7 +22,7 @@
 //     the only time the dataset exporter may trust as not-rally.
 //
 //  `clean` exists only as a reviewer's explicit verdict on an interval played whole at no
-//  more than 2× (`PlayedCoverage`): a record that says clean without it does not read.
+//  more than 3× (`PlayedCoverage`; 2× until the protocol's amendment 1, D-040): a record that says clean without it does not read.
 //  Nothing here opens a video, runs a model or writes a rally mark. A verdict changes a
 //  record only through `applying` (below), the one set of rules both devices use: on the
 //  Mac `CoverageAudit.record` (CoverageAuditRecording.swift) wraps it with the admission,
@@ -39,8 +39,8 @@ enum CoverageAudit {
     static let drawVersion = "coverage_audit_draw_v2"
     /// The classifier dataset's clock (RallyClassifierExporter reads it from here, so both count the same ticks).
     static let timescale = 600
-    /// Nothing played faster than this earns coverage.
-    static let maxCreditRate = 2.0
+    /// Nothing played faster than this earns coverage (the protocol's amendment 1, D-040: 3×; the protocol as frozen said 2×).
+    static let maxCreditRate = 3.0
     /// What is played either side of an interval for context, in seconds (clamped to the recording).
     static let contextSec = 1.0
     /// A repeat by the reviewer who gave the first verdict is accepted this long after it, not before.
@@ -424,7 +424,7 @@ enum CoverageAudit {
     // MARK: - Applying a verdict
 
     /// `request`'s entry, by `reviewer`, applied to `file` for the draw's `interval` of `recording`: the record as it
-    /// becomes, validated. The rules both devices apply — clean only over an interval played whole at 2× or slower
+    /// becomes, validated. The rules both devices apply — clean only over an interval played whole at 3× or slower
     /// and without findings, a look changed only by its own reviewer, a first look frozen under a later one, the
     /// repeat only in the repeat set after a first verdict and, by the first reviewer, a day after it, a resolution
     /// only where the two looks disagree. What a device must check besides (the recording admitted, the interval
@@ -549,7 +549,7 @@ enum CoverageAudit {
                 return "\(recording) already has an audit record from draw \(recorded); this is draw \(given). One record belongs to one draw."
             case .wrongRecord(let expected, let found): return "coverageaudit.json belongs to \(found), not \(expected)."
             case .notPlayed(let index, let missing):
-                return String(format: "Interval %d has not been played whole at 2× or slower (%.1f s to go): clean is only for an interval watched from start to end. Seeking earns nothing.", index, missing)
+                return String(format: "Interval %d has not been played whole at 3× or slower (%.1f s to go): clean is only for an interval watched from start to end. Seeking earns nothing.", index, missing)
             case .hasFindings(let index): return "Interval \(index) has findings; withdraw them before calling it clean."
             case .uncertainWithoutNote: return "An uncertain interval needs a note saying what could not be told."
             case .badFinding(let why): return "The finding is not valid: \(why)."
@@ -609,7 +609,7 @@ enum CoverageAudit {
     static func date(_ stamp: String) -> Date? { ISO8601DateFormatter().date(from: stamp) }
 
     /// Why a verdict with these findings is not a valid one, or nil. `clean` has no finding and was played whole at
-    /// no more than 2×; `not_clean` has at least one finding, each well-formed; an `uncertain` finding has a note.
+    /// no more than 3×; `not_clean` has at least one finding, each well-formed; an `uncertain` finding has a note.
     static func problem(verdict: Verdict, findings: [Finding], playedAllAtMaxRate: Double?) -> String? {
         if let rate = playedAllAtMaxRate, !(rate > 0 && rate <= maxCreditRate) { return "playedAllAtMaxRate \(rate) is not in (0, \(maxCreditRate)]" }
         switch verdict {
@@ -843,14 +843,14 @@ enum CoverageAudit {
 
     // MARK: - Played coverage
 
-    /// The ticks of a recording a reviewer has played forward at no more than 2×. Seeking adds nothing: only
+    /// The ticks of a recording a reviewer has played forward at no more than 3×. Seeking adds nothing: only
     /// `credit` grows it, and it takes a stretch that was played.
     struct PlayedCoverage: Equatable {
         private(set) var spans: [Span] = []
         /// The fastest rate any credited stretch was played at.
         private(set) var maxRate = 0.0
 
-        /// Credits ticks `from ..< to`, played forward at `rate`. Nothing for a rate above 2× or a stretch with no extent.
+        /// Credits ticks `from ..< to`, played forward at `rate`. Nothing for a rate above 3× or a stretch with no extent.
         mutating func credit(fromTick from: Int, toTick to: Int, rate: Double) {
             guard rate > 0, rate <= CoverageAudit.maxCreditRate, to > from else { return }
             var merged: [Span] = []

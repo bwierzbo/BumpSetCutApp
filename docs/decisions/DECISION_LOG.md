@@ -560,3 +560,19 @@ The authoritative record of product, architecture, data and process decisions fo
 **Consequences.** Migration 054 was tested on a local throwaway database (`supabase/tests/run_048_tests.sh`) and applied to the live project on 2026-11-17 (migration version `20261117211457`; existing policies, functions and labeling rows verified unchanged). Until it is applied, RallyLab's sync reports that the draw could not be published and writes nothing, and the phone's Audit tab says the server has no coverage audit yet. 11 of the 12 pilot recordings have a published copy with the draw's footage fingerprint and a frame identity; `grs_extra_self_04` has none, and is published by RallyLab's sync when its original is on the Mac. No interval has been reviewed; nothing was trained, deployed or released.
 
 **Source.** Owner direction 2026-11-17 (verbatim note above); [RALLY_CLASSIFIER_COVERAGE_AUDIT_PROTOCOL.md](../ml-roadmap/RALLY_CLASSIFIER_COVERAGE_AUDIT_PROTOCOL.md) (unchanged); D-038.
+
+### D-040
+
+**The coverage audit: `clean` after viewing at up to 3×, boundary errors entered as a trim and corrected in the marking pass** — 2026-11-18 — accepted — owner ("Yes on all of those", 2026-11-18, [verbatim](2026-11-18-audit-trim-and-3x-authorization.md)).
+
+**Context.** The owner began the pilot of D-038's audit on the iPhone (D-039) on 2026-11-18. After 13 first looks he reported that the commonest imperfection is a mark that ends a little before the rally does or starts a little after the serve, asked for a way to trim the dead-time interval with the trimmed time going back to the adjacent rally, and asked for a 3× speed. The frozen protocol allows `clean` only after viewing at no more than 2× (§5) and says the audit writes no mark (§12).
+
+**Decision.**
+1. **`clean` may follow viewing at up to 3×** ([amendment 1](../ml-roadmap/RALLY_CLASSIFIER_COVERAGE_AUDIT_PROTOCOL_AMENDMENT_1.md), A1.1). The implementer recommended keeping 2×; the owner chose 3×. Looks already given stand. Clean intervals with a look faster than 2× are reported apart (A1.2); the blind repeat is unchanged.
+2. **A boundary error is entered as a trim at the playhead** on the phone (PR #191, merged `eefba87`, internal TestFlight build `202611180920`). It records the protocol's finding; a trim of 1.0 s or less is refused, since the protocol counts that as a correct mark.
+3. **Recorded boundary errors are corrected in the marking pass on the Mac** (A1.3): each is a proposal to move the neighbouring mark, confirmed by the owner one by one; refused while the stage that holds the finding is incomplete. The audit itself still writes no mark. To be built in a later PR and applied only after the pilot is evaluated.
+4. **The frozen protocol document is not edited** and stays the file every draw is bound to. The amendment is its own frozen record.
+
+**Consequences.** `CoverageAudit.maxCreditRate` is 3.0 in both apps and in the dataset validator and the audit report; the Mac gains a 3× speed (key `4`). A record with a look at 3× is refused by a RallyLab or Labeler build from before this change, so both are rebuilt before a 3× look is given. The pilot draw `20261115-072552`, its criterion, the sample, the verdict kinds, the 24-hour wait, G6 and G7 are unchanged. Corrections to marks change the marks the pilot was drawn from: the changed intervals need a new inventory and a new draw (protocol §8).
+
+**Source.** Owner authorisation 2026-11-18 (verbatim note above); [RALLY_CLASSIFIER_COVERAGE_AUDIT_PROTOCOL.md](../ml-roadmap/RALLY_CLASSIFIER_COVERAGE_AUDIT_PROTOCOL.md) (unchanged); D-038, D-039.

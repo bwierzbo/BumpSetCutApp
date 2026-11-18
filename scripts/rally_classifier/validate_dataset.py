@@ -112,7 +112,7 @@ AUDIT_VERSION = "coverage_audit_v2"
 AUDIT_KEYS = {"state", "auditSha256", "drawId", "cleanIntervals", "findings"}
 AUDIT_STATES = {"none", "audited_clean", "partial", "contaminated"}
 FINDING_KINDS = {"missed_rally", "missed_serve", "boundary_error", "non_rally_activity", "edited_footage", "uncertain"}
-AUDIT_MAX_RATE = 2.0        # CoverageAudit.maxCreditRate: nothing played faster earns a clean
+AUDIT_MAX_RATE = 3.0        # CoverageAudit.maxCreditRate (the protocol's amendment 1, D-040): nothing played faster earns a clean
 EVIDENCE_KEYS = {"sourceFingerprint", "configSha256", "codeSha"}
 REUSED_KEYS = {"dataset", "manifestSha256", "digest", "stepsSha256", "baselineSha256", "detector", "pipelineConfigSha256",
                "featureVersion", "sourceFingerprint", "durationSec", "identityProof"}
@@ -590,7 +590,7 @@ def audit_clean_intervals(record: dict) -> list:
     """The intervals an audit record (`coverage_audit_v2`) says clean once the blind repeat and its resolution are
     counted — CoverageAudit.cleanIntervals, written again here from the protocol: a resolution is what counts where
     the first and the repeat verdict disagree; an unresolved disagreement counts for nothing; a clean counts only
-    without findings and played whole at no more than 2×. Returns sorted (startTick, endTick)."""
+    without findings and played whole at no more than 3×. Returns sorted (startTick, endTick)."""
     def said(look):
         return look["verdict"], sorted(f["kind"] for f in look.get("findings") or [])
     repeats = {r["index"]: r for r in (record.get("repeat") or {}).get("intervals") or []}

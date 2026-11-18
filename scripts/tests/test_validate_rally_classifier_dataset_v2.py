@@ -267,7 +267,7 @@ class V2Dataset(unittest.TestCase):
         project = self._project_with_records(not_clean)
         self.assertRefused("is not inside an interval its audit record says clean", project_dir=project)
 
-    def test_a_clean_played_faster_than_2x_counts_for_nothing(self):
+    def test_a_clean_played_faster_than_3x_counts_for_nothing(self):
         def fast(rec, record):
             record["intervals"][0]["playedAllAtMaxRate"] = 4.0
         project = self._project_with_records(fast)

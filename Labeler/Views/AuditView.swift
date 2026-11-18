@@ -226,13 +226,10 @@ struct AuditView: View {
             if audit.canComplete {
                 big("Played whole — complete this look", "checkmark.seal", .blue) { audit.give(.playedWhole) }
             }
-            big(left > 0.05 ? String(format: "Clean — watch %.0f s more at 2× or slower", left.rounded(.up)) : "Clean", "checkmark.circle.fill", .green) {
+            big(left > 0.05 ? String(format: "Clean — watch %.0f s more", left.rounded(.up)) : "Clean", "checkmark.circle.fill", .green) {
                 audit.give(.clean)
             }
             .disabled(left > 0.05)
-            if Double(audit.rate) > CoverageAudit.maxCreditRate {
-                Text("3× is for scanning: it earns no viewing credit.").font(.caption).foregroundStyle(.secondary)
-            }
             trimButtons
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                 ForEach(CoverageAudit.FindingKind.allCases.filter { $0 != .boundaryError }, id: \.self) { kind in
