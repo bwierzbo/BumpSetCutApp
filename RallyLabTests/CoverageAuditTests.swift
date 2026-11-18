@@ -403,10 +403,18 @@ final class CoverageAuditTests: XCTestCase {
         tracker.stopped(at: 8.1, rate: 2)
         tracker.observed(8.5, rate: 2)
         XCTAssertEqual(tracker.played.playedTicks(in: A.Span(startTick: 4800, endTick: 6000)), 60)
-        // Faster than 2×: the clock is followed, nothing is credited.
+        // Faster than 3× (amendment 1, D-040): the clock is followed, nothing is credited.
         tracker.began(at: 10)
-        tracker.observed(10.5, rate: 3)
+        tracker.observed(10.5, rate: 4)
         XCTAssertEqual(tracker.played.playedTicks(in: A.Span(startTick: 6000, endTick: 6300)), 0)
+        // At 3×: credited, and the look's fastest rate says so.
+        tracker.stopped(at: 10.5, rate: 4)
+        tracker.began(at: 11)
+        tracker.observed(11.5, rate: 3)
+        XCTAssertEqual(tracker.played.playedTicks(in: A.Span(startTick: 6600, endTick: 6900)), 300)
+        XCTAssertEqual(tracker.played.maxRate, 3)
+        XCTAssertNil(A.problem(verdict: .clean, findings: [], playedAllAtMaxRate: 3))
+        XCTAssertNotNil(A.problem(verdict: .clean, findings: [], playedAllAtMaxRate: 3.5))
     }
 
     func testPlayingToTheEndOfTheFileCoversItsLastTicks() {

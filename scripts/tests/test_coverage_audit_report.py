@@ -121,6 +121,21 @@ class Records(unittest.TestCase):
         synthetic.write_json(self.syn.record_path(self.first), record)
         self.assertEqual(report.evaluate(self.draw_path, self.syn.project)["pilot"]["outcome"], "pass")
 
+    def test_a_clean_look_at_three_times_counts_and_is_reported_apart(self):
+        # Amendment 1 (D-040): clean may be given over an interval played whole at up to 3×; faster than 2× is counted apart.
+        self.assertEqual(self.evaluate()["pilot"]["totals"]["cleanFastIntervals"], 0, "every synthetic look is at 2×")
+        record = inv.load_json(self.syn.record_path(self.first), "record")
+        iv = next(i for i in record["intervals"] if i["index"] == self.free)
+        iv["playedAllAtMaxRate"] = 3.0
+        synthetic.write_json(self.syn.record_path(self.first), record)
+        result = report.evaluate(self.draw_path, self.syn.project)
+        row, t = self.row(result), result["pilot"]["totals"]
+        self.assertEqual(result["pilot"]["outcome"], "pass")
+        self.assertEqual((row["cleanIntervals"], row["cleanFastIntervals"]), (synthetic.INTERVALS, 1))
+        self.assertEqual(t["cleanFastIntervals"], 1)
+        self.assertAlmostEqual(t["cleanFastSeconds"], row["cleanFastSeconds"])
+        self.assertIn("played faster than 2× (amendment 1): 1 interval(s)", report.render(result))
+
     def test_each_recording_carries_the_hash_of_its_record_as_evaluated(self):
         result = self.evaluate()
         row = self.row(result)

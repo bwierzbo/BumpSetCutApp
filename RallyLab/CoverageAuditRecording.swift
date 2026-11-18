@@ -20,7 +20,7 @@
 //
 //  `record` then refuses, for one interval: an interval the draw does not hold; one
 //  that is no longer an unmarked interval as drawn (the marks or cut ranges changed —
-//  a new draw is needed); `clean` for an interval not played whole at 2× or slower, or
+//  a new draw is needed); `clean` for an interval not played whole at 3× or slower, or
 //  over findings; an `uncertain` finding without a note; a repeat outside the repeat
 //  set, before a first verdict, or by the first reviewer inside 24 hours; a resolution
 //  where nothing disagrees; a change under a later look (withdraw that first). Only

@@ -148,7 +148,7 @@ struct CoverageAuditView: View {
             Picker("Speed", selection: Binding(get: { model.rate }, set: { model.setRate($0) })) {
                 ForEach(CoverageAuditModel.rates, id: \.self) { Text($0 == 0.5 ? "0.5×" : "\(Int($0))×").tag($0) }
             }
-            .pickerStyle(.segmented).labelsHidden().frame(width: 130).controlSize(.small)
+            .pickerStyle(.segmented).labelsHidden().frame(width: 170).controlSize(.small)
             Button("Keys") { showHelp.toggle() }.controlSize(.small).popover(isPresented: $showHelp) { KeyHelp().padding() }
         }
     }
@@ -241,6 +241,7 @@ struct CoverageAuditView: View {
         case "1": model.setRate(0.5)
         case "2": model.setRate(1)
         case "3": model.setRate(2)
+        case "4": model.setRate(3)
         case "c": model.markClean()
         case "r": model.addFinding(.missedRally, alternate: shift)
         case "s": model.addFinding(.missedServe)
@@ -262,7 +263,7 @@ private struct KeyHelp: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Group {
-                Text("space play / pause (again from the lead-in once it has played through) · 1 2 3 speed 0.5× 1× 2×")
+                Text("space play / pause (again from the lead-in once it has played through) · 1 2 3 4 speed 0.5× 1× 2× 3×")
                 Text("← → 1 s · ⇧ 5 s — looking again is free, but only what plays earns coverage")
                 Text("C clean — only once the whole interval has played")
                 Text("R missed rally (⇧R clipped by the recording's start or end) · S missed serve · B boundary error (⇧B the other mark)")

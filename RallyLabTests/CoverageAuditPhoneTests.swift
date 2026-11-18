@@ -99,10 +99,10 @@ final class CoverageAuditPhoneTests: XCTestCase {
 
     // MARK: - Viewing credit
 
-    func testCleanNeedsTheWholeIntervalPlayedForwardAtTwiceOrSlower() throws {
+    func testCleanNeedsTheWholeIntervalPlayedForwardAtThreeTimesOrSlower() throws {
         var p = try phone()
         refused(.notPlayed(index: 1, missingSec: 3)) { try p.give(.clean, pass: .first, recordingId: "a", index: 1, video: video(), withheld: false, played: .init(), reviewer: me, tool: "t", now: t0) }
-        refused(.notPlayed(index: 1, missingSec: 3)) { try p.give(.clean, pass: .first, recordingId: "a", index: 1, video: video(), withheld: false, played: played(1200, 3000, rate: 2.5), reviewer: me, tool: "t", now: t0) }
+        refused(.notPlayed(index: 1, missingSec: 3)) { try p.give(.clean, pass: .first, recordingId: "a", index: 1, video: video(), withheld: false, played: played(1200, 3000, rate: 4), reviewer: me, tool: "t", now: t0) }
         // A seek mid-way and a pause: what was skipped earns nothing.
         var tracker = A.PlayTracker()
         tracker.began(at: 1.0)

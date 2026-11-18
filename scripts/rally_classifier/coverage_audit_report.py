@@ -47,7 +47,8 @@ PARTIAL_KINDS = ("boundary_error", "uncertain")           # what leaves a record
 FINDING_EDGES = {"missed_rally": ("start", "end"), "boundary_error": ("leading", "trailing")}
 REPEAT_METHODS = ("second_reviewer", "same_reviewer_after_24h")
 SAME_REVIEWER_WAIT = datetime.timedelta(hours=24)
-MAX_COVERAGE_RATE = 2.0             # `clean` needs the whole interval played at no more than this rate
+MAX_COVERAGE_RATE = 3.0             # `clean` needs the whole interval played at no more than this rate (amendment 1, D-040)
+FIRST_COVERAGE_RATE = 2.0           # the protocol's first limit: a clean look played faster is counted apart
 CONFIDENCE = 0.90                   # one-sided
 MAX_UPPER_BOUND = 0.05              # the bound on m/n the pilot must meet
 MAX_MISSED_PER_RECORDING = 2
@@ -154,7 +155,7 @@ def _verdict(entry, time_key: str, needs_coverage: bool) -> tuple[Counter | None
 
 
 def _played_whole(entry) -> bool:
-    """Whether a look covered its whole interval (`playedAllAtMaxRate` in (0, 2]). A look that gave findings before
+    """Whether a look covered its whole interval (`playedAllAtMaxRate` in (0, 3]). A look that gave findings before
     the interval had played whole is unfinished: its findings stand, and the interval waits for the rest of it."""
     rate = entry.get("playedAllAtMaxRate")
     return not isinstance(rate, bool) and isinstance(rate, (int, float)) and 0 < rate <= MAX_COVERAGE_RATE
@@ -221,7 +222,7 @@ def review_recording(rec: dict, draw: dict, draw_sha: str, record, ignore_ticks:
         seconds = (iv["endTick"] - iv["startTick"]) / timescale
         row = {"index": index, "startTick": iv["startTick"], "endTick": iv["endTick"], "seconds": seconds,
                "reviewed": False, "repeatRequired": index in rec["repeatIndices"], "repeated": False,
-               "disagreement": False, "resolved": False, "settled": False, "unfinished": False, "verdict": None, "findings": []}
+               "disagreement": False, "resolved": False, "settled": False, "unfinished": False, "fast": False, "verdict": None, "findings": []}
         first = firsts.get(index)
         first_class = None
         if first is not None:
@@ -279,6 +280,8 @@ def review_recording(rec: dict, draw: dict, draw_sha: str, record, ignore_ticks:
                 effective, effective_entry = resolved_class, resolution
 
         row["unfinished"] = not all(_played_whole(look) for look in looks)
+        # Amendment 1 (D-040): a look played faster than the protocol's first limit is counted apart.
+        row["fast"] = any(_played_whole(look) and look["playedAllAtMaxRate"] > FIRST_COVERAGE_RATE for look in looks)
         row["settled"] = (row["repeated"] or not row["repeatRequired"]) and (row["resolved"] or not row["disagreement"]) and not row["unfinished"]
         if row["resolved"] or not row["disagreement"]:
             row["verdict"] = "not_clean" if effective else "clean"
@@ -311,6 +314,7 @@ def review_recording(rec: dict, draw: dict, draw_sha: str, record, ignore_ticks:
         "secondsDrawn": sum(r["seconds"] for r in intervals),
         "secondsReviewed": sum(r["seconds"] for r in intervals if r["reviewed"]),
         "cleanIntervals": len(clean), "cleanSeconds": sum(r["seconds"] for r in clean),
+        "cleanFastIntervals": sum(r["fast"] for r in clean), "cleanFastSeconds": sum(r["seconds"] for r in clean if r["fast"]),
         "findings": _finding_tally(counted),
         "missed": sum(kinds[k] for k in MISSED_KINDS),
         "suppliesTrustedNegatives": bool(trusted) and not kinds["edited_footage"],
@@ -386,6 +390,7 @@ def _totals(rows: list) -> dict:
             "unresolved": sum(len(r["unresolved"]) for r in rows),
             "secondsDrawn": sum(r["secondsDrawn"] for r in rows), "secondsReviewed": sum(r["secondsReviewed"] for r in rows),
             "cleanIntervals": sum(r["cleanIntervals"] for r in rows), "cleanSeconds": sum(r["cleanSeconds"] for r in rows),
+            "cleanFastIntervals": sum(r["cleanFastIntervals"] for r in rows), "cleanFastSeconds": sum(r["cleanFastSeconds"] for r in rows),
             "findings": findings,
             "states": dict(Counter(r["state"] for r in rows)), "alsoPartial": sum(r["contaminated"] and r["partial"] for r in rows),
             "agreement": _sum_agreement(rows)}
@@ -464,7 +469,8 @@ def render(report: dict) -> str:
                  f"  {t['recordings']} recording(s); intervals reviewed {t['reviewed']} of {t['intervals']} "
                  f"({seconds(t['secondsReviewed'])} of {seconds(t['secondsDrawn'])}); not reviewed {t['notReviewed']}; "
                  f"repeat pending {t['repeatPending']}; unresolved {t['unresolved']}",
-                 f"  clean: {t['cleanIntervals']} interval(s), {seconds(t['cleanSeconds'])}"]
+                 f"  clean: {t['cleanIntervals']} interval(s), {seconds(t['cleanSeconds'])}; of them with a look played faster than "
+                 f"{FIRST_COVERAGE_RATE:g}× (amendment 1): {t['cleanFastIntervals']} interval(s), {seconds(t['cleanFastSeconds'])}"]
         for k in FINDING_KINDS:
             cell = t["findings"][k]
             unknown = f" (+{cell['withoutTimes']} without times)" if cell["withoutTimes"] else ""

@@ -11,7 +11,7 @@
 //     review does) — a streamed, re-timed, trimmed or other file is never reviewed;
 //   - the account's use of the recording is on the server's ledger (coverage_audit_open) before a
 //     frame of it is shown; with no connection the first time, nothing is shown;
-//   - viewing credit comes only from the player's clock moving forward at 2× or slower while it
+//   - viewing credit comes only from the player's clock moving forward at 3× or slower while it
 //     plays (CoverageAudit.PlayTracker): a seek, a pause, leaving the app or a jump earns nothing;
 //   - every verdict is written to the phone before anything else (an unwritable store refuses it),
 //     then sent at the revision it was merged on; the server's looks come back the same way.
@@ -292,7 +292,7 @@ final class AuditModel {
         return a...max(a, b)
     }
 
-    /// How much of the interval is still to be played at 2× or slower before Clean is offered, in seconds.
+    /// How much of the interval is still to be played at 3× or slower before Clean is offered, in seconds.
     var leftToPlay: Double? {
         guard let interval else { return nil }
         let span = interval.span

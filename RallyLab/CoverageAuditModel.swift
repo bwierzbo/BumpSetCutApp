@@ -6,7 +6,7 @@
 //  (CoverageAudit.status, read-only), the open recording (through CoverageAudit.open —
 //  the one guard: it refuses the withheld closure and writes the ledger row before a
 //  frame is shown), an AVPlayer on the ORIGINAL footage, the interval under review with
-//  a second of context either side, what of it has been played at 2× or slower
+//  a second of context either side, what of it has been played at 3× or slower
 //  (CoverageAudit.PlayTracker: a seek earns nothing), and the reviewer's keys. Every
 //  verdict goes through CoverageAudit.record, off the main actor, and what it wrote is
 //  what is shown.
@@ -41,7 +41,7 @@ final class CoverageAuditModel {
         case unknown
     }
 
-    static let rates: [Float] = [0.5, 1, 2]
+    static let rates: [Float] = [0.5, 1, 2, 3]
     /// What a record says wrote it, from this Mac (a verdict here, or a record the sync sends).
     nonisolated static let defaultTool = "RallyLab " + (RallyClassifierExporter.buildRevision() ?? Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")
 
