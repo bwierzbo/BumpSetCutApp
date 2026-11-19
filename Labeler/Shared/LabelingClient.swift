@@ -303,9 +303,33 @@ actor LabelingClient {
         return first
     }
 
-    /// Every tracked rally (deleted ones too), or only those changed after `since`.
-    func tracks(since: Date? = nil) async throws -> [LabelTrack] {
+    /// The tracked rallies changed after `since` (deleted ones too).
+    func tracks(since: Date) async throws -> [LabelTrack] {
         try await get("label_tracks", query: "select=*" + Self.changed(since))
+    }
+
+    /// Every tracked rally (deleted ones too), taking in full only those `known` does not already hold as the
+    /// server has them now. The whole table in one request is the heaviest read there is: it ran into the
+    /// server's statement limit, and held up every other request while it did.
+    func tracks(reusing known: [LabelTrack]) async throws -> [LabelTrack] {
+        let plan = Self.reuse(known, for: try await trackStamps())
+        return plan.kept + (try await tracks(ids: plan.fetch))
+    }
+
+    /// Which of `known` are still what the server holds (same recording, same deleted flag, same change time),
+    /// and which of the server's rallies have to be fetched. A rally the server no longer lists is in neither.
+    nonisolated static func reuse(_ known: [LabelTrack], for stamps: [TrackStamp]) -> (kept: [LabelTrack], fetch: [UUID]) {
+        let held = Dictionary(known.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+        var kept: [LabelTrack] = [], fetch: [UUID] = []
+        for stamp in stamps {
+            if let mine = held[stamp.id], mine.videoId == stamp.videoId, mine.deleted == stamp.deleted,
+               let a = mine.updatedAt, let b = stamp.updatedAt, abs(a.timeIntervalSince(b)) <= 0.002 {
+                kept.append(mine)
+            } else {
+                fetch.append(stamp.id)
+            }
+        }
+        return (kept, fetch)
     }
 
     /// Each tracked rally's id, video, whether it's deleted and when it last
