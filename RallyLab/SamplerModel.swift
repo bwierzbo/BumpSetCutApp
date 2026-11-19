@@ -308,8 +308,9 @@ final class SamplerModel {
     private static let rootKey = "RallyLab.datasetRoot"
 
     /// Where the dataset root and the review place are remembered. Tests pass their own suite and root: a
-    /// fixture never becomes the dataset RallyLab opens next, and the person's dataset is not read.
-    private let defaults: UserDefaults
+    /// fixture never becomes the dataset RallyLab opens next, and the person's dataset is not read. The Audit tab
+    /// remembers its draw in the same place (CoverageAuditModel).
+    let defaults: UserDefaults
     /// What an ingest runs a model through (see IngestModels).
     private let models: IngestModels
 

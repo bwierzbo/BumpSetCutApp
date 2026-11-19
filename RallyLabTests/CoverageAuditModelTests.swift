@@ -368,4 +368,36 @@ final class CoverageAuditModelTests: XCTestCase {
         XCTAssertEqual(try onDisk("v")?.review(1)?.findings.map(\.kind), [.nonRallyActivity], "the save itself is kept")
         model.deactivate()
     }
+
+    func testATabWithNoDrawOpenStartsOnTheOnlyDrawOrTheOneLastOpenedHere() throws {
+        try writeDraw(["v", "w"])
+        let sampler = SamplerModel(defaults: defaults, root: root)
+        func launched() -> CoverageAuditModel {
+            let model = CoverageAuditModel(sampler: sampler, tool: "RallyLab test", signedIn: { .nobody })
+            model.activate()
+            return model
+        }
+        XCTAssertEqual(launched().draw?.draw.drawId, "20261114-120000", "the project's only draw opens by itself")
+
+        // A later draw beside it: the one last opened here is the one a new launch starts on.
+        let dir = A.drawsDirectory(in: root), first = dir.appendingPathComponent("20261114-120000-draw.json")
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: first)) as? [String: Any])
+        json["drawId"] = "20261120-090000"
+        let later = dir.appendingPathComponent("20261120-090000-draw.json")
+        try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys]).write(to: later)
+        XCTAssertEqual(launched().draw?.draw.drawId, "20261114-120000")
+        let picked = launched()
+        picked.openDraw(later)
+        XCTAssertEqual(launched().draw?.draw.drawId, "20261120-090000", "picking another is remembered")
+
+        // Several and none remembered: the person picks.
+        defaults.removeObject(forKey: "RallyLab.coverageAuditDraw")
+        let undecided = launched()
+        XCTAssertNil(undecided.draw); XCTAssertEqual(undecided.drawFiles.count, 2)
+
+        // The remembered draw is gone: with one left, that one.
+        picked.openDraw(later)
+        try FileManager.default.removeItem(at: later)
+        XCTAssertEqual(launched().draw?.draw.drawId, "20261114-120000")
+    }
 }

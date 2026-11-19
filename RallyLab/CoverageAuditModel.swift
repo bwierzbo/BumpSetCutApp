@@ -141,7 +141,11 @@ final class CoverageAuditModel {
             .filter { $0.lastPathComponent.hasSuffix("-draw.json") }
             .sorted { $0.lastPathComponent > $1.lastPathComponent }
         Task { signedIn = await lookUpSignedIn() }
-        if draw != nil { refreshStatus() }
+        if draw != nil {
+            refreshStatus()
+        } else if let url = drawToReopen {
+            openDraw(url)
+        }
         if let resume {
             self.resume = nil
             Task { await open(resume.recordingId, at: resume.index, play: false) }
@@ -154,6 +158,16 @@ final class CoverageAuditModel {
         close()
     }
 
+    /// Per project: the file name of the draw last opened there.
+    private static let drawKey = "RallyLab.coverageAuditDraw"
+
+    /// The draw a tab with none open starts on: the one last opened in this project if it is still there, else
+    /// the project's only draw. With several and none remembered, the person picks.
+    private var drawToReopen: URL? {
+        let last = (sampler.defaults.dictionary(forKey: Self.drawKey) as? [String: String])?[root.path]
+        return drawFiles.first { $0.lastPathComponent == last } ?? (drawFiles.count == 1 ? drawFiles[0] : nil)
+    }
+
     func openDraw(_ url: URL) {
         close()
         resume = nil
@@ -162,6 +176,9 @@ final class CoverageAuditModel {
         do {
             draw = try CoverageAudit.loadDraw(url)
             drawRoot = root
+            var last = sampler.defaults.dictionary(forKey: Self.drawKey) as? [String: String] ?? [:]
+            last[root.path] = url.lastPathComponent
+            sampler.defaults.set(last, forKey: Self.drawKey)
             statuses = []
             status = "Draw \(draw?.draw.drawId ?? "") — pick a recording, or Return for the next interval to review."
             lastRefused = false
