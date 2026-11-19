@@ -137,8 +137,22 @@ final class LabelerModel: ReviewStore {
         phase = .signedOut
     }
 
-    /// Send what's waiting, then load everything again.
+    /// The reload in flight, if any (see `reload`).
+    @ObservationIgnored private var reloading: Task<Void, Never>?
+
+    /// Send what's waiting, then load everything again. Opening the app asks for this from several places at
+    /// once (the start, the scene turning active, the live channel's first pull): they share one load.
     func reload() async {
+        if let reloading { return await reloading.value }
+        let task = Task { [weak self] in
+            await self?.load()
+            self?.reloading = nil
+        }
+        reloading = task
+        await task.value
+    }
+
+    private func load() async {
         let started = Date()
         isLoading = true
         defer { isLoading = false }
@@ -146,7 +160,7 @@ final class LabelerModel: ReviewStore {
             await flush()
             async let v = client.videos()
             async let t = client.rallyTimes()
-            async let k = client.tracks()
+            async let k = client.tracks(reusing: snapshot.tracks)
             async let s = client.projectStates()
             async let e = client.rallyEvents()
             async let rc = client.recordingTypeClaims()
@@ -582,7 +596,10 @@ final class LabelerModel: ReviewStore {
             t.reviewed = updated.reviewed
             t.unsure = updated.unsure
         }
-        if let i = snapshot.tracks.firstIndex(where: { $0.id == edit.track }) { change(&snapshot.tracks[i]) }
+        if let i = snapshot.tracks.firstIndex(where: { $0.id == edit.track }) {
+            change(&snapshot.tracks[i])
+            snapshot.tracks[i].updatedAt = nil   // no longer the server's row: the next reload takes it again
+        }
         if outbox.tracks[edit.track] != nil { change(&outbox.tracks[edit.track]!) }
     }
 
@@ -626,7 +643,10 @@ final class LabelerModel: ReviewStore {
     }
 
     func setIsRally(_ isRally: Bool?, _ check: AnnotationReview.RallyCheck) {
-        if let i = snapshot.tracks.firstIndex(where: { $0.id == check.track }) { snapshot.tracks[i].isRally = isRally }
+        if let i = snapshot.tracks.firstIndex(where: { $0.id == check.track }) {
+            snapshot.tracks[i].isRally = isRally
+            snapshot.tracks[i].updatedAt = nil   // no longer the server's row: the next reload takes it again
+        }
         if outbox.tracks[check.track] != nil { outbox.tracks[check.track]!.isRally = isRally }
         outbox.rallies.append(LabelingClient.RallyVerdict(track: check.track, isRally: isRally))
         queueFlush()
