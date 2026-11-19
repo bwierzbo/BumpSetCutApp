@@ -335,7 +335,7 @@ final class CoverageAuditModel {
     private func makeCopy(of admission: CoverageAudit.Admission) {
         guard copyTask == nil else { return }
         let name = admission.recording.recordingId, copies = self.copies
-        // The project's folder name is the name its copies are published under; were it not, none is found and one is made here.
+        // The project's folder name is the name its rows are published under; were it not, no published copy is found and one is made here.
         let source = CoverageAuditCopy.Source(original: admission.video, fingerprint: admission.contentFingerprint, recordingId: name, project: root.lastPathComponent)
         copyTask = Task { [weak self] in
             let outcome = await copies.make(source) { [weak self] in

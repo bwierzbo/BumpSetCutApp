@@ -44,7 +44,7 @@ final class CoverageAuditCopyTests: XCTestCase {
     }
 
     func testAFixtureThatIsNotHeavyGetsNoCopy() async throws {
-        let copies = CoverageAuditCopy(directory: directory, fetch: { _, _, _ in XCTFail("nothing is fetched"); return false },
+        let copies = CoverageAuditCopy(directory: directory, fetch: { _, _ in XCTFail("nothing is fetched"); return false },
                                        encode: { _, _ in XCTFail("nothing is made") })
         let outcome = await copies.make(source(try fixture("trimmed-mid-frame")))
         XCTAssertEqual(outcome, .notNeeded)
@@ -53,8 +53,8 @@ final class CoverageAuditCopyTests: XCTestCase {
     func testThePublishedCopyIsKeptWhenItsFramesAreTheOriginals() async throws {
         let original = try fixture("trimmed-mid-frame")
         let copies = CoverageAuditCopy(directory: directory,
-                                       fetch: { id, project, out in
-                                           XCTAssertEqual(id, "rec"); XCTAssertEqual(project, "P")
+                                       fetch: { asked, out in
+                                           XCTAssertEqual(asked.recordingId, "rec"); XCTAssertEqual(asked.project, "P"); XCTAssertEqual(asked.fingerprint, "sha256:abc/def")
                                            return (try? FileManager.default.copyItem(at: original, to: out)) != nil
                                        },
                                        encode: { _, _ in XCTFail("the published copy passed: none is made here") })
@@ -72,7 +72,7 @@ final class CoverageAuditCopyTests: XCTestCase {
     func testAPublishedCopyWithOtherFramesIsNotKeptAndOneIsMadeHere() async throws {
         let original = try fixture("trimmed-mid-frame"), other = try fixture("open-gop-hevc-leading3")
         let copies = CoverageAuditCopy(directory: directory,
-                                       fetch: { _, _, out in (try? FileManager.default.copyItem(at: other, to: out)) != nil },
+                                       fetch: { _, out in (try? FileManager.default.copyItem(at: other, to: out)) != nil },
                                        encode: puts(original))
         let outcome = await copies.makeCopy(source(original))
         XCTAssertEqual(outcome, .made(copies.url(for: "sha256:abc/def")))
@@ -81,7 +81,7 @@ final class CoverageAuditCopyTests: XCTestCase {
 
     func testACopyMadeHereWithOtherFramesIsNotKept() async throws {
         let original = try fixture("trimmed-mid-frame")
-        let copies = CoverageAuditCopy(directory: directory, fetch: { _, _, _ in false }, encode: puts(try fixture("open-gop-hevc-leading3")))
+        let copies = CoverageAuditCopy(directory: directory, fetch: { _, _ in false }, encode: puts(try fixture("open-gop-hevc-leading3")))
         guard case .failed(let why) = await copies.makeCopy(source(original)) else { return XCTFail("a copy with other frames was kept") }
         XCTAssertTrue(why.contains("does not have the original's frames"), why)
         let ready = await copies.ready(for: "sha256:abc/def")
@@ -91,12 +91,27 @@ final class CoverageAuditCopyTests: XCTestCase {
 
     func testAKeptCopyThatWasDamagedSinceIsNotPlayed() async throws {
         let original = try fixture("trimmed-mid-frame")
-        let copies = CoverageAuditCopy(directory: directory, fetch: { _, _, _ in false }, encode: puts(original))
+        let copies = CoverageAuditCopy(directory: directory, fetch: { _, _ in false }, encode: puts(original))
         _ = await copies.makeCopy(source(original))
         let kept = copies.url(for: "sha256:abc/def")
         try FileManager.default.removeItem(at: kept)
         try FileManager.default.copyItem(at: try fixture("open-gop-hevc-leading3"), to: kept)
         let ready = await copies.ready(for: "sha256:abc/def")
         XCTAssertNil(ready)
+    }
+
+    func testOnlyTheRowOfThisProjectRecordingAndOriginalNamesAPublishedCopy() throws {
+        func row(project: String = "P", session: String = "rec", fingerprint: String? = "sha256:abc/def", clip: String? = "rallylab/P/rec-v4.mp4") -> LabelVideo {
+            var v = LabelVideo(id: UUID(), project: project, sessionName: session, title: "", surface: .beach, camera: .endlineRaised, lighting: "", split: "train",
+                               clipPath: clip, duration: 1, ralliesFound: [], status: .rallylab, updatedAt: nil)
+            v.sourceFingerprint = fingerprint
+            return v
+        }
+        let source = self.source(try fixture("trimmed-mid-frame"))
+        XCTAssertEqual(CoverageAuditCopy.publishedPath(for: source, in: [row(project: "Q"), row(session: "other"), row()]), "rallylab/P/rec-v4.mp4")
+        XCTAssertNil(CoverageAuditCopy.publishedPath(for: source, in: [row(fingerprint: "sha256:another-take")]), "a copy of another original under the same name is not taken")
+        XCTAssertNil(CoverageAuditCopy.publishedPath(for: source, in: [row(fingerprint: nil)]), "nor one whose original is not known")
+        XCTAssertNil(CoverageAuditCopy.publishedPath(for: source, in: [row(project: "Q"), row(session: "other")]))
+        XCTAssertNil(CoverageAuditCopy.publishedPath(for: source, in: [row(clip: nil)]))
     }
 }

@@ -403,10 +403,10 @@ final class CoverageAuditModelTests: XCTestCase {
 
     func testARecordingWithAKeptCopyPlaysItAndOneWithoutPlaysTheOriginal() async throws {
         try writeDraw(["v", "w"])
-        let copies = CoverageAuditCopy(directory: root.appendingPathComponent("copies"), fetch: { _, _, _ in false }, encode: { _, _ in XCTFail("the fixtures are not heavy") })
+        let copies = CoverageAuditCopy(directory: root.appendingPathComponent("copies"), fetch: { _, _ in false }, encode: { _, _ in XCTFail("the fixtures are not heavy") })
         // A copy of "v" is kept: its own file stands in for it (the same frames).
         let fingerprint = try XCTUnwrap(ProjectsModel.fileFingerprint(atPath: video("v").path))
-        let kept = CoverageAuditCopy(directory: copies.directory, fetch: { _, _, _ in false }, encode: { [video = video("v")] _, out in try FileManager.default.copyItem(at: video, to: out) })
+        let kept = CoverageAuditCopy(directory: copies.directory, fetch: { _, _ in false }, encode: { [video = video("v")] _, out in try FileManager.default.copyItem(at: video, to: out) })
         let made = await kept.makeCopy(.init(original: video("v"), fingerprint: fingerprint, recordingId: "v", project: "P"))
         XCTAssertEqual(made, .made(copies.url(for: fingerprint)))
 

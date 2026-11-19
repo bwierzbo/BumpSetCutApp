@@ -16,8 +16,8 @@ import AVFoundation
 import Foundation
 
 struct CoverageAuditCopy: Sendable {
-    /// Puts the copy the sync published for a recording at `out`; false when there is none to take.
-    typealias Fetch = @Sendable (_ recordingId: String, _ project: String, _ out: URL) async -> Bool
+    /// Puts the copy the sync published of this very original at `out`; false when there is none to take.
+    typealias Fetch = @Sendable (_ source: Source, _ out: URL) async -> Bool
 
     /// Where the copies are kept.
     var directory: URL
@@ -27,11 +27,18 @@ struct CoverageAuditCopy: Sendable {
     static let app = CoverageAuditCopy(directory: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("RallyLab/coverage-audit-copies", isDirectory: true))
 
-    static let fetchPublished: Fetch = { recordingId, project, out in
+    /// The published row must be this project's, this recording's and of this original (its source fingerprint):
+    /// the frame check that follows compares frame times, which another take of the same length and cadence would
+    /// pass. It is the rule the sync applies before it offers a recording to the phone's audit.
+    static let fetchPublished: Fetch = { source, out in
         let client = LabelingClient.shared
-        guard await client.hasSession,
-              let link = try? await client.signedURL(for: LabelingSync.copyPath(of: recordingId, in: project)) else { return false }
+        guard await client.hasSession, let rows = try? await client.videos(),
+              let path = publishedPath(for: source, in: rows), let link = try? await client.signedURL(for: path) else { return false }
         return (try? await client.downloadPublic(link, to: out)) != nil
+    }
+
+    static func publishedPath(for source: Source, in rows: [LabelVideo]) -> String? {
+        rows.first { $0.project == source.project && $0.sessionName == source.recordingId && $0.sourceFingerprint == source.fingerprint }?.clipPath
     }
 
     /// More picture a second than 4K at 30 frames a second: at 3× that is past what the Mac measured above decodes.
@@ -94,7 +101,7 @@ struct CoverageAuditCopy: Sendable {
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let digest = FrameIdentity.digest(of: try await FrameIdentity.allFrameTimes(of: source.original))
-            var published = await fetch(source.recordingId, source.project, work)
+            var published = await fetch(source, work)
             if published { published = await LabelingSync.copy(work, reproduces: digest) }
             if !published {
                 try? FileManager.default.removeItem(at: work)

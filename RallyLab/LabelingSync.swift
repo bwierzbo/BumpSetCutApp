@@ -519,7 +519,7 @@ final class LabelingSync {
             // A copy RallyLab made with an older encoding is made again when
             // asked (the new name tells the phone to fetch it); the old one is
             // removed. Remaking them all takes hours, so it isn't automatic.
-            let path = Self.copyPath(of: session.name, in: project)
+            let path = "rallylab/\(DatasetStore.safeName(project))/\(session.name)-v\(Self.copyVersion).mp4"
             let stale = video.clipPath.map { remaking(session.name) && $0.hasPrefix("rallylab/") && $0 != path } ?? true
             // The awaits above (and the encode and the upload below, minutes each) all suspend: the recording may
             // have been withheld since the closure was read for this loop. Each publication — the copy, then the
@@ -613,11 +613,6 @@ final class LabelingSync {
     /// at the first whole frame, a fraction of a frame early throughout, so
     /// the phone's frame check refused the copy.
     static let copyVersion = 4
-
-    /// Where a recording's small copy of this version is kept in the labeling bucket.
-    static func copyPath(of session: String, in project: String) -> String {
-        "rallylab/\(DatasetStore.safeName(project))/\(session)-v\(copyVersion).mp4"
-    }
 
     /// How a trimmed original is cut for its copy: a single edit that starts inside the footage. The copy keeps the
     /// frame showing when the edit begins (`keepFrom`, its media time) and every later one before `end`, each at its
