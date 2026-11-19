@@ -179,6 +179,7 @@ struct CoverageAuditView: View {
             Text("\(model.recordingId ?? "") · interval \(interval.index) · \(clockText(start))–\(clockText(end)) (\(String(format: "%.1f", end - start)) s)")
                 .font(.system(.body, design: .monospaced)).lineLimit(1)
             LeftToPlay(model: model, interval: interval)
+            if !model.copyNote.isEmpty { Text(model.copyNote).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
             if model.busy { ProgressView().controlSize(.small) }
             Spacer()
             Picker("Speed", selection: Binding(get: { model.rate }, set: { model.setRate($0) })) {
