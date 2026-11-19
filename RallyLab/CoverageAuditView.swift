@@ -156,9 +156,7 @@ struct CoverageAuditView: View {
             }
             if let interval = model.interval {
                 header(interval)
-                IntervalBar(shown: model.shown(interval), interval: interval, played: model.played.spans, playhead: model.playhead,
-                            markIn: model.markIn, markOut: model.markOut, findings: model.currentLook?.findings ?? [], seek: { model.seek(to: $0) })
-                    .frame(height: 34)
+                PlayingBar(model: model, interval: interval).frame(height: 34)
             }
             chips
             inspector
@@ -177,11 +175,10 @@ struct CoverageAuditView: View {
 
     private func header(_ interval: CoverageAudit.Interval) -> some View {
         let start = CoverageAudit.seconds(interval.startTick), end = CoverageAudit.seconds(interval.endTick)
-        let left = CoverageAudit.seconds(interval.span.ticks - model.played.playedTicks(in: interval.span))
         return HStack(spacing: 10) {
             Text("\(model.recordingId ?? "") · interval \(interval.index) · \(clockText(start))–\(clockText(end)) (\(String(format: "%.1f", end - start)) s)")
                 .font(.system(.body, design: .monospaced)).lineLimit(1)
-            Text(left <= 0 ? "played whole" : String(format: "%.1f s to play", left)).font(.caption).foregroundStyle(left <= 0 ? .green : .secondary)
+            LeftToPlay(model: model, interval: interval)
             if model.busy { ProgressView().controlSize(.small) }
             Spacer()
             Picker("Speed", selection: Binding(get: { model.rate }, set: { model.setRate($0) })) {
@@ -312,6 +309,32 @@ private struct KeyHelp: View {
                 Text("⏎ next interval to review · ↑ ↓ previous / next interval")
             }.font(.caption)
         }
+    }
+}
+
+// The player's clock moves the playhead and what has been played many times a second (thirty per second of
+// recording, so ninety at 3×). Only these two views read them, each in a body of its own: read in the tab's body
+// they made it lay out the whole tab — the queue's list, every interval's chip — on every tick.
+
+/// How much of the interval is still to play in this look.
+private struct LeftToPlay: View {
+    let model: CoverageAuditModel
+    let interval: CoverageAudit.Interval
+
+    var body: some View {
+        let left = CoverageAudit.seconds(interval.span.ticks - model.played.playedTicks(in: interval.span))
+        Text(left <= 0 ? "played whole" : String(format: "%.1f s to play", left)).font(.caption).foregroundStyle(left <= 0 ? .green : .secondary)
+    }
+}
+
+/// The interval's bar as it stands now.
+private struct PlayingBar: View {
+    let model: CoverageAuditModel
+    let interval: CoverageAudit.Interval
+
+    var body: some View {
+        IntervalBar(shown: model.shown(interval), interval: interval, played: model.played.spans, playhead: model.playhead,
+                    markIn: model.markIn, markOut: model.markOut, findings: model.currentLook?.findings ?? [], seek: { model.seek(to: $0) })
     }
 }
 
