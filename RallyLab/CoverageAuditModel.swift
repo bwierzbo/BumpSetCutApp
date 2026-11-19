@@ -48,6 +48,10 @@ final class CoverageAuditModel {
     let sampler: SamplerModel
     let tool: String
     @ObservationIgnored private let lookUpSignedIn: @Sendable () async -> SignedIn
+    /// The small copies played for recordings too heavy to play at the audit's speeds (CoverageAuditCopy).
+    @ObservationIgnored private let copies: CoverageAuditCopy
+    /// The copy being made, one at a time.
+    @ObservationIgnored private var copyTask: Task<Void, Never>?
 
     // The draw and its recordings.
     private(set) var drawFiles: [URL] = []
@@ -63,6 +67,10 @@ final class CoverageAuditModel {
     private(set) var movedIndices: Set<Int> = []
     private(set) var intervalIndex: Int?
     private(set) var player: AVPlayer?
+    /// The picture on screen is the open recording's small copy, not its original.
+    private(set) var playingCopy = false
+    /// What there is to say about the open recording's small copy.
+    private(set) var copyNote = ""
     private(set) var playhead = 0.0
     private(set) var isPlaying = false
     private(set) var rate: Float = 2
@@ -111,9 +119,11 @@ final class CoverageAuditModel {
 
     init(sampler: SamplerModel,
          tool: String = CoverageAuditModel.defaultTool,
+         copies: CoverageAuditCopy = .app,
          signedIn: @escaping @Sendable () async -> SignedIn = { await CoverageAuditModel.signedInLabeler() }) {
         self.sampler = sampler
         self.tool = tool
+        self.copies = copies
         lookUpSignedIn = signedIn
     }
 
@@ -290,6 +300,8 @@ final class CoverageAuditModel {
         busy = true
         let result = await Task.detached(priority: .userInitiated) { Result { try CoverageAudit.open(name, draw: draw, root: root) } }.value
         guard mine == generation else { return }
+        let copy: URL? = if case .success(let opened) = result { await copies.ready(for: opened.admission.contentFingerprint) } else { nil }
+        guard mine == generation else { return }
         busy = false
         switch result {
         case .failure(let error): refuse(error.localizedDescription)
@@ -298,7 +310,10 @@ final class CoverageAuditModel {
             file = opened.file
             let current = Set(opened.admission.currentIntervals.map(\.span))
             movedIndices = Set(opened.admission.recording.intervals.filter { !current.contains($0.span) }.map(\.index))
-            let player = AVPlayer(url: opened.admission.video)
+            let player = AVPlayer(url: copy ?? opened.admission.video)
+            playingCopy = copy != nil
+            copyNote = copy != nil ? "playing its small copy — the original's frames, checked" : ""
+            if copy == nil { makeCopy(of: opened.admission) }
             player.actionAtItemEnd = .pause
             self.player = player
             timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 30), queue: .main) { [weak self] time in
@@ -314,6 +329,40 @@ final class CoverageAuditModel {
         }
     }
 
+    /// A recording too heavy to play at 2× and 3× gets a small copy, made while its original plays. Once made, the
+    /// copy is what plays: at once when nothing is playing and no finding is in the making, else the next time
+    /// the recording is opened.
+    private func makeCopy(of admission: CoverageAudit.Admission) {
+        guard copyTask == nil else { return }
+        let name = admission.recording.recordingId, copies = self.copies
+        // The project's folder name is the name its copies are published under; were it not, none is found and one is made here.
+        let source = CoverageAuditCopy.Source(original: admission.video, fingerprint: admission.contentFingerprint, recordingId: name, project: root.lastPathComponent)
+        copyTask = Task { [weak self] in
+            let outcome = await copies.make(source) { [weak self] in
+                await MainActor.run { if self?.recordingId == name { self?.copyNote = "getting a small copy for smooth playback at 2× and 3× — the original plays until it is ready" } }
+            }
+            guard let self else { return }
+            self.copyTask = nil
+            guard self.recordingId == name else {
+                // Another recording was opened meanwhile: its turn.
+                if let open = self.admission, !self.playingCopy { self.makeCopy(of: open) }
+                return
+            }
+            switch outcome {
+            case .notNeeded: break
+            case .failed(let why): self.copyNote = why
+            case .made:
+                if !self.isPlaying, self.markIn == nil, self.awaitingNote == nil, self.note.isEmpty, !self.busy {
+                    let at = self.intervalIndex
+                    self.close()
+                    await self.open(name, at: at, play: false)
+                } else {
+                    self.copyNote = "its small copy is ready — it plays the next time this recording is opened"
+                }
+            }
+        }
+    }
+
     func close() {
         generation += 1
         if let timeObserver { player?.removeTimeObserver(timeObserver) }
@@ -321,6 +370,7 @@ final class CoverageAuditModel {
         player?.pause()
         player = nil; timeObserver = nil; endObserver = nil
         admission = nil; file = nil; movedIndices = []; intervalIndex = nil
+        playingCopy = false; copyNote = ""
         seeking = false; seekTarget = nil; destination = nil
         playhead = 0; isPlaying = false; busy = false
         clearPending()

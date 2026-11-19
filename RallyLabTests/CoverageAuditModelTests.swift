@@ -400,4 +400,27 @@ final class CoverageAuditModelTests: XCTestCase {
         try FileManager.default.removeItem(at: later)
         XCTAssertEqual(launched().draw?.draw.drawId, "20261114-120000")
     }
+
+    func testARecordingWithAKeptCopyPlaysItAndOneWithoutPlaysTheOriginal() async throws {
+        try writeDraw(["v", "w"])
+        let copies = CoverageAuditCopy(directory: root.appendingPathComponent("copies"), fetch: { _, _, _ in false }, encode: { _, _ in XCTFail("the fixtures are not heavy") })
+        // A copy of "v" is kept: its own file stands in for it (the same frames).
+        let fingerprint = try XCTUnwrap(ProjectsModel.fileFingerprint(atPath: video("v").path))
+        let kept = CoverageAuditCopy(directory: copies.directory, fetch: { _, _, _ in false }, encode: { [video = video("v")] _, out in try FileManager.default.copyItem(at: video, to: out) })
+        let made = await kept.makeCopy(.init(original: video("v"), fingerprint: fingerprint, recordingId: "v", project: "P"))
+        XCTAssertEqual(made, .made(copies.url(for: fingerprint)))
+
+        let model = CoverageAuditModel(sampler: SamplerModel(defaults: defaults, root: root), tool: "RallyLab test", copies: copies, signedIn: { .nobody })
+        model.typedName = "bw"
+        model.activate()
+        await model.open("v", play: false)
+        XCTAssertTrue(model.playingCopy)
+        XCTAssertEqual((model.player?.currentItem?.asset as? AVURLAsset)?.url, copies.url(for: fingerprint))
+        XCTAssertEqual(model.admission?.video, video("v"), "the audit is still of the original")
+        await model.open("w", play: false)
+        XCTAssertFalse(model.playingCopy)
+        XCTAssertEqual((model.player?.currentItem?.asset as? AVURLAsset)?.url, video("w"))
+        XCTAssertEqual(model.copyNote, "")
+        model.deactivate()
+    }
 }
