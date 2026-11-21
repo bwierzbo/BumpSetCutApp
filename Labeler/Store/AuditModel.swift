@@ -53,6 +53,11 @@ final class AuditModel {
     /// The newest place a scrub asked for while the player was still seeking to an earlier one.
     @ObservationIgnored private var scrubTarget: Double?
     @ObservationIgnored private var scrubSeeking = false
+    /// Jumps the player has not landed yet, and whether Play was asked for meanwhile. Playback starts only where the
+    /// last jump lands: started sooner, the step from the old frame to the new one would be credited as watched.
+    @ObservationIgnored private var seeksInFlight = 0
+    @ObservationIgnored private var playWhenLanded = false
+    private var seekPending: Bool { scrubSeeking || seeksInFlight > 0 }
     @ObservationIgnored private var observer: Any?
     @ObservationIgnored private var endObserver: Any?
     @ObservationIgnored private var openedRecording: String?
@@ -468,12 +473,14 @@ final class AuditModel {
         guard playerHoldsPosition, let shown else { return }
         guard recheck() else { return }
         if playhead < shown.lowerBound - 0.05 || playhead >= shown.upperBound - 0.05 { seek(to: shown.lowerBound) }
+        if seekPending { playWhenLanded = true; return }
         player.playImmediately(atRate: rate)
         isPlaying = true
         tracker.began(at: player.currentTime().seconds)
     }
 
     func pause() {
+        playWhenLanded = false
         guard isPlaying else { return }
         player.pause()
         isPlaying = false
@@ -481,6 +488,13 @@ final class AuditModel {
     }
 
     func togglePlay() { isPlaying ? pause() : play() }
+
+    /// A jump landed: with none left in flight, the Play asked for meanwhile starts here.
+    private func landed() {
+        guard !seekPending, playWhenLanded else { return }
+        playWhenLanded = false
+        play()
+    }
 
     /// Whether the open recording may still be reviewed here, as the phone knows now (the withheld list is pulled in the
     /// background): when it may not — withheld, its list no longer known, its copy no longer published — playback stops,
@@ -506,8 +520,14 @@ final class AuditModel {
     func seek(to t: Double) {
         tracker.jumped()
         playhead = t
+        seeksInFlight += 1
         player.seek(to: CMTime(seconds: t, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
-            Task { @MainActor in if let self, self.isPlaying { self.tracker.began(at: self.player.currentTime().seconds) } }
+            Task { @MainActor in
+                guard let self else { return }
+                self.seeksInFlight -= 1
+                if self.isPlaying { self.tracker.began(at: self.player.currentTime().seconds) }
+                self.landed()
+            }
         }
     }
 
@@ -525,7 +545,7 @@ final class AuditModel {
     }
 
     private func chaseScrub() {
-        guard let t = scrubTarget else { scrubSeeking = false; return }
+        guard let t = scrubTarget else { scrubSeeking = false; landed(); return }
         scrubTarget = nil
         scrubSeeking = true
         player.seek(to: CMTime(seconds: t, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
