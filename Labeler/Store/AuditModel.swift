@@ -329,7 +329,10 @@ final class AuditModel {
         // The pass on screen is always the opened look's: what is shown and given next is that look's.
         if let target, target.pass != pass { pass = target.pass }
         pause()
+        // A finding being placed belongs to the interval left, and so does a scrub still queued for it: dropped
+        // here, the seek in flight lands and asks for nothing more, so it cannot move the interval opened next.
         marking = nil
+        scrubTarget = nil
         tracker = CoverageAudit.PlayTracker()
         // Another recording: the one in the player is let go now, so nothing of it plays, or earns credit, or takes a
         // verdict under the new one's name while that opens.
