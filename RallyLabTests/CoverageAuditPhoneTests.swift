@@ -184,6 +184,20 @@ final class CoverageAuditPhoneTests: XCTestCase {
 
     // MARK: - Progress and resuming
 
+    func testAPlaceKeptInALaterPassByAnOlderBuildResumesInTheFirstPass() throws {
+        // An older build left the phone in Resolve, on a disagreement its record still holds.
+        var p = try phone()
+        try p.give(.clean, pass: .first, recordingId: "a", index: 1, video: video(), withheld: false, played: played(1200, 3000), reviewer: me, tool: "t", now: t0)
+        p.local["a"] = CoverageAuditSync.setting(.init(pass: .repeatLook, index: 1), to: .repeatLook(A.RepeatReview(index: 1, verdict: .notClean, reviewer: other, reviewedAt: "2026-11-17T10:00:00Z",
+                                                                                                                 playedAllAtMaxRate: 2, findings: [.init(kind: .missedServe, approxStartSec: 3)])), in: try XCTUnwrap(p.local["a"]))
+        let all: (String) -> Bool = { _ in true }
+        XCTAssertEqual(p.queue(.resolution, reviewable: all, reviewer: me, now: t0).map(\.index), [1], "the old disagreement is still counted as unresolved")
+        for pass in [A.Pass.resolution, .repeatLook] {
+            p.position = P.Position(pass: pass, recordingId: "a", index: 1)
+            XCTAssertEqual(p.resume(reviewable: all, reviewer: me, now: t0), P.Position(pass: .first, recordingId: "a", index: 0), "the first interval still owed its look")
+        }
+    }
+
     func testTotalsAndResumingAfterTheAppIsKilled() throws {
         var p = try phone()
         let reviewable: (String) -> Bool = { $0 == "a" }

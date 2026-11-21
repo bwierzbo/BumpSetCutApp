@@ -191,12 +191,13 @@ struct CoverageAuditPhone: Codable, Equatable {
         return queue.first { key($0) > key(position) } ?? queue.first
     }
 
-    /// Where to open on launch: the interval the reviewer was on while it still owes a look, else the next one.
+    /// Where to open on launch: the interval the reviewer was on while it still owes its look, else the next one.
+    /// Always in the first pass (amendment 2): a place an older build kept in the repeat or the resolution — where a
+    /// record from then may still hold a disagreement — is never reopened, since no look can be given there.
     func resume(reviewable: (String) -> Bool, reviewer: String, now: Date) -> Position? {
-        let pass = position?.pass ?? .first
-        let queue = queue(pass, reviewable: reviewable, reviewer: reviewer, now: now)
+        let queue = queue(.first, reviewable: reviewable, reviewer: reviewer, now: now)
         if let position, queue.contains(position) { return position }
-        return next(after: position, pass: pass, reviewable: reviewable, reviewer: reviewer, now: now)
+        return next(after: position, pass: .first, reviewable: reviewable, reviewer: reviewer, now: now)
     }
 
     // MARK: - What the reviewer sees
