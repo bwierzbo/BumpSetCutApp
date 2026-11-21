@@ -363,3 +363,87 @@ struct CoverageAuditPhone: Codable, Equatable {
         if conflicts[recordingId]?.isEmpty == true { conflicts[recordingId] = nil }
     }
 }
+
+// MARK: - Placing a finding by scrubbing
+
+extension CoverageAuditPhone {
+    /// A finding being placed on the phone: the reviewer scrubs the footage and says where it starts and where it
+    /// ends, instead of typing times. Nothing here is a verdict until `finding` is given; a scrub is a jump, so
+    /// placing one earns no viewing credit.
+    struct Marking: Equatable {
+        /// A mark off by this much or less is inside the tolerance (protocol §5: a boundary error is more than 1.0 s).
+        static let boundaryToleranceSec = 1.0
+
+        let kind: CoverageAudit.FindingKind
+        /// A boundary error given as a trim: the end of the interval it takes off. That end of the stretch is the
+        /// interval's own and does not move (`leading`: from the interval's start; `trailing`: to its end).
+        let trim: CoverageAudit.Edge?
+        /// The times the stretch may name: the interval for a trim, otherwise what is shown (its context included).
+        let bounds: ClosedRange<Double>
+        /// Where the reviewer was when the marking began: playback returns there.
+        let resume: Double
+        private(set) var start: Double
+        /// Nil: the finding names only where it starts.
+        private(set) var end: Double?
+        /// A missed rally clipped by the recording's start or end.
+        var edge: CoverageAudit.Edge?
+        var note = ""
+
+        /// A finding of `kind` on `interval`, begun at `playhead` with `shown` on screen. `trim` makes it the boundary
+        /// error at that end of the interval.
+        init(kind: CoverageAudit.FindingKind, trim: CoverageAudit.Edge? = nil, interval: CoverageAudit.Interval, shown: ClosedRange<Double>, playhead: Double) {
+            let a = CoverageAudit.seconds(interval.startTick), b = CoverageAudit.seconds(interval.endTick)
+            self.kind = trim == nil ? kind : .boundaryError
+            self.trim = trim
+            bounds = trim == nil ? shown : a...b
+            resume = playhead
+            let here = Self.snapped(playhead, in: bounds)
+            switch trim {
+            case .leading: (start, end) = (a, here)
+            case .trailing: (start, end) = (here, b)
+            default: (start, end) = (here, nil)
+            }
+        }
+
+        /// A time as a finding names it: inside `bounds`, to a tenth of a second.
+        static func snapped(_ t: Double, in bounds: ClosedRange<Double>) -> Double {
+            min(max((t * 10).rounded() / 10, bounds.lowerBound), bounds.upperBound)
+        }
+
+        var startIsFixed: Bool { trim == .leading }
+        var endIsFixed: Bool { trim == .trailing }
+
+        /// The finding starts at `t`. An end before it no longer holds and is dropped.
+        mutating func setStart(_ t: Double) {
+            guard !startIsFixed else { return }
+            start = Self.snapped(t, in: bounds)
+            if let end, end < start, !endIsFixed { self.end = nil }
+        }
+
+        /// The finding ends at `t`. A start after it moves back to it.
+        mutating func setEnd(_ t: Double) {
+            guard !endIsFixed else { return }
+            let t = Self.snapped(t, in: bounds)
+            if t < start, !startIsFixed { start = t }
+            end = max(t, start)
+        }
+
+        mutating func clearEnd() { if trim == nil { end = nil } }
+
+        /// Why the finding cannot be saved as placed, in the reviewer's words. Nil: it can.
+        var problem: String? {
+            if trim != nil, let end, end - start <= Self.boundaryToleranceSec {
+                return String(format: "%.1f s is inside the 1 s tolerance. A mark that close is right — cancel and give Clean.", end - start)
+            }
+            if kind == .uncertain, note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "An uncertain finding needs a note saying what could not be told." }
+            return nil
+        }
+
+        /// The finding as placed (nil while `problem` holds).
+        var finding: CoverageAudit.Finding? {
+            guard problem == nil else { return nil }
+            let text = note.trimmingCharacters(in: .whitespacesAndNewlines)
+            return CoverageAudit.Finding(kind: kind, approxStartSec: start, approxEndSec: end, edge: trim ?? edge, note: text.isEmpty ? nil : text)
+        }
+    }
+}
