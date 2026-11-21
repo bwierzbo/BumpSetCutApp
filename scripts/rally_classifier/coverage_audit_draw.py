@@ -238,7 +238,7 @@ def main(argv=None) -> int:
         return 1
     t = draw["totals"]
     print(f"wrote {path}: {draw['stage']} draw {draw['drawId']} of {draw['dataset']['name']} — {t['recordings']} recording(s) in "
-          f"{t['groups']} group(s), {t['intervals']} interval(s) to review ({t['unmarkedSec']} s), {t['repeatIntervals']} in the repeat set, "
+          f"{t['groups']} group(s), {t['intervals']} interval(s) to review ({t['unmarkedSec']} s), {t['repeatIntervals']} in the repeat set (recorded, not reviewed again: amendment 2), "
           f"{t['rallyMarks']} rally marks; {len(draw['notDrawn'])} eligible recording(s) not drawn")
     for row in draw.get("whereFeasible", []):
         print(f"  {row['surface']}: {row['note']}")

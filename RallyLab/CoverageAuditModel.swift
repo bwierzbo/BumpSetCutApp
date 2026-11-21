@@ -232,17 +232,6 @@ final class CoverageAuditModel {
         }
     }
 
-    func setPass(_ pass: CoverageAudit.Pass) {
-        guard pass != self.pass else { return }
-        if isPlaying { pause() }
-        self.pass = pass
-        clearPending()
-        intervalIndex = nil
-        // Nothing of the last pass's feedback stays on screen: in the blind repeat it would show the first verdict.
-        say(Self.opening(pass))
-        if let first = firstOpen(after: nil) ?? visibleIntervals.first?.index { select(first, play: false) }
-    }
-
     /// The project (dataset root) changed or closed: nothing of the old one stays.
     func projectChanged() {
         close()
@@ -259,9 +248,7 @@ final class CoverageAuditModel {
         guard let recording else { return [] }
         switch pass {
         case .first: return recording.intervals
-        case .repeatLook:
-            let set = Set(CoverageAudit.repeatSet(recording, file: file))
-            return recording.intervals.filter { set.contains($0.index) }
+        case .repeatLook: return []
         case .resolution:
             let set = Set(file.map(CoverageAudit.disagreements) ?? [])
             return recording.intervals.filter { set.contains($0.index) }
@@ -422,7 +409,7 @@ final class CoverageAuditModel {
         guard s.problem == nil else { return false }
         switch pass {
         case .first: return s.firstLeft > 0
-        case .repeatLook: return s.repeatLeft > 0
+        case .repeatLook: return false
         case .resolution: return s.resolveLeft > 0
         }
     }

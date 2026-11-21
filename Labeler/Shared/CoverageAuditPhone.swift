@@ -173,22 +173,12 @@ struct CoverageAuditPhone: Codable, Equatable {
         draw.draw.recording(recordingId).map { CoverageAudit.tally(of: $0, file: local[recordingId], asDrawn: asDrawn(recordingId)) }
     }
 
-    /// When the reviewer's own repeat of `index` is accepted, if that is later than `now` (the 24-hour rule), else nil.
-    func waitsUntil(_ recordingId: String, index: Int, reviewer: String, now: Date) -> Date? {
-        guard let first = local[recordingId]?.review(index), first.reviewer == reviewer, let at = CoverageAudit.date(first.reviewedAt) else { return nil }
-        let from = at.addingTimeInterval(CoverageAudit.sameReviewerWait)
-        return from > now ? from : nil
-    }
-
-    /// The intervals `pass` owes a look, in the draw's order, of the recordings that may be reviewed now
-    /// (`reviewable`) — leaving out a repeat the reviewer may not give yet (their own first verdict is under 24 hours old).
+    /// The intervals `pass` owes a look, in the draw's order, of the recordings that may be reviewed now (`reviewable`).
     func queue(_ pass: CoverageAudit.Pass, reviewable: (String) -> Bool, reviewer: String, now: Date) -> [Position] {
         draw.draw.recordings.flatMap { recording -> [Position] in
             guard reviewable(recording.recordingId) else { return [] }
-            let owed = CoverageAudit.owed(pass, recording: recording, file: local[recording.recordingId], asDrawn: asDrawn(recording.recordingId))
-            return owed.filter { index in
-                pass != .repeatLook || waitsUntil(recording.recordingId, index: index, reviewer: reviewer, now: now) == nil
-            }.map { Position(pass: pass, recordingId: recording.recordingId, index: $0) }
+            return CoverageAudit.owed(pass, recording: recording, file: local[recording.recordingId], asDrawn: asDrawn(recording.recordingId))
+                .map { Position(pass: pass, recordingId: recording.recordingId, index: $0) }
         }
     }
 
@@ -201,12 +191,13 @@ struct CoverageAuditPhone: Codable, Equatable {
         return queue.first { key($0) > key(position) } ?? queue.first
     }
 
-    /// Where to open on launch: the interval the reviewer was on while it still owes a look, else the next one.
+    /// Where to open on launch: the interval the reviewer was on while it still owes its look, else the next one.
+    /// Always in the first pass (amendment 2): a place an older build kept in the repeat or the resolution — where a
+    /// record from then may still hold a disagreement — is never reopened, since no look can be given there.
     func resume(reviewable: (String) -> Bool, reviewer: String, now: Date) -> Position? {
-        let pass = position?.pass ?? .first
-        let queue = queue(pass, reviewable: reviewable, reviewer: reviewer, now: now)
+        let queue = queue(.first, reviewable: reviewable, reviewer: reviewer, now: now)
         if let position, queue.contains(position) { return position }
-        return next(after: position, pass: pass, reviewable: reviewable, reviewer: reviewer, now: now)
+        return next(after: position, pass: .first, reviewable: reviewable, reviewer: reviewer, now: now)
     }
 
     // MARK: - What the reviewer sees

@@ -576,3 +576,20 @@ The authoritative record of product, architecture, data and process decisions fo
 **Consequences.** `CoverageAudit.maxCreditRate` is 3.0 in both apps and in the dataset validator and the audit report; the Mac gains a 3× speed (key `4`). A record with a look at 3× is refused by a RallyLab or Labeler build from before this change, so both are rebuilt before a 3× look is given. The pilot draw `20261115-072552`, its criterion, the sample, the verdict kinds, the 24-hour wait, G6 and G7 are unchanged. Corrections to marks change the marks the pilot was drawn from: the changed intervals need a new inventory and a new draw (protocol §8).
 
 **Source.** Owner authorisation 2026-11-18 (verbatim note above); [RALLY_CLASSIFIER_COVERAGE_AUDIT_PROTOCOL.md](../ml-roadmap/RALLY_CLASSIFIER_COVERAGE_AUDIT_PROTOCOL.md) (unchanged); D-038, D-039.
+
+### D-041
+
+**The coverage audit takes one look at each interval: no blind repeat, no resolution** — 2026-11-20 — accepted — owner ("i also dont want second looks or resolves lets remove that and just have the one confirm audit", 2026-11-20, [verbatim](2026-11-20-audit-single-look-authorization.md)).
+
+**Context.** The owner finished the first look of the pilot of D-038's audit (draw `20261115-072552`) on the iPhone on 2026-11-20: 150 of 150 intervals, 147 clean, one missed serve, one missed rally, one uncertain — *m* = 2 against a largest passing *m* of 2 for *n* = 127. Told that the frozen protocol still required the blind repeat (36 intervals, each 24 hours after its first verdict) and the resolution of any disagreement before a result, he instructed that both be removed. The owner's authorisation of 2026-11-14 had asked for the repeat ("Arrange the blind repeat sample and document reviewer independence accurately"); this decision withdraws that part of it.
+
+**Decision.**
+1. **One look.** No second look is owed or taken for any interval, and no resolution ([amendment 2](../ml-roadmap/RALLY_CLASSIFIER_COVERAGE_AUDIT_PROTOCOL_AMENDMENT_2.md), A2.1). The pilot, and stage 2 after it, is evaluated when every interval has an accepted first verdict played whole.
+2. **An `uncertain` interval stays uncertain** (A2.2): reported, not in *m*, no trusted negative.
+3. **A result is reported as a single look, pipeline-blind, not repeated**, with no agreement figure (A2.3). The check amendment 1 named for review faster than 2× (the repeat's agreement) no longer exists.
+4. **The frozen protocol, amendment 1, the draw procedure, the pilot draw file and the record format are not edited** (A2.4). A draw still records its repeat set; a record that holds a second look is still read.
+5. **The implementer recommended keeping the repeat**: it was the audit's only check on the reviewer's consistency, and it is removed after the first-look result was known and stood exactly at the passing limit. The owner decided otherwise; the amendment states both facts where a reader of the result will find them.
+
+**Consequences.** `CoverageAudit.applying` refuses a repeat look and a resolution in both apps; the pass pickers leave RallyLab's Audit tab and the iPhone's; `coverage_audit_report.py` evaluates on first looks, says "single look" and counts the second looks on record; the boundary corrections of D-040 wait for first looks only. The pass / fail criterion and its numbers, the sample, the verdict kinds, the 3× limit, G6 and G7 are unchanged. With the records as they stood on 2026-11-20 the pilot evaluates as a pass at the limit; the report, run on the Mac once it holds the phone's records, is the authority.
+
+**Source.** Owner instruction 2026-11-20 (verbatim note above); [RALLY_CLASSIFIER_COVERAGE_AUDIT_PROTOCOL.md](../ml-roadmap/RALLY_CLASSIFIER_COVERAGE_AUDIT_PROTOCOL.md) and amendment 1 (both unchanged); D-038, D-039, D-040.

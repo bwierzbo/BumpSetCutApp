@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Results of the negative-coverage audit (docs/ml-roadmap/RALLY_CLASSIFIER_COVERAGE_AUDIT_PROTOCOL.md §5–§8).
+"""Results of the negative-coverage audit (docs/ml-roadmap/RALLY_CLASSIFIER_COVERAGE_AUDIT_PROTOCOL.md §5–§8, as
+amended by RALLY_CLASSIFIER_COVERAGE_AUDIT_PROTOCOL_AMENDMENT_1.md and …_AMENDMENT_2.md).
 
 Reads a frozen draw (`coverage_audit_draw_v2`) and the audit records the review wrote —
 `<video>.coverageaudit.json` (`coverage_audit_v2`) beside each drawn recording's marks, found through the project's
@@ -10,10 +11,11 @@ groups (and groups per fold) whose reviewed-clean intervals would supply trusted
 
 It never certifies anything itself: a verdict exists only where a record holds one. A record is void — every
 interval of that recording counts as not reviewed — when it is for another draw, dataset or file identity, or was
-not made blind to the pipeline. Pass / fail is evaluated only when every interval of the pilot has a first verdict,
-every interval of the repeat set (the drawn fifth plus every interval first left `uncertain`) has a valid repeat
-verdict, and every disagreement has a resolution; until then the outcome is `incomplete` and what is missing is
-listed. No video is opened and nothing is written unless `--json-out` names a new file.
+not made blind to the pipeline. Pass / fail is evaluated only when every interval of the pilot has a first verdict
+given over the interval played whole; until then the outcome is `incomplete` and what is missing is listed.
+Amendment 2 (D-041): no blind repeat is owed and none is taken, so the first look is the verdict and the result is
+reported as a single look. A record that holds a repeat verdict is still read as the protocol says — its agreement is
+reported, and a disagreement counts for nothing until a resolution settles it. No video is opened and nothing is written unless `--json-out` names a new file.
 
     python3 scripts/rally_classifier/coverage_audit_report.py <pilot draw.json> --project <project dir>
         [--stage2 <stage 2 draw.json>] [--json-out <report.json>]
@@ -221,7 +223,7 @@ def review_recording(rec: dict, draw: dict, draw_sha: str, record, ignore_ticks:
     for index, iv in sorted(drawn.items()):
         seconds = (iv["endTick"] - iv["startTick"]) / timescale
         row = {"index": index, "startTick": iv["startTick"], "endTick": iv["endTick"], "seconds": seconds,
-               "reviewed": False, "repeatRequired": index in rec["repeatIndices"], "repeated": False,
+               "reviewed": False, "repeated": False,
                "disagreement": False, "resolved": False, "settled": False, "unfinished": False, "fast": False, "verdict": None, "findings": []}
         first = firsts.get(index)
         first_class = None
@@ -236,7 +238,6 @@ def review_recording(rec: dict, draw: dict, draw_sha: str, record, ignore_ticks:
             intervals.append(row)
             continue
         row["reviewed"] = True
-        row["repeatRequired"] = row["repeatRequired"] or first_class["uncertain"] > 0
         effective, effective_entry = first_class, first
         looks = [first]
 
@@ -282,7 +283,7 @@ def review_recording(rec: dict, draw: dict, draw_sha: str, record, ignore_ticks:
         row["unfinished"] = not all(_played_whole(look) for look in looks)
         # Amendment 1 (D-040): a look played faster than the protocol's first limit is counted apart.
         row["fast"] = any(_played_whole(look) and look["playedAllAtMaxRate"] > FIRST_COVERAGE_RATE for look in looks)
-        row["settled"] = (row["repeated"] or not row["repeatRequired"]) and (row["resolved"] or not row["disagreement"]) and not row["unfinished"]
+        row["settled"] = (row["resolved"] or not row["disagreement"]) and not row["unfinished"]
         if row["resolved"] or not row["disagreement"]:
             row["verdict"] = "not_clean" if effective else "clean"
             row["findings"] = [{"kind": f["kind"],
@@ -308,7 +309,7 @@ def review_recording(rec: dict, draw: dict, draw_sha: str, record, ignore_ticks:
         "intervals": len(intervals),
         "reviewed": sum(r["reviewed"] for r in intervals),
         "notReviewed": [r["index"] for r in intervals if not r["reviewed"]],
-        "repeatPending": [r["index"] for r in intervals if r["reviewed"] and r["repeatRequired"] and not r["repeated"]],
+        "repeated": sum(r["repeated"] for r in intervals),
         "unfinished": [r["index"] for r in intervals if r["unfinished"]],
         "unresolved": [r["index"] for r in intervals if r["disagreement"] and not r["resolved"]],
         "secondsDrawn": sum(r["seconds"] for r in intervals),
@@ -385,7 +386,7 @@ def _totals(rows: list) -> dict:
             for field, value in cell.items():
                 findings[k][field] += value
     return {"recordings": len(rows), "intervals": sum(r["intervals"] for r in rows), "reviewed": sum(r["reviewed"] for r in rows),
-            "notReviewed": sum(len(r["notReviewed"]) for r in rows), "repeatPending": sum(len(r["repeatPending"]) for r in rows),
+            "notReviewed": sum(len(r["notReviewed"]) for r in rows), "repeated": sum(r["repeated"] for r in rows),
             "unfinished": sum(len(r["unfinished"]) for r in rows),
             "unresolved": sum(len(r["unresolved"]) for r in rows),
             "secondsDrawn": sum(r["secondsDrawn"] for r in rows), "secondsReviewed": sum(r["secondsReviewed"] for r in rows),
@@ -397,12 +398,12 @@ def _totals(rows: list) -> dict:
 
 
 def _pilot_outcome(rows: list) -> dict:
-    missing = {key: {r["recordingId"]: r[key] for r in rows if r[key]} for key in ("notReviewed", "repeatPending", "unresolved", "unfinished")}
+    missing = {key: {r["recordingId"]: r[key] for r in rows if r[key]} for key in ("notReviewed", "unresolved", "unfinished")}
     n = sum(r["rallyMarks"] for r in rows)
     if any(missing.values()):
         return {"outcome": "incomplete", "missing": missing, "n": n,
-                "note": "pass / fail is not evaluated while a pilot interval lacks a first verdict, a required repeat or a resolution, "
-                        "or a look that counts gave findings before its interval had played whole"}
+                "note": "pass / fail is not evaluated while a pilot interval lacks a first verdict, holds a disagreement without a "
+                        "resolution, or a look that counts gave findings before its interval had played whole"}
     m = sum(r["missed"] for r in rows)
     bound = upper_bound(m, n)
     worst = max(rows, key=lambda r: r["missed"])
@@ -468,7 +469,8 @@ def render(report: dict) -> str:
         lines = [f"{title} — draw {part['drawId']} ({part['drawSha256'][:16]}…)",
                  f"  {t['recordings']} recording(s); intervals reviewed {t['reviewed']} of {t['intervals']} "
                  f"({seconds(t['secondsReviewed'])} of {seconds(t['secondsDrawn'])}); not reviewed {t['notReviewed']}; "
-                 f"repeat pending {t['repeatPending']}; unresolved {t['unresolved']}",
+                 f"unresolved {t['unresolved']}",
+                 f"  single look (amendment 2): no blind repeat is owed; second looks on record: {t['repeated']}",
                  f"  clean: {t['cleanIntervals']} interval(s), {seconds(t['cleanSeconds'])}; of them with a look played faster than "
                  f"{FIRST_COVERAGE_RATE:g}× (amendment 1): {t['cleanFastIntervals']} interval(s), {seconds(t['cleanFastSeconds'])}"]
         for k in FINDING_KINDS:
@@ -495,7 +497,7 @@ def render(report: dict) -> str:
     lines = [f"Coverage audit of {report['dataset']['name']}"] + block("Pilot", p)
     if p["outcome"] == "incomplete":
         lines.append(f"  PILOT INCOMPLETE — {p['note']}")
-        for key, label in (("notReviewed", "no first verdict"), ("repeatPending", "repeat pending"), ("unresolved", "disagreement unresolved"),
+        for key, label in (("notReviewed", "no first verdict"), ("unresolved", "disagreement unresolved"),
                            ("unfinished", "findings given before the interval played whole")):
             lines += [f"    {label} — {rid}: intervals {indices}" for rid, indices in sorted(p["missing"][key].items())]
     else:

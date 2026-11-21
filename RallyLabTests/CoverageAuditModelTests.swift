@@ -283,42 +283,6 @@ final class CoverageAuditModelTests: XCTestCase {
         model.deactivate()
     }
 
-    func testTheRepeatPassShowsOnlyItsOwnLookAndKeepsTheFirstReviewerOut() async throws {
-        // Both intervals of `v` reviewed by bw a moment ago; interval 1 is the draw's repeat.
-        try writeDraw(["v", "w"])
-        let draw = try A.loadDraw(A.drawsDirectory(in: root).appendingPathComponent("20261114-120000-draw.json"))
-        var all = A.PlayedCoverage()
-        all.credit(fromTick: 0, toTick: 1800, rate: 2)
-        try A.record(A.Request(recordingId: "v", index: 0, pass: .first, entry: .clean, reviewer: "bw", played: all), draw: draw, root: root, tool: "t")
-        try A.record(A.Request(recordingId: "v", index: 1, pass: .first, entry: .finding(A.Finding(kind: .nonRallyActivity, approxStartSec: 2.5)), reviewer: "bw", played: all),
-                     draw: draw, root: root, tool: "t")
-
-        let model = try await model()
-        model.setPass(.repeatLook)
-        await model.open("v", at: 1, play: false)
-        XCTAssertEqual(model.visibleIntervals.map(\.index), [1], "only the repeat set")
-        XCTAssertNil(model.currentLook, "the first verdict is not the look on screen")
-        XCTAssertNil(model.look(at: 1))
-        // The first reviewer, minutes later: refused by the shared operation.
-        model.addFinding(.nonRallyActivity)
-        try await wait("the refusal") { !model.busy }
-        XCTAssertTrue(model.lastRefused); XCTAssertTrue(model.status.contains("less than 24 hours ago"), model.status)
-        XCTAssertNil(try onDisk("v")?.repeatPass)
-        // A second reviewer's look is taken, and disagrees: the resolution pass shows it.
-        model.typedName = "jr"
-        model.addFinding(.missedServe)
-        try await wait("the repeat verdict") { !model.busy && model.currentLook != nil }
-        XCTAssertEqual(try onDisk("v")?.repeatPass?.method, "second_reviewer")
-        XCTAssertEqual(model.currentLook?.findings.map(\.kind), [.missedServe])
-        model.setPass(.resolution)
-        XCTAssertEqual(model.visibleIntervals.map(\.index), [1])
-        XCTAssertEqual(model.intervalIndex, 1)
-        XCTAssertNil(model.currentLook, "no resolution yet")
-        model.setPass(.first)
-        XCTAssertEqual(model.visibleIntervals.map(\.index), [0, 1])
-        model.deactivate()
-    }
-
     func testWhatOneReviewerWatchedNeverCountsForAnother() async throws {
         let model = try await model()
         await model.open("v")
@@ -341,31 +305,6 @@ final class CoverageAuditModelTests: XCTestCase {
         await model.undo()
         XCTAssertTrue(model.lastRefused); XCTAssertTrue(model.status.contains("only bw can undo it"), model.status)
         XCTAssertEqual(try onDisk("v")?.review(0)?.verdict, .clean)
-        model.deactivate()
-    }
-
-    func testEnteringTheBlindRepeatShowsNothingOfTheFirstLook() async throws {
-        let model = try await model()
-        await model.open("v", play: false)
-        // A first-pass finding, its feedback on screen; then straight to the repeat.
-        model.addFinding(.missedServe)
-        try await wait("the finding") { !model.busy && model.currentLook != nil }
-        XCTAssertTrue(model.status.contains("missedServe") || model.status.contains("missed_serve"), model.status)
-        model.setPass(.repeatLook)
-        XCTAssertEqual(model.status, CoverageAuditModel.opening(.repeatLook))
-        // A note typed in the first look and never sent is not on screen in the repeat either.
-        model.setPass(.first)
-        model.note = "a ball rolled in from the next court"
-        model.setPass(.repeatLook)
-        XCTAssertEqual(model.note, "", "the draft note was the first look's")
-        // A first-pass save still in flight when the pass changes is kept, and says nothing.
-        model.setPass(.first)
-        await model.open("v", at: 1, play: false)
-        model.addFinding(.nonRallyActivity)
-        model.setPass(.repeatLook)
-        try await wait("the save") { !model.busy }
-        XCTAssertEqual(model.status, CoverageAuditModel.opening(.repeatLook), "nothing of the first look reaches the repeat")
-        XCTAssertEqual(try onDisk("v")?.review(1)?.findings.map(\.kind), [.nonRallyActivity], "the save itself is kept")
         model.deactivate()
     }
 

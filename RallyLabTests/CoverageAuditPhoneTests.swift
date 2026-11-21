@@ -159,35 +159,44 @@ final class CoverageAuditPhoneTests: XCTestCase {
         XCTAssertNil(p.local["a"])
     }
 
-    // MARK: - The blind repeat
+    // MARK: - One look at each interval (amendment 2)
 
-    func testTheRepeatHidesTheFirstVerdictAndWaitsADayForTheSameReviewer() throws {
+    func testNoSecondLookIsOwedOrGivenOnThePhone() throws {
         var p = try phone()
         try p.give(.finding(.init(kind: .uncertain, approxStartSec: 1, note: "blocked")), pass: .first, recordingId: "a", index: 0, video: video(), withheld: false, played: played(0, 600), reviewer: me, tool: "t", now: t0)
         try p.give(.clean, pass: .first, recordingId: "a", index: 1, video: video(), withheld: false, played: played(1200, 3000), reviewer: me, tool: "t", now: t0)
-        XCTAssertEqual(p.shown(.first, recordingId: "a", index: 1).count, 1)
-        XCTAssertEqual(p.shown(.repeatLook, recordingId: "a", index: 1), [], "the blind repeat shows no first verdict")
-        XCTAssertEqual(p.totals(.first, reviewable: { _ in true }).findings, [.uncertain: 1])
-        XCTAssertEqual(p.totals(.repeatLook, reviewable: { _ in true }).findings, [:], "nor what the first verdicts found")
-        XCTAssertTrue(p.totals(.repeatLook, reviewable: { _ in true }).findingsHidden)
         let all: (String) -> Bool = { _ in true }
-        // Owed: the draw's repeat interval 1 and interval 0, left uncertain. Neither is offered to the same reviewer yet.
-        XCTAssertEqual(p.queue(.repeatLook, reviewable: all, reviewer: me, now: t0.addingTimeInterval(3600)), [])
-        XCTAssertEqual(p.queue(.repeatLook, reviewable: all, reviewer: other, now: t0.addingTimeInterval(3600)).map(\.index), [0, 1], "a second reviewer at once")
-        refused(.sameReviewerTooSoon(index: 1, acceptedFrom: "2026-11-18T10:00:00Z")) {
-            try p.give(.clean, pass: .repeatLook, recordingId: "a", index: 1, video: video(), withheld: false, played: played(1200, 3000), reviewer: me, tool: "t", now: t0.addingTimeInterval(23 * 3600))
+        let later = t0.addingTimeInterval(48 * 3600)
+        // Interval 1 is the draw's repeat interval and interval 0 was left uncertain: neither is queued again, for anyone.
+        XCTAssertEqual(p.queue(.repeatLook, reviewable: all, reviewer: me, now: later), [])
+        XCTAssertEqual(p.queue(.repeatLook, reviewable: all, reviewer: other, now: later), [])
+        XCTAssertEqual(p.queue(.resolution, reviewable: all, reviewer: me, now: later), [])
+        refused(.noSecondLook(index: 1)) {
+            try p.give(.clean, pass: .repeatLook, recordingId: "a", index: 1, video: video(), withheld: false, played: played(1200, 3000), reviewer: other, tool: "t", now: later)
         }
-        let later = t0.addingTimeInterval(24 * 3600)
-        XCTAssertEqual(p.queue(.repeatLook, reviewable: all, reviewer: me, now: later).map(\.index), [0, 1])
-        try p.give(.finding(.init(kind: .missedServe, approxStartSec: 3)), pass: .repeatLook, recordingId: "a", index: 1, video: video(), withheld: false, played: played(1200, 3000), reviewer: me, tool: "t", now: later)
-        XCTAssertEqual(p.local["a"]?.repeatPass?.method, A.Repeat.sameReviewer, "never counted as independent agreement")
-        // A disagreement stays unresolved until it is resolved explicitly; the resolution shows both looks.
-        XCTAssertEqual(p.queue(.resolution, reviewable: all, reviewer: me, now: later).map(\.index), [1])
-        XCTAssertEqual(A.standing(of: 1, in: try XCTUnwrap(p.local["a"])), .disputed)
-        XCTAssertEqual(p.shown(.resolution, recordingId: "a", index: 1).count, 2)
+        refused(.noSecondLook(index: 1)) {
+            try p.give(.clean, pass: .resolution, recordingId: "a", index: 1, video: video(), withheld: false, played: played(1200, 3000), reviewer: me, tool: "t", now: later)
+        }
+        XCTAssertNil(p.local["a"]?.repeatPass)
+        XCTAssertEqual(p.totals(.first, reviewable: all).findings, [.uncertain: 1], "the uncertain interval stands")
+        XCTAssertEqual(p.totals(.repeatLook, reviewable: all).left, 0)
     }
 
     // MARK: - Progress and resuming
+
+    func testAPlaceKeptInALaterPassByAnOlderBuildResumesInTheFirstPass() throws {
+        // An older build left the phone in Resolve, on a disagreement its record still holds.
+        var p = try phone()
+        try p.give(.clean, pass: .first, recordingId: "a", index: 1, video: video(), withheld: false, played: played(1200, 3000), reviewer: me, tool: "t", now: t0)
+        p.local["a"] = CoverageAuditSync.setting(.init(pass: .repeatLook, index: 1), to: .repeatLook(A.RepeatReview(index: 1, verdict: .notClean, reviewer: other, reviewedAt: "2026-11-17T10:00:00Z",
+                                                                                                                 playedAllAtMaxRate: 2, findings: [.init(kind: .missedServe, approxStartSec: 3)])), in: try XCTUnwrap(p.local["a"]))
+        let all: (String) -> Bool = { _ in true }
+        XCTAssertEqual(p.queue(.resolution, reviewable: all, reviewer: me, now: t0).map(\.index), [1], "the old disagreement is still counted as unresolved")
+        for pass in [A.Pass.resolution, .repeatLook] {
+            p.position = P.Position(pass: pass, recordingId: "a", index: 1)
+            XCTAssertEqual(p.resume(reviewable: all, reviewer: me, now: t0), P.Position(pass: .first, recordingId: "a", index: 0), "the first interval still owed its look")
+        }
+    }
 
     func testTotalsAndResumingAfterTheAppIsKilled() throws {
         var p = try phone()
@@ -341,13 +350,16 @@ final class CoverageAuditPhoneTests: XCTestCase {
         // record would hold a resolution with nothing to resolve: refused, not sent, not adopted.
         var p = try phone()
         try p.give(.clean, pass: .first, recordingId: "a", index: 1, video: video(), withheld: false, played: played(1200, 3000), reviewer: me, tool: "t", now: t0)
-        try p.give(.finding(.init(kind: .missedServe, approxStartSec: 3)), pass: .repeatLook, recordingId: "a", index: 1, video: video(), withheld: false, played: played(1200, 3000), reviewer: other, tool: "t", now: t0)
-        let base = try XCTUnwrap(p.local["a"])
+        // (A second look can only be in a record from before amendment 2; this phone's holds one.)
+        let alone = try XCTUnwrap(p.local["a"])
+        let base = CoverageAuditSync.setting(.init(pass: .repeatLook, index: 1), to: .repeatLook(A.RepeatReview(index: 1, verdict: .notClean, reviewer: other, reviewedAt: "2026-11-17T10:00:00Z",
+                                                                                                                 playedAllAtMaxRate: 2, findings: [.init(kind: .missedServe, approxStartSec: 3)])), in: alone)
+        p.local["a"] = base
         p.pushed(base, saved: row(base, revision: 1))
         var server = base
         server = CoverageAuditSync.setting(.init(pass: .resolution, index: 1), to: .resolution(A.Resolution(index: 1, verdict: .clean, reviewer: me, resolvedAt: "2026-11-17T12:00:00Z",
                                                                                                             playedAllAtMaxRate: 2)), in: server)
-        try p.give(.withdraw, pass: .repeatLook, recordingId: "a", index: 1, video: video(), withheld: false, played: .init(), reviewer: other, tool: "t", now: t0)
+        p.local["a"] = alone
         guard case .refused(let why) = p.merge("a", server: row(server, revision: 2)) else { return XCTFail("refused") }
         XCTAssertTrue(why.contains("breaks a rule"), why)
     }

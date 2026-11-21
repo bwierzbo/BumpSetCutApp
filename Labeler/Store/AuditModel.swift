@@ -89,7 +89,8 @@ final class AuditModel {
         case .setAside(let url, _): syncNote = "The audit store on this phone could not be read; it is kept as \(url.lastPathComponent) and a new one starts."
         case .blocked(let why): storeBlocked = why; syncNote = "The audit store on this phone could not be read, and nothing is written over it: \(why.prefix(160))"
         }
-        if let audit { pass = audit.position?.pass ?? .first; position = audit.position }
+        // One look at each interval (protocol amendment 2): a place kept in a later pass by an older build is dropped.
+        if let audit, audit.position?.pass == .first { position = audit.position }
     }
 
     // MARK: - The store
@@ -310,13 +311,6 @@ final class AuditModel {
     }
 
     // MARK: - Moving
-
-    func setPass(_ pass: CoverageAudit.Pass) {
-        guard pass != self.pass else { return }
-        self.pass = pass
-        message = nil
-        go(to: audit?.next(after: nil, pass: pass, reviewable: isReviewable, reviewer: reviewer ?? "", now: Date()), play: false)
-    }
 
     /// The next interval this pass owes a look.
     func next(play: Bool = true) {

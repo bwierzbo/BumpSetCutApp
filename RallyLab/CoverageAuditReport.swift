@@ -62,7 +62,7 @@ extension CoverageAudit {
         let project = try projectAsRead(root)
         return draw.draw.recordings.map { recording in
             var status = RecordingStatus(recordingId: recording.recordingId, surface: recording.surface,
-                                         tally: Tally(total: recording.intervals.count, repeatOwed: recording.repeatIndices.count,
+                                         tally: Tally(total: recording.intervals.count,
                                                       state: state(of: nil, intervals: recording.intervals)))
             if let why = listedRefusal(of: recording, closures: project.closures, sources: project.sources) {
                 status.problem = "withheld (\(why)) — not read"
@@ -117,7 +117,7 @@ extension CoverageAudit {
         let width = statuses.map(\.recordingId.count).max() ?? 0
         for s in statuses {
             var line = "  " + s.recordingId.padding(toLength: width, withPad: " ", startingAt: 0)
-                + "  \(s.reviewed)/\(s.total) reviewed · \(s.state.text) · repeat \(s.repeatDone)/\(s.repeatOwed)"
+                + "  \(s.reviewed)/\(s.total) reviewed · \(s.state.text)"
             if s.unresolved > 0 { line += " · \(s.unresolved) disagreement(s) unresolved" }
             if s.partialLooks > 0 { line += " · \(s.partialLooks) with findings not played whole" }
             line += " · findings: \(countsText(s.findings))"
@@ -129,8 +129,7 @@ extension CoverageAudit {
         for s in statuses { for (kind, n) in s.findings { totals[kind, default: 0] += n } }
         let byState = Dictionary(grouping: statuses, by: \.state.name).mapValues(\.count)
         lines.append("Total: \(statuses.reduce(0) { $0 + $1.reviewed })/\(statuses.reduce(0) { $0 + $1.total }) intervals reviewed · "
-            + ["audited_clean", "partial", "contaminated"].map { "\($0) \(byState[$0] ?? 0)" }.joined(separator: " · ")
-            + " · repeat \(statuses.reduce(0) { $0 + $1.repeatDone })/\(statuses.reduce(0) { $0 + $1.repeatOwed })")
+            + ["audited_clean", "partial", "contaminated"].map { "\($0) \(byState[$0] ?? 0)" }.joined(separator: " · "))
         lines.append("Findings: \(countsText(totals)) · missed rallies + missed serves \((totals[.missedRally] ?? 0) + (totals[.missedServe] ?? 0)) "
             + "against \(statuses.reduce(0) { $0 + $1.rallyMarks }) rally mark(s)")
         return lines

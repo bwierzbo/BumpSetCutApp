@@ -357,11 +357,13 @@ final class CoverageAuditTests: XCTestCase {
         XCTAssertEqual(A.cleanIntervals(file()), [])
     }
 
-    func testTheRepeatSetIsTheDrawsPlusEveryUncertainInterval() throws {
+    func testNoSecondLookIsOwedThoughTheDrawNamesARepeatSet() throws {
         let recording = try XCTUnwrap(A.loadDraw(writeTemp(drawJSON(
             intervals: #"[{"index":0,"startTick":0,"endTick":600},{"index":1,"startTick":1200,"endTick":3000},{"index":2,"startTick":4000,"endTick":6000}]"#, repeatSet: "[2]"))).draw.recording("rec_a"))
-        XCTAssertEqual(A.repeatSet(recording, file: nil), [2])
-        XCTAssertEqual(A.repeatSet(recording, file: file([found(0, 0, 600, [.uncertain]), clean(1, 1200, 3000)])), [0, 2])
+        XCTAssertEqual(recording.repeatIndices, [2], "the draw's repeat set is still read")
+        let held = file([found(0, 0, 600, [.uncertain]), clean(1, 1200, 3000)])
+        XCTAssertEqual(A.owed(.repeatLook, recording: recording, file: held, asDrawn: [0, 1, 2]), [], "amendment 2: neither it nor an uncertain interval is owed a second look")
+        XCTAssertEqual(A.tally(of: recording, file: held, asDrawn: [0, 1, 2]).left(in: .repeatLook), 0)
     }
 
     // MARK: - Played coverage

@@ -94,9 +94,9 @@ extension CoverageAudit {
     /// Why the draw's stage is not complete, or nil: every recording read without trouble, and no pass owing work.
     static func incompleteness(of statuses: [RecordingStatus]) -> String? {
         if let s = statuses.first(where: { $0.problem != nil }) { return "\(s.recordingId) can't be counted (\(s.problem ?? ""))" }
-        let first = statuses.reduce(0) { $0 + $1.firstLeft }, again = statuses.reduce(0) { $0 + $1.repeatLeft }, resolve = statuses.reduce(0) { $0 + $1.resolveLeft }
-        guard first + again + resolve > 0 else { return nil }
-        return "the review is not finished (\(first) first look(s), \(again) second look(s) and \(resolve) disagreement(s) to go). Corrections wait until it is, so no mark moves under a review in progress"
+        let first = statuses.reduce(0) { $0 + $1.firstLeft }, resolve = statuses.reduce(0) { $0 + $1.resolveLeft }
+        guard first + resolve > 0 else { return nil }
+        return "the review is not finished (\(first) look(s) and \(resolve) disagreement(s) to go). Corrections wait until it is, so no mark moves under a review in progress"
     }
 
     /// Where a mark starts for the audit's intervals: a rally at its serve contact when it has one (the exporter's
