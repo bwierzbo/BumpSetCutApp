@@ -361,4 +361,70 @@ final class CoverageAuditPhoneTests: XCTestCase {
         XCTAssertEqual(CoverageAuditSync.refusal(in: "coverage audit: leads only in this release"), .notLead)
         XCTAssertNil(CoverageAuditSync.refusal(in: "The network connection was lost."))
     }
+
+    // MARK: - Placing a finding by scrubbing
+
+    private let scrubbed = A.Interval(index: 1, startTick: 1200, endTick: 3000)   // 2.0–5.0 s; shown 1.0–6.0
+
+    func testAFindingIsPlacedWhereTheFootageStandsToATenthAndInsideWhatIsShown() throws {
+        var m = P.Marking(kind: .missedRally, interval: scrubbed, shown: 1...6, playhead: 2.537)
+        XCTAssertEqual(m.start, 2.5)
+        XCTAssertNil(m.end, "a finding names only its start until an end is marked")
+        XCTAssertEqual(m.resume, 2.537, "playback returns to where the reviewer was")
+        m.setEnd(9)
+        XCTAssertEqual(m.end, 6, "an end past what is shown is the last moment shown")
+        m.setStart(0)
+        XCTAssertEqual(m.start, 1)
+        m.note = "  two touches  "
+        m.edge = .end
+        XCTAssertEqual(m.finding, A.Finding(kind: .missedRally, approxStartSec: 1, approxEndSec: 6, edge: .end, note: "two touches"))
+        // The shared rules take it on the interval it was placed on.
+        var p = try phone()
+        try p.give(.finding(try XCTUnwrap(m.finding)), pass: .first, recordingId: "a", index: 1, video: video(), withheld: false, played: .init(), reviewer: me, tool: "t", now: t0)
+        XCTAssertEqual(p.local["a"]?.review(1)?.findings, [try XCTUnwrap(m.finding)])
+    }
+
+    func testAnEndBeforeTheStartMovesTheStartAndAStartPastTheEndDropsTheEnd() {
+        var m = P.Marking(kind: .missedServe, interval: scrubbed, shown: 1...6, playhead: 4)
+        m.setEnd(3)
+        XCTAssertEqual([m.start, m.end], [3, 3])
+        m.setEnd(5)
+        m.setStart(5.5)
+        XCTAssertEqual(m.start, 5.5)
+        XCTAssertNil(m.end)
+        m.setEnd(5.8)
+        m.clearEnd()
+        XCTAssertNil(m.end)
+        XCTAssertEqual(m.finding, A.Finding(kind: .missedServe, approxStartSec: 5.5, approxEndSec: nil, edge: nil, note: nil))
+    }
+
+    func testATrimKeepsTheIntervalsOwnEndAndIsRefusedInsideTheOneSecondTolerance() {
+        var lead = P.Marking(kind: .boundaryError, trim: .leading, interval: scrubbed, shown: 1...6, playhead: 2.6)
+        XCTAssertEqual([lead.start, lead.end], [2, 2.6])
+        XCTAssertNotNil(lead.problem, "0.6 s is inside the tolerance")
+        XCTAssertNil(lead.finding)
+        lead.setStart(4)
+        XCTAssertEqual(lead.start, 2, "a leading trim starts at the interval's start")
+        lead.setEnd(5.9)
+        XCTAssertEqual(lead.end, 5, "a trim stays inside the interval")
+        lead.setEnd(3.25)
+        XCTAssertEqual(lead.finding, A.Finding(kind: .boundaryError, approxStartSec: 2, approxEndSec: 3.3, edge: .leading, note: nil))
+
+        var trail = P.Marking(kind: .boundaryError, trim: .trailing, interval: scrubbed, shown: 1...6, playhead: 0.2)
+        XCTAssertEqual([trail.start, trail.end], [2, 5])
+        trail.setEnd(3)
+        trail.clearEnd()
+        XCTAssertEqual(trail.end, 5, "a trailing trim ends at the interval's end")
+        trail.setStart(4.4)
+        XCTAssertNotNil(trail.problem)
+        trail.setStart(3.9)
+        XCTAssertEqual(trail.finding, A.Finding(kind: .boundaryError, approxStartSec: 3.9, approxEndSec: 5, edge: .trailing, note: nil))
+    }
+
+    func testAnUncertainFindingIsNotPlacedWithoutItsNote() {
+        var m = P.Marking(kind: .uncertain, interval: scrubbed, shown: 1...6, playhead: 3)
+        XCTAssertNil(m.finding)
+        m.note = "ball out of frame"
+        XCTAssertEqual(m.finding?.note, "ball out of frame")
+    }
 }

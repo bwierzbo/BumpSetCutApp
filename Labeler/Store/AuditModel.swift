@@ -48,6 +48,11 @@ final class AuditModel {
     private(set) var isPlaying = false
     private(set) var rate: Float = 2
     private(set) var tracker = CoverageAudit.PlayTracker()
+    /// The finding being placed by scrubbing (nil: none). Its note and edge are the screen's to edit.
+    var marking: CoverageAuditPhone.Marking?
+    /// The newest place a scrub asked for while the player was still seeking to an earlier one.
+    @ObservationIgnored private var scrubTarget: Double?
+    @ObservationIgnored private var scrubSeeking = false
     @ObservationIgnored private var observer: Any?
     @ObservationIgnored private var endObserver: Any?
     @ObservationIgnored private var openedRecording: String?
@@ -319,6 +324,7 @@ final class AuditModel {
         // The pass on screen is always the opened look's: what is shown and given next is that look's.
         if let target, target.pass != pass { pass = target.pass }
         pause()
+        marking = nil
         tracker = CoverageAudit.PlayTracker()
         // Another recording: the one in the player is let go now, so nothing of it plays, or earns credit, or takes a
         // verdict under the new one's name while that opens.
@@ -431,6 +437,8 @@ final class AuditModel {
 
     func unload() {
         pause()
+        marking = nil
+        scrubTarget = nil
         if let observer { player.removeTimeObserver(observer) }
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         observer = nil
@@ -442,6 +450,8 @@ final class AuditModel {
     // MARK: - Playback (what earns viewing credit)
 
     private func tick(_ t: Double) {
+        // While a scrub is being chased the playhead is the finger's, not the frame the player last reached.
+        guard !scrubSeeking else { return }
         playhead = t
         guard isPlaying else { return }
         tracker.observed(t, rate: Double(rate))
@@ -503,6 +513,26 @@ final class AuditModel {
 
     func back(_ seconds: Double) { seek(to: max(shown?.lowerBound ?? 0, playhead - seconds)) }
 
+    /// A finger on the bar while a finding is placed: the footage follows it, paused. A jump like any other, so
+    /// nothing is credited; the player is asked for one frame at a time, always the newest place.
+    func scrub(to t: Double) {
+        guard marking != nil, playerHoldsPosition, let shown else { return }
+        pause()
+        tracker.jumped()
+        playhead = min(max(t, shown.lowerBound), shown.upperBound)
+        scrubTarget = playhead
+        if !scrubSeeking { chaseScrub() }
+    }
+
+    private func chaseScrub() {
+        guard let t = scrubTarget else { scrubSeeking = false; return }
+        scrubTarget = nil
+        scrubSeeking = true
+        player.seek(to: CMTime(seconds: t, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            Task { @MainActor in self?.chaseScrub() }
+        }
+    }
+
     /// The app left the screen: playback stops, and nothing after counts.
     func leftApp() { pause() }
 
@@ -518,11 +548,13 @@ final class AuditModel {
     var conflicts: [CoverageAuditPhone.OpenConflict] { audit?.shownConflicts(pass) ?? [] }
 
     /// Gives `entry` on the interval on screen: written to the phone first, then sent. Clean moves on to the next interval.
-    func give(_ entry: CoverageAudit.Entry, note: String? = nil) {
-        guard var a = audit, let position else { return }
-        guard let reviewer, !reviewer.isEmpty else { say("Sign in again: the reviewer must be this phone's signed-in account.", refused: true); return }
-        guard recheck() else { say("Not saved: \(position.recordingId) may not be reviewed on this phone now.", refused: true); return }
-        if entry.adds, !playerHoldsPosition { say("Not saved: \(position.recordingId) is not open in the player yet.", refused: true); return }
+    /// Returns whether it was taken.
+    @discardableResult
+    func give(_ entry: CoverageAudit.Entry, note: String? = nil) -> Bool {
+        guard var a = audit, let position else { return false }
+        guard let reviewer, !reviewer.isEmpty else { say("Sign in again: the reviewer must be this phone's signed-in account.", refused: true); return false }
+        guard recheck() else { say("Not saved: \(position.recordingId) may not be reviewed on this phone now.", refused: true); return false }
+        if entry.adds, !playerHoldsPosition { say("Not saved: \(position.recordingId) is not open in the player yet.", refused: true); return false }
         if isPlaying { tracker.stopped(at: player.currentTime().seconds, rate: Double(rate)); tracker.began(at: player.currentTime().seconds) }
         do {
             try a.give(entry, pass: pass, recordingId: position.recordingId, index: position.index, video: video(position.recordingId),
@@ -530,7 +562,7 @@ final class AuditModel {
             try persist(a)
         } catch {
             say(error.localizedDescription, refused: true)
-            return
+            return false
         }
         if entry.adds { undoStack.append(position) }
         switch entry {
@@ -545,10 +577,8 @@ final class AuditModel {
             say("Interval \(position.index): taken back.")
         }
         Task { try? await sendAndReceive() }
+        return true
     }
-
-    /// A mark off by this much or less is inside the tolerance (protocol §5: a boundary error is more than 1.0 s).
-    private static let boundaryToleranceSec = 1.0
 
     /// The boundary errors this pass's look holds on the interval on screen: the stretches trimmed off it.
     var trims: [CoverageAudit.Finding] {
@@ -563,24 +593,46 @@ final class AuditModel {
         .filter { $0.kind == .boundaryError && $0.edge != nil }
     }
 
-    /// A boundary error given as a trim at the playhead: play the neighbouring mark should have covered runs from the
-    /// interval's start to here (`.leading`: the rally before was still going) or from here to its end (`.trailing`:
-    /// the serve of the rally after was already hit). Nothing moves a mark here; the finding goes to the marking pass.
-    func trim(_ edge: CoverageAudit.Edge) {
-        guard let interval else { return }
+    /// Starts placing a finding of `kind` on the interval on screen, at the playhead: the reviewer scrubs to where it
+    /// starts and ends. With `trim` it is the boundary error at that end of the interval — play the neighbouring mark
+    /// should have covered, from the interval's start (`.leading`: the rally before was still going) or to its end
+    /// (`.trailing`: the serve of the rally after was already hit). Nothing moves a mark here; the finding goes to the
+    /// marking pass.
+    func beginMarking(_ kind: CoverageAudit.FindingKind, trim: CoverageAudit.Edge? = nil) {
+        guard let interval, let shown, playerHoldsPosition else { return }
         pause()
-        let a = CoverageAudit.seconds(interval.startTick), b = CoverageAudit.seconds(interval.endTick)
-        let t = min(max((playhead * 10).rounded() / 10, a), b)
-        let play = edge == .leading ? a...t : t...b
-        guard play.upperBound - play.lowerBound > Self.boundaryToleranceSec else {
-            say(String(format: "Not trimmed: %.1f s is inside the 1 s tolerance. A mark that close is right — give Clean.", play.upperBound - play.lowerBound), refused: true)
+        if let trim, trims.contains(where: { $0.edge == trim }) {
+            say("This look already trims the interval's \(trim == .leading ? "start" : "end"). Undo takes it back.", refused: true)
             return
         }
-        guard !trims.contains(where: { $0.edge == edge }) else {
-            say("This look already trims the interval's \(edge == .leading ? "start" : "end"). Undo takes it back.", refused: true)
-            return
-        }
-        give(.finding(CoverageAudit.Finding(kind: .boundaryError, approxStartSec: play.lowerBound, approxEndSec: play.upperBound, edge: edge, note: nil)))
+        message = nil
+        marking = CoverageAuditPhone.Marking(kind: kind, trim: trim, interval: interval, shown: shown, playhead: playhead)
+    }
+
+    /// The finding being placed starts, or ends, where the footage now stands.
+    func markStart() { marking?.setStart(playhead) }
+    func markEnd() { marking?.setEnd(playhead) }
+    func clearMarkEnd() { marking?.clearEnd() }
+
+    /// Gives the finding as placed, and returns to where the reviewer was. Refused, it stays open with why.
+    func saveMarking() {
+        guard let marking, let finding = marking.finding else { return }
+        pause()
+        guard give(.finding(finding)) else { return }
+        endMarking(marking)
+    }
+
+    /// Drops the finding being placed: nothing is given.
+    func cancelMarking() {
+        guard let marking else { return }
+        pause()
+        endMarking(marking)
+    }
+
+    private func endMarking(_ marking: CoverageAuditPhone.Marking) {
+        self.marking = nil
+        scrubTarget = nil
+        seek(to: marking.resume)
     }
 
     /// The interval just played to its end under a look with findings from a partial look: that look is now whole.

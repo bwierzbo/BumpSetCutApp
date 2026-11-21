@@ -4,6 +4,7 @@
 //
 //  Audit mode: the coverage-audit pilot, one interval at a time, for one hand in portrait.
 //  The video has no system controls (a scrub there would bypass what earns viewing credit);
+//  a finding is placed by scrubbing a bar of its own, which is a jump and earns none;
 //  no ball path, detector output or found rally is drawn anywhere on this screen.
 //
 
@@ -12,7 +13,6 @@ import SwiftUI
 struct AuditView: View {
     @Bindable var audit: AuditModel
     @Environment(\.scenePhase) private var scenePhase
-    @State private var finding: CoverageAudit.FindingKind?
 
     var body: some View {
         ScrollView {
@@ -28,9 +28,13 @@ struct AuditView: View {
                         intervalTitle(position)
                         footage
                         if case .ready = audit.footage {
-                            coverageBar
-                            transport
-                            verdicts
+                            if let marking = audit.marking {
+                                MarkingPanel(audit: audit, marking: marking)
+                            } else {
+                                coverageBar
+                                transport
+                                verdicts
+                            }
                         }
                         looks
                     } else {
@@ -61,10 +65,6 @@ struct AuditView: View {
         .onChange(of: audit.labeler.snapshot.withheld) { _, _ in audit.recheck() }
         .onChange(of: audit.labeler.snapshot.videos) { _, _ in audit.recheck() }
         .onDisappear { audit.leave() }
-        .sheet(item: $finding) { kind in
-            FindingSheet(audit: audit, kind: kind) { finding = nil }
-                .presentationDetents([.medium, .large])
-        }
     }
 
     // MARK: - Top
@@ -197,16 +197,16 @@ struct AuditView: View {
         }
     }
 
-    /// The two boundary errors, given at the playhead: the stretch of the interval the neighbouring mark should have covered.
+    /// The two boundary errors: the stretch of the interval the neighbouring mark should have covered, placed by scrubbing.
     private var trimButtons: some View {
         HStack(spacing: 10) {
-            trimButton("Trim start to here", "the rally before is still going", .leading)
-            trimButton("Trim end from here", "the next serve is already hit", .trailing)
+            trimButton("Trim start", "the rally before is still going", .leading)
+            trimButton("Trim end", "the next serve is already hit", .trailing)
         }
     }
 
     private func trimButton(_ title: String, _ why: String, _ edge: CoverageAudit.Edge) -> some View {
-        Button { audit.trim(edge) } label: {
+        Button { audit.beginMarking(.boundaryError, trim: edge) } label: {
             VStack(spacing: 2) {
                 Label(title, systemImage: "scissors").font(.callout.weight(.semibold))
                 Text(why).font(.caption2)
@@ -233,7 +233,7 @@ struct AuditView: View {
             trimButtons
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                 ForEach(CoverageAudit.FindingKind.allCases.filter { $0 != .boundaryError }, id: \.self) { kind in
-                    Button { audit.pause(); finding = kind } label: {
+                    Button { audit.beginMarking(kind) } label: {
                         Text(Self.title(kind)).font(.callout.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 48)
                     }
                     .buttonStyle(.bordered)
@@ -317,67 +317,121 @@ struct AuditView: View {
 
 }
 
-extension CoverageAudit.FindingKind: Identifiable { var id: String { rawValue } }
-
-/// A finding's details: an approximate time (the playhead, to the second), an edge where the kind has one, a note.
-private struct FindingSheet: View {
-    let audit: AuditModel
-    let kind: CoverageAudit.FindingKind
-    let done: () -> Void
-    @State private var start = 0.0
-    @State private var hasEnd = false
-    @State private var end = 0.0
-    @State private var edge: CoverageAudit.Edge?
-    @State private var note = ""
+/// Placing a finding: the reviewer drags the bar (the footage follows, paused), says where the finding starts and
+/// where it ends, and saves. It takes the place of the transport and the verdicts, so the video stays in view.
+private struct MarkingPanel: View {
+    @Bindable var audit: AuditModel
+    let marking: CoverageAuditPhone.Marking
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section("About when (to the second)") {
-                    Stepper(value: $start, in: range, step: 1) { Text("Starts \(clockText(start))") }
-                    Toggle("Ends within the interval", isOn: $hasEnd)
-                    if hasEnd { Stepper(value: $end, in: start...range.upperBound, step: 1) { Text("Ends \(clockText(end))") } }
-                }
-                if !kind.edges.isEmpty {
-                    Section("Clipped by the recording's") {
-                        Picker("Edge", selection: $edge) {
-                            Text("—").tag(CoverageAudit.Edge?.none)
-                            ForEach(kind.edges, id: \.self) { e in Text(e.rawValue).tag(Optional(e)) }
-                        }
-                        .pickerStyle(.segmented)
-                    }
-                }
-                Section(kind == .uncertain ? "Note (required: what could not be told)" : "Note (optional)") {
-                    TextField("Note", text: $note, axis: .vertical).lineLimit(2...5)
+        VStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.headline)
+                HStack {
+                    Text("Drag the bar to find the moment, then mark it.").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Text(clockText(audit.playhead)).font(.callout.monospacedDigit())
                 }
             }
-            .navigationTitle(AuditView.title(kind))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: done) }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
-                        audit.give(.finding(CoverageAudit.Finding(kind: kind, approxStartSec: start, approxEndSec: hasEnd ? end : nil, edge: edge,
-                                                                  note: trimmed.isEmpty ? nil : trimmed)))
-                        done()
-                    }
-                    .disabled(kind == .uncertain && note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            scrubBar
+            nudges
+            HStack(spacing: 10) {
+                if !marking.startIsFixed {
+                    edgeButton(marking.trim == .trailing ? "The next serve is hit here" : "Starts here", clockText(marking.start)) { audit.markStart() }
+                }
+                if !marking.endIsFixed {
+                    edgeButton(marking.trim == .leading ? "The rally before ends here" : "Ends here", marking.end.map(clockText) ?? "not set") { audit.markEnd() }
                 }
             }
-        }
-        .onAppear {
-            start = min(max(audit.playhead.rounded(), range.lowerBound), range.upperBound)
-            end = start
+            if marking.trim == nil, marking.end != nil {
+                Button("Only where it starts (no end)") { audit.clearMarkEnd() }.font(.caption)
+            }
+            if marking.trim == nil, !marking.kind.edges.isEmpty {
+                Picker("Clipped by the recording's", selection: Binding(get: { marking.edge }, set: { audit.marking?.edge = $0 })) {
+                    Text("Not clipped").tag(CoverageAudit.Edge?.none)
+                    ForEach(marking.kind.edges, id: \.self) { e in Text("Clipped by the recording's \(e.rawValue)").tag(Optional(e)) }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            TextField(marking.kind == .uncertain ? "Note (required: what could not be told)" : "Note (optional)",
+                      text: Binding(get: { marking.note }, set: { audit.marking?.note = $0 }), axis: .vertical)
+                .lineLimit(1...4)
+                .textFieldStyle(.roundedBorder)
+            if let problem = marking.problem {
+                Text(problem).font(.caption).foregroundStyle(.orange).frame(maxWidth: .infinity, alignment: .leading)
+            }
+            HStack(spacing: 10) {
+                Button(role: .cancel) { audit.cancelMarking() } label: { Text("Cancel").frame(maxWidth: .infinity, minHeight: 48) }
+                    .buttonStyle(.bordered)
+                Button { audit.saveMarking() } label: { Label("Save", systemImage: "checkmark").font(.headline).frame(maxWidth: .infinity, minHeight: 48) }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(marking.problem != nil)
+            }
         }
     }
 
-    /// The times a finding may name: the interval with its second of context either side.
-    private var range: ClosedRange<Double> {
-        guard let interval = audit.interval else { return 0...0 }
-        let a = max(0, (CoverageAudit.seconds(interval.startTick) - CoverageAudit.contextSec).rounded(.up))
-        let b = (CoverageAudit.seconds(interval.endTick) + CoverageAudit.contextSec).rounded(.down)
-        return a...max(a, b)
+    private var title: String {
+        switch marking.trim {
+        case .leading: return "Trim start: where does the rally before really end?"
+        case .trailing: return "Trim end: where is the next serve hit?"
+        default: return AuditView.title(marking.kind) + ": where is it?"
+        }
     }
 
+    /// The shown stretch, tall enough for a thumb: the interval, the stretch marked so far, and the playhead under the finger.
+    private var scrubBar: some View {
+        GeometryReader { geo in
+            if let shown = audit.shown, let interval = audit.interval, shown.upperBound > shown.lowerBound {
+                let width = geo.size.width, span = shown.upperBound - shown.lowerBound
+                let x = { (t: Double) -> CGFloat in CGFloat((t - shown.lowerBound) / span) * width }
+                let a = CoverageAudit.seconds(interval.startTick), b = CoverageAudit.seconds(interval.endTick)
+                ZStack(alignment: .leading) {
+                    Rectangle().fill(.quaternary)
+                    Rectangle().fill(.blue.opacity(0.25)).frame(width: max(0, x(b) - x(a))).offset(x: x(a))
+                    Rectangle().fill(.orange.opacity(0.8)).frame(width: max(3, x(marking.end ?? marking.start) - x(marking.start))).offset(x: x(marking.start))
+                    Rectangle().fill(.primary).frame(width: 3).offset(x: min(width - 3, max(0, x(audit.playhead) - 1.5)))
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0).onChanged { drag in
+                    audit.scrub(to: shown.lowerBound + Double(min(max(drag.location.x / width, 0), 1)) * span)
+                })
+            }
+        }
+        .frame(height: 44)
+        .accessibilityLabel("Scrub bar")
+    }
+
+    /// Fine steps either side of the playhead, and play: a long interval is coarser under a thumb than a finding needs.
+    private var nudges: some View {
+        HStack(spacing: 8) {
+            nudge("−1 s", -1)
+            nudge("−0.1", -0.1)
+            Button { audit.togglePlay() } label: { Image(systemName: audit.isPlaying ? "pause.fill" : "play.fill").frame(maxWidth: .infinity, minHeight: 40) }
+                .buttonStyle(.borderedProminent)
+                .accessibilityLabel(audit.isPlaying ? "Pause" : "Play")
+            nudge("+0.1", 0.1)
+            nudge("+1 s", 1)
+        }
+    }
+
+    private func nudge(_ title: String, _ by: Double) -> some View {
+        Button { audit.scrub(to: audit.playhead + by) } label: { Text(title).font(.callout.monospacedDigit()).lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity, minHeight: 40) }
+            .buttonStyle(.bordered)
+    }
+
+    private func edgeButton(_ title: String, _ time: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 2) {
+                Text(title).font(.callout.weight(.semibold))
+                Text(time).font(.caption.monospacedDigit())
+            }
+            .lineLimit(1).minimumScaleFactor(0.7)
+            .frame(maxWidth: .infinity, minHeight: 52)
+        }
+        .buttonStyle(.bordered)
+        .tint(.orange)
+    }
 }
