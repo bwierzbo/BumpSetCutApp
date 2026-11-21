@@ -22,7 +22,6 @@ struct AuditView: View {
                     ContentUnavailableView("No audit loaded", systemImage: "checklist",
                                            description: Text(audit.syncNote ?? "Pull down to load the published draw."))
                 } else {
-                    passPicker
                     progress
                     if let position = audit.position {
                         intervalTitle(position)
@@ -38,8 +37,8 @@ struct AuditView: View {
                         }
                         looks
                     } else {
-                        ContentUnavailableView("Nothing left in this pass", systemImage: "checkmark.circle",
-                                               description: Text(audit.pass == .repeatLook ? "Your own repeat of an interval opens 24 hours after its first verdict." : ""))
+                        ContentUnavailableView("Every interval has its verdict", systemImage: "checkmark.circle",
+                                               description: Text("Nothing is left to review in this draw on this phone."))
                         // The last verdict can still be taken back from here (Undo reopens its interval).
                         if !audit.undoStack.isEmpty {
                             Button { audit.undo() } label: { Label("Undo the last verdict", systemImage: "arrow.uturn.backward").frame(minHeight: 44) }
@@ -81,16 +80,6 @@ struct AuditView: View {
         .overlay(alignment: .bottomLeading) {
             if let note = audit.syncNote { Text(note).font(.caption2).foregroundStyle(.secondary).offset(y: 16) }
         }
-    }
-
-    private var passPicker: some View {
-        Picker("Pass", selection: Binding(get: { audit.pass }, set: { audit.setPass($0) })) {
-            Text("First look").tag(CoverageAudit.Pass.first)
-            Text("Blind repeat").tag(CoverageAudit.Pass.repeatLook)
-            Text("Resolve").tag(CoverageAudit.Pass.resolution)
-        }
-        .pickerStyle(.segmented)
-        .padding(.top, 8)
     }
 
     private var progress: some View {

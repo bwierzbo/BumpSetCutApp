@@ -425,9 +425,8 @@ enum CoverageAudit {
 
     /// `request`'s entry, by `reviewer`, applied to `file` for the draw's `interval` of `recording`: the record as it
     /// becomes, validated. The rules both devices apply — clean only over an interval played whole at 3× or slower
-    /// and without findings, a look changed only by its own reviewer, a first look frozen under a later one, the
-    /// repeat only in the repeat set after a first verdict and, by the first reviewer, a day after it, a resolution
-    /// only where the two looks disagree. What a device must check besides (the recording admitted, the interval
+    /// and without findings, a look changed only by its own reviewer, a first look frozen under a later one, and no
+    /// second look or resolution given (amendment 2). What a device must check besides (the recording admitted, the interval
     /// still as drawn, the ledger) is its caller's.
     static func applying(_ request: Request, reviewer: String, to file: File, interval: Interval, recording: Draw.Recording, now: Date) throws -> File {
         var file = file
@@ -451,39 +450,10 @@ enum CoverageAudit {
                                              reviewedAt: next.at, playedAllAtMaxRate: next.playedAllAtMaxRate, findings: next.findings))
                 file.intervals.sort { $0.index < $1.index }
             }
-        case .repeatLook:
-            guard let first = file.review(index) else { throw Failure.noFirstVerdict(index: index) }
-            guard repeatSet(recording, file: file).contains(index) else { throw Failure.notInRepeatSet(index: index) }
-            if file.resolution(index) != nil, request.entry != .playedWhole { throw Failure.frozen(index: index, by: "resolution") }
-            // The first reviewer's own second look is blind only once the first is a day old.
-            if adds, reviewer == first.reviewer, let firstAt = date(first.reviewedAt), now.timeIntervalSince(firstAt) < sameReviewerWait {
-                throw Failure.sameReviewerTooSoon(index: index, acceptedFrom: EventReview.stamp(firstAt.addingTimeInterval(sameReviewerWait)))
-            }
-            let next = try apply(to: file.repeatReview(index).map {
-                Look(verdict: $0.verdict, findings: $0.findings, reviewer: $0.reviewer, at: $0.reviewedAt, playedAllAtMaxRate: $0.playedAllAtMaxRate)
-            })
-            var looks = (file.repeatPass?.intervals ?? []).filter { $0.index != index }
-            if let next {
-                looks.append(RepeatReview(index: index, verdict: next.verdict, reviewer: next.reviewer, reviewedAt: next.at,
-                                          playedAllAtMaxRate: next.playedAllAtMaxRate, findings: next.findings))
-            }
-            file.repeatPass = looks.isEmpty ? nil : Repeat(method: Repeat.secondReviewer, intervals: looks.sorted { $0.index < $1.index })
-            let method = repeatMethod(of: file)
-            file.repeatPass?.method = method
-        case .resolution:
-            guard let first = file.review(index), let second = file.repeatReview(index),
-                  !agree((first.verdict, first.findings), (second.verdict, second.findings)) else { throw Failure.noDisagreement(index: index) }
-            let before = file.resolution(index)
-            let next = try apply(to: before.map {
-                Look(verdict: $0.verdict, findings: $0.findings, reviewer: $0.reviewer, at: $0.resolvedAt, playedAllAtMaxRate: $0.playedAllAtMaxRate)
-            })
-            file.resolutions.removeAll { $0.index == index }
-            if let next {
-                let note = request.note?.trimmingCharacters(in: .whitespacesAndNewlines)
-                file.resolutions.append(Resolution(index: index, verdict: next.verdict, findings: next.findings, reviewer: next.reviewer, resolvedAt: next.at,
-                                                   playedAllAtMaxRate: next.playedAllAtMaxRate, note: (note ?? "").isEmpty ? before?.note : note))
-                file.resolutions.sort { $0.index < $1.index }
-            }
+        case .repeatLook, .resolution:
+            // Amendment 2 (D-041): one look at each interval. A record may still hold a second look or a resolution
+            // from before it, and is read as the protocol says; none is given any more.
+            throw Failure.noSecondLook(index: index)
         }
 
         try validate(file)
@@ -514,10 +484,7 @@ enum CoverageAudit {
         case uncertainWithoutNote
         case badFinding(String)
         case noReviewer
-        case notInRepeatSet(index: Int)
-        case noFirstVerdict(index: Int)
-        case sameReviewerTooSoon(index: Int, acceptedFrom: String)
-        case noDisagreement(index: Int)
+        case noSecondLook(index: Int)
         case frozen(index: Int, by: String)
         case nothingToWithdraw(index: Int)
         case noFindings(index: Int)
@@ -554,11 +521,7 @@ enum CoverageAudit {
             case .uncertainWithoutNote: return "An uncertain interval needs a note saying what could not be told."
             case .badFinding(let why): return "The finding is not valid: \(why)."
             case .noReviewer: return "No reviewer: sign in as a labeler, or type your name."
-            case .notInRepeatSet(let index): return "Interval \(index) is not in the repeat set (the draw's repeat intervals and the ones first left uncertain)."
-            case .noFirstVerdict(let index): return "Interval \(index) has no first verdict yet."
-            case .sameReviewerTooSoon(let index, let from):
-                return "You gave interval \(index)'s first verdict less than 24 hours ago: your own repeat is accepted from \(from), or have a second reviewer do it."
-            case .noDisagreement(let index): return "Interval \(index)'s first and repeat verdicts do not disagree: there is nothing to resolve."
+            case .noSecondLook(let index): return "Interval \(index): the audit takes one look at each interval (protocol amendment 2); no second look or resolution is given."
             case .frozen(let index, let by): return "Interval \(index) has a \(by); withdraw that first."
             case .nothingToWithdraw(let index): return "Interval \(index) has nothing to withdraw in this pass."
             case .noFindings(let index): return "Interval \(index) has no findings in this pass to complete by playing it whole."
@@ -700,12 +663,6 @@ enum CoverageAudit {
         return .settled(verdict: first.verdict, findings: first.findings, playedWhole: first.playedAllAtMaxRate != nil)
     }
 
-    /// The intervals a second look is owed: the draw's repeat set and every interval the first review left uncertain.
-    static func repeatSet(_ recording: Draw.Recording, file: File?) -> [Int] {
-        let uncertain = (file?.intervals ?? []).filter { $0.findings.contains { $0.kind == .uncertain } }.map(\.index)
-        return Set(recording.repeatIndices).union(uncertain).intersection(recording.intervals.map(\.index)).sorted()
-    }
-
     /// The intervals whose first and repeat verdicts disagree (resolved or not).
     static func disagreements(in file: File) -> [Int] {
         (file.repeatPass?.intervals ?? []).compactMap { second in
@@ -760,15 +717,8 @@ enum CoverageAudit {
         /// The draw's intervals, and how many have a first verdict on the bounds drawn.
         var total = 0
         var reviewed = 0
-        /// The intervals owed a second look (the draw's repeat set and the ones first left uncertain), and how many have one
-        /// that is finished — a look with findings counts only once the interval has played whole in it.
-        var repeatOwed = 0
-        var repeatDone = 0
         /// Disagreements between the first and the repeat verdict nobody has resolved.
         var unresolved = 0
-        /// Intervals still unmarked as drawn that the repeat pass owes a finished look: in the repeat set, with no repeat
-        /// look yet, or one with findings not played whole.
-        var repeatLeft = 0
         /// Disagreements on intervals still unmarked as drawn without a finished resolution: the resolution pass's work.
         var resolveLeft = 0
         /// Intervals whose findings come from a look that did not cover the interval: not reviewed whole yet.
@@ -786,7 +736,7 @@ enum CoverageAudit {
         func left(in pass: Pass) -> Int {
             switch pass {
             case .first: return firstLeft
-            case .repeatLook: return repeatLeft
+            case .repeatLook: return 0
             case .resolution: return resolveLeft
             }
         }
@@ -804,8 +754,7 @@ enum CoverageAudit {
                 return look.playedAllAtMaxRate == nil
             }.map(\.index)
         case .repeatLook:
-            guard let file else { return [] }
-            return repeatSet(recording, file: file).filter { asDrawn.contains($0) && file.repeatReview($0)?.playedAllAtMaxRate == nil }
+            return []   // amendment 2 (D-041): no second look is owed
         case .resolution:
             guard let file else { return [] }
             return disagreements(in: file).filter { asDrawn.contains($0) && file.resolution($0)?.playedAllAtMaxRate == nil }
@@ -813,14 +762,10 @@ enum CoverageAudit {
     }
 
     static func tally(of recording: Draw.Recording, file: File?, asDrawn: Set<Int>) -> Tally {
-        var t = Tally(total: recording.intervals.count, repeatOwed: recording.repeatIndices.count, state: state(of: file, intervals: recording.intervals))
+        var t = Tally(total: recording.intervals.count, state: state(of: file, intervals: recording.intervals))
         t.movedIntervals = recording.intervals.filter { !asDrawn.contains($0.index) }.count
         t.firstLeft = owed(.first, recording: recording, file: file, asDrawn: asDrawn).count
         guard let file else { return t }
-        let owedRepeat = repeatSet(recording, file: file)
-        t.repeatOwed = owedRepeat.count
-        t.repeatDone = owedRepeat.filter { file.repeatReview($0)?.playedAllAtMaxRate != nil }.count
-        t.repeatLeft = owed(.repeatLook, recording: recording, file: file, asDrawn: asDrawn).count
         t.resolveLeft = owed(.resolution, recording: recording, file: file, asDrawn: asDrawn).count
         for interval in recording.intervals where file.review(interval.index)?.span == interval.span {
             t.reviewed += 1

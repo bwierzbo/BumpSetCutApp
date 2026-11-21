@@ -62,12 +62,6 @@ struct CoverageAuditView: View {
                 Text("No draw in manifests/coverage-audit/ — the draw tool (scripts/rally_classifier/coverage_audit_draw.py) writes one.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Picker("Pass", selection: Binding(get: { model.pass }, set: { model.setPass($0) })) {
-                Text("Review").tag(CoverageAudit.Pass.first)
-                Text("Repeat").tag(CoverageAudit.Pass.repeatLook)
-                Text("Resolve").tag(CoverageAudit.Pass.resolution)
-            }
-            .pickerStyle(.segmented).labelsHidden()
             List(model.statuses, selection: Binding(get: { model.recordingId }, set: { name in if let name { Task { await model.open(name) } } })) { s in
                 VStack(alignment: .leading, spacing: 3) {
                     Text(s.recordingId).font(.system(.body, design: .monospaced)).lineLimit(1)
@@ -129,7 +123,7 @@ struct CoverageAuditView: View {
     private static func progress(of s: CoverageAudit.RecordingStatus, in pass: CoverageAudit.Pass) -> Double {
         switch pass {
         case .first: return s.total == 0 ? 1 : Double(s.reviewed) / Double(s.total)
-        case .repeatLook: return s.repeatOwed == 0 ? 1 : Double(s.repeatDone) / Double(s.repeatOwed)
+        case .repeatLook: return 1
         case .resolution: return s.unresolved == 0 ? 1 : 0
         }
     }
@@ -138,7 +132,7 @@ struct CoverageAuditView: View {
     private static func summary(of s: CoverageAudit.RecordingStatus, in pass: CoverageAudit.Pass) -> String {
         switch pass {
         case .first: return "\(s.reviewed)/\(s.total) reviewed · \(s.state.text)" + (s.findings.isEmpty ? "" : " · \(CoverageAudit.countsText(s.findings))")
-        case .repeatLook: return "second look: \(s.repeatDone)/\(s.repeatOwed)"
+        case .repeatLook: return "no second look is owed"
         case .resolution: return s.unresolved == 0 ? "nothing to resolve" : "\(s.unresolved) disagreement(s) to resolve"
         }
     }

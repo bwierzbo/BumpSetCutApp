@@ -549,6 +549,20 @@ sources = ["docs/ml-roadmap/RALLY_CLASSIFIER_COVERAGE_AUDIT_PROTOCOL.md"]
 frozen_sha256 = "aaae6a7ed275c7c9ff6b03149f58626011626059efcd2a5998c2d83103d0a229"
 notes = "Frozen on the owner's authorisation of 2026-11-18 (D-040). Amends CI-BSC-037 without editing it: draws stay bound to the protocol file. A further change is another amendment."
 
+[[item]]
+id = "CI-BSC-056"
+name = "Negative-coverage audit protocol, amendment 2 (one look at each interval; no blind repeat, no resolution)"
+type = "process"
+path = "docs/ml-roadmap/RALLY_CLASSIFIER_COVERAGE_AUDIT_PROTOCOL_AMENDMENT_2.md"
+lifecycle = "active"
+change_class = "frozen"
+approval = "owner"
+maintainer = "implementer"
+decisions = ["D-041"]
+sources = ["docs/ml-roadmap/RALLY_CLASSIFIER_COVERAGE_AUDIT_PROTOCOL.md", "docs/ml-roadmap/RALLY_CLASSIFIER_COVERAGE_AUDIT_PROTOCOL_AMENDMENT_1.md"]
+frozen_sha256 = "09d938e09859b1e6c68902d52ade56db271f51cf5dc0868c36205e194ebe86a5"
+notes = "Frozen on the owner's instruction of 2026-11-20 (D-041), given after the pilot's first looks were complete. Amends CI-BSC-037 and CI-BSC-055 without editing them. A further change is another amendment."
+
 # ---------------------------------------------------------------- families
 
 [[family]]

@@ -187,12 +187,14 @@ class Records(unittest.TestCase):
         row = self.row(report.evaluate(self.draw_path, self.syn.project))
         self.assertTrue(any("calls it second_reviewer" in p for p in row["problems"]), row["problems"])
 
-    def test_the_repeat_set_must_be_done_before_the_pilot_is_evaluated(self):
+    def test_the_pilot_is_evaluated_on_first_looks_alone(self):
+        # Amendment 2 (D-041): no blind repeat is owed, so the draw's repeat set is not waited for.
         result = self.evaluate(repeat=None)
-        self.assertEqual(result["pilot"]["outcome"], "incomplete")
-        self.assertEqual(result["pilot"]["missing"]["notReviewed"], {})
-        self.assertEqual(result["pilot"]["missing"]["repeatPending"][self.first], self.draw["recordings"][0]["repeatIndices"])
-        self.assertEqual(self.row(result)["state"], "audited_clean", "a pending repeat does not change the first verdicts' state")
+        self.assertEqual((result["pilot"]["outcome"], result["pilot"]["m"]), ("pass", 0))
+        self.assertEqual(result["pilot"]["totals"]["repeated"], 0)
+        self.assertEqual(result["pilot"]["totals"]["agreement"], {}, "no agreement is reported where no second look was given")
+        self.assertEqual(self.row(result)["state"], "audited_clean")
+        self.assertIn("single look (amendment 2): no blind repeat is owed; second looks on record: 0", report.render(result))
 
     # a clean pilot ----------------------------------------------------------------------------------------------
 
@@ -203,7 +205,7 @@ class Records(unittest.TestCase):
         self.assertAlmostEqual(pilot["upperBound"], 1 - 0.1 ** (1 / 144), places=12)
         self.assertTrue(pilot["boundMet"] and pilot["perRecordingMet"])
         t = pilot["totals"]
-        self.assertEqual((t["reviewed"], t["notReviewed"], t["repeatPending"], t["unresolved"], t["cleanIntervals"]), (168, 0, 0, 0, 168))
+        self.assertEqual((t["reviewed"], t["notReviewed"], t["repeated"], t["unresolved"], t["cleanIntervals"]), (168, 0, 36, 0, 168))
         self.assertAlmostEqual(t["secondsReviewed"], 12 * (5 + 11 * 4 + 3 + 8))
         self.assertAlmostEqual(t["cleanSeconds"], t["secondsDrawn"])
         self.assertEqual(t["states"], {"audited_clean": 12})
@@ -273,21 +275,19 @@ class Records(unittest.TestCase):
 
     # the repeat -------------------------------------------------------------------------------------------------
 
-    def test_an_uncertain_interval_joins_the_repeat_set(self):
+    def test_an_uncertain_interval_stands_as_uncertain_without_a_second_look(self):
         uncertain = {self.first: {self.free: [{"kind": "uncertain", "note": "glare"}]}}
-        synthetic.write_records(self.syn, self.draw_path, findings=uncertain)
-        record = inv.load_json(self.syn.record_path(self.first), "record")
-        record["repeat"]["intervals"] = [e for e in record["repeat"]["intervals"] if e["index"] != self.free]
-        synthetic.write_json(self.syn.record_path(self.first), record)
+        synthetic.write_records(self.syn, self.draw_path, findings=uncertain, repeat=None)
         result = report.evaluate(self.draw_path, self.syn.project)
-        self.assertEqual(result["pilot"]["outcome"], "incomplete")
-        self.assertEqual(result["pilot"]["missing"]["repeatPending"], {self.first: [self.free]})
+        self.assertEqual(result["pilot"]["outcome"], "pass", "uncertain is not a missed rally or serve")
+        row = self.row(result)
+        self.assertEqual((row["state"], row["findings"]["uncertain"]["count"]), ("partial", 1))
+        self.assertEqual(row["cleanIntervals"], row["intervals"] - 1, "an uncertain interval supplies no negative")
 
     def test_a_same_reviewer_repeat_needs_24_hours_and_is_never_called_independent(self):
         result = self.evaluate(repeat="same_reviewer_after_24h", repeat_at="2026-11-16T09:59:59Z")
-        self.assertEqual(result["pilot"]["outcome"], "incomplete")
         self.assertIn("less than 24 h after the first verdict", " ".join(self.row(result)["problems"]))
-        self.assertEqual(len(result["pilot"]["missing"]["repeatPending"]), 12)
+        self.assertEqual(result["pilot"]["totals"]["repeated"], 0, "a repeat inside 24 hours is not taken as a second look")
         result = self.evaluate(repeat="same_reviewer_after_24h", repeat_at="2026-11-16T10:00:00Z")
         self.assertEqual(result["pilot"]["outcome"], "pass")
         agreement = result["pilot"]["totals"]["agreement"]
@@ -303,7 +303,7 @@ class Records(unittest.TestCase):
         synthetic.write_json(self.syn.record_path(self.first), record)
         result = report.evaluate(self.draw_path, self.syn.project)
         self.assertIn("by the first reviewer but the record calls it second_reviewer", " ".join(self.row(result)["problems"]))
-        self.assertEqual(list(result["pilot"]["missing"]["repeatPending"]), [self.first])
+        self.assertEqual(self.row(result)["repeated"], 0)
         record["repeat"]["method"] = "third_opinion"
         synthetic.write_json(self.syn.record_path(self.first), record)
         self.assertIn("method 'third_opinion'", " ".join(self.row(report.evaluate(self.draw_path, self.syn.project))["problems"]))

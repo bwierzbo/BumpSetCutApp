@@ -113,6 +113,12 @@ final class CoverageAuditRecordingTests: XCTestCase {
         return FileManager.default.fileExists(atPath: url.path) ? try A.read(url) : nil
     }
 
+    /// A second look or a resolution put into `name`'s record on disk, as a record from before amendment 2 holds one
+    /// (none is given any more, but one that is there is still read).
+    private func hold(_ name: String, _ slot: CoverageAuditSync.Slot, _ look: CoverageAuditSync.Look) throws {
+        try A.write(CoverageAuditSync.setting(slot, to: look, in: try XCTUnwrap(onDisk(name))), to: A.url(forVideo: video(name)))
+    }
+
     private func refused(_ expected: A.Failure, _ what: String = "", file: StaticString = #filePath, line: UInt = #line, _ body: () throws -> Void) {
         XCTAssertThrowsError(try body(), what, file: file, line: line) { XCTAssertEqual($0 as? A.Failure, expected, "\($0)", file: file, line: line) }
     }
@@ -480,67 +486,46 @@ final class CoverageAuditRecordingTests: XCTestCase {
         XCTAssertEqual(try onDisk("a")?.review(1)?.findings.map(\.kind), [.boundaryError, .uncertain, .editedFootage])
     }
 
-    // MARK: - The blind repeat
+    // MARK: - One look at each interval (amendment 2)
 
-    func testTheRepeatSetAndTheTwentyFourHourRule() throws {
+    func testNoSecondLookOrResolutionIsGivenWhateverTheDrawsRepeatSet() throws {
         try recording("a")
         let d = try draw(["a"], repeatSet: [1])
         func save(_ index: Int, _ entry: A.Entry, pass: A.Pass, by reviewer: String, after hours: Double) throws -> A.File {
             try A.record(request("a", index, entry, pass: pass, by: reviewer, played: all), draw: d, root: root, tool: "t", now: now.addingTimeInterval(hours * 3600))
         }
-        refused(.noFirstVerdict(index: 1)) { _ = try save(1, .clean, pass: .repeatLook, by: "jr", after: 0) }
         _ = try save(0, .clean, pass: .first, by: "bw", after: 0)
         _ = try save(1, .clean, pass: .first, by: "bw", after: 0)
         _ = try save(2, .finding(A.Finding(kind: .uncertain, note: "glare")), pass: .first, by: "bw", after: 0)
-        refused(.notInRepeatSet(index: 0)) { _ = try save(0, .clean, pass: .repeatLook, by: "jr", after: 1) }
-        // The first reviewer's own repeat is refused inside 24 hours, to the second.
-        refused(.sameReviewerTooSoon(index: 1, acceptedFrom: "2026-11-15T18:00:00Z")) { _ = try save(1, .clean, pass: .repeatLook, by: "bw", after: 1) }
-        refused(.sameReviewerTooSoon(index: 1, acceptedFrom: "2026-11-15T18:00:00Z")) { _ = try save(1, .clean, pass: .repeatLook, by: "bw", after: 24 - 1.0 / 3600) }
-        XCTAssertNil(try onDisk("a")?.repeatPass)
-        // A second reviewer may repeat at once; the interval first left uncertain is in the repeat set too.
-        var file = try save(2, .clean, pass: .repeatLook, by: "jr", after: 1)
-        XCTAssertEqual(file.repeatPass?.method, "second_reviewer")
-        XCTAssertEqual(A.repeatSet(try XCTUnwrap(d.draw.recording("a")), file: file), [1, 2])
-        // A day later the first reviewer's own is accepted — and the repeat is then never recorded as independent.
-        file = try save(1, .clean, pass: .repeatLook, by: "bw", after: 24)
-        XCTAssertEqual(file.repeatPass?.method, "same_reviewer_after_24h")
-        XCTAssertEqual(file.repeatPass?.intervals.map(\.index), [1, 2])
-        XCTAssertEqual(file.repeatReview(1)?.reviewedAt, "2026-11-15T18:00:00Z")
-        // A repeat needs the interval played whole like any clean, and a first verdict under a repeat is frozen.
-        refused(.frozen(index: 1, by: "repeat verdict")) { _ = try save(1, .withdraw, pass: .first, by: "bw", after: 25) }
-        refused(.frozen(index: 2, by: "repeat verdict")) { _ = try save(2, .finding(A.Finding(kind: .missedServe)), pass: .first, by: "bw", after: 25) }
-        file = try save(1, .withdraw, pass: .repeatLook, by: "bw", after: 25)
-        XCTAssertEqual(file.repeatPass?.method, "second_reviewer", "only the second reviewer's repeat is left")
-        refused(.notPlayed(index: 1, missingSec: 2.0)) {
-            try A.record(request("a", 1, .clean, pass: .repeatLook, by: "jr"), draw: d, root: root, tool: "t", now: now.addingTimeInterval(3600))
-        }
-        XCTAssertEqual(try auditRows().count, 1, "the repeat is the same use of the recording")
+        // Neither the draw's repeat interval nor the one left uncertain takes a second look — from anyone, at any time.
+        refused(.noSecondLook(index: 1)) { _ = try save(1, .clean, pass: .repeatLook, by: "jr", after: 1) }
+        refused(.noSecondLook(index: 1)) { _ = try save(1, .clean, pass: .repeatLook, by: "bw", after: 48) }
+        refused(.noSecondLook(index: 2)) { _ = try save(2, .clean, pass: .repeatLook, by: "jr", after: 1) }
+        refused(.noSecondLook(index: 1)) { _ = try save(1, .clean, pass: .resolution, by: "bw", after: 1) }
+        let file = try XCTUnwrap(onDisk("a"))
+        XCTAssertNil(file.repeatPass); XCTAssertEqual(file.resolutions, [])
+        let status = try XCTUnwrap(A.status(draw: d, root: root).first)
+        XCTAssertEqual([status.firstLeft, status.resolveLeft, status.unresolved], [0, 0, 0], "the review is finished with the first looks")
+        XCTAssertEqual(status.findings, [.uncertain: 1], "the uncertain interval stands as uncertain")
+        XCTAssertEqual(A.cleanIntervals(file).map(\.startTick), [0, 2400], "and supplies no negative")
     }
 
-    func testADisagreementIsResolvedByAThirdLookAndTheResolutionCounts() throws {
+    func testARecordThatHoldsASecondLookIsStillReadAndItsResolutionCounts() throws {
         try recording("a")
         let d = try draw(["a"], repeatSet: [0, 1])
-        func save(_ index: Int, _ entry: A.Entry, pass: A.Pass, by reviewer: String, played: A.PlayedCoverage? = nil, note: String? = nil) throws -> A.File {
-            try A.record(request("a", index, entry, pass: pass, by: reviewer, played: played ?? all, note: note), draw: d, root: root, tool: "t", now: now)
-        }
-        for i in 0...2 { _ = try save(i, .clean, pass: .first, by: "bw") }
-        _ = try save(0, .clean, pass: .repeatLook, by: "jr")
-        var file = try save(1, .finding(A.Finding(kind: .missedRally, approxStartSec: 4.5)), pass: .repeatLook, by: "jr")
+        for i in 0...2 { try A.record(request("a", i, .clean, played: all), draw: d, root: root, tool: "t", now: now) }
+        let at = EventReview.stamp(now)
+        try hold("a", .init(pass: .repeatLook, index: 1), .repeatLook(A.RepeatReview(index: 1, verdict: .notClean, reviewer: "jr", reviewedAt: at, playedAllAtMaxRate: 2,
+                                                                                    findings: [A.Finding(kind: .missedRally, approxStartSec: 4.5)])))
+        var file = try XCTUnwrap(onDisk("a"))
         XCTAssertEqual(A.disagreements(in: file), [1])
-        XCTAssertEqual(A.cleanIntervals(file).map(\.startTick), [0, 4800], "the disputed interval is not clean until someone resolves it")
-        refused(.noDisagreement(index: 0), "the verdicts on interval 0 agree") { _ = try save(0, .clean, pass: .resolution, by: "bw") }
-        refused(.noDisagreement(index: 2), "interval 2 has no repeat") { _ = try save(2, .clean, pass: .resolution, by: "bw") }
-        refused(.notPlayed(index: 1, missingSec: 2.0), "a third look is a look") { _ = try save(1, .clean, pass: .resolution, by: "bw", played: A.PlayedCoverage()) }
-        file = try save(1, .finding(A.Finding(kind: .missedRally, approxStartSec: 4.5, approxEndSec: 5.8)), pass: .resolution, by: "bw", note: "a short rally, both right about the time")
-        XCTAssertEqual(file.resolution(1)?.note, "a short rally, both right about the time")
-        XCTAssertEqual(A.state(of: file, intervals: try XCTUnwrap(d.draw.recording("a")).intervals), A.RecordingState(contaminated: true, partial: false))
-        refused(.frozen(index: 1, by: "resolution")) { _ = try save(1, .withdraw, pass: .repeatLook, by: "jr") }
-        // Resolved the other way: withdraw, look again, clean.
-        _ = try save(1, .withdraw, pass: .resolution, by: "bw")
-        file = try save(1, .clean, pass: .resolution, by: "bw")
+        XCTAssertEqual(A.cleanIntervals(file).map(\.startTick), [0, 4800], "the disputed interval is not clean until a resolution settles it")
+        XCTAssertEqual(try XCTUnwrap(A.status(draw: d, root: root).first).unresolved, 1)
+        refused(.frozen(index: 1, by: "repeat verdict")) { try A.record(request("a", 1, .withdraw, played: all), draw: d, root: root, tool: "t", now: now) }
+        try hold("a", .init(pass: .resolution, index: 1), .resolution(A.Resolution(index: 1, verdict: .clean, reviewer: "bw", resolvedAt: at, playedAllAtMaxRate: 2)))
+        file = try XCTUnwrap(onDisk("a"))
         XCTAssertEqual(A.cleanIntervals(file).map(\.startTick), [0, 2400, 4800])
         XCTAssertEqual(A.state(of: file, intervals: try XCTUnwrap(d.draw.recording("a")).intervals).name, "audited_clean")
-        XCTAssertEqual(try onDisk("a"), file)
     }
 
     // MARK: - Opening
@@ -573,12 +558,11 @@ final class CoverageAuditRecordingTests: XCTestCase {
         XCTAssertEqual(statuses.map(\.state.text), ["audited_clean", "contaminated (and partial)", "audited_clean"])
         XCTAssertEqual(statuses.map(\.reviewed), [3, 2, 0]); XCTAssertEqual(statuses.map(\.total), [3, 3, 0])
         XCTAssertEqual(statuses[1].findings, [.missedRally: 1, .uncertain: 1])
-        XCTAssertEqual(statuses[1].repeatOwed, 1, "the uncertain interval is owed a second look")
         XCTAssertEqual(statuses.map(\.rallyMarks), [2, 2, 1])
         XCTAssertEqual(statuses.compactMap(\.problem), [])
         let lines = A.statusLines(statuses, draw: d.draw)
         XCTAssertTrue(lines[0].contains("draw \(drawId) (rc-v1-20261112): 3 recording(s), 6 interval(s)"), lines[0])
-        XCTAssertTrue(lines[2].contains("2/3 reviewed · contaminated (and partial) · repeat 0/1 · findings: missed_rally 1, uncertain 1"), lines[2])
+        XCTAssertTrue(lines[2].contains("2/3 reviewed · contaminated (and partial) · findings: missed_rally 1, uncertain 1"), lines[2])
         XCTAssertTrue(lines[4].contains("5/6 intervals reviewed · audited_clean 2 · partial 0 · contaminated 1"), lines[4])
         XCTAssertTrue(lines[5].contains("missed rallies + missed serves 1 against 5 rally mark(s)"), lines[5])
         XCTAssertEqual(try Data(contentsOf: ExposureLog.url(in: root)), ledger, "the status writes nothing")
@@ -590,14 +574,17 @@ final class CoverageAuditRecordingTests: XCTestCase {
         let d = try draw(["a", "b"], repeatSet: [1])
         try A.record(request("a", 0, .finding(A.Finding(kind: .boundaryError, approxStartSec: 0.2, approxEndSec: 1.6, edge: .trailing)), played: all), draw: d, root: root, tool: "t", now: now)
         try A.record(request("a", 1, .clean, played: all), draw: d, root: root, tool: "t", now: now)
-        try A.record(request("a", 1, .finding(A.Finding(kind: .missedServe, approxStartSec: 5)), pass: .repeatLook, by: "jr", played: all), draw: d, root: root, tool: "t", now: now)
+        // A second look from before amendment 2, disagreeing with the first.
+        try hold("a", .init(pass: .repeatLook, index: 1), .repeatLook(A.RepeatReview(index: 1, verdict: .notClean, reviewer: "jr", reviewedAt: EventReview.stamp(now), playedAllAtMaxRate: 2,
+                                                                                    findings: [A.Finding(kind: .missedServe, approxStartSec: 5)])))
         try A.record(request("b", 2, .finding(A.Finding(kind: .editedFootage, approxStartSec: 8.5, note: "replay")), played: all), draw: d, root: root, tool: "t", now: now)
         var list = try A.findingsList(draw: d, root: root, now: now)
         XCTAssertEqual(list.findings.map { "\($0.recordingId) \($0.intervalIndex) \($0.kind.rawValue)" }, ["a 0 boundary_error", "b 2 edited_footage"])
         XCTAssertEqual(list.notListed, ["a interval 1: the first and the repeat verdict disagree, not resolved"])
         XCTAssertEqual(list.findings[0].intervalEndSec, 2.0); XCTAssertEqual(list.findings[0].edge, .trailing)
         // Resolved: the resolution's finding is the one listed.
-        try A.record(request("a", 1, .finding(A.Finding(kind: .missedServe, approxStartSec: 5.1)), pass: .resolution, played: all), draw: d, root: root, tool: "t", now: now)
+        try hold("a", .init(pass: .resolution, index: 1), .resolution(A.Resolution(index: 1, verdict: .notClean, findings: [A.Finding(kind: .missedServe, approxStartSec: 5.1)],
+                                                                                   reviewer: "bw", resolvedAt: EventReview.stamp(now), playedAllAtMaxRate: 2)))
         list = try A.findingsList(draw: d, root: root, now: now)
         XCTAssertEqual(list.findings.map(\.kind), [.boundaryError, .missedServe, .editedFootage]); XCTAssertEqual(list.notListed, [])
         let text = A.findingsText(list)
@@ -654,9 +641,9 @@ final class CoverageAuditRecordingTests: XCTestCase {
     func testAnUnfinishedLookIsCompletedBeneathALaterOneByItsOwnReviewerOnly() throws {
         try recording("a")
         let d = try draw(["a"], repeatSet: [1])
-        // bw gives a finding before interval 1 has played whole; jr's repeat follows at once.
+        // bw gives a finding before interval 1 has played whole; the record also holds jr's second look (from before amendment 2).
         try A.record(request("a", 1, .finding(A.Finding(kind: .missedServe, approxStartSec: 5)), played: A.PlayedCoverage()), draw: d, root: root, tool: "t", now: now)
-        try A.record(request("a", 1, .clean, pass: .repeatLook, by: "jr", played: all), draw: d, root: root, tool: "t", now: now)
+        try hold("a", .init(pass: .repeatLook, index: 1), .repeatLook(A.RepeatReview(index: 1, verdict: .clean, reviewer: "jr", reviewedAt: EventReview.stamp(now), playedAllAtMaxRate: 2)))
         refused(.frozen(index: 1, by: "repeat verdict"), "a verdict under a later look is still frozen") {
             try A.record(request("a", 1, .finding(A.Finding(kind: .uncertain, note: "?")), played: all), draw: d, root: root, tool: "t", now: now)
         }
@@ -680,19 +667,6 @@ final class CoverageAuditRecordingTests: XCTestCase {
         refused(.othersLook(index: 0, reviewer: "bw")) { try A.record(request("a", 0, .withdraw, by: "jr"), draw: d, root: root, tool: "t", now: now) }
         let file = try XCTUnwrap(onDisk("a"))
         XCTAssertEqual([file.review(0)?.reviewer, file.review(0)?.verdict.rawValue], ["bw", "clean"])
-        // jr's own look is the repeat, and it is a second reviewer's.
-        let after = try A.record(request("a", 0, .clean, pass: .repeatLook, by: "jr", played: all), draw: d, root: root, tool: "t", now: now)
-        XCTAssertEqual(after.repeatPass?.method, "second_reviewer")
-    }
-
-    func testAMovedIntervalIsNoLaterPassWork() throws {
-        try recording("a")
-        let d = try draw(["a"], repeatSet: [0, 2])
-        for i in 0...2 { try A.record(request("a", i, .clean, played: all), draw: d, root: root, tool: "t", now: now) }
-        XCTAssertEqual(try XCTUnwrap(A.status(draw: d, root: root).first).repeatLeft, 2)
-        try writeMarks("a", [(1.5, 4, "rally"), (6, 8, "rally")])          // interval 0 moves
-        let status = try XCTUnwrap(A.status(draw: d, root: root).first)
-        XCTAssertEqual([status.repeatOwed, status.repeatLeft], [2, 1], "no verdict can be taken on the moved interval, so it is not work left")
     }
 
     func testAReplacementDrawKeepsTheOldRecordAndStartsAFreshOne() throws {
@@ -715,28 +689,5 @@ final class CoverageAuditRecordingTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: A.url(forVideo: video("a")).path))
         let fresh = try A.record(request("a", 0, .clean, played: all), draw: replacement, root: root, tool: "t", now: now)
         XCTAssertEqual([fresh.drawId, fresh.review(0)?.verdict.rawValue], ["20261116-100000", "clean"])
-    }
-
-    func testARepeatOrResolutionWithFindingsNotPlayedWholeIsWorkLeft() throws {
-        try recording("a")
-        let d = try draw(["a"], repeatSet: [0, 1])
-        for i in 0...2 { try A.record(request("a", i, .clean, played: all), draw: d, root: root, tool: "t", now: now) }
-        try A.record(request("a", 0, .clean, pass: .repeatLook, by: "jr", played: all), draw: d, root: root, tool: "t", now: now)
-        // A finding at once, the interval not yet played whole in the repeat: the repeat is not done.
-        try A.record(request("a", 1, .finding(A.Finding(kind: .missedServe, approxStartSec: 3)), pass: .repeatLook, by: "jr", played: A.PlayedCoverage()),
-                     draw: d, root: root, tool: "t", now: now)
-        var status = try XCTUnwrap(A.status(draw: d, root: root).first)
-        XCTAssertEqual([status.repeatDone, status.repeatOwed, status.repeatLeft], [1, 2, 1])
-        try A.record(request("a", 1, .playedWhole, pass: .repeatLook, by: "jr", played: all), draw: d, root: root, tool: "t", now: now)
-        status = try XCTUnwrap(A.status(draw: d, root: root).first)
-        XCTAssertEqual([status.repeatDone, status.repeatLeft, status.unresolved, status.resolveLeft], [2, 0, 1, 1])
-        // The same for a resolution given before the interval had played whole in it.
-        try A.record(request("a", 1, .finding(A.Finding(kind: .missedServe, approxStartSec: 3.1)), pass: .resolution, played: A.PlayedCoverage()),
-                     draw: d, root: root, tool: "t", now: now)
-        status = try XCTUnwrap(A.status(draw: d, root: root).first)
-        XCTAssertEqual([status.unresolved, status.resolveLeft], [0, 1])
-        try A.record(request("a", 1, .playedWhole, pass: .resolution, played: all), draw: d, root: root, tool: "t", now: now)
-        status = try XCTUnwrap(A.status(draw: d, root: root).first)
-        XCTAssertEqual([status.unresolved, status.resolveLeft], [0, 0])
     }
 }

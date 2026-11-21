@@ -173,22 +173,12 @@ struct CoverageAuditPhone: Codable, Equatable {
         draw.draw.recording(recordingId).map { CoverageAudit.tally(of: $0, file: local[recordingId], asDrawn: asDrawn(recordingId)) }
     }
 
-    /// When the reviewer's own repeat of `index` is accepted, if that is later than `now` (the 24-hour rule), else nil.
-    func waitsUntil(_ recordingId: String, index: Int, reviewer: String, now: Date) -> Date? {
-        guard let first = local[recordingId]?.review(index), first.reviewer == reviewer, let at = CoverageAudit.date(first.reviewedAt) else { return nil }
-        let from = at.addingTimeInterval(CoverageAudit.sameReviewerWait)
-        return from > now ? from : nil
-    }
-
-    /// The intervals `pass` owes a look, in the draw's order, of the recordings that may be reviewed now
-    /// (`reviewable`) — leaving out a repeat the reviewer may not give yet (their own first verdict is under 24 hours old).
+    /// The intervals `pass` owes a look, in the draw's order, of the recordings that may be reviewed now (`reviewable`).
     func queue(_ pass: CoverageAudit.Pass, reviewable: (String) -> Bool, reviewer: String, now: Date) -> [Position] {
         draw.draw.recordings.flatMap { recording -> [Position] in
             guard reviewable(recording.recordingId) else { return [] }
-            let owed = CoverageAudit.owed(pass, recording: recording, file: local[recording.recordingId], asDrawn: asDrawn(recording.recordingId))
-            return owed.filter { index in
-                pass != .repeatLook || waitsUntil(recording.recordingId, index: index, reviewer: reviewer, now: now) == nil
-            }.map { Position(pass: pass, recordingId: recording.recordingId, index: $0) }
+            return CoverageAudit.owed(pass, recording: recording, file: local[recording.recordingId], asDrawn: asDrawn(recording.recordingId))
+                .map { Position(pass: pass, recordingId: recording.recordingId, index: $0) }
         }
     }
 
