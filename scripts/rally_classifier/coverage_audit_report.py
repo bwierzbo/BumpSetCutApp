@@ -358,8 +358,24 @@ def _read_records(draw: dict, draw_sha: str, project_dir: str) -> list:
                 raise inv.AuditError(f"{rec['recordingId']}: audit record unreadable: {e}")
         row = review_recording(rec, draw, draw_sha, record, ignore_ticks)
         row["recordSha256"] = sha
+        # The draw holds only recordings typed continuous. One a person has typed otherwise since (or whose type can
+        # no longer be read) supplies no negative, whatever its record says — the inventory and the exporter's rule.
+        row["typeNow"] = _type_now(project_dir, rec["recordingId"])
+        if row["typeNow"] != "continuous":
+            row["suppliesTrustedNegatives"] = False
         out.append(row)
     return out
+
+
+def _type_now(project_dir: str, recording_id: str) -> str | None:
+    """The recording's footage type as the project records it now; None when there is no record or it can't be read."""
+    path = os.path.join(project_dir, "footage-properties", recording_id + ".json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            typed = json.load(fh).get("recordingType")
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, AttributeError):
+        return None
+    return typed if isinstance(typed, str) else None
 
 
 def _sum_agreement(rows: list) -> dict:
@@ -434,7 +450,9 @@ def _trusted_negatives(draw: dict, rows: list, pilot_passed: bool) -> dict:
             "note": None if pilot_passed else "no negative is used until the pilot passes; the counts say what the records would supply",
             "groups": sorted(groups), "groupCount": len(groups), "groupsPerFold": per_fold,
             "g6": {"groupsRequired": need, "minGroupsPerFold": G6_MIN_GROUPS_PER_FOLD, "met": not short, "deficiency": short},
-            "recordingsWithEditedFootage": sorted(r["recordingId"] for r in rows if r["findings"]["edited_footage"]["count"])}
+            "recordingsWithEditedFootage": sorted(r["recordingId"] for r in rows if r["findings"]["edited_footage"]["count"]),
+            "recordingsNotContinuousNow": {r["recordingId"]: r["typeNow"] for r in sorted(rows, key=lambda r: r["recordingId"])
+                                           if r["typeNow"] != "continuous"}}
 
 
 def evaluate(draw_path: str, project_dir: str, stage2_path: str | None = None) -> dict:
@@ -489,7 +507,8 @@ def render(report: dict) -> str:
             lines.append(f"  {r['recordingId']} [{r['surface']}, group {r['groupId']}, fold {r['fold']}] {r['state']}"
                          f"{' + partial' if r['contaminated'] and r['partial'] else ''}: reviewed {r['reviewed']}/{r['intervals']} "
                          f"({seconds(r['secondsReviewed'])} of {seconds(r['secondsDrawn'])}), clean {r['cleanIntervals']}, {found}, record {r['record']}"
-                         f"{', marks changed since the draw' if r['marksChangedSinceDraw'] else ''}")
+                         f"{', marks changed since the draw' if r['marksChangedSinceDraw'] else ''}"
+                         + ("" if r["typeNow"] == "continuous" else f", {_typed(r['typeNow'])}: no negatives, whatever its record says"))
             lines += [f"    ! {p}" for p in r["problems"]]
         return lines
 
@@ -515,7 +534,14 @@ def render(report: dict) -> str:
     if tn["recordingsWithEditedFootage"]:
         lines.append("  edited footage found in a recording typed continuous (no negatives until the type is re-confirmed): "
                      + ", ".join(tn["recordingsWithEditedFootage"]))
+    if tn["recordingsNotContinuousNow"]:
+        lines.append("  no longer typed continuous in the project (no negatives; not counted above): "
+                     + ", ".join(f"{rid} ({_typed(t)})" for rid, t in tn["recordingsNotContinuousNow"].items()))
     return "\n".join(lines)
+
+
+def _typed(type_now) -> str:
+    return f"typed {type_now!r} now" if type_now else "no readable footage-type record now"
 
 
 # ----------------------------------------------------------------------------- CLI
