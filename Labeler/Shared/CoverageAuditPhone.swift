@@ -128,18 +128,20 @@ struct CoverageAuditPhone: Codable, Equatable {
     }
 
     /// Which draw the phone audits, from the draws published now: the held one while it is served and not replaced; a
-    /// draw that names it in `supersedes` (the newest such) once nothing of the held one is unsettled; the newest
-    /// published draw when none is held. Unsettled work is never dropped for another draw.
+    /// draw that names it in `supersedes`, or the stage 2 draw that `follows` it (the newest such), once nothing of the
+    /// held one is unsettled; the newest published draw when none is held. Unsettled work is never dropped for another draw.
     static func choose(held: CoverageAuditPhone?, published rows: [LabelCoverageAuditDraw]) -> DrawChoice {
         guard let held else { return rows.max(by: { $0.drawId < $1.drawId }).map(DrawChoice.start) ?? .nothing }
         let served = rows.contains { $0.project == held.project && $0.drawId == held.drawId && $0.drawSha256 == held.drawSha256 }
         let replacement = rows.filter { row in
-            row.project == held.project && row.drawId != held.drawId
-                && ((try? CoverageAudit.loadDraw(Data(row.body.utf8), url: URL(fileURLWithPath: "/")))?.draw.supersedes ?? []).contains(held.drawId)
+            guard row.project == held.project, row.drawId != held.drawId,
+                  let draw = (try? CoverageAudit.loadDraw(Data(row.body.utf8), url: URL(fileURLWithPath: "/")))?.draw else { return false }
+            return (draw.supersedes ?? []).contains(held.drawId)
+                || draw.follows == CoverageAudit.Draw.Follows(drawId: held.drawId, sha256: held.drawSha256)
         }.max { $0.drawId < $1.drawId }
         if served && replacement == nil { return .keep }
         if held.holdsUnsettled {
-            return .keepUnsettled("Draw \(held.drawId) is " + (served ? "replaced by \(replacement!.drawId)" : "no longer published")
+            return .keepUnsettled("Draw \(held.drawId) is " + (served ? "followed or replaced by \(replacement!.drawId)" : "no longer published")
                                   + "; its unsent verdicts or undecided conflicts are kept on this phone until they are settled.")
         }
         if let replacement { return .start(replacement) }

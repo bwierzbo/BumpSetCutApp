@@ -234,6 +234,27 @@ final class CoverageAuditPhoneTests: XCTestCase {
         XCTAssertEqual(P.choose(held: held, published: [other]), .start(other), "settled and withdrawn: the newest published")
     }
 
+    func testTheStage2DrawThatFollowsTheHeldPilotIsStartedOnceNothingOfThePilotIsUnsettled() throws {
+        let held = try phone()
+        func row(_ id: String, _ extra: String) -> LabelCoverageAuditDraw {
+            let b = body.replacingOccurrences(of: #""drawId":"d1""#, with: #""drawId":"\#(id)"\#(extra)"#)
+            return LabelCoverageAuditDraw(project: "Scratch", drawId: id, drawSha256: sha(b), body: b, publishedAt: nil)
+        }
+        let pilot = LabelCoverageAuditDraw(project: "Scratch", drawId: "d1", drawSha256: sha(body), body: body, publishedAt: nil)
+        let stage2 = row("d2", #","follows":{"drawId":"d1","sha256":"\#(sha(body))"}"#)
+        XCTAssertEqual(P.choose(held: held, published: [pilot, stage2]), .start(stage2), "the pilot stays published; the review goes on in stage 2")
+        let ofAnotherPilot = row("d3", #","follows":{"drawId":"d1","sha256":"\#(String(repeating: "0", count: 64))"}"#)
+        XCTAssertEqual(P.choose(held: held, published: [pilot, ofAnotherPilot]), .keep, "a draw that follows other bytes under the same id is not this pilot's stage 2")
+        let elsewhere = LabelCoverageAuditDraw(project: "Other", drawId: stage2.drawId, drawSha256: stage2.drawSha256, body: stage2.body, publishedAt: nil)
+        XCTAssertEqual(P.choose(held: held, published: [pilot, elsewhere]), .keep, "another project's draw")
+        var busy = held
+        try busy.give(.clean, pass: .first, recordingId: "a", index: 0, video: video(), withheld: false, played: played(0, 600), reviewer: me, tool: "t", now: t0)
+        guard case .keepUnsettled = P.choose(held: busy, published: [pilot, stage2]) else { return XCTFail("an unsent pilot verdict keeps the pilot") }
+        // Once on stage 2, the pilot (older, still published, naming nothing) does not take the phone back.
+        let onStage2 = try P(row: stage2)
+        XCTAssertEqual(P.choose(held: onStage2, published: [pilot, stage2]), .keep)
+    }
+
     func testAStoreThatCantBeReadIsSetAsideNeverReplaced() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("store-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

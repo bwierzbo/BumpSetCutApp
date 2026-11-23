@@ -99,6 +99,14 @@ enum CoverageAudit {
         /// The earlier draws of the same stage this one replaces (the draw tool writes them with its `--reason`): a
         /// record of one of them is set aside, kept whole, when a recording is opened under this draw.
         var supersedes: [String]?
+        /// The pilot draw a stage 2 draw follows (the draw tool writes it with `--stage2 --follows`, and only once that
+        /// pilot has passed): the review goes on in the stage 2 draw.
+        var follows: Follows?
+
+        struct Follows: Decodable, Equatable {
+            var drawId: String
+            var sha256: String
+        }
 
         var datasetName: String { dataset.name }
 
