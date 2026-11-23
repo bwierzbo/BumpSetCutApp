@@ -11,7 +11,7 @@
 #     membershipExceptions build BOTH; RallyLab/ files build mac; else ios.
 #     Labeler/ files (RallyLab on the iPhone) build labeler as well, and
 #     Labeler/Shared/ files build mac too — both apps compile them.
-#   --run — after a successful mac build, relaunch RallyLab.app from DerivedData.
+#   --run — after a successful mac build, relaunch the RallyLab.app this checkout built.
 #
 # Simulator IDs rot when Xcode updates, so the destination is always resolved
 # live from `simctl` (booted iPhone preferred). Full logs: /tmp/bsc-build-*.log
@@ -103,10 +103,14 @@ build_labeler() {
 }
 
 relaunch_rallylab() {
-  local app
-  app=$(ls -d "$HOME"/Library/Developer/Xcode/DerivedData/BumpSetCut-*/Build/Products/Debug/RallyLab.app 2>/dev/null | head -1)
-  if [ -z "$app" ]; then
-    echo "❌ RallyLab.app not found in DerivedData"
+  local products app
+  # This checkout's own build. DerivedData holds one folder per checkout, and
+  # the first one found may be another worktree's older build.
+  products=$(xcodebuild -project "$PROJECT" -scheme RallyLab -destination "platform=macOS" -showBuildSettings 2>/dev/null \
+    | sed -n 's/^ *BUILT_PRODUCTS_DIR = //p' | head -1)
+  app="$products/RallyLab.app"
+  if [ -z "$products" ] || [ ! -d "$app" ]; then
+    echo "❌ RallyLab.app not found for this checkout (looked in: ${products:-unknown})"
     return 1
   fi
   # Quit it the normal way (it may be mid-review); kill only if it won't go.
