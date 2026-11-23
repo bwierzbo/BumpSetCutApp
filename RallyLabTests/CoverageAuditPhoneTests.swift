@@ -139,6 +139,11 @@ final class CoverageAuditPhoneTests: XCTestCase {
         XCTAssertNotNil(p.unavailable("a", video: video(fingerprint: "file:other"), withheld: false), "a copy of other footage")
         XCTAssertNotNil(p.unavailable("a", video: video(digest: nil), withheld: false), "no frame identity to check the copy against")
         XCTAssertNotNil(p.unavailable("a", video: nil, withheld: false), "no copy")
+        var retyped = video()
+        retyped.recordingType = "edited"
+        XCTAssertEqual(p.unavailable("a", video: retyped, withheld: false), "typed edited since the draw: not audited, and no source of negatives")
+        retyped.recordingType = "continuous"
+        XCTAssertNil(p.unavailable("a", video: retyped, withheld: false))
         XCTAssertNotNil(p.unavailable("zz", video: video(), withheld: false), "not drawn")
         p.recordings["a"] = nil
         XCTAssertNotNil(p.unavailable("a", video: video(), withheld: false), "not published by the Mac")

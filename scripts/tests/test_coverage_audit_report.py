@@ -9,6 +9,7 @@ pass / fail criterion and the trusted-negative count against G6. Standard librar
 import contextlib
 import hashlib
 import io
+import json
 import os
 import shutil
 import sys
@@ -91,6 +92,27 @@ class Records(unittest.TestCase):
         self.assertEqual(pilot["totals"]["states"], {"partial": 12})
         self.assertEqual(self.row(result)["record"], "missing")
         self.assertEqual((result["trustedNegatives"]["usable"], result["trustedNegatives"]["groupCount"]), (False, 0))
+
+    def test_a_recording_no_longer_typed_continuous_supplies_no_negative_whatever_its_record_says(self):
+        before = self.evaluate()
+        self.assertEqual(before["trustedNegatives"]["recordingsNotContinuousNow"], {})
+        self.assertIn(self.row(before)["groupId"], before["trustedNegatives"]["groups"])
+        properties = os.path.join(self.syn.project, "footage-properties", self.first + ".json")
+        inv_doc = inv.load_json(properties, "footage type")
+        with open(properties, "w", encoding="utf-8") as fh:
+            json.dump(dict(inv_doc, recordingType="edited"), fh)
+        after = report.evaluate(self.draw_path, self.syn.project)
+        self.assertEqual((self.row(after)["typeNow"], self.row(after)["suppliesTrustedNegatives"]), ("edited", False))
+        self.assertEqual(self.row(after)["cleanIntervals"], self.row(before)["cleanIntervals"], "its verdicts are still reported")
+        self.assertNotIn(self.row(after)["groupId"], after["trustedNegatives"]["groups"])
+        self.assertEqual(after["trustedNegatives"]["groupCount"], before["trustedNegatives"]["groupCount"] - 1)
+        self.assertEqual(after["trustedNegatives"]["recordingsNotContinuousNow"], {self.first: "edited"})
+        self.assertIn(f"{self.first} (typed 'edited' now)", report.render(after))
+        self.assertEqual(after["pilot"]["outcome"], before["pilot"]["outcome"], "the pilot's criterion does not read the type")
+        os.remove(properties)   # a type that can no longer be read is not read as continuous
+        gone = report.evaluate(self.draw_path, self.syn.project)
+        self.assertEqual((self.row(gone)["typeNow"], self.row(gone)["suppliesTrustedNegatives"]), (None, False))
+        self.assertIn("no readable footage-type record now", report.render(gone))
 
     def test_one_missing_record_or_interval_keeps_the_pilot_incomplete(self):
         result = self.evaluate(skip=(self.ids[5],))
