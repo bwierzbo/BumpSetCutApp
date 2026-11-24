@@ -564,7 +564,8 @@ final class AuditModel {
     /// The conflicts this pass may show, of every recording (decidable even when nothing is left to review).
     var conflicts: [CoverageAuditPhone.OpenConflict] { audit?.shownConflicts(pass) ?? [] }
 
-    /// Gives `entry` on the interval on screen: written to the phone first, then sent. Clean moves on to the next interval.
+    /// Gives `entry` on the interval on screen: written to the phone first, then sent. A look made whole (Clean, or
+    /// findings played to the interval's end) moves on to the next interval.
     /// Returns whether it was taken.
     @discardableResult
     func give(_ entry: CoverageAudit.Entry, note: String? = nil) -> Bool {
@@ -590,6 +591,7 @@ final class AuditModel {
             say("Interval \(position.index): \(f.kind.rawValue) saved." + (leftToPlay ?? 0 > 0.05 ? " Keep watching — the interval completes when it has played to its end." : ""))
         case .playedWhole:
             say("Interval \(position.index): played whole, with its findings.")
+            next(play: true)
         case .withdrawLast, .withdraw:
             say("Interval \(position.index): taken back.")
         }
@@ -631,12 +633,16 @@ final class AuditModel {
     func markEnd() { marking?.setEnd(playhead) }
     func clearMarkEnd() { marking?.clearEnd() }
 
-    /// Gives the finding as placed, and returns to where the reviewer was. Refused, it stays open with why.
-    func saveMarking() {
+    /// Gives the finding as placed. Refused, it stays open with why. Saved on an interval not played whole yet,
+    /// playback goes on from where the reviewer was; on one played whole it waits there for another finding, or
+    /// with `thenNext` moves on to the next interval.
+    func saveMarking(thenNext: Bool = false) {
         guard let marking, let finding = marking.finding else { return }
         pause()
         guard give(.finding(finding)) else { return }
+        if thenNext, remaining == .nothing { next(play: true); return }
         endMarking(marking)
+        if remaining == .rest { play() }
     }
 
     /// Drops the finding being placed: nothing is given.
@@ -652,14 +658,13 @@ final class AuditModel {
         seek(to: marking.resume)
     }
 
-    /// The interval just played to its end under a look with findings from a partial look: that look is now whole.
-    var canComplete: Bool {
-        guard let leftToPlay, leftToPlay <= 0.05, let position, let file = audit?.local[position.recordingId] else { return false }
-        switch pass {
-        case .first: return file.review(position.index).map { $0.verdict == .notClean && $0.playedAllAtMaxRate == nil } ?? false
-        case .repeatLook: return file.repeatReview(position.index).map { $0.verdict == .notClean && $0.playedAllAtMaxRate == nil } ?? false
-        case .resolution: return file.resolution(position.index).map { $0.verdict == .notClean && $0.playedAllAtMaxRate == nil } ?? false
-        }
+    /// The interval on screen has been played whole in this look.
+    var intervalPlayed: Bool { (leftToPlay ?? .infinity) <= 0.05 }
+
+    /// What is left to do on the interval on screen.
+    var remaining: CoverageAuditPhone.Remaining {
+        guard let position, let audit else { return .verdict }
+        return audit.remaining(pass, recordingId: position.recordingId, index: position.index, played: intervalPlayed)
     }
 
     /// Takes back the last thing given on the most recent interval this phone gave a verdict on (and goes there).

@@ -223,6 +223,31 @@ struct CoverageAuditPhone: Codable, Equatable {
         }
     }
 
+    /// What is left for the reviewer to do on an interval.
+    enum Remaining: Equatable {
+        /// No verdict yet: Clean once it has played whole, or a finding.
+        case verdict
+        /// Findings from a partial look, and the interval is not played whole yet: the rest is still to be watched.
+        case rest
+        /// Findings from a partial look, and the interval has now played whole: saying so completes the look.
+        case completion
+        /// The look is whole (a clean, or findings on an interval played whole): only the next interval is left.
+        case nothing
+    }
+
+    /// What `pass` still asks of the reviewer on an interval, from the look it holds there. `played`: the interval
+    /// has been played whole in the look now on screen.
+    func remaining(_ pass: CoverageAudit.Pass, recordingId: String, index: Int, played: Bool) -> Remaining {
+        let whole: Bool
+        switch CoverageAuditSync.look(.init(pass: pass, index: index), in: local[recordingId]) {
+        case nil: return .verdict
+        case .first(let r)?: whole = r.playedAllAtMaxRate != nil
+        case .repeatLook(let r)?: whole = r.playedAllAtMaxRate != nil
+        case .resolution(let r)?: whole = r.playedAllAtMaxRate != nil
+        }
+        return whole ? .nothing : played ? .completion : .rest
+    }
+
     struct OpenConflict: Equatable, Identifiable {
         var recordingId: String
         var conflict: CoverageAuditSync.Conflict

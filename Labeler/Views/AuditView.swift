@@ -212,13 +212,21 @@ struct AuditView: View {
     private var verdicts: some View {
         let left = audit.leftToPlay ?? 0
         return VStack(spacing: 10) {
-            if audit.canComplete {
-                big("Played whole — complete this look", "checkmark.seal", .blue) { audit.give(.playedWhole) }
+            // An interval with a finding is never Clean: what is left is to watch it to its end, then move on.
+            switch audit.remaining {
+            case .verdict:
+                big(left > 0.05 ? String(format: "Clean — watch %.0f s more", left.rounded(.up)) : "Clean", "checkmark.circle.fill", .green) {
+                    audit.give(.clean)
+                }
+                .disabled(left > 0.05)
+            case .rest:
+                big(String(format: "Finding saved — watch %.0f s more", left.rounded(.up)), "forward.end.fill", .blue) {}
+                    .disabled(true)
+            case .completion:
+                big("Watched to the end — next interval", "forward.end.fill", .blue) { audit.give(.playedWhole) }
+            case .nothing:
+                big("Finding saved — next interval", "forward.end.fill", .blue) { audit.next(play: true) }
             }
-            big(left > 0.05 ? String(format: "Clean — watch %.0f s more", left.rounded(.up)) : "Clean", "checkmark.circle.fill", .green) {
-                audit.give(.clean)
-            }
-            .disabled(left > 0.05)
             trimButtons
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                 ForEach(CoverageAudit.FindingKind.allCases.filter { $0 != .boundaryError }, id: \.self) { kind in
@@ -351,13 +359,21 @@ private struct MarkingPanel: View {
             if let problem = marking.problem {
                 Text(problem).font(.caption).foregroundStyle(.orange).frame(maxWidth: .infinity, alignment: .leading)
             }
+            // Played whole already, the interval is done with this finding; otherwise the rest of it plays on.
+            Button { audit.saveMarking(thenNext: true) } label: {
+                Label(audit.intervalPlayed ? "Save — next interval" : "Save — keep watching", systemImage: "checkmark")
+                    .font(.headline).frame(maxWidth: .infinity, minHeight: 52)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(marking.problem != nil)
             HStack(spacing: 10) {
                 Button(role: .cancel) { audit.cancelMarking() } label: { Text("Cancel").frame(maxWidth: .infinity, minHeight: 48) }
-                    .buttonStyle(.bordered)
-                Button { audit.saveMarking() } label: { Label("Save", systemImage: "checkmark").font(.headline).frame(maxWidth: .infinity, minHeight: 48) }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(marking.problem != nil)
+                if audit.intervalPlayed {
+                    Button { audit.saveMarking() } label: { Text("Save, mark another").frame(maxWidth: .infinity, minHeight: 48) }
+                        .disabled(marking.problem != nil)
+                }
             }
+            .buttonStyle(.bordered)
         }
     }
 

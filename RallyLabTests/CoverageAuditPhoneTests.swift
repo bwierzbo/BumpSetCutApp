@@ -402,6 +402,26 @@ final class CoverageAuditPhoneTests: XCTestCase {
 
     // MARK: - Placing a finding by scrubbing
 
+    func testWhatIsLeftOnAnIntervalFollowsItsLookAndWhatHasPlayed() throws {
+        var p = try phone()
+        let serve = A.Finding(kind: .missedRally, approxStartSec: 2.5, approxEndSec: 4)
+        XCTAssertEqual(p.remaining(.first, recordingId: "a", index: 1, played: false), .verdict)
+        XCTAssertEqual(p.remaining(.first, recordingId: "a", index: 1, played: true), .verdict, "played whole with no verdict: Clean or a finding is still owed")
+        // A finding marked part-way through: the rest is watched, then saying so completes the look.
+        try p.give(.finding(serve), pass: .first, recordingId: "a", index: 1, video: video(), withheld: false, played: played(1200, 2000), reviewer: me, tool: "t", now: t0)
+        XCTAssertEqual(p.remaining(.first, recordingId: "a", index: 1, played: false), .rest)
+        XCTAssertEqual(p.remaining(.first, recordingId: "a", index: 1, played: true), .completion)
+        XCTAssertTrue(p.queue(.first, reviewable: { _ in true }, reviewer: me, now: t0).contains(.init(pass: .first, recordingId: "a", index: 1)), "a partial look is still owed")
+        try p.give(.playedWhole, pass: .first, recordingId: "a", index: 1, video: video(), withheld: false, played: played(1200, 3000), reviewer: me, tool: "t", now: t0)
+        XCTAssertEqual(p.remaining(.first, recordingId: "a", index: 1, played: true), .nothing)
+        XCTAssertFalse(p.queue(.first, reviewable: { _ in true }, reviewer: me, now: t0).contains(.init(pass: .first, recordingId: "a", index: 1)))
+        // A finding marked after the interval played whole is a whole look at once: nothing but the next interval.
+        var q = try phone()
+        try q.give(.finding(serve), pass: .first, recordingId: "a", index: 1, video: video(), withheld: false, played: played(1200, 3000), reviewer: me, tool: "t", now: t0)
+        XCTAssertEqual(q.remaining(.first, recordingId: "a", index: 1, played: true), .nothing)
+        XCTAssertFalse(q.queue(.first, reviewable: { _ in true }, reviewer: me, now: t0).contains(.init(pass: .first, recordingId: "a", index: 1)))
+    }
+
     private let scrubbed = A.Interval(index: 1, startTick: 1200, endTick: 3000)   // 2.0–5.0 s; shown 1.0–6.0
 
     func testAFindingIsPlacedWhereTheFootageStandsToATenthAndInsideWhatIsShown() throws {
