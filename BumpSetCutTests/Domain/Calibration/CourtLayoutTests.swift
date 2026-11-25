@@ -38,6 +38,33 @@ final class CourtLayoutTests: XCTestCase {
         }
     }
 
+    func testAStronglyTaperedFarHalfStillMapsBothWays() throws {
+        // The far end line a fifth as wide as the net line: the far half's map, fitted with its free term fixed at the
+        // court's near-left corner (outside that half), comes out with negative weights all over the half.
+        var steep = court
+        steep.farLeft = point(0.45, 0.65)
+        steep.farRight = point(0.55, 0.65)
+        XCTAssertEqual(steep.problems, [])
+        for role in CourtLayout.Role.allCases {
+            let image = try XCTUnwrap(steep.image(u: role.court.u, v: role.court.v), role.rawValue)
+            XCTAssertEqual(image.x, steep[role].x, accuracy: 1e-9, role.rawValue)
+            XCTAssertEqual(image.y, steep[role].y, accuracy: 1e-9, role.rawValue)
+        }
+        let farLeft = try XCTUnwrap(steep.courtCoordinates(0.45, 0.65))
+        XCTAssertEqual(farLeft.u, 0, accuracy: 1e-7)
+        XCTAssertEqual(farLeft.v, 1, accuracy: 1e-7)
+        let inside = try XCTUnwrap(steep.image(u: 0.3, v: 0.8))
+        let back = try XCTUnwrap(steep.courtCoordinates(inside.x, inside.y))
+        XCTAssertEqual(back.u, 0.3, accuracy: 1e-7)
+        XCTAssertEqual(back.v, 0.8, accuracy: 1e-7)
+        XCTAssertEqual(steep.outline([(0, 0), (1, 0), (1, 1), (0, 1)], steps: 4).count, 16)
+        // Each half's map has a positive weight across its own half.
+        for (near, vs) in [(true, [0.0, 0.25, 0.5]), (false, [0.5, 0.75, 1.0])] {
+            let map = try XCTUnwrap(steep.map(near: near))
+            for v in vs { for u in [0.0, 0.5, 1.0] { XCTAssertGreaterThan(map.apply(u, v).w, 0, "near \(near) u \(u) v \(v)") } }
+        }
+    }
+
     func testOutlineFollowsTheBoundaryThroughBothHalves() {
         let outline = court.outline([(0, 0), (1, 0), (1, 1), (0, 1)], steps: 4)
         XCTAssertEqual(outline.count, 16)

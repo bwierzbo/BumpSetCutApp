@@ -45,7 +45,12 @@ struct Homography: Equatable, Sendable {
             a[2 * i + 1] = [0, 0, 0, x, y, 1, -v * x, -v * y, v]
         }
         guard let h = solve(a) else { return nil }
-        return Homography(m: h + [1])
+        // A projective map's overall sign is arbitrary, and fixing h33 = 1 fixes it at (0, 0) — which need not lie
+        // inside the four points. The weight is made positive at their centre, so that "weight ≤ 0" means beyond
+        // the horizon for the region the map was fitted to, and for its inverse.
+        let fitted = Homography(m: h + [1])
+        let centre = (from.map(\.0).reduce(0, +) / 4, from.map(\.1).reduce(0, +) / 4)
+        return fitted.apply(centre.0, centre.1).w < 0 ? Homography(m: fitted.m.map { -$0 }) : fitted
     }
 
     /// Gaussian elimination with partial pivoting on an n×(n+1) augmented matrix.
