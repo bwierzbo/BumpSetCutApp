@@ -16,6 +16,10 @@ import Security
 actor LabelingClient {
 
     static let shared = LabelingClient()
+    /// The Keychain service the session's refresh token is kept under. The app's own by default; a guarded headless
+    /// RallyLab run sets its own before any client exists, so a test session never becomes the app's and is cleared
+    /// without touching the app's item.
+    nonisolated(unsafe) static var keychainService = "app.BumpSetCut.labeling"
 
     enum Failure: LocalizedError {
         case notSignedIn
@@ -45,6 +49,20 @@ actor LabelingClient {
     private let apiKey = Secrets.supabaseAnonKey
     private var accessToken: String?
     private var expiresAt = Date.distantPast
+    /// How a table or auth request reaches the server: URLSession in the apps; a stand-in in tests.
+    private let transport: @Sendable (URLRequest) async throws -> (Data, URLResponse)
+
+    init() {
+        transport = { try await URLSession.shared.data(for: $0) }
+    }
+
+    /// For tests: requests go to `transport` instead of the network, under a token of the test's own (the
+    /// Keychain is never read, nothing is refreshed).
+    init(transport: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse), accessToken: String) {
+        self.transport = transport
+        self.accessToken = accessToken
+        expiresAt = .distantFuture
+    }
     private(set) var userId: UUID?
     /// The signed-in account's email (an Apple relay address for a hidden one).
     private(set) var email: String?
@@ -137,6 +155,15 @@ actor LabelingClient {
         return !rows.isEmpty
     }
 
+    /// Whether this account is a lead (public.labelers.lead; an account reads its own row). The server's protection
+    /// of withheld recordings exempts a lead, so the app's own rule has to know one (LabelAccess).
+    func isLead() async throws -> Bool {
+        struct Row: Decodable { let lead: Bool }
+        guard let userId else { return false }
+        let rows: [Row] = try await get("labelers", query: "select=lead&user_id=eq.\(userId.uuidString.lowercased())")
+        return rows.first?.lead ?? false
+    }
+
     private func token(grant: String, body: [String: String]) async throws {
         var request = URLRequest(url: base.appending(path: "auth/v1/token").appending(queryItems: [.init(name: "grant_type", value: grant)]))
         request.httpMethod = "POST"
@@ -167,6 +194,16 @@ actor LabelingClient {
     /// sooner, when the request needs it good for `lasting` seconds (an
     /// upload of a clip can outlast an hour-long token, and storage checks
     /// it when the upload finishes).
+    /// A transfer's token must outlast it: one that would run out within this long is refreshed first.
+    static let transferLasting: TimeInterval = 45 * 60
+
+    /// The token, refreshed now if it has to be (for a transfer: if it would not last one). A refresh is a
+    /// request of its own, and a caller that checks something right before a send calls this before the check —
+    /// so nothing is awaited between its check and the send but the send itself.
+    func authorize(forTransfer: Bool = false) async throws {
+        _ = try await bearer(lasting: forTransfer ? Self.transferLasting : 0)
+    }
+
     private func bearer(lasting: TimeInterval = 0) async throws -> String {
         if let accessToken, Date().addingTimeInterval(lasting) < expiresAt { return accessToken }
         guard let refresh = Keychain.refreshToken else { throw Failure.notSignedIn }
@@ -182,8 +219,63 @@ actor LabelingClient {
 
     // MARK: - Tables
 
-    func videos() async throws -> [LabelVideo] {
-        try await get("label_videos", query: "select=*&order=surface,session_name,created_at")
+    func videos() async throws -> [LabelVideo] { try await videos(since: nil) }
+
+    /// The rows changed since `since` (the phone's pull: the published type among what the Mac changes).
+    func videos(since: Date?) async throws -> [LabelVideo] {
+        try await get("label_videos", query: "select=*&order=surface,session_name,created_at" + Self.changed(since))
+    }
+
+    /// The published type taken off a row (leads; the Mac, when the recording's record is gone): an explicit null,
+    /// since the row's encoder leaves nil out and an upsert keeps a column it is not sent.
+    /// The row's `updated_at` moves with it, so a phone's pull of the rows changed since sees the clearing on its own
+    /// (no trigger dates label_videos; a later upsert of an otherwise unchanged row would not be sent).
+    func clearPublishedRecordingType(_ videoId: UUID) async throws {
+        var request = try await rest("label_videos", query: "id=eq.\(videoId.uuidString.lowercased())")
+        request.httpMethod = "PATCH"
+        request.setValue("return=minimal", forHTTPHeaderField: "Prefer")
+        request.httpBody = Self.clearedRecordingTypePayload(at: Date())
+        _ = try await send(request)
+    }
+
+    /// The PATCH body that clears the published type: both columns as explicit JSON nulls — a synthesized
+    /// `Encodable` leaves a nil optional out (`encodeIfPresent`), which an update would read as "unchanged" — and
+    /// the row's date. Keys in a fixed order, so the exact payload is testable.
+    static func clearedRecordingTypePayload(at date: Date) -> Data {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return Data(#"{"recording_type":null,"recording_type_at":null,"updated_at":"\#(f.string(from: date))"}"#.utf8)
+    }
+
+    /// Set a recording aside (the backlog, migration 053) or put it back (`reason` nil): the three columns as
+    /// explicit values, nulls included. `backlog_at` is when the person set it aside (`at`, kept through an
+    /// offline wait); the row's `updated_at` is the moment of this write, so every other device's pull of the
+    /// rows changed since its last one sees the change however long the choice waited to be sent.
+    /// Throws a refusal (403) when the server changed no row: a recording this account may not write any more
+    /// (withheld since the choice was made, or gone) — PostgREST answers such a PATCH with success and nothing
+    /// changed, so the row written is asked for and required.
+    func setBacklog(_ videoId: UUID, reason: String?, at date: Date = Date()) async throws {
+        var request = try await rest("label_videos", query: "id=eq.\(videoId.uuidString.lowercased())")
+        request.httpMethod = "PATCH"
+        request.setValue("return=representation", forHTTPHeaderField: "Prefer")
+        request.httpBody = Self.backlogPayload(reason: reason, by: userId, at: date, written: Date())
+        let rows = try Self.decoder.decode([LabelVideo].self, from: try await send(request))
+        guard rows.count == 1 else {
+            throw Failure.server(403, "the recording is not open to labeling from this phone any more (withheld, or no longer listed) — the choice was not kept")
+        }
+    }
+
+    /// The PATCH body for the backlog: set aside (reason, the time it was set aside, who) or put back (all three
+    /// null); the row's date is the write's, either way. Keys in a fixed order, so the exact payload is testable.
+    static func backlogPayload(reason: String?, by: UUID?, at date: Date, written: Date) -> Data {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        let stamp = f.string(from: date), now = f.string(from: written)
+        func json(_ s: String) -> String { String(data: (try? JSONEncoder().encode(s)) ?? Data("\"\"".utf8), encoding: .utf8) ?? "\"\"" }
+        if let reason {
+            return Data(#"{"backlog_reason":\#(json(reason)),"backlog_at":"\#(stamp)","backlog_by":\#(by.map { json($0.uuidString.lowercased()) } ?? "null"),"updated_at":"\#(now)"}"#.utf8)
+        }
+        return Data(#"{"backlog_reason":null,"backlog_at":null,"backlog_by":null,"updated_at":"\#(now)"}"#.utf8)
     }
 
     /// Every video's rally times, or only those changed after `since`.
@@ -211,9 +303,33 @@ actor LabelingClient {
         return first
     }
 
-    /// Every tracked rally (deleted ones too), or only those changed after `since`.
-    func tracks(since: Date? = nil) async throws -> [LabelTrack] {
+    /// The tracked rallies changed after `since` (deleted ones too).
+    func tracks(since: Date) async throws -> [LabelTrack] {
         try await get("label_tracks", query: "select=*" + Self.changed(since))
+    }
+
+    /// Every tracked rally (deleted ones too), taking in full only those `known` does not already hold as the
+    /// server has them now. The whole table in one request is the heaviest read there is: it ran into the
+    /// server's statement limit, and held up every other request while it did.
+    func tracks(reusing known: [LabelTrack]) async throws -> [LabelTrack] {
+        let plan = Self.reuse(known, for: try await trackStamps())
+        return plan.kept + (try await tracks(ids: plan.fetch))
+    }
+
+    /// Which of `known` are still what the server holds (same recording, same deleted flag, same change time),
+    /// and which of the server's rallies have to be fetched. A rally the server no longer lists is in neither.
+    nonisolated static func reuse(_ known: [LabelTrack], for stamps: [TrackStamp]) -> (kept: [LabelTrack], fetch: [UUID]) {
+        let held = Dictionary(known.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+        var kept: [LabelTrack] = [], fetch: [UUID] = []
+        for stamp in stamps {
+            if let mine = held[stamp.id], mine.videoId == stamp.videoId, mine.deleted == stamp.deleted,
+               let a = mine.updatedAt, let b = stamp.updatedAt, abs(a.timeIntervalSince(b)) <= 0.002 {
+                kept.append(mine)
+            } else {
+                fetch.append(stamp.id)
+            }
+        }
+        return (kept, fetch)
     }
 
     /// Each tracked rally's id, video, whether it's deleted and when it last
@@ -246,6 +362,44 @@ actor LabelingClient {
     /// Every recording's record row (or those saved after `since`).
     func rallyEvents(since: Date? = nil) async throws -> [LabelRallyEvents] {
         try await get("label_rally_events", query: "select=*" + Self.changed(since))
+    }
+
+    // MARK: - Recording-type claims (migration 052; D-033)
+
+    /// The claims this account may read (049's rule), changed since `since`.
+    func recordingTypeClaims(since: Date? = nil) async throws -> [RecordingTypeClaim] {
+        try await get("label_recording_type_claims", query: "select=*" + Self.changed(since))
+    }
+
+    /// One claim as the server has it now; nil when it is gone (its recording deleted) or not readable.
+    func recordingTypeClaim(id: UUID) async throws -> RecordingTypeClaim? {
+        let rows: [RecordingTypeClaim] = try await get("label_recording_type_claims", query: "select=*&id=eq.\(id.uuidString.lowercased())")
+        return rows.first
+    }
+
+    /// The phone's choice, as a claim (`recording_type_claim_submit`): idempotent by the claim's id. A refusal of the
+    /// claim itself — withheld, identity, input — comes back as `Failure.server` with the server's message.
+    func submitRecordingTypeClaim(_ pending: RecordingTypeClaims.Pending) async throws -> RecordingTypeClaim {
+        struct Params: Encodable { let p_id: String; let p_video: String; let p_type: String; let p_fingerprint: String }
+        var request = try await rest("rpc/recording_type_claim_submit", query: "")
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(Params(p_id: pending.id.uuidString.lowercased(), p_video: pending.videoId.uuidString.lowercased(),
+                                                           p_type: pending.kind.rawValue, p_fingerprint: pending.sourceFingerprint))
+        let rows = try Self.decoder.decode([RecordingTypeClaim].self, from: try await send(request))
+        guard let row = rows.first else { throw Failure.unreadable }
+        return row
+    }
+
+    /// The Mac's settlement (`recording_type_claim_settle`, leads only): accepted, with the record's confirmation
+    /// time, after the authoritative write; or rejected with a reason. The same settlement again is a no-op.
+    func settleRecordingTypeClaim(_ id: UUID, status: RecordingTypeClaim.Status, reason: String?, confirmedAt: Date?) async throws -> RecordingTypeClaim {
+        struct Params: Encodable { let p_id: String; let p_status: String; let p_reason: String?; let p_confirmed_at: Date? }
+        var request = try await rest("rpc/recording_type_claim_settle", query: "")
+        request.httpMethod = "POST"
+        request.httpBody = try Self.encoder.encode(Params(p_id: id.uuidString.lowercased(), p_status: status.rawValue, p_reason: reason, p_confirmed_at: confirmedAt))
+        let rows = try Self.decoder.decode([RecordingTypeClaim].self, from: try await send(request))
+        guard let row = rows.first else { throw Failure.unreadable }
+        return row
     }
 
     /// Saves a record at the revision it was loaded from (0 = none on the server yet) through `rally_events_save`.
@@ -286,6 +440,74 @@ actor LabelingClient {
         return Int(String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)) ?? names.count
     }
 
+    // MARK: - Coverage audit (migration 054; D-038 G7) — leads only in this release
+
+    /// The frozen draws published for `project`.
+    func coverageAuditDraws(project: String) async throws -> [LabelCoverageAuditDraw] {
+        try await get("label_coverage_audit_draws", query: "select=*&project=eq.\(Self.encoded(project))")
+    }
+
+    /// What the Mac last published for each drawn recording of a draw (withheld recordings are never served).
+    func coverageAuditRecordings(project: String, drawId: String) async throws -> [LabelCoverageAuditRecording] {
+        try await get("label_coverage_audit_recordings", query: "select=*&project=eq.\(Self.encoded(project))&draw_id=eq.\(Self.encoded(drawId))")
+    }
+
+    /// A draw's records on the server.
+    func coverageAudits(project: String, drawId: String) async throws -> [LabelCoverageAudit] {
+        try await get("label_coverage_audits", query: "select=*&project=eq.\(Self.encoded(project))&draw_id=eq.\(Self.encoded(drawId))")
+    }
+
+    /// Who opened which recording of a draw for review: the server's ledger, copied into the Mac's.
+    func coverageAuditUses(project: String, drawId: String) async throws -> [LabelCoverageAuditUse] {
+        try await get("label_coverage_audit_uses", query: "select=*&project=eq.\(Self.encoded(project))&draw_id=eq.\(Self.encoded(drawId))")
+    }
+
+    /// Publishes a frozen draw's bytes exactly; returns the SHA-256 the server computed of them (the same bytes again
+    /// change nothing; other bytes under a published draw id are refused).
+    func publishCoverageAuditDraw(project: String, body: Data) async throws -> String {
+        guard let text = String(data: body, encoding: .utf8) else { throw Failure.unreadable }
+        struct Params: Encodable { let p_project: String; let p_body: String }
+        var request = try await rest("rpc/coverage_audit_publish_draw", query: "")
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(Params(p_project: project, p_body: text))
+        return try Self.decoder.decode(String.self, from: try await send(request))
+    }
+
+    /// Publishes what the Mac's admission found for drawn recordings.
+    func publishCoverageAuditRecordings(project: String, drawId: String, rows: [LabelCoverageAuditRecording]) async throws {
+        struct Row: Encodable { let recordingId: String; let videoId: String; let sourceFingerprint: String; let marksSha256: String; let openIndices: [Int] }
+        struct Params: Encodable { let p_project: String; let p_draw: String; let p_rows: [Row] }
+        var request = try await rest("rpc/coverage_audit_publish_recordings", query: "")
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(Params(p_project: project, p_draw: drawId, p_rows: rows.map {
+            Row(recordingId: $0.recordingId, videoId: $0.videoId.uuidString.lowercased(), sourceFingerprint: $0.sourceFingerprint,
+                marksSha256: $0.marksSha256, openIndices: $0.openIndices.sorted())
+        }))
+        _ = try await send(request)
+    }
+
+    /// Puts this account's use of a drawn recording on the server's ledger (before a frame of it is shown); returns
+    /// when it was first used.
+    @discardableResult
+    func openCoverageAudit(project: String, drawId: String, recordingId: String) async throws -> Date {
+        struct Params: Encodable { let p_project: String; let p_draw: String; let p_recording: String }
+        var request = try await rest("rpc/coverage_audit_open", query: "")
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(Params(p_project: project, p_draw: drawId, p_recording: recordingId))
+        return try Self.decoder.decode(Date.self, from: try await send(request))
+    }
+
+    /// Saves a drawn recording's record at the revision it was made from (0: none on the server yet).
+    func saveCoverageAudit(project: String, drawId: String, expected: Int, record: CoverageAudit.File) async throws -> LabelCoverageAudit {
+        struct Params: Encodable { let p_project: String; let p_draw: String; let p_recording: String; let p_expected: Int; let p_record: CoverageAudit.File }
+        var request = try await rest("rpc/coverage_audit_save", query: "")
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(Params(p_project: project, p_draw: drawId, p_recording: record.recordingId, p_expected: expected, p_record: record))
+        let rows = try Self.decoder.decode([LabelCoverageAudit].self, from: try await send(request))
+        guard let row = rows.first else { throw Failure.unreadable }
+        return row
+    }
+
     private static func encoded(_ value: String) -> String {
         value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? value
     }
@@ -297,18 +519,41 @@ actor LabelingClient {
         return "&updated_at=gt.\(f.string(from: since))"
     }
 
-    /// Insert or update tracked rallies, by id.
-    func save(_ tracks: [LabelTrack]) async throws {
-        guard !tracks.isEmpty else { return }
+    /// What a save of tracked rallies did: the rows the server took, and what stopped it if it stopped. Every
+    /// other row — held back by `allowed`, or not reached — is still the caller's to keep and send again.
+    struct TrackSave: Sendable {
+        var sent: Set<UUID> = []
+        var failure: (any Error)?
+    }
+
+    /// Insert or update tracked rallies, by id. They go as several requests (below), each suspending — so what
+    /// may go is asked per request: `allowed` gets the rows of the request about to be made and gives back the
+    /// ones that may go now (the send-time rule, TrackedRally.mayGoUp, by the access known at that moment);
+    /// nothing is awaited between its answer and the request but the request itself. A request with nothing
+    /// left is not made.
+    func save(_ tracks: [LabelTrack], allowed: @Sendable ([LabelTrack]) async -> [LabelTrack]) async -> TrackSave {
+        var outcome = TrackSave()
+        guard !tracks.isEmpty else { return outcome }
         let now = Date()
         let rows = tracks.map { t -> LabelTrack in var t = t; t.updatedAt = t.updatedAt ?? now; return t }
         // A nil field is left out (the server keeps what it has), and a batch
         // whose rows don't all have the same fields is refused ("All object
         // keys must match"): send rows with the same fields together.
         let groups = Dictionary(grouping: rows) { [$0.reviewed != nil, $0.unsure != nil, $0.machine != nil, $0.isRally != nil] }
-        for group in groups.values {
-            let _: [LabelTrack] = try await upsert("label_tracks", group, onConflict: "id")
+        do {
+            for group in groups.values {
+                // The token first — refreshing it is a request of its own, and it must outlast the question (which
+                // may read files) — then the question, then the request.
+                _ = try await bearer(lasting: 300)
+                let going = await allowed(group)
+                guard !going.isEmpty else { continue }
+                let _: [LabelTrack] = try await upsert("label_tracks", going, onConflict: "id")
+                outcome.sent.formUnion(going.map(\.id))
+            }
+        } catch {
+            outcome.failure = error
         }
+        return outcome
     }
 
     func projectStates() async throws -> [LabelProjectState] {
@@ -356,7 +601,7 @@ actor LabelingClient {
         var request = URLRequest(url: base.appending(path: "storage/v1/object/\(Self.bucket)/\(path)"))
         request.httpMethod = "POST"
         request.setValue(apiKey, forHTTPHeaderField: "apikey")
-        request.setValue("Bearer \(try await bearer(lasting: 45 * 60))", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(try await bearer(lasting: Self.transferLasting))", forHTTPHeaderField: "Authorization")
         request.setValue("video/mp4", forHTTPHeaderField: "Content-Type")
         request.setValue("true", forHTTPHeaderField: "x-upsert")
         let delegate = progress.map(TransferProgress.init)
@@ -606,7 +851,7 @@ actor LabelingClient {
     // MARK: - Plumbing
 
     private func send(_ request: URLRequest) async throws -> Data {
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await transport(request)
         try Self.check(data, response)
         return data
     }
@@ -623,6 +868,7 @@ actor LabelingClient {
     private static let encoder: JSONEncoder = {
         let e = JSONEncoder()
         e.keyEncodingStrategy = .convertToSnakeCase
+        e.userInfo[LabelVideo.publicationKey] = true   // rows published without their backlog (only setBacklog writes it)
         e.dateEncodingStrategy = .iso8601
         return e
     }()
@@ -657,7 +903,7 @@ private final class TransferProgress: NSObject, URLSessionTaskDelegate, @uncheck
 
 /// The labeling session's refresh token, in the Keychain.
 private enum Keychain {
-    private static let service = "app.BumpSetCut.labeling"
+    private static var service: String { LabelingClient.keychainService }
     private static let account = "refresh-token"
 
     static var refreshToken: String? {

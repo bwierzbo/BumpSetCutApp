@@ -19,8 +19,10 @@
 //  it with that one file left out.
 //
 //  The project's own data.yaml (images/train, images/val) is NOT a lineage
-//  dataset: it knows nothing of reservations. A lineage trains only from a
-//  package written here with a passing preflight.
+//  dataset: its writer keeps withheld recordings' frames out of it
+//  (DatasetStore.writeLabels), but nothing plans, audits or hashes that
+//  folder. A lineage trains only from a package written here with a passing
+//  preflight.
 //
 //    RallyLab --project Scratch --package-l2 [--dry-run] [--long-side 512]
 //
@@ -56,6 +58,8 @@ enum LineagePackage {
         var identities: [String]
         var reviewedFrames: Int
         var ralliesMarked: Bool
+        /// The recording's cut ranges (not footage; D-030), normalised; nil when it has none.
+        var cuts: [CutRange]? = nil
     }
 
     struct AuditSummary: Codable, Equatable {
@@ -104,13 +108,18 @@ enum LineagePackage {
         }
     }
 
-    /// Identity keys as ReservedVideos.closure sees them, from the manifest row.
+    /// Identity keys as ReservedVideos.closure sees them, from the manifest row — plus the content of the
+    /// file the session is read from today. A card's stored fingerprint names the file it was registered
+    /// from, which can be another recording's video (a cut registered from a cut): on 2026-10-25 three
+    /// train cards registered with the bytes of lineage-holdout videos were packaged because only stored
+    /// identities met stored identities here, and only content met content in the preflight (D-036).
     static func identities(of v: ManifestVideo) -> [String] {
-        var ids: [String] = []
-        if let f = v.fingerprint { ids.append("fp:" + f) }
-        if let s = v.sourceId.value, !s.isEmpty { ids.append("src:" + s) }
-        if let s = v.sessionId.value, !s.isEmpty { ids.append("ses:" + s) }
-        if let s = v.venueId.value, !s.isEmpty { ids.append("ven:" + s) }
+        var ids = Set<String>()
+        if let f = v.fingerprint { ids.insert("fp:" + f) }
+        if let f = v.contentFingerprint { ids.insert("fp:" + f) }
+        if let s = v.sourceId.value, !s.isEmpty { ids.insert("src:" + s) }
+        if let s = v.sessionId.value, !s.isEmpty { ids.insert("ses:" + s) }
+        if let s = v.venueId.value, !s.isEmpty { ids.insert("ven:" + s) }
         return ids.sorted()
     }
 
@@ -121,6 +130,22 @@ enum LineagePackage {
     /// The plan fails when the two disagree on any recording.
     static func plan(manifest: DatasetSplitManifest, audit: DatasetAudit, withheldClosure: Set<String>,
                      generator: String, now: Date = Date()) throws -> Plan {
+        let (withheld, eligible) = try isolation(manifest: manifest, audit: audit, withheldClosure: withheldClosure)
+        guard eligible.contains(where: { $0.packageSplit == "train" }) else { throw PlanError.noTrain }
+        guard eligible.contains(where: { $0.packageSplit == "val" }) else { throw PlanError.noVal }
+
+        let counts = Dictionary(grouping: audit.findings, by: \.severity).mapValues(\.count)
+        return Plan(lineage: lineage, project: manifest.project, createdAt: now, generator: generator,
+                    manifestHashes: manifest.hashes,
+                    audit: AuditSummary(hard: counts[.hard] ?? 0, soft: counts[.soft] ?? 0, info: counts[.info] ?? 0),
+                    withheld: withheld, withheldClosure: withheldClosure.sorted(), eligible: eligible)
+    }
+
+    /// The isolation every training package from the manifest must pass, whatever model it is for (the lineage
+    /// package, the rally-classifier dataset): no hard audit finding; every reserved row withheld; the closure and
+    /// the manifest agree on every recording; and no identity or alias group shared between a recording that may be
+    /// packaged and a withheld one. Throws the first violation; returns the withheld rows and the rest.
+    static func isolation(manifest: DatasetSplitManifest, audit: DatasetAudit, withheldClosure: Set<String>) throws -> (withheld: [Withheld], eligible: [Eligible]) {
         let hard = audit.findings.filter { $0.severity == .hard }.count
         guard hard == 0 else { throw PlanError.hardLeak(hard) }
 
@@ -132,8 +157,10 @@ enum LineagePackage {
                                          identities: identities(of: v)))
             } else {
                 let packageSplit = v.split == .train ? "train" : "val"
+                let cuts = (v.cuts ?? []).normalised()
                 eligible.append(Eligible(video: v.video, split: v.split, packageSplit: packageSplit, aliasGroup: v.aliasGroup,
-                                         identities: identities(of: v), reviewedFrames: v.reviewedFrames, ralliesMarked: v.ralliesMarked))
+                                         identities: identities(of: v), reviewedFrames: v.reviewedFrames, ralliesMarked: v.ralliesMarked,
+                                         cuts: cuts.isEmpty ? nil : cuts))
             }
         }
         let withheldNames = Set(withheld.map(\.video))
@@ -143,28 +170,36 @@ enum LineagePackage {
 
         // Exclusion closure, recomputed from the manifest rows: no identity and no alias group
         // may be shared between a packaged recording and a withheld one.
-        var identityOwner: [String: String] = [:]
-        var groupOwner: [String: String] = [:]
-        for w in withheld {
-            for id in w.identities { identityOwner[id] = w.video }
-            if let g = w.aliasGroup { groupOwner[g] = w.video }
-        }
+        let held = WithheldIdentities(withheld.map { (video: $0.video, identities: $0.identities, aliasGroup: $0.aliasGroup) })
         for e in eligible {
-            for id in e.identities {
-                if let w = identityOwner[id] { throw PlanError.sharedIdentity(eligible: e.video, withheld: w, identity: id) }
-            }
-            if let g = e.aliasGroup, let w = groupOwner[g] {
-                throw PlanError.sharedIdentity(eligible: e.video, withheld: w, identity: "aliasGroup:" + g)
+            if let hit = held.shared(identities: e.identities, aliasGroup: e.aliasGroup) {
+                throw PlanError.sharedIdentity(eligible: e.video, withheld: hit.withheld, identity: hit.identity)
             }
         }
-        guard eligible.contains(where: { $0.packageSplit == "train" }) else { throw PlanError.noTrain }
-        guard eligible.contains(where: { $0.packageSplit == "val" }) else { throw PlanError.noVal }
+        return (withheld, eligible)
+    }
 
-        let counts = Dictionary(grouping: audit.findings, by: \.severity).mapValues(\.count)
-        return Plan(lineage: lineage, project: manifest.project, createdAt: now, generator: generator,
-                    manifestHashes: manifest.hashes,
-                    audit: AuditSummary(hard: counts[.hard] ?? 0, soft: counts[.soft] ?? 0, info: counts[.info] ?? 0),
-                    withheld: withheld, withheldClosure: withheldClosure.sorted(), eligible: eligible)
+    /// The identities (`identities(of:)`) and alias groups of the withheld recordings, to hold any other recording
+    /// against: one rule for every consumer that must not use a withheld recording under another card.
+    struct WithheldIdentities {
+        private var identityOwner: [String: String] = [:]
+        private var groupOwner: [String: String] = [:]
+
+        init(_ withheld: [(video: String, identities: [String], aliasGroup: String?)]) {
+            for w in withheld {
+                for id in w.identities { identityOwner[id] = w.video }
+                if let g = w.aliasGroup { groupOwner[g] = w.video }
+            }
+        }
+
+        /// The withheld recording these identities or this alias group belong to as well, and which one, or nil.
+        func shared(identities: [String], aliasGroup: String?) -> (withheld: String, identity: String)? {
+            for id in identities {
+                if let w = identityOwner[id] { return (w, id) }
+            }
+            if let g = aliasGroup, let w = groupOwner[g] { return (w, "aliasGroup:" + g) }
+            return nil
+        }
     }
 
     // MARK: - Preflight of a written package
@@ -227,7 +262,7 @@ enum LineagePackage {
         var errorDescription: String? {
             switch self {
             case .protectedSourceUnknown(let name): return "Withheld recording \(name) has no content fingerprint: neither its cut file nor its session video is on this Mac (a link identity such as youtube:… cannot match an exported file). Bring its video back before packaging; nothing is packaged."
-            case .sourceUnreadable(let clip, let path): return "\(clip)'s video can't be fingerprinted: \(path). Nothing is packaged."
+            case .sourceUnreadable(let clip, let path): return "\(clip)'s video can't be fingerprinted: \(path) (is the footage share mounted and reachable?). Nothing is written."
             case .sourcesMissing(let names): return "\(names.count) eligible recording(s) with labels have no video here, and a lineage package never skips one: \(names.prefix(12).joined(separator: ", "))\(names.count > 12 ? " …" : ""). Bring every video back (or mount the footage) before packaging; nothing is packaged."
             }
         }
@@ -239,29 +274,41 @@ enum LineagePackage {
     /// fingerprints, so every withheld recording must yield at least one `file:` fingerprint
     /// — a link identity alone (`youtube:…`) can match nothing. Otherwise it throws: the
     /// recording's copies could not be recognised and the check would prove nothing.
+    /// A video that is present but can't be fingerprinted — a link into the footage share
+    /// while the share is down, an unreadable file — throws: skipping it would drop that
+    /// recording's content identity and let a copy of it through.
     static func protectedSourceFingerprints(sessions: [VideoSession], withheld: Set<String>, sources: [String: ClipSource]) throws -> Set<String> {
-        let fm = FileManager.default
         let byName = Dictionary(sessions.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
         var out = Set<String>()
         for name in withheld.sorted() {
             var mine = Set<String>()
+            func content(_ path: String) throws {
+                guard isPresent(path) else { return }
+                guard let f = ProjectsModel.fileFingerprint(atPath: path) else { throw SourceError.sourceUnreadable(clip: name, path: path) }
+                mine.insert(f)
+            }
             if let s = sources[name] {
                 if let f = ReservedVideos.effectiveFingerprint(s) { mine.insert(f) }
-                if fm.fileExists(atPath: s.clipFile), let f = ProjectsModel.fileFingerprint(atPath: s.clipFile) { mine.insert(f) }
+                try content(s.clipFile)
             }
-            if let session = byName[name], fm.fileExists(atPath: session.sourcePath),
-               let f = ProjectsModel.fileFingerprint(atPath: session.sourcePath) { mine.insert(f) }
+            if let session = byName[name] { try content(session.sourcePath) }
             guard mine.contains(where: { $0.hasPrefix("file:") }) else { throw SourceError.protectedSourceUnknown(name) }
             out.formUnion(mine)
         }
         return out
     }
 
+    /// Something is at `path`: a file or folder, or a symbolic link even when its target
+    /// can't be reached. A footage link whose share is down is unreadable, not "not here".
+    static func isPresent(_ path: String) -> Bool {
+        FileManager.default.fileExists(atPath: path) || (try? FileManager.default.destinationOfSymbolicLink(atPath: path)) != nil
+    }
+
     /// The fingerprint of the video each session is exported from, for the sessions whose
     /// video is here (the exporter skips the others). Throws when a present file can't be read.
     static func sourceFingerprints(of sessions: [VideoSession]) throws -> [String: String] {
         var out: [String: String] = [:]
-        for s in sessions where FileManager.default.fileExists(atPath: s.sourcePath) {
+        for s in sessions where isPresent(s.sourcePath) {
             guard let f = ProjectsModel.fileFingerprint(atPath: s.sourcePath) else { throw SourceError.sourceUnreadable(clip: s.name, path: s.sourcePath) }
             out[s.name] = f
         }
@@ -307,6 +354,14 @@ enum LineagePackage {
 
         let eligibleSplit = Dictionary(uniqueKeysWithValues: plan.eligible.map { ($0.video, $0.packageSplit) })
         let eligibleBySafe = Dictionary(plan.eligible.map { (DatasetStore.safeName($0.video), $0.video) }, uniquingKeysWith: { a, _ in a })
+        let eligibleCuts = Dictionary(uniqueKeysWithValues: plan.eligible.map { ($0.video, $0.cuts ?? []) })
+        // A frame file is named by its presentation time in µs; inside one of its clip's cut ranges it is not footage (D-030).
+        var inCut: [String] = []
+        func checkCut(_ path: String, clip: String) {
+            let parts = path.split(separator: "/").map(String.init)
+            guard parts.count == 3, let cuts = eligibleCuts[clip], !cuts.isEmpty, let µs = Int64(parts[2].dropLast(4)) else { return }
+            if cuts.contains(Double(µs) / 1_000_000) { inCut.append(path) }
+        }
         let withheldSafe = Set(plan.withheld.map { DatasetStore.safeName($0.video) })
         let withheldNames = plan.withheldNames
 
@@ -332,6 +387,7 @@ enum LineagePackage {
                 let parts = path.split(separator: "/").map(String.init)
                 guard parts.count == 3, parts[0] == "frames", eligibleBySafe[parts[1]] == clip, !withheldSafe.contains(parts[1])
                 else { badPaths.insert(path); continue }
+                checkCut(path, clip: clip)
             }
         }
 
@@ -405,7 +461,10 @@ enum LineagePackage {
             if path == recordFile && parts.count == 1 { continue }   // allowed, never hashed into its own record
             files.append(FileHash(path: path, sha256: sha, bytes: bytes))
             let frame = parts.count == 3 && parts[0] == "frames" && packaged(parts[1])
-            if frame { framesInFolder[parts[1], default: 0] += 1 }
+            if frame {
+                framesInFolder[parts[1], default: 0] += 1
+                if let clip = eligibleBySafe[parts[1]] { checkCut(path, clip: clip) }
+            }
             if !(own || frame) { stray.append(path) }
             if protectedHashes.contains(sha) { protected.append(path) }
         }
@@ -423,12 +482,21 @@ enum LineagePackage {
         // Every clip whose frames are in the package — with windows or without — is checked against the withheld identities.
         let packagedClips = Set(windowsByClip.keys).union(noWindowClips.compactMap { eligibleBySafe[$0] })
         var badSources: [String] = []
+        // Both of a packaged clip's file identities are held against the withheld ones: the file exported
+        // from, and the file its card was registered with (the plan's `fp:` identities) — the second is how
+        // a cut registered from a withheld recording's cut is recognised when its own bytes differ (D-036).
+        let registered = Dictionary(uniqueKeysWithValues: plan.eligible.map { e in
+            (e.video, e.identities.filter { $0.hasPrefix("fp:") }.map { String($0.dropFirst(3)) })
+        })
         for clip in packagedClips.sorted() {
             guard let fp = sourceFingerprints[clip] else { badSources.append("\(clip): no source fingerprint"); continue }
             if protectedSources.contains(fp) { badSources.append("\(clip): its video is a withheld recording's (\(fp.prefix(21))…)") }
+            for stored in (registered[clip] ?? []).sorted() where stored != fp && protectedSources.contains(stored) {
+                badSources.append("\(clip): its card was registered with a withheld recording's video (\(stored.prefix(21))…)")
+            }
         }
         check("sources-not-protected", badSources,
-              ok: "every packaged clip's video is fingerprinted and matches none of the \(protectedSources.count) withheld identities")
+              ok: "every packaged clip's video is fingerprinted, and neither it nor the file its card was registered with matches any of the \(protectedSources.count) withheld identities")
         // The same footage on both sides of the package (two sessions, two project identities, one
         // file) would let val score what train saw. Grouped by the file actually exported; a clip
         // without windows counts on its planned side, its frames being in the package all the same.
@@ -444,6 +512,10 @@ enum LineagePackage {
         let splits = Set(windowsByClip.values.flatMap(\.split))
         check("both-splits-present", splits.isSuperset(of: ["train", "val"]) ? [] : ["have: " + splits.sorted().joined(separator: ",")],
               ok: "train and val windows present")
+        let cutClips = plan.eligible.filter { !($0.cuts ?? []).isEmpty }
+        check("no-frame-in-cut-range", Array(Set(inCut)),
+              ok: cutClips.isEmpty ? "no eligible recording has a cut range"
+                : "no frame named by a window or in a clip's folder lies inside its recording's cut ranges (\(cutClips.count) recording(s), \(String(format: "%.1f", cutClips.reduce(0) { $0 + ($1.cuts ?? []).reduce(0) { $0 + $1.seconds } })) s cut; D-030)")
         // …and each recorded frame is absent: no file for it, no window that names it; the counts agree.
         for (clip, entry) in undecodableByClip.sorted(by: { $0.key < $1.key }) {
             for path in entry.frames.sorted() {
@@ -518,7 +590,8 @@ enum LineagePackage {
             guard let split = planned[s.name] else { return nil }
             return VideoSession(name: s.name, sourcePath: s.sourcePath, split: split, addedAt: s.addedAt, frames: s.frames,
                                 rejected: s.rejected, tracks: s.tracks.map(Self.humanLabeled), ralliesMarked: s.ralliesMarked,
-                                syncedTrackIds: s.syncedTrackIds, notRallies: s.notRallies, fittedTracks: s.fittedTracks, netBox: s.netBox)
+                                syncedTrackIds: s.syncedTrackIds, notRallies: s.notRallies, fittedTracks: s.fittedTracks, netBox: s.netBox,
+                                cuts: s.cuts)
         }
         let missing = out.filter { MultiFramePackage.contributes($0) && !FileManager.default.fileExists(atPath: $0.sourcePath) }
         guard missing.isEmpty else { throw SourceError.sourcesMissing(missing.map(\.name).sorted()) }
@@ -651,8 +724,11 @@ enum LineagePackage {
 
         """
         for w in plan.withheld { md += "| \(w.video) | \(w.split.rawValue) | \(w.reservedAs ?? "—") | \(w.aliasGroup ?? "—") |\n" }
-        md += "\n## Eligible\n\n| Recording | Manifest split | Package split | Reviewed frames | Rallies marked |\n|---|---|---|---|---|\n"
-        for e in plan.eligible { md += "| \(e.video) | \(e.split.rawValue) | \(e.packageSplit) | \(e.reviewedFrames) | \(e.ralliesMarked ? "yes" : "no") |\n" }
+        md += "\n## Eligible\n\n| Recording | Manifest split | Package split | Reviewed frames | Rallies marked | Cut s |\n|---|---|---|---|---|---|\n"
+        for e in plan.eligible {
+            let cut = (e.cuts ?? []).reduce(0) { $0 + $1.seconds }
+            md += "| \(e.video) | \(e.split.rawValue) | \(e.packageSplit) | \(e.reviewedFrames) | \(e.ralliesMarked ? "yes" : "no") | \(cut == 0 ? "—" : String(format: "%.1f", cut)) |\n"
+        }
         return md
     }
 

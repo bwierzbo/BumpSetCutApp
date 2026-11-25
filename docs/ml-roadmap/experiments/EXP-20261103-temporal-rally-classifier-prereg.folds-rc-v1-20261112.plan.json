@@ -1,0 +1,707 @@
+{
+ "schemaVersion": "rally_classifier_folds_v1",
+ "createdAt": "2026-11-13T08:37:36Z",
+ "dataset": {
+  "name": "rc-v1-20261112",
+  "manifestSha256": "eaa95c08d2fd010b75cca1b88b9c52b487206f34561f70515efc45553911af74",
+  "digest": "1b1e68986311e7cef4e02a04dd248259d07aef03ebbd567a39464c0e414a180f"
+ },
+ "procedure": "fold_draw_v1",
+ "seed": 20261103,
+ "folds": 5,
+ "stratify": "every-fold",
+ "maxShuffles": 1000,
+ "balanceTolerance": 0.25,
+ "shuffle": 6,
+ "surfacesNotInEveryFold": [],
+ "groups": [
+  {
+   "groupId": "bch_ele_ovc_land_self_02",
+   "firstRecording": "bch_ele_ovc_land_self_02",
+   "surface": "beach",
+   "fold": 4,
+   "recordings": [
+    "bch_ele_ovc_land_self_02",
+    "bch_ele_ovc_land_self_02_v2",
+    "bch_ele_ovc_land_self_02_v3",
+    "bch_ele_ovc_land_self_02_v4",
+    "bch_ele_ovc_land_self_02_v5",
+    "bch_onl_sun_land_onl_01",
+    "bch_onl_sun_land_onl_01_v2",
+    "bch_sid_sun_land_self_03"
+   ]
+  },
+  {
+   "groupId": "bch_ele_sun_port_self_03",
+   "firstRecording": "bch_ele_sun_port_self_03",
+   "surface": "beach",
+   "fold": 0,
+   "recordings": [
+    "bch_ele_sun_port_self_03"
+   ]
+  },
+  {
+   "groupId": "bch_extra_self_04",
+   "firstRecording": "bch_extra_self_04",
+   "surface": "beach",
+   "fold": 3,
+   "recordings": [
+    "bch_extra_self_04"
+   ]
+  },
+  {
+   "groupId": "bch_extra_self_12",
+   "firstRecording": "bch_extra_self_12",
+   "surface": "beach",
+   "fold": 1,
+   "recordings": [
+    "bch_extra_self_12"
+   ]
+  },
+  {
+   "groupId": "bch_gnd_ovc_land_self_01",
+   "firstRecording": "bch_gnd_ovc_land_self_01",
+   "surface": "beach",
+   "fold": 1,
+   "recordings": [
+    "bch_gnd_ovc_land_self_01",
+    "bch_gnd_ovc_land_self_01_v2"
+   ]
+  },
+  {
+   "groupId": "bch_gnd_sun_land_self_02_v3",
+   "firstRecording": "bch_gnd_sun_land_self_02_v3",
+   "surface": "beach",
+   "fold": 2,
+   "recordings": [
+    "bch_gnd_sun_land_self_02_v3"
+   ]
+  },
+  {
+   "groupId": "bch_onl_ovc_land_onl_02",
+   "firstRecording": "bch_onl_ovc_land_onl_02",
+   "surface": "beach",
+   "fold": 0,
+   "recordings": [
+    "bch_onl_ovc_land_onl_02",
+    "bch_onl_ovc_land_onl_02_v2",
+    "bch_onl_ovc_land_onl_02_v3",
+    "bch_onl_ovc_land_onl_02_v4"
+   ]
+  },
+  {
+   "groupId": "grs_ele_dusk_port_self_03",
+   "firstRecording": "grs_ele_dusk_port_self_03",
+   "surface": "grass",
+   "fold": 3,
+   "recordings": [
+    "grs_ele_dusk_port_self_03",
+    "grs_ele_dusk_port_self_03_v2"
+   ]
+  },
+  {
+   "groupId": "grs_ele_sun_land_self_01_v2",
+   "firstRecording": "grs_ele_sun_land_self_01_v2",
+   "surface": "grass",
+   "fold": 2,
+   "recordings": [
+    "grs_ele_sun_land_self_01_v2",
+    "grs_ele_sun_land_self_01_v3"
+   ]
+  },
+  {
+   "groupId": "grs_extra_self_04",
+   "firstRecording": "grs_extra_self_04",
+   "surface": "grass",
+   "fold": 4,
+   "recordings": [
+    "grs_extra_self_04"
+   ]
+  },
+  {
+   "groupId": "grs_gnd_sun_land_self_01",
+   "firstRecording": "grs_gnd_sun_land_self_01",
+   "surface": "grass",
+   "fold": 3,
+   "recordings": [
+    "grs_gnd_sun_land_self_01",
+    "grs_gnd_sun_land_self_01_v3",
+    "grs_gnd_sun_land_self_01_v5"
+   ]
+  },
+  {
+   "groupId": "grs_hnd_shade_port_self_02",
+   "firstRecording": "grs_hnd_shade_port_self_02",
+   "surface": "grass",
+   "fold": 0,
+   "recordings": [
+    "grs_hnd_shade_port_self_02",
+    "grs_onl_shade_land_onl_02",
+    "grs_onl_sun_land_onl_01"
+   ]
+  },
+  {
+   "groupId": "grs_onl_sun_land_onl_04",
+   "firstRecording": "grs_onl_sun_land_onl_04",
+   "surface": "grass",
+   "fold": 2,
+   "recordings": [
+    "grs_onl_sun_land_onl_04",
+    "grs_sid_shade_land_self_02_v2"
+   ]
+  },
+  {
+   "groupId": "grs_tri_sun_land_self_01",
+   "firstRecording": "grs_tri_sun_land_self_01",
+   "surface": "grass",
+   "fold": 1,
+   "recordings": [
+    "grs_tri_sun_land_self_01"
+   ]
+  },
+  {
+   "groupId": "ind_ele_bright_land_self_01",
+   "firstRecording": "ind_ele_bright_land_self_01",
+   "surface": "indoor",
+   "fold": 0,
+   "recordings": [
+    "ind_ele_bright_land_self_01"
+   ]
+  },
+  {
+   "groupId": "ind_ele_dim_land_self_02",
+   "firstRecording": "ind_ele_dim_land_self_02",
+   "surface": "indoor",
+   "fold": 2,
+   "recordings": [
+    "ind_ele_dim_land_self_02",
+    "ind_ele_dim_land_self_02_v2"
+   ]
+  },
+  {
+   "groupId": "ind_ele_dim_land_self_04",
+   "firstRecording": "ind_ele_dim_land_self_04",
+   "surface": "indoor",
+   "fold": 4,
+   "recordings": [
+    "ind_ele_dim_land_self_04"
+   ]
+  },
+  {
+   "groupId": "ind_extra_self_07",
+   "firstRecording": "ind_extra_self_07",
+   "surface": "indoor",
+   "fold": 4,
+   "recordings": [
+    "ind_extra_self_07"
+   ]
+  },
+  {
+   "groupId": "ind_extra_self_08",
+   "firstRecording": "ind_extra_self_08",
+   "surface": "indoor",
+   "fold": 1,
+   "recordings": [
+    "ind_extra_self_08"
+   ]
+  },
+  {
+   "groupId": "ind_gnd_bright_land_self_01",
+   "firstRecording": "ind_gnd_bright_land_self_01",
+   "surface": "indoor",
+   "fold": 1,
+   "recordings": [
+    "ind_gnd_bright_land_self_01",
+    "ind_gnd_bright_land_self_01_v2",
+    "ind_gnd_bright_land_self_01_v4"
+   ]
+  },
+  {
+   "groupId": "ind_gnd_bright_port_self_03",
+   "firstRecording": "ind_gnd_bright_port_self_03",
+   "surface": "indoor",
+   "fold": 3,
+   "recordings": [
+    "ind_gnd_bright_port_self_03"
+   ]
+  },
+  {
+   "groupId": "ind_hnd_dim_land_self_02",
+   "firstRecording": "ind_hnd_dim_land_self_02",
+   "surface": "indoor",
+   "fold": 3,
+   "recordings": [
+    "ind_hnd_dim_land_self_02"
+   ]
+  },
+  {
+   "groupId": "ind_onl_bright_land_onl_01",
+   "firstRecording": "ind_onl_bright_land_onl_01",
+   "surface": "indoor",
+   "fold": 0,
+   "recordings": [
+    "ind_onl_bright_land_onl_01",
+    "ind_onl_bright_land_onl_01_v2",
+    "ind_onl_bright_land_onl_01_v3",
+    "ind_onl_bright_land_onl_01_v4"
+   ]
+  },
+  {
+   "groupId": "ind_tri_bright_land_self_01_v3",
+   "firstRecording": "ind_tri_bright_land_self_01_v3",
+   "surface": "indoor",
+   "fold": 2,
+   "recordings": [
+    "ind_tri_bright_land_self_01_v3"
+   ]
+  },
+  {
+   "groupId": "ind_tri_dim_port_self_02",
+   "firstRecording": "ind_tri_dim_port_self_02",
+   "surface": "indoor",
+   "fold": 4,
+   "recordings": [
+    "ind_tri_dim_port_self_02"
+   ]
+  }
+ ],
+ "recordings": {
+  "bch_ele_ovc_land_self_02": 4,
+  "bch_ele_ovc_land_self_02_v2": 4,
+  "bch_ele_ovc_land_self_02_v3": 4,
+  "bch_ele_ovc_land_self_02_v4": 4,
+  "bch_ele_ovc_land_self_02_v5": 4,
+  "bch_onl_sun_land_onl_01": 4,
+  "bch_onl_sun_land_onl_01_v2": 4,
+  "bch_sid_sun_land_self_03": 4,
+  "bch_ele_sun_port_self_03": 0,
+  "bch_extra_self_04": 3,
+  "bch_extra_self_12": 1,
+  "bch_gnd_ovc_land_self_01": 1,
+  "bch_gnd_ovc_land_self_01_v2": 1,
+  "bch_gnd_sun_land_self_02_v3": 2,
+  "bch_onl_ovc_land_onl_02": 0,
+  "bch_onl_ovc_land_onl_02_v2": 0,
+  "bch_onl_ovc_land_onl_02_v3": 0,
+  "bch_onl_ovc_land_onl_02_v4": 0,
+  "grs_ele_dusk_port_self_03": 3,
+  "grs_ele_dusk_port_self_03_v2": 3,
+  "grs_ele_sun_land_self_01_v2": 2,
+  "grs_ele_sun_land_self_01_v3": 2,
+  "grs_extra_self_04": 4,
+  "grs_gnd_sun_land_self_01": 3,
+  "grs_gnd_sun_land_self_01_v3": 3,
+  "grs_gnd_sun_land_self_01_v5": 3,
+  "grs_hnd_shade_port_self_02": 0,
+  "grs_onl_shade_land_onl_02": 0,
+  "grs_onl_sun_land_onl_01": 0,
+  "grs_onl_sun_land_onl_04": 2,
+  "grs_sid_shade_land_self_02_v2": 2,
+  "grs_tri_sun_land_self_01": 1,
+  "ind_ele_bright_land_self_01": 0,
+  "ind_ele_dim_land_self_02": 2,
+  "ind_ele_dim_land_self_02_v2": 2,
+  "ind_ele_dim_land_self_04": 4,
+  "ind_extra_self_07": 4,
+  "ind_extra_self_08": 1,
+  "ind_gnd_bright_land_self_01": 1,
+  "ind_gnd_bright_land_self_01_v2": 1,
+  "ind_gnd_bright_land_self_01_v4": 1,
+  "ind_gnd_bright_port_self_03": 3,
+  "ind_hnd_dim_land_self_02": 3,
+  "ind_onl_bright_land_onl_01": 0,
+  "ind_onl_bright_land_onl_01_v2": 0,
+  "ind_onl_bright_land_onl_01_v3": 0,
+  "ind_onl_bright_land_onl_01_v4": 0,
+  "ind_tri_bright_land_self_01_v3": 2,
+  "ind_tri_dim_port_self_02": 4
+ },
+ "report": {
+  "perFold": [
+   {
+    "fold": 0,
+    "groups": 5,
+    "groupIds": [
+     "bch_ele_sun_port_self_03",
+     "bch_onl_ovc_land_onl_02",
+     "grs_hnd_shade_port_self_02",
+     "ind_ele_bright_land_self_01",
+     "ind_onl_bright_land_onl_01"
+    ],
+    "surfaces": {
+     "beach": 2,
+     "grass": 1,
+     "indoor": 2
+    },
+    "all": {
+     "recordings": [
+      "bch_ele_sun_port_self_03",
+      "bch_onl_ovc_land_onl_02",
+      "bch_onl_ovc_land_onl_02_v2",
+      "bch_onl_ovc_land_onl_02_v3",
+      "bch_onl_ovc_land_onl_02_v4",
+      "grs_hnd_shade_port_self_02",
+      "grs_onl_shade_land_onl_02",
+      "grs_onl_sun_land_onl_01",
+      "ind_ele_bright_land_self_01",
+      "ind_onl_bright_land_onl_01",
+      "ind_onl_bright_land_onl_01_v2",
+      "ind_onl_bright_land_onl_01_v3",
+      "ind_onl_bright_land_onl_01_v4"
+     ],
+     "rallies": 170,
+     "positiveSec": 1947.714,
+     "validNegativeSec": 1032.759
+    },
+    "standard": {
+     "recordings": [
+      "grs_hnd_shade_port_self_02",
+      "grs_onl_shade_land_onl_02",
+      "grs_onl_sun_land_onl_01",
+      "ind_onl_bright_land_onl_01",
+      "ind_onl_bright_land_onl_01_v2",
+      "ind_onl_bright_land_onl_01_v3",
+      "ind_onl_bright_land_onl_01_v4"
+     ],
+     "rallies": 80,
+     "positiveSec": 836.285,
+     "validNegativeSec": 1032.759
+    },
+    "restricted": {
+     "recordings": [
+      "bch_ele_sun_port_self_03",
+      "bch_onl_ovc_land_onl_02",
+      "bch_onl_ovc_land_onl_02_v2",
+      "bch_onl_ovc_land_onl_02_v3",
+      "bch_onl_ovc_land_onl_02_v4",
+      "ind_ele_bright_land_self_01"
+     ],
+     "rallies": 90,
+     "positiveSec": 1111.429,
+     "validNegativeSec": 0.0
+    },
+    "groupsWithValidNegatives": 2
+   },
+   {
+    "fold": 1,
+    "groups": 5,
+    "groupIds": [
+     "bch_extra_self_12",
+     "bch_gnd_ovc_land_self_01",
+     "grs_tri_sun_land_self_01",
+     "ind_extra_self_08",
+     "ind_gnd_bright_land_self_01"
+    ],
+    "surfaces": {
+     "beach": 2,
+     "grass": 1,
+     "indoor": 2
+    },
+    "all": {
+     "recordings": [
+      "bch_extra_self_12",
+      "bch_gnd_ovc_land_self_01",
+      "bch_gnd_ovc_land_self_01_v2",
+      "grs_tri_sun_land_self_01",
+      "ind_extra_self_08",
+      "ind_gnd_bright_land_self_01",
+      "ind_gnd_bright_land_self_01_v2",
+      "ind_gnd_bright_land_self_01_v4"
+     ],
+     "rallies": 121,
+     "positiveSec": 814.239,
+     "validNegativeSec": 1036.39
+    },
+    "standard": {
+     "recordings": [
+      "bch_extra_self_12",
+      "bch_gnd_ovc_land_self_01",
+      "ind_extra_self_08",
+      "ind_gnd_bright_land_self_01",
+      "ind_gnd_bright_land_self_01_v2"
+     ],
+     "rallies": 47,
+     "positiveSec": 348.339,
+     "validNegativeSec": 1036.39
+    },
+    "restricted": {
+     "recordings": [
+      "bch_gnd_ovc_land_self_01_v2",
+      "grs_tri_sun_land_self_01",
+      "ind_gnd_bright_land_self_01_v4"
+     ],
+     "rallies": 74,
+     "positiveSec": 465.9,
+     "validNegativeSec": 0.0
+    },
+    "groupsWithValidNegatives": 4
+   },
+   {
+    "fold": 2,
+    "groups": 5,
+    "groupIds": [
+     "bch_gnd_sun_land_self_02_v3",
+     "grs_ele_sun_land_self_01_v2",
+     "grs_onl_sun_land_onl_04",
+     "ind_ele_dim_land_self_02",
+     "ind_tri_bright_land_self_01_v3"
+    ],
+    "surfaces": {
+     "beach": 1,
+     "grass": 2,
+     "indoor": 2
+    },
+    "all": {
+     "recordings": [
+      "bch_gnd_sun_land_self_02_v3",
+      "grs_ele_sun_land_self_01_v2",
+      "grs_ele_sun_land_self_01_v3",
+      "grs_onl_sun_land_onl_04",
+      "grs_sid_shade_land_self_02_v2",
+      "ind_ele_dim_land_self_02",
+      "ind_ele_dim_land_self_02_v2",
+      "ind_tri_bright_land_self_01_v3"
+     ],
+     "rallies": 124,
+     "positiveSec": 921.923,
+     "validNegativeSec": 1031.508
+    },
+    "standard": {
+     "recordings": [
+      "grs_ele_sun_land_self_01_v2",
+      "grs_ele_sun_land_self_01_v3",
+      "grs_sid_shade_land_self_02_v2",
+      "ind_ele_dim_land_self_02",
+      "ind_ele_dim_land_self_02_v2",
+      "ind_tri_bright_land_self_01_v3"
+     ],
+     "rallies": 77,
+     "positiveSec": 586.389,
+     "validNegativeSec": 1031.508
+    },
+    "restricted": {
+     "recordings": [
+      "bch_gnd_sun_land_self_02_v3",
+      "grs_onl_sun_land_onl_04"
+     ],
+     "rallies": 47,
+     "positiveSec": 335.533,
+     "validNegativeSec": 0.0
+    },
+    "groupsWithValidNegatives": 4
+   },
+   {
+    "fold": 3,
+    "groups": 5,
+    "groupIds": [
+     "bch_extra_self_04",
+     "grs_ele_dusk_port_self_03",
+     "grs_gnd_sun_land_self_01",
+     "ind_gnd_bright_port_self_03",
+     "ind_hnd_dim_land_self_02"
+    ],
+    "surfaces": {
+     "beach": 1,
+     "grass": 2,
+     "indoor": 2
+    },
+    "all": {
+     "recordings": [
+      "bch_extra_self_04",
+      "grs_ele_dusk_port_self_03",
+      "grs_ele_dusk_port_self_03_v2",
+      "grs_gnd_sun_land_self_01",
+      "grs_gnd_sun_land_self_01_v3",
+      "grs_gnd_sun_land_self_01_v5",
+      "ind_gnd_bright_port_self_03",
+      "ind_hnd_dim_land_self_02"
+     ],
+     "rallies": 154,
+     "positiveSec": 854.349,
+     "validNegativeSec": 862.858
+    },
+    "standard": {
+     "recordings": [
+      "bch_extra_self_04",
+      "grs_ele_dusk_port_self_03",
+      "grs_gnd_sun_land_self_01",
+      "ind_gnd_bright_port_self_03"
+     ],
+     "rallies": 43,
+     "positiveSec": 241.58,
+     "validNegativeSec": 862.858
+    },
+    "restricted": {
+     "recordings": [
+      "grs_ele_dusk_port_self_03_v2",
+      "grs_gnd_sun_land_self_01_v3",
+      "grs_gnd_sun_land_self_01_v5",
+      "ind_hnd_dim_land_self_02"
+     ],
+     "rallies": 111,
+     "positiveSec": 612.769,
+     "validNegativeSec": 0.0
+    },
+    "groupsWithValidNegatives": 4
+   },
+   {
+    "fold": 4,
+    "groups": 5,
+    "groupIds": [
+     "bch_ele_ovc_land_self_02",
+     "grs_extra_self_04",
+     "ind_ele_dim_land_self_04",
+     "ind_extra_self_07",
+     "ind_tri_dim_port_self_02"
+    ],
+    "surfaces": {
+     "beach": 1,
+     "grass": 1,
+     "indoor": 3
+    },
+    "all": {
+     "recordings": [
+      "bch_ele_ovc_land_self_02",
+      "bch_ele_ovc_land_self_02_v2",
+      "bch_ele_ovc_land_self_02_v3",
+      "bch_ele_ovc_land_self_02_v4",
+      "bch_ele_ovc_land_self_02_v5",
+      "bch_onl_sun_land_onl_01",
+      "bch_onl_sun_land_onl_01_v2",
+      "bch_sid_sun_land_self_03",
+      "grs_extra_self_04",
+      "ind_ele_dim_land_self_04",
+      "ind_extra_self_07",
+      "ind_tri_dim_port_self_02"
+     ],
+     "rallies": 167,
+     "positiveSec": 1255.584,
+     "validNegativeSec": 1711.355
+    },
+    "standard": {
+     "recordings": [
+      "bch_ele_ovc_land_self_02",
+      "bch_ele_ovc_land_self_02_v2",
+      "bch_ele_ovc_land_self_02_v4",
+      "bch_onl_sun_land_onl_01",
+      "bch_onl_sun_land_onl_01_v2",
+      "bch_sid_sun_land_self_03",
+      "grs_extra_self_04",
+      "ind_extra_self_07",
+      "ind_tri_dim_port_self_02"
+     ],
+     "rallies": 93,
+     "positiveSec": 756.291,
+     "validNegativeSec": 1711.355
+    },
+    "restricted": {
+     "recordings": [
+      "bch_ele_ovc_land_self_02_v3",
+      "bch_ele_ovc_land_self_02_v5",
+      "ind_ele_dim_land_self_04"
+     ],
+     "rallies": 74,
+     "positiveSec": 499.293,
+     "validNegativeSec": 0.0
+    },
+    "groupsWithValidNegatives": 4
+   }
+  ],
+  "totals": {
+   "groups": 25,
+   "recordings": [
+    "bch_ele_ovc_land_self_02",
+    "bch_ele_ovc_land_self_02_v2",
+    "bch_ele_ovc_land_self_02_v3",
+    "bch_ele_ovc_land_self_02_v4",
+    "bch_ele_ovc_land_self_02_v5",
+    "bch_ele_sun_port_self_03",
+    "bch_extra_self_04",
+    "bch_extra_self_12",
+    "bch_gnd_ovc_land_self_01",
+    "bch_gnd_ovc_land_self_01_v2",
+    "bch_gnd_sun_land_self_02_v3",
+    "bch_onl_ovc_land_onl_02",
+    "bch_onl_ovc_land_onl_02_v2",
+    "bch_onl_ovc_land_onl_02_v3",
+    "bch_onl_ovc_land_onl_02_v4",
+    "bch_onl_sun_land_onl_01",
+    "bch_onl_sun_land_onl_01_v2",
+    "bch_sid_sun_land_self_03",
+    "grs_ele_dusk_port_self_03",
+    "grs_ele_dusk_port_self_03_v2",
+    "grs_ele_sun_land_self_01_v2",
+    "grs_ele_sun_land_self_01_v3",
+    "grs_extra_self_04",
+    "grs_gnd_sun_land_self_01",
+    "grs_gnd_sun_land_self_01_v3",
+    "grs_gnd_sun_land_self_01_v5",
+    "grs_hnd_shade_port_self_02",
+    "grs_onl_shade_land_onl_02",
+    "grs_onl_sun_land_onl_01",
+    "grs_onl_sun_land_onl_04",
+    "grs_sid_shade_land_self_02_v2",
+    "grs_tri_sun_land_self_01",
+    "ind_ele_bright_land_self_01",
+    "ind_ele_dim_land_self_02",
+    "ind_ele_dim_land_self_02_v2",
+    "ind_ele_dim_land_self_04",
+    "ind_extra_self_07",
+    "ind_extra_self_08",
+    "ind_gnd_bright_land_self_01",
+    "ind_gnd_bright_land_self_01_v2",
+    "ind_gnd_bright_land_self_01_v4",
+    "ind_gnd_bright_port_self_03",
+    "ind_hnd_dim_land_self_02",
+    "ind_onl_bright_land_onl_01",
+    "ind_onl_bright_land_onl_01_v2",
+    "ind_onl_bright_land_onl_01_v3",
+    "ind_onl_bright_land_onl_01_v4",
+    "ind_tri_bright_land_self_01_v3",
+    "ind_tri_dim_port_self_02"
+   ],
+   "rallies": 736,
+   "positiveSec": 5793.808,
+   "validNegativeSec": 5674.87,
+   "restrictedRecordings": [
+    "bch_ele_ovc_land_self_02_v3",
+    "bch_ele_ovc_land_self_02_v5",
+    "bch_ele_sun_port_self_03",
+    "bch_gnd_ovc_land_self_01_v2",
+    "bch_gnd_sun_land_self_02_v3",
+    "bch_onl_ovc_land_onl_02",
+    "bch_onl_ovc_land_onl_02_v2",
+    "bch_onl_ovc_land_onl_02_v3",
+    "bch_onl_ovc_land_onl_02_v4",
+    "grs_ele_dusk_port_self_03_v2",
+    "grs_gnd_sun_land_self_01_v3",
+    "grs_gnd_sun_land_self_01_v5",
+    "grs_onl_sun_land_onl_04",
+    "grs_tri_sun_land_self_01",
+    "ind_ele_bright_land_self_01",
+    "ind_ele_dim_land_self_04",
+    "ind_gnd_bright_land_self_01_v4",
+    "ind_hnd_dim_land_self_02"
+   ]
+  },
+  "negativeCoverage": {
+   "groupsWithValidNegatives": 18,
+   "groups": 25,
+   "fraction": 0.72,
+   "groupsWithoutValidNegatives": [
+    "bch_ele_sun_port_self_03",
+    "bch_gnd_sun_land_self_02_v3",
+    "bch_onl_ovc_land_onl_02",
+    "grs_tri_sun_land_self_01",
+    "ind_ele_bright_land_self_01",
+    "ind_ele_dim_land_self_04",
+    "ind_hnd_dim_land_self_02"
+   ],
+   "preregistrationG6": "at least 12 of the 18 groups contribute negatives (stated for the groups of 2026-11-03)",
+   "countAtLeast12": true,
+   "fractionAtLeast12Of18": true,
+   "foldsWithoutValidNegatives": []
+  },
+  "mixedSurfaceGroups": []
+ }
+}

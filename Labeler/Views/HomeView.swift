@@ -1,33 +1,44 @@
 //
-//  NextView.swift
+//  HomeView.swift
 //  RallyLab (iPhone)
 //
-//  Where the app opens: the round's progress, what you did today, and one
-//  big card with the most useful thing to do next (from the training plan)
-//  — then the few after it, and keeping their clips on the phone for when
-//  there's no signal.
+//  Where the app opens: what needs you, first — the most useful video to
+//  mark or rally to track (from the training plan), the labels waiting for
+//  a check, the coverage audit's intervals (the lead's), the recordings
+//  whose footage type nobody has said — each a card that opens its tool.
+//  Then how far the marking and the round are, the tasks after the first,
+//  and keeping their clips on the phone for when there's no signal.
 //
 
 import SwiftUI
 
-struct NextView: View {
+struct HomeView: View {
     @Bindable var model: LabelerModel
+    /// The lead's coverage audit as this phone holds it (nothing is loaded or opened from here).
+    let audit: AuditModel
     @Binding var path: NavigationPath
+    /// Shows one of the other tabs: a card's tool.
+    let show: (MainTabs.Selection) -> Void
     @State private var offlineBusy = false
+    @State private var skipping: LabelVideo?
 
     var body: some View {
         let tasks = model.tasks
         let progress = model.progress
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                markingCard(model.marking)
-                roundCard(progress)
                 if let first = tasks.first {
                     NavigationLink(value: first) { taskCard(first, big: true) }.buttonStyle(.plain)
+                    Button { skipping = first.video } label: { Label("Skip this video…", systemImage: "arrow.uturn.forward") }
+                        .font(.callout).padding(.horizontal, 4)
                 } else {
                     ContentUnavailableView("Nothing to do", systemImage: "checkmark.seal",
                                            description: Text("Every video's rallies are marked and the round has its frames. Sync from RallyLab on the Mac for more."))
                 }
+                tools
+                Text("Progress").font(.headline)
+                markingCard(model.marking)
+                roundCard(progress)
                 if tasks.count > 1 {
                     Text("Up next").font(.headline)
                     ForEach(tasks.dropFirst().prefix(5)) { task in
@@ -40,7 +51,8 @@ struct NextView: View {
         }
         .refreshable { await model.reload() }
         .onAppear { model.prefetch() }
-        .navigationTitle("Next")
+        .backlogDialog(video: $skipping, model: model)
+        .navigationTitle("Home")
         .toolbar {
             if model.isOffline || !model.outbox.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -50,6 +62,59 @@ struct NextView: View {
                 }
             }
         }
+    }
+
+    /// The other tools, each with what it has waiting: the checks, the audit (a lead's), the footage types to say.
+    @ViewBuilder
+    private var tools: some View {
+        let checks = model.rallyChecks().count + model.reviewItems([.crop, .noBall]).count
+        let footage = model.footageTypeToConfirm.count
+        VStack(spacing: 10) {
+            toolCard("Check labels", checks == 0 ? "Nothing waiting for a check" : "Found rallies and uncertain frames to confirm",
+                     icon: "checkmark.rectangle.stack", waiting: checks) { show(.review) }
+            if model.snapshot.lead {
+                let (detail, left) = auditState
+                toolCard("Coverage audit", detail, icon: "checklist", waiting: left) { show(.audit) }
+            }
+            if footage > 0 {
+                toolCard("Footage type", "Marked through; say whether each is continuous or edited", icon: "film.stack", waiting: footage) { show(.videos) }
+            }
+        }
+    }
+
+    /// Where the audit stands on this phone, in the pass it is in, and the intervals that pass still owes a look.
+    private var auditState: (detail: String, left: Int) {
+        guard let t = audit.totals else { return (audit.syncNote ?? "Open it to load the published draw", 0) }
+        let pending = t.pending > 0 ? " · \(t.pending) to send" : ""
+        switch audit.pass {
+        case .first: return ("\(t.reviewed) of \(t.total) intervals reviewed" + pending, t.left)
+        case .repeatLook: return ((t.left == 0 ? "No second look is due" : "Second looks are due") + pending, t.left)
+        case .resolution: return ((t.left == 0 ? "Nothing to resolve" : "Disagreements to resolve") + pending, t.left)
+        }
+    }
+
+    private func toolCard(_ title: String, _ detail: String, icon: String, waiting: Int, open: @escaping () -> Void) -> some View {
+        Button(action: open) {
+            HStack(spacing: 14) {
+                Image(systemName: icon).font(.title2).foregroundStyle(Color.accentColor).frame(width: 34)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title).font(.headline)
+                    Text(detail).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.leading)
+                }
+                Spacer()
+                if waiting > 0 {
+                    Text("\(waiting)").font(.callout.monospacedDigit().weight(.semibold))
+                        .padding(.horizontal, 9).padding(.vertical, 3)
+                        .background(Color.accentColor.opacity(0.18), in: Capsule())
+                }
+                Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+            }
+            .padding(12)
+            .frame(minHeight: 44)
+            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     /// Videos marked through, left, and the footage still to watch, per surface.
@@ -178,7 +243,7 @@ struct NextView: View {
     }
 }
 
-extension NextView {
+extension HomeView {
     /// Where a rally you left part way through stands.
     static func progress(_ t: LabelTrack) -> String {
         let n = t.points.points.count
@@ -196,5 +261,37 @@ extension LabelerModel.LabelTask {
         case .review(let v): MarkRalliesView(model: model, video: v)
         case .track(let v, let r): TrackTaskView(model: model, video: v, span: r)
         }
+    }
+}
+
+/// "Skip this video…": the reasons on offer; the choice sets the recording aside (the backlog, migration 053) —
+/// it leaves the queue on both devices until put back, and the marks made so far stay.
+struct BacklogDialog: ViewModifier {
+    @Binding var video: LabelVideo?
+    let model: LabelerModel
+    var afterSkip: () -> Void = {}
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog("Skip this video?", isPresented: Binding(get: { video != nil }, set: { if !$0 { video = nil } }),
+                                   titleVisibility: .visible, presenting: video) { v in
+            ForEach(BacklogReason.allCases, id: \.self) { reason in
+                Button(reason.title) { model.setBacklog(v, reason: reason.rawValue); afterSkip() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { v in
+            Text("\(v.name) leaves the queue on the phone and the Mac until it is put back (Videos → Backlog). The rallies marked so far stay.")
+        }
+    }
+}
+
+extension View {
+    func backlogDialog(video: Binding<LabelVideo?>, model: LabelerModel, afterSkip: @escaping () -> Void = {}) -> some View {
+        modifier(BacklogDialog(video: video, model: model, afterSkip: afterSkip))
+    }
+
+    /// The same, for one known video and a yes/no flag.
+    func backlogDialog(isPresented: Binding<Bool>, video: LabelVideo, model: LabelerModel, afterSkip: @escaping () -> Void = {}) -> some View {
+        modifier(BacklogDialog(video: Binding(get: { isPresented.wrappedValue ? video : nil }, set: { isPresented.wrappedValue = $0 != nil }),
+                               model: model, afterSkip: afterSkip))
     }
 }

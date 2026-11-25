@@ -129,6 +129,11 @@ struct IngestJob: Identifiable, Equatable {
     var sessionName: String? = nil
     var split: String? = nil
     var framesPerRally: Int? = nil
+    /// The dataset the job was queued for: its session, frames and labels go there, whatever dataset is current
+    /// when the job runs or finishes (the project can be switched meanwhile).
+    var root: URL? = nil
+    /// The cut ranges of the session this job replaces (a re-pull; D-030): kept on the new one.
+    var cuts: [CutRange]? = nil
     var state: State = .pending
     /// How far through the job is, 0–1, while running: finding rallies is
     /// the first half, extracting and pre-labeling frames the rest.
@@ -140,6 +145,50 @@ struct IngestJob: Identifiable, Equatable {
         if case .done = state { return true }
         if case .failed = state { return true }
         return false
+    }
+}
+
+/// The two places an ingest runs a model, and the only way it reaches one: the pipeline over the whole video
+/// (ball detector → tracker → rally decision) and the detector that pre-labels each still. A recording that is
+/// registered without sampling (`SamplerModel.Admission.registeredOnly`) gets its session without either
+/// being asked for; a test passes stand-ins that count the runs.
+struct IngestModels {
+    /// One still's pre-labels.
+    typealias Prelabel = (CGImage, CMTime) -> [DetectionResult]
+
+    /// A video's frame evidence and its duration; `progress` hears 0–1 while it runs.
+    var pipeline: @MainActor (_ video: URL, _ progress: @escaping @MainActor (Double) -> Void) async throws
+        -> (evidence: [VideoProcessor.FrameEvidence], duration: Double)
+    /// The pre-labeler at a confidence, from a Models-tab model or the app's own (nil). Made where it is
+    /// used, off the main thread.
+    var prelabeler: @Sendable (_ confidence: Float, _ model: URL?) -> Prelabel
+
+    /// RallyLab's own: the app's pipeline at its defaults, and the pre-label model at the pre-label
+    /// threshold with static-object suppression off — every frame is judged on its own.
+    static var app: IngestModels {
+        IngestModels(
+            pipeline: { video, progress in
+                let processor = VideoProcessor()
+                processor.config = ProcessorConfig()
+                processor.collectFrameEvidence = true
+                let watch = Task { @MainActor [weak processor] in
+                    while !Task.isCancelled, let processor {
+                        progress(processor.progress)
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                    }
+                }
+                defer { watch.cancel() }
+                do {
+                    _ = try await processor.analyzeVideo(video)
+                } catch ProcessingError.noRalliesDetected {
+                    // Fine: random frames and any hand labels still apply.
+                }
+                return (processor.frameEvidence, processor.lastVideoDurationSec)
+            },
+            prelabeler: { confidence, model in
+                let detector = SamplerModel.detector(model: model, confidence: confidence)
+                return { detector.detect(in: $0, at: $1) }
+            })
     }
 }
 
@@ -247,6 +296,9 @@ final class SamplerModel {
     /// the canvas to show a ring while it looks.
     private(set) var snapping: CGPoint?
     @ObservationIgnored private let snapDetector = SnapDetector()
+    /// The click-to-box detector's admission over the session under review (`snapAdmission`), asked at every
+    /// click: it follows the reservations as they are then.
+    @ObservationIgnored private var snapAdmitted = ScoringExposure.OpenAdmission(ask: SamplerModel.snapAdmission)
     /// Frames already checked for balls that stayed put, this session.
     @ObservationIgnored private var heldChecked: Set<UUID> = []
     private var loadTask: Task<Void, Never>?
@@ -255,9 +307,18 @@ final class SamplerModel {
     nonisolated static let reviewMaxPixel = 1600
     private static let rootKey = "RallyLab.datasetRoot"
 
-    init() {
-        let saved = UserDefaults.standard.string(forKey: Self.rootKey).map { URL(fileURLWithPath: $0, isDirectory: true) }
-        let root = saved ?? DatasetStore.defaultRoot
+    /// Where the dataset root and the review place are remembered. Tests pass their own suite and root: a
+    /// fixture never becomes the dataset RallyLab opens next, and the person's dataset is not read. The Audit tab
+    /// remembers its draw in the same place (CoverageAuditModel).
+    let defaults: UserDefaults
+    /// What an ingest runs a model through (see IngestModels).
+    private let models: IngestModels
+
+    init(defaults: UserDefaults = .standard, root: URL? = nil, models: IngestModels = .app) {
+        self.defaults = defaults
+        self.models = models
+        let saved = defaults.string(forKey: Self.rootKey).map { URL(fileURLWithPath: $0, isDirectory: true) }
+        let root = root ?? saved ?? DatasetStore.defaultRoot
         datasetRoot = root
         store = DatasetStore(root: root)
         reloadSessions()
@@ -268,7 +329,7 @@ final class SamplerModel {
     func setDatasetRoot(_ url: URL) {
         datasetRoot = url
         store = DatasetStore(root: url)
-        UserDefaults.standard.set(url.path, forKey: Self.rootKey)
+        defaults.set(url.path, forKey: Self.rootKey)
         closeSession()
         reloadSessions()
         status = "Dataset: \(url.path)"
@@ -282,15 +343,15 @@ final class SamplerModel {
 
     private func rememberPlace() {
         guard let session = currentSession else { return }
-        var places = UserDefaults.standard.dictionary(forKey: Self.resumeKey) as? [String: String] ?? [:]
+        var places = defaults.dictionary(forKey: Self.resumeKey) as? [String: String] ?? [:]
         places[datasetRoot.path] = session.name + "|" + (selectedId?.uuidString ?? "")
-        UserDefaults.standard.set(places, forKey: Self.resumeKey)
+        defaults.set(places, forKey: Self.resumeKey)
     }
 
     /// Reopen the video and frame last reviewed in this dataset.
     private func resumeReview() {
         guard currentSession == nil,
-              let place = (UserDefaults.standard.dictionary(forKey: Self.resumeKey) as? [String: String])?[datasetRoot.path]
+              let place = (defaults.dictionary(forKey: Self.resumeKey) as? [String: String])?[datasetRoot.path]
         else { return }
         let parts = place.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
         guard let session = sessions.first(where: { $0.name == parts.first }) else { return }
@@ -310,20 +371,18 @@ final class SamplerModel {
     }
 
     /// Rewrites every label file under the current policy and refreshes
-    /// data.yaml — the one step before training.
+    /// data.yaml — the one step before training. Whatever the policy, no frame of a
+    /// withheld recording is in what it writes (`DatasetStore.writeLabels`).
     func writeDataset() {
         do {
             try store.prepare()
             var written = 0
             for session in sessions {
-                for frame in session.frames {
-                    try store.writeLabel(for: frame, reviewedOnly: reviewedOnly)
-                    if frame.keep, !(reviewedOnly && !frame.reviewed) { written += 1 }
-                }
+                written += try store.writeLabels(for: session.frames, of: session.name, reviewedOnly: reviewedOnly, cuts: session.cutRanges)
             }
             try store.writeDataYAML()
             reloadSessions()
-            status = "Wrote \(written) labels and data.yaml (\(reviewedOnly ? "reviewed frames only" : "every kept frame"))."
+            status = "Wrote \(written) labels and data.yaml (\(reviewedOnly ? "reviewed frames only" : "every kept frame"); no frame of a withheld recording)."
         } catch {
             status = "Couldn't write the dataset: \(error.localizedDescription)"
         }
@@ -342,10 +401,10 @@ final class SamplerModel {
             var isDir: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { continue }
             if isDir.boolValue {
-                queue.append(IngestJob(url: url, kind: .folder))
+                queue.append(IngestJob(url: url, kind: .folder, root: datasetRoot))
                 added += 1
             } else if ["mov", "mp4", "m4v"].contains(url.pathExtension.lowercased()) {
-                queue.append(IngestJob(url: url, kind: .video))
+                queue.append(IngestJob(url: url, kind: .video, root: datasetRoot))
                 added += 1
             }
         }
@@ -353,11 +412,12 @@ final class SamplerModel {
         Task { await processQueue() }
     }
 
-    /// Queue one project clip. The caller has already removed any earlier
-    /// session with this name.
-    func enqueueClip(_ url: URL, sessionName: String, split: String?, framesPerRally: Int?) {
+    /// Queue one project clip to be given its session, named for its card. The caller has already
+    /// removed any earlier session with this name. A withheld card is registered without a model run —
+    /// or refused, when its session is still there; any other is sampled (see `admission`).
+    func enqueueClip(_ url: URL, sessionName: String, split: String?, framesPerRally: Int?, cuts: [CutRange]? = nil) {
         queue.append(IngestJob(url: url, kind: .video, sessionName: sessionName,
-                               split: split, framesPerRally: framesPerRally))
+                               split: split, framesPerRally: framesPerRally, root: datasetRoot, cuts: cuts))
         Task { await processQueue() }
     }
 
@@ -379,9 +439,12 @@ final class SamplerModel {
             setJob(job.id, .running("Starting…"))
             do {
                 let session = try await ingest(job)
-                setJob(job.id, .done("\(session.frames.count) frames · \(session.boxCount) boxes"))
+                setJob(job.id, .done(session.notSampled ?? "\(session.frames.count) frames · \(session.boxCount) boxes"))
+                // The session belongs to the dataset the job was queued for: shown here only if that is still the one open.
+                guard (job.root ?? datasetRoot) == datasetRoot else { continue }
                 reloadSessions()
-                if currentSession == nil { openSession(session) }
+                // A session registered without sampling has no frames to review: it says why instead.
+                if let why = session.notSampled { status = why } else if currentSession == nil { openSession(session) }
             } catch {
                 setJob(job.id, .failed(error.localizedDescription))
             }
@@ -401,26 +464,48 @@ final class SamplerModel {
     }
 
     private func ingest(_ job: IngestJob) async throws -> VideoSession {
+        // The job's own dataset, from start to finish: `self.store` is whatever dataset is current, and the
+        // project can be switched while frames are extracted.
+        let store = job.root.map { DatasetStore(root: $0) } ?? self.store
         try store.prepare()
         let existing = store.loadSessions()
         let name = job.sessionName
             ?? store.uniqueName(for: job.url.deletingPathExtension().lastPathComponent, existing: existing)
         let split = job.split ?? store.splitForNewVideo(existing: existing, valFraction: validationFraction)
-        var records: [FrameRecord]
+        // Making the session is one thing and running a model over the recording another: which of the two
+        // a video gets is decided here, for every caller, before the pipeline or a detector is reached.
+        var records: [FrameRecord] = []
+        var notSampled: String?
         switch job.kind {
-        case .video: records = try await ingestVideo(job, name: name, split: split)
-        case .folder: records = try await ingestFolder(job, name: name, split: split)
+        case .video:
+            // Off the main thread: telling whose recording a file is reads every session and may hash the file.
+            let video = job.url, card = job.sessionName, root = store.root, hasSession = store.hasSession(named: name)
+            switch try await Task.detached(priority: .userInitiated, operation: {
+                try Self.admission(of: video, card: card, hasSession: hasSession, root: root)
+            }).value {
+            case .sampled: records = try await sampleVideo(job, name: name, split: split, root: store.root)
+            case .registeredOnly(let why):
+                // The card's own facts are the session's. The file is opened only to see that it is a
+                // video — its container's duration, which no model reads.
+                let seconds = (try? await AVURLAsset(url: job.url).load(.duration).seconds) ?? 0
+                guard seconds.isFinite, seconds > 0 else { throw IngestError.unreadable }
+                notSampled = why
+            }
+        case .folder: records = try await ingestFolder(job, name: name, split: split, root: store.root)
         }
         if let perRally = job.framesPerRally, perRally > 0 {
             let keep = Set(Self.thin(records, perRally: perRally))
             for (i, record) in records.enumerated() where !keep.contains(i) {
-                try? FileManager.default.removeItem(at: datasetRoot.appendingPathComponent(record.file))
+                try? FileManager.default.removeItem(at: store.root.appendingPathComponent(record.file))
             }
             records = records.enumerated().filter { keep.contains($0.offset) }.map(\.element)
         }
-        let session = VideoSession(name: name, sourcePath: job.url.path, split: split, addedAt: Date(), frames: records)
+        var session = VideoSession(name: name, sourcePath: job.url.path, split: split, addedAt: Date(), frames: records)
+        session.notSampled = notSampled
+        if let cuts = job.cuts, !cuts.isEmpty { session.cuts = cuts }
         try store.save(session)
-        for frame in records { try store.writeLabel(for: frame, reviewedOnly: reviewedOnly) }
+        let ranges = session.cutRanges
+        try store.writeLabels(for: records, of: name, reviewedOnly: reviewedOnly, cuts: ranges)
         try store.writeDataYAML()
         return session
     }
@@ -430,15 +515,16 @@ final class SamplerModel {
         let confidence: Float, duplicateThreshold: Int, jpegQuality: Double
         let name: String, split: String, root: URL
         let model: URL?
+        let prelabeler: @Sendable (Float, URL?) -> IngestModels.Prelabel
     }
 
-    private func ingestSettings(name: String, split: String) -> IngestSettings {
+    private func ingestSettings(name: String, split: String, root: URL) -> IngestSettings {
         IngestSettings(
             burstFPS: burstFPS, padding: rallyPadding, includeMissed: includeMissed,
             maxMissed: Int(maxMissed), randomCount: Int(randomCount),
             confidence: Float(prelabelConfidence), duplicateThreshold: Int(duplicateThreshold),
-            jpegQuality: jpegQuality, name: name, split: split, root: datasetRoot,
-            model: prelabelModel
+            jpegQuality: jpegQuality, name: name, split: split, root: root,
+            model: prelabelModel, prelabeler: models.prelabeler
         )
     }
 
@@ -455,7 +541,72 @@ final class SamplerModel {
 
     private static let rallyShare = 0.5
 
-    private func ingestVideo(_ job: IngestJob, name: String, split: String) async throws -> [FrameRecord] {
+    /// How a video comes into the dataset.
+    enum Admission: Equatable {
+        /// The ordinary ingest: the pipeline finds the rallies, stills are pulled and a detector pre-labels them.
+        case sampled
+        /// A withheld card's own session, made from the card's facts and nothing else: no pipeline, no
+        /// detector, no stills, no pre-labels. With why, for the job and the session (`VideoSession.notSampled`).
+        case registeredOnly(String)
+    }
+
+    /// Why a withheld card's session has no sampled frames; `standing` is what withholds it
+    /// (`ScoringExposure.standing`).
+    nonisolated static func registeredOnlyReason(card: String, standing: String) -> String {
+        "\(card) is \(standing) — registered for labeling by hand, not sampled: no detector ran, nothing was pre-labeled."
+    }
+
+    /// Whether the video at `video` is sampled into the dataset at `root`, registered without a model, or
+    /// refused — decided here for every caller, before anything runs over it (owner, 2026-11-12 §5B, §5C).
+    /// No model is run over a withheld recording — the final test, a lineage or legacy holdout, an alias of
+    /// one (D-002, D-017) — and giving its card a session is not a model run:
+    ///  - queued for a card (`card`, the session's name) in the withheld closure, which has no session yet
+    ///    (`hasSession`): registered only. The recording gets the session its provenance and its labeling by
+    ///    hand need — name, file, split — and no model is run to make it.
+    ///  - the same card with its session there: refused. Sampling it again would run the pipeline and the
+    ///    pre-label model over it, and nothing replaces the session it has.
+    ///  - anything else is sampled, unless the file is a withheld recording (`ingestRefusal(of:)`): a copy
+    ///    dropped in under another name, or queued for a card that is not its own, is refused.
+    /// Throws `IngestError.withheld` for a refusal, and whatever reading the reservations, the project's
+    /// cards or its sessions throws: a recording whose standing can't be read is neither sampled nor
+    /// registered (fails closed).
+    nonisolated static func admission(of video: URL, card: String?, hasSession: Bool, root: URL) throws -> Admission {
+        if let card, let standing = try ScoringExposure.Closures(in: root).standing(of: card) {
+            if hasSession { throw IngestError.withheld(clipRefusal(card, standing: standing)) }
+            return .registeredOnly(registeredOnlyReason(card: card, standing: standing))
+        }
+        if let why = try ingestRefusal(of: video, root: root) { throw IngestError.withheld(why) }
+        return .sampled
+    }
+
+    /// Why a new file may not be sampled into the dataset at `root`: it is a withheld recording of that project —
+    /// the final test, a lineage or legacy holdout, or an alias of one (D-002, D-017) — by path, by name or by
+    /// content (`ReservedVideos.match`), so a copy dropped in or passed to `--sample` under another name is
+    /// refused before the pipeline and the pre-label model run over it. nil for any other file, and for a
+    /// dataset that is no project (it has no reservations). Throws when the project's reservations, cards or
+    /// sessions can't be read: the file is then not cleared (fails closed).
+    nonisolated static func ingestRefusal(of video: URL, root: URL) throws -> String? {
+        guard let match = try ReservedVideos.match(video, root: root),
+              let why = ScoringExposure.standing(reserved: match.reserved, withheld: match.withheld) else { return nil }
+        return "\(video.lastPathComponent) is \(match.session), \(why) — not sampled."
+    }
+
+    /// The same refusal for a project clip — the project's own recording, sampled under its card's name (a
+    /// re-pull, a move): its card is in the withheld closure, listed or as an alias. `ProjectsModel.moveVideo`
+    /// asks it before anything of the session or the footage is touched; a re-pull and the ingest ask
+    /// `admission`, which refuses with the same words when the card has its session.
+    nonisolated static func ingestRefusal(ofClip name: String, root: URL) throws -> String? {
+        try ScoringExposure.Closures(in: root).standing(of: name).map { clipRefusal(name, standing: $0) }
+    }
+
+    private nonisolated static func clipRefusal(_ name: String, standing: String) -> String {
+        "\(name) is \(standing) — not sampled: the pipeline and the pre-label model are not run over it."
+    }
+
+    /// The ordinary ingest of a video — the pipeline over it, then stills pulled and pre-labeled — reached
+    /// only through `admission` → `.sampled`, which has refused every withheld recording: a project clip
+    /// by its card's name, any file by path, name or content.
+    private func sampleVideo(_ job: IngestJob, name: String, split: String, root: URL) async throws -> [FrameRecord] {
         let video = job.url
         let labelsURL = video.deletingPathExtension().appendingPathExtension("rallylabels.json")
         let labeled: [LabeledRally] = preferHandLabels
@@ -463,36 +614,24 @@ final class SamplerModel {
             : []
 
         setJob(job.id, .running("Finding rallies…"), fraction: 0)
-        let processor = VideoProcessor()
-        processor.config = ProcessorConfig()
-        processor.collectFrameEvidence = true
-        let watch = Task { @MainActor [weak self, weak processor] in
-            while !Task.isCancelled, let processor {
-                self?.setJob(job.id, .running("Finding rallies…"), fraction: processor.progress * Self.rallyShare)
-                try? await Task.sleep(nanoseconds: 250_000_000)
-            }
+        let (evidence, duration) = try await models.pipeline(video) { [weak self] fraction in
+            self?.setJob(job.id, .running("Finding rallies…"), fraction: fraction * Self.rallyShare)
         }
-        defer { watch.cancel() }
-        do {
-            _ = try await processor.processVideo(video, videoId: UUID())
-        } catch ProcessingError.noRalliesDetected {
-            // Fine: random frames and any hand labels still apply.
-        }
-        watch.cancel()
-        let evidence = processor.frameEvidence
-        let duration = processor.lastVideoDurationSec
         guard duration > 0 else { throw IngestError.unreadable }
         let rallies = labeled.isEmpty
             ? EvidenceReplayer.decidedRanges(evidence: evidence, duration: duration, config: ProcessorConfig(),
                                              minRallySec: 1.1653, padded: false)
             : labeled.map { Interval(start: $0.startTime, end: $0.endTime) }
 
-        let settings = ingestSettings(name: name, split: split)
+        let settings = ingestSettings(name: name, split: split, root: root)
+        // A session ingested again keeps its cut ranges — the job's (a re-pull deletes the old session
+        // first) or the session's: nothing is sampled inside them (D-030).
+        let cuts = (job.cuts ?? sessions.first { $0.name == name }?.cuts ?? []).normalised()
         func planFrames(random: Int) -> [PlannedFrame] {
             Self.plan(rallies: rallies, evidence: evidence, duration: duration,
                       burstFPS: settings.burstFPS, padding: settings.padding,
                       includeMissed: settings.includeMissed, maxMissed: settings.maxMissed,
-                      randomCount: random)
+                      randomCount: random, cuts: cuts)
         }
         var plan = planFrames(random: settings.randomCount)
         // No rallies found (the ball was never seen): frames from across the
@@ -506,7 +645,9 @@ final class SamplerModel {
             let keep = Self.keep(sources: plan.map(\.source.key), perRally: perRally)
             plan = keep.map { plan[$0] }
         }
-        guard !plan.isEmpty else { throw IngestError.nothingToSample }
+        // Nothing left to sample under the cut ranges (a recording cut whole): an empty session, with the cuts
+        // kept on it — a re-pull has already deleted the old session, and the owner's cuts must not go with it.
+        guard try Self.samples(plan, cuts: cuts) else { return [] }
         setJob(job.id, .running("Extracting \(plan.count) frames (\(rallies.count) rallies)…"), fraction: Self.rallyShare)
 
         let progress = prelabelProgress(for: job.id, from: Self.rallyShare)
@@ -515,21 +656,32 @@ final class SamplerModel {
         }.value
     }
 
-    private func ingestFolder(_ job: IngestJob, name: String, split: String) async throws -> [FrameRecord] {
+    private func ingestFolder(_ job: IngestJob, name: String, split: String, root: URL) async throws -> [FrameRecord] {
         let files = SamplerImageTools.imageFiles(in: job.url)
         guard !files.isEmpty else { throw IngestError.noImages }
         setJob(job.id, .running("Pre-labeling \(files.count) files…"), fraction: 0)
-        let settings = ingestSettings(name: name, split: split)
+        let settings = ingestSettings(name: name, split: split, root: root)
         let progress = prelabelProgress(for: job.id, from: 0)
         return try await Task.detached(priority: .userInitiated) {
             try Self.copyAndLabel(files: files, settings: settings, progress: progress)
         }.value
     }
 
+    /// Whether an ingest goes on to extract `plan`: an empty plan with no cut ranges is nothing to sample (the
+    /// job fails as before); an empty plan under cut ranges is a recording cut whole — an empty session that keeps
+    /// the cuts, never a failed job that loses them (Codex on #139).
+    nonisolated static func samples(_ plan: [PlannedFrame], cuts: [CutRange]) throws -> Bool {
+        if !plan.isEmpty { return true }
+        if cuts.isEmpty { throw IngestError.nothingToSample }
+        return false
+    }
+
     enum IngestError: LocalizedError {
         case unreadable, nothingToSample, noImages
+        case withheld(String)
         var errorDescription: String? {
             switch self {
+            case .withheld(let why): return why
             case .unreadable: return "Couldn't read the video."
             case .nothingToSample: return "No rallies found and no random frames requested."
             case .noImages: return "No JPEG or PNG files in the folder."
@@ -538,14 +690,6 @@ final class SamplerModel {
     }
 
     // MARK: - Ingest work (off the main thread)
-
-    /// The pre-label model (the app's own unless another is chosen) at the
-    /// pre-label threshold, with static-object suppression off: every frame
-    /// is judged on its own. A chosen model that won't load falls back to
-    /// the app's.
-    private nonisolated static func makePrelabeler(confidence: Float, model: URL?) -> YOLODetector {
-        detector(model: model, confidence: confidence)
-    }
 
     /// A detector for a Models-tab model, or the app's own when there's none
     /// (or it won't load). Models trained in RallyLab learned on letterboxed
@@ -588,7 +732,7 @@ final class SamplerModel {
         generator.requestedTimeToleranceBefore = .zero
         generator.requestedTimeToleranceAfter = .zero
 
-        let detector = makePrelabeler(confidence: settings.confidence, model: settings.model)
+        let prelabel = settings.prelabeler(settings.confidence, settings.model)
         let store = DatasetStore(root: settings.root)
 
         var records: [FrameRecord] = []
@@ -597,7 +741,7 @@ final class SamplerModel {
             defer { progress(i + 1, plan.count) }
             let t = CMTime(seconds: item.time, preferredTimescale: 600)
             guard let frame = try? generator.copyCGImage(at: t, actualTime: nil) else { continue }
-            let dets = detector.detect(in: frame, at: t)
+            let dets = prelabel(frame, t)
 
             // Near-duplicate check against the last kept frame of the same
             // source. The court barely changes between burst frames, so the
@@ -627,7 +771,7 @@ final class SamplerModel {
     private nonisolated static func copyAndLabel(
         files: [URL], settings: IngestSettings, progress: @escaping @Sendable (Int, Int) -> Void
     ) throws -> [FrameRecord] {
-        let detector = makePrelabeler(confidence: settings.confidence, model: settings.model)
+        let prelabel = settings.prelabeler(settings.confidence, settings.model)
         let store = DatasetStore(root: settings.root)
         let fm = FileManager.default
 
@@ -635,7 +779,7 @@ final class SamplerModel {
         for (i, file) in files.enumerated() {
             defer { progress(i + 1, files.count) }
             guard let image = SamplerImageTools.loadImage(file, maxPixelSize: reviewMaxPixel) else { continue }
-            let dets = detector.detect(in: image, at: CMTime(value: CMTimeValue(i), timescale: 1))
+            let dets = prelabel(image, CMTime(value: CMTimeValue(i), timescale: 1))
             let relative = store.imageRelativePath(session: settings.name, split: settings.split, copiedFile: file)
             let dest = settings.root.appendingPathComponent(relative)
             try? fm.removeItem(at: dest)
@@ -695,7 +839,8 @@ final class SamplerModel {
         padding: Double,
         includeMissed: Bool,
         maxMissed: Int,
-        randomCount: Int
+        randomCount: Int,
+        cuts: [CutRange] = []
     ) -> [PlannedFrame] {
         var planned: [PlannedFrame] = []
         let step = 1 / max(burstFPS, 0.5)
@@ -743,7 +888,8 @@ final class SamplerModel {
             }
             deduped.append(frame)
         }
-        return deduped
+        // A moment inside a cut range is not footage (D-030).
+        return cuts.isEmpty ? deduped : deduped.filter { !cuts.contains($0.time) }
     }
 
     // MARK: - Review
@@ -990,19 +1136,41 @@ final class SamplerModel {
         status = "Showing the detector's guesses everywhere again."
     }
 
+    /// Why the click-to-box detector may not run over `name`'s frames in the Sampler's review, or nil once the
+    /// use is on the ledger. Any session can be reviewed here, and a click runs the pre-label model over its
+    /// frame — exposure (D-002, D-017): a withheld recording (the final test, a lineage or legacy holdout, an
+    /// alias of one) is refused, an admitted one recorded before the model runs, and reservations or a ledger
+    /// that can't be read or written refuse too. The box is then placed without the model. The same admission
+    /// as the Track tab's (`TrackLabelModel.modelAdmission`).
+    nonisolated static func snapAdmission(of name: String, in datasetRoot: URL) -> String? {
+        ScoringExposure.admission(of: name, kind: .preTracking, ref: "RallyLab Sampler review",
+                                  note: "click-to-box while a person reviews sampled frames", root: datasetRoot,
+                                  otherwise: "no model is run over it: the box is placed without one.")
+    }
+
+    /// Why the click-to-box detector may not run over the session under review now, or nil when it may (its
+    /// use is on the ledger). Asked before every click's model run, never kept from an earlier one: the
+    /// session may have become withheld since — listed, or an alias by a provenance change.
+    func snapRefusal() -> String? {
+        guard let session = currentSession else { return "No session is open." }
+        return snapAdmitted.refusal(of: session.name, in: datasetRoot)
+    }
+
     /// Click on a ball: find it (BallSnapper) and box it as a volleyball.
     /// `point` is top-left normalised in the frame.
     func snapBox(at point: CGPoint) {
-        guard let sample = selected, snapping == nil else { return }
+        guard let sample = selected, currentSession != nil, snapping == nil else { return }
+        let refusal = snapRefusal()
         snapping = point
         let url = store.currentImageURL(for: sample.record)
         let model = prelabelModel
         let usual = usualBallWidth()
-        let holder = snapDetector
+        // Not admitted (a withheld recording): the box is placed without the detector.
+        let holder = refusal == nil ? snapDetector : nil
         Task {
             let result = await Task.detached(priority: .userInitiated) { () -> BallSnapper.Result? in
                 guard let image = SamplerImageTools.loadImage(url, maxPixelSize: 8192) else { return nil }
-                return BallSnapper.snap(at: point, in: image, detector: holder.detector(for: model), usualSize: usual)
+                return BallSnapper.snap(at: point, in: image, detector: holder?.detector(for: model), usualSize: usual)
             }.value
             snapping = nil
             guard let result, selectedId == sample.id else { return }
@@ -1012,6 +1180,7 @@ final class SamplerModel {
             case .outline: status = "Boxed the ball from its outline."
             case .guess: status = "Couldn't find the ball's edge — placed a ball-sized box to adjust."
             }
+            if let refusal { status += " " + refusal }
         }
     }
 
@@ -1165,7 +1334,7 @@ final class SamplerModel {
         }
         saveSession(session)
         do {
-            try store.writeLabel(for: record, reviewedOnly: reviewedOnly)
+            try store.writeLabels(for: [record], of: session.name, reviewedOnly: reviewedOnly, cuts: session.cutRanges)
         } catch {
             status = "Couldn't save: \(error.localizedDescription)"
         }
@@ -1180,8 +1349,12 @@ final class SamplerModel {
         modify(session: name) { $0.tracks = tracks }
     }
 
-    /// What the phone had of this video's tracked rallies at the last sync.
+    /// What the phone had of this video's tracked rallies at the last sync. Saved only when it changed: the
+    /// sync asks for every video every round, and writing 167 unchanged session files (tens of MB) on the
+    /// main actor each round was a stall of its own (2026-11-02: 128 files rewritten in one minute).
     func setSyncedTrackIds(_ ids: [UUID], session name: String) {
+        let current = (currentSession?.name == name ? currentSession : sessions.first { $0.name == name })?.syncedTrackIds
+        guard current != ids else { return }
         modify(session: name) { $0.syncedTrackIds = ids }
     }
 
@@ -1190,14 +1363,28 @@ final class SamplerModel {
         modify(session: name) { $0.ralliesMarked = marked }
     }
 
+    /// The backlog (migration 053): set aside with a reason and a time, or put back (both nil).
+    func setBacklog(reason: String?, at: Date?, session name: String) {
+        modify(session: name) { $0.backlogReason = reason; $0.backlogAt = at }
+    }
+
+    /// Mark the rallies → X: the video's cut ranges, raw as marked (D-030). The Sampler's own
+    /// dataset (images/, labels/, data.yaml) follows: a sampled frame inside a cut is parked under
+    /// excluded/, one no longer inside comes back.
+    func setCuts(_ cuts: [CutRange], session name: String) {
+        modify(session: name) { $0.cuts = cuts.sorted { $0.start < $1.start } }
+        guard let session = sessions.first(where: { $0.name == name }) else { return }
+        let ranges = session.cutRanges
+        do {
+            try store.writeLabels(for: session.frames, of: name, reviewedOnly: reviewedOnly, cuts: ranges)
+        } catch {
+            status = "Couldn't park the frames inside the cuts: \(error.localizedDescription)"
+        }
+    }
+
     /// Label → Not a rally: the found rally starting at `start` isn't one.
     func addNotRally(start: Double, session name: String) {
         modify(session: name) { $0.notRallies = ($0.notRallies ?? []) + [start] }
-    }
-
-    /// The net found in a video (live tagging), kept for next time.
-    func setNetBox(_ box: TrackCandidate?, session name: String) {
-        modify(session: name) { $0.netBox = box }
     }
 
     /// These finished rallies' boxes have been fitted (BoxFitter).

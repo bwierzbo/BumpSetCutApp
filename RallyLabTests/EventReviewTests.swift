@@ -345,8 +345,8 @@ final class EventReviewTests: XCTestCase {
             do {
                 _ = try await EventReview.open(s, root: root, tool: "t", now: now)
                 XCTFail("\(s.name) must be refused while project.json is unreadable")
-            } catch let failure as EventReview.Failure {
-                guard case .projectUnreadable = failure else { return XCTFail("\(failure)") }
+            } catch {
+                XCTAssertTrue(error is ReservedVideos.ProjectUnreadable, "\(error)")
             }
         }
         XCTAssertThrowsError(try EventInventory.build(root: root, now: now))
@@ -541,9 +541,9 @@ final class EventReviewTests: XCTestCase {
         XCTAssertEqual(out.json.lastPathComponent, "event-inventory-20261026-060000.json")
         let csv = try String(contentsOf: out.csv, encoding: .utf8).split(separator: "\n").map(String.init)
         XCTAssertEqual(csv.count, 7)
-        XCTAssertTrue(csv[1].hasPrefix("a,train,no,2,2,legacy_unknown,yes,1,1,1,1.500,0.5000,1,no,"), csv[1])
-        XCTAssertTrue(csv[3].hasPrefix("c,train,no,,,,yes,0,0,0,0.000,,0,no,The video's content changed"), csv[3])
-        XCTAssertEqual(csv[5], "w,train,yes,,,,no,0,0,0,0.000,,0,no,"); XCTAssertEqual(csv[6], "x,train,yes,,,,no,0,0,0,0.000,,0,no,")
+        XCTAssertTrue(csv[1].hasPrefix("a,train,no,2,2,legacy_unknown,yes,1,1,1,1.500,0.000,0.5000,1,no,"), csv[1])
+        XCTAssertTrue(csv[3].hasPrefix("c,train,no,,,,yes,0,0,0,0.000,,,0,no,The video's content changed"), csv[3])
+        XCTAssertEqual(csv[5], "w,train,yes,,,,no,0,0,0,0.000,,,0,no,"); XCTAssertEqual(csv[6], "x,train,yes,,,,no,0,0,0,0.000,,,0,no,")
         XCTAssertEqual(try JSONDecoder().decode(EventInventory.Report.self, from: Data(contentsOf: out.json)), report)
     }
 }

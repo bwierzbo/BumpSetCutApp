@@ -106,6 +106,8 @@ enum PipelineTuner {
 
     struct ValidationSet: Codable {
         var tune: [String]
+        /// The legacy holdout (D-017): no pool of the tuner's any more, and withheld with every alias from every
+        /// routine model run and package, like the lists below (`ScoringExposure.Closures`; owner, 2026-11-12 §5C).
         var holdout: [String]
         /// Recordings reserved as the independent final test (D-002): never
         /// packaged, scored or tuned on until promotion. Absent in older files.
@@ -165,14 +167,6 @@ enum PipelineTuner {
             return set
         }
 
-        /// Sessions that must stay out of every package, score run, tuning
-        /// and pre-tracking (D-002): the listed names and their aliases (same
-        /// file or confirmed identity under another session name). Fails
-        /// closed: unreadable file → throws.
-        static func finalTestNames(in datasetRoot: URL) throws -> Set<String> {
-            try ReservedVideos.reservedNames(in: datasetRoot)
-        }
-
         static func load(from datasetRoot: URL) -> ValidationSet? {
             (try? Data(contentsOf: datasetRoot.appendingPathComponent("pipeline_tuning/validation.json")))
                 .flatMap { try? JSONDecoder().decode(ValidationSet.self, from: $0) }
@@ -181,7 +175,13 @@ enum PipelineTuner {
 
     struct Video {
         let session: VideoSession
+        /// The rallies (kind rally, or none — a legacy mark), whole; the score takes them outside the cuts (RallyTruth).
         let truth: [Interval]
+        /// The missed serves and "not a rally" marks, whole: excluded spans the score masks each clip with (the
+        /// clip staying one; a cut splits it).
+        var excluded: [Interval] = []
+        /// The recording's cut ranges (not footage; D-030): the score sees truth and clips outside them.
+        var cuts: [CutRange] { session.cutRanges }
     }
 
     /// A video run with one detection setting: what the replay needs.
@@ -205,8 +205,15 @@ enum PipelineTuner {
             return covered / rallyTime - PipelineTuner.deadTimeCost * deadTime / rallyTime
         }
 
-        mutating func add(clips: [Interval], truth: [Interval]) {
-            let merged = Self.union(clips)
+        /// `cuts`: the recording's cut ranges — truth and clips count only outside them, so a
+        /// replay the pipeline cut is neither dead time nor a false clip, and a rally inside one
+        /// is not a rally to find (D-030). `excluded`: the missed serves and other marks — each
+        /// clip counts on its pieces outside them, as one clip; one with nothing outside is unscored.
+        mutating func add(clips: [Interval], truth: [Interval], cuts: [CutRange] = [], excluded: [Interval] = []) {
+            let excluded = excluded.outside(cuts)
+            let truth = truth.outside(cuts).outside(excluded.map { CutRange(start: $0.start, end: $0.end) })
+            let (clips, _) = clips.outside(cuts).scorable(excluding: excluded)
+            let merged = Self.union(clips.flatMap(\.pieces))
             for t in truth {
                 let length = max(0, t.end - t.start)
                 guard length > 0 else { continue }
@@ -220,7 +227,7 @@ enum PipelineTuner {
             for c in merged {
                 deadTime += (c.end - c.start) - truthUnion.reduce(0) { $0 + RallyCutScore.overlap(c, $1) }
             }
-            falseClips += clips.filter { c in !truth.contains { RallyCutScore.overlap(c, $0) > 0 } }.count
+            falseClips += clips.filter { c in !truth.contains { c.overlap($0) > 0 } }.count
         }
 
         static func + (a: Score, b: Score) -> Score {
@@ -256,7 +263,7 @@ enum PipelineTuner {
     static func score(_ passes: [Pass], _ settings: Settings) -> Score {
         passes.reduce(Score()) { total, pass in
             var s = Score()
-            s.add(clips: clips(pass, settings), truth: pass.video.truth)
+            s.add(clips: clips(pass, settings), truth: pass.video.truth, cuts: pass.video.cuts, excluded: pass.video.excluded)
             return total + s
         }
     }
@@ -340,7 +347,7 @@ enum PipelineTuner {
         processor.collectFrameEvidence = true
         var segments: [RallySegment] = []
         do {
-            segments = try await processor.processVideo(URL(fileURLWithPath: video.session.sourcePath), videoId: UUID()).rallySegments
+            segments = try await processor.analyzeVideo(URL(fileURLWithPath: video.session.sourcePath)).rallySegments
         } catch ProcessingError.noRalliesDetected {
             segments = []
         } catch {
@@ -357,10 +364,11 @@ enum PipelineTuner {
     static func videos(_ names: [String], sampler: SamplerModel, log: (String) -> Void) -> [Video] {
         names.compactMap { name in
             guard let session = sampler.sessions.first(where: { $0.name == name }) else { log("  ⚠️ \(name): not in the project"); return nil }
-            guard session.ralliesMarked == true,
-                  let labels = try? JSONDecoder().decode([LabeledRally].self, from: Data(contentsOf: RallyMarkModel.labelsURL(for: URL(fileURLWithPath: session.sourcePath))))
+            guard session.ralliesMarked == true, let marks = try? RallyTruth.marks(inSidecarOf: URL(fileURLWithPath: session.sourcePath))
             else { log("  · \(name): not every rally marked yet — left out"); return nil }
-            return Video(session: session, truth: labels.map { Interval(start: $0.startTime, end: $0.endTime) })
+            // Whole marks, by kind: the score and the retune take them outside the cuts themselves.
+            let truth = RallyTruth(marks: marks, cuts: [], complete: true)
+            return Video(session: session, truth: truth.positiveIntervals, excluded: truth.excludedIntervals)
         }
     }
 
@@ -393,17 +401,12 @@ enum PipelineTuner {
             log("❌ No \(dir.lastPathComponent)/validation.json (lists the tune videos).")
             return false
         }
-        let reserved: Set<String>
-        do { reserved = try ReservedVideos.reservedNames(in: sampler.datasetRoot) } catch {
+        let closures: ScoringExposure.Closures
+        do { closures = try ScoringExposure.Closures(in: sampler.datasetRoot) } catch {
             log("❌ \(error.localizedDescription)")
             return false
         }
-        let withheld: Set<String>
-        do { withheld = try ReservedVideos.lineageWithheldNames(in: sampler.datasetRoot) } catch {
-            log("❌ \(error.localizedDescription)")
-            return false
-        }
-        guard let names = eligible(set, reserved: reserved, withheld: withheld, log: log) else { return false }
+        guard let names = eligible(set, reserved: closures.reserved, withheld: closures.withheld, log: log) else { return false }
         let tune = videos(names, sampler: sampler, log: log)
         log("Tune: \(tune.count) of \(names.count) eligible videos — searched on and reported on; nothing is held out here (a held-out evaluation is --retune-decider's, from a plan)")
         guard tune.count >= 2 else { log("❌ Mark every rally in at least 2 tune videos first."); return false }

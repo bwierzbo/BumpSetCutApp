@@ -221,12 +221,13 @@ final class ModelLibrary {
     /// The reviewed frames the models are scored on.
     private var evaluationFrames: [ModelEvaluation.Frame] {
         // Fails closed: when the reservations can't be read, nothing is evaluated (D-002).
-        guard let finalTest = try? PipelineTuner.ValidationSet.finalTestNames(in: sampler.store.root) else { return [] }
-        return sampler.sessions
-            .filter { !evaluateValOnly || $0.split == "val" }
-            .filter { !finalTest.contains($0.name) }   // reserved until promotion (D-002)
+        guard let closures = try? ScoringExposure.Closures(in: sampler.store.root) else { return [] }
+        // No withheld recording's frame is scored: the final test, the lineage and legacy holdouts, their aliases (D-002, D-017).
+        return closures.admitted(sampler.sessions.filter { !evaluateValOnly || $0.split == "val" })
             .flatMap { session in
-                session.frames.filter { $0.keep && $0.reviewed }.map {
+                // A frame inside a cut range is not footage (D-030).
+                let cuts = session.cutRanges
+                return session.frames.filter { $0.keep && $0.reviewed && !cuts.contains($0.time) }.map {
                     ModelEvaluation.Frame(session: session.name, record: $0,
                                           image: sampler.store.currentImageURL(for: $0))
                 }
@@ -237,8 +238,8 @@ final class ModelLibrary {
 
     func evaluate() {
         guard !isBusy else { return }
-        if (try? PipelineTuner.ValidationSet.finalTestNames(in: sampler.store.root)) == nil {
-            status = "❌ pipeline_tuning/validation.json exists but can't be read — final-test reservations unknown, so nothing is evaluated (D-002)."
+        do { _ = try ScoringExposure.Closures(in: sampler.store.root) } catch {
+            status = "❌ \(error.localizedDescription) The reservations are unknown, so nothing is evaluated (D-002)."
             return
         }
         let frames = evaluationFrames

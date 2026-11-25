@@ -71,6 +71,9 @@ final class TrackLabelModel {
     @ObservationIgnored private var playTask: Task<Void, Never>?
     @ObservationIgnored private let snapDetector = SnapDetector()
     @ObservationIgnored private let lookAgainHeat = LookAgainHeat()
+    /// The detectors' admission over the open video (`modelAdmission`), asked before every model run: it
+    /// follows the reservations as they are then.
+    @ObservationIgnored private var modelsAdmission = ScoringExposure.OpenAdmission(ask: TrackLabelModel.modelAdmission)
 
     /// Frames are read about this often, whatever the video's frame rate —
     /// the same spacing as the multi-frame package.
@@ -85,9 +88,66 @@ final class TrackLabelModel {
     var rally: TrackedRally? { rallies.first { $0.id == selectedId } }
     var point: TrackPoint? { rally.flatMap { index < $0.points.count ? $0.points[index] : nil } }
 
-    /// Sessions whose video is on this Mac — the frames come from it.
+    /// Sessions whose video is on this Mac — the frames come from it. The Track tab lists them on every redraw:
+    /// `FootagePresence` answers (opening one reads its file, and says so when it is gone).
     var trackableSessions: [VideoSession] {
-        sampler.sessions.filter { FileManager.default.fileExists(atPath: $0.sourcePath) }
+        let here = FootagePresence.shared.here(sampler.sessions.map(\.sourcePath))
+        return sampler.sessions.filter { here.contains($0.sourcePath) }
+    }
+
+    // MARK: - Opening from another tab
+
+    /// A recording another tab asked to show in the ball-track editor (the Queue's "Open in
+    /// Track"), in the project it named. The Track tab takes it when it is on screen
+    /// (`takeRequest`) and switches to ball tracks for it, so a persisted "rally times" mode or
+    /// the tab's own saved recording is not what shows (Codex on #134).
+    struct Request: Equatable, Sendable {
+        let video: String
+        let root: URL
+    }
+    private(set) var requested: Request?
+
+    func request(_ video: String, in root: URL?) {
+        guard let root else { status = "Open a project."; return }
+        requested = Request(video: video, root: root.standardizedFileURL)
+    }
+
+    enum Resolution: Equatable {
+        case open(String)
+        case dropped(String)
+    }
+
+    /// What a request comes to against the project at `root` and its recordings with a video on
+    /// this Mac: opened when it names that project and one of them; dropped, with the reason to
+    /// show, when it named another project (a project change while it waited, or a stale request,
+    /// even if this project has a recording of the same name) or a recording that can't be tracked here.
+    nonisolated static func resolve(_ request: Request, root: URL, trackable: [VideoSession]) -> Resolution {
+        // The request carries ProjectsModel's standardised folder; the sampler holds the folder as opened.
+        // Compared as resolved paths, so a symlink (/var → /private/var) or a trailing slash does not part them.
+        func path(_ url: URL) -> String { url.standardizedFileURL.resolvingSymlinksInPath().path }
+        guard path(request.root) == path(root) else {
+            return .dropped("\(request.video) was asked for in \(request.root.lastPathComponent), not \(root.lastPathComponent): not opened.")
+        }
+        guard trackable.contains(where: { $0.name == request.video }) else {
+            return .dropped("\(request.video) isn't a recording of \(root.lastPathComponent) with its video on this Mac: not opened.")
+        }
+        return .open(request.video)
+    }
+
+    /// The Track tab takes the request, once: the recording is opened when `resolve` allows it,
+    /// and the reason shown when not. Returns the opened recording's name.
+    @discardableResult
+    func takeRequest() -> String? {
+        guard let request = requested else { return nil }
+        requested = nil
+        switch Self.resolve(request, root: sampler.datasetRoot, trackable: trackableSessions) {
+        case .open(let name):
+            open(sessionName: name)
+            return name
+        case .dropped(let why):
+            status = why
+            return nil
+        }
     }
 
     // MARK: - Opening
@@ -248,9 +308,30 @@ final class TrackLabelModel {
 
     // MARK: - Auto-track
 
+    /// Why no model may run over `name` in the Track tab, or nil once the use is on the ledger. Any session
+    /// with its video on this Mac can be opened here, and auto-track, click-to-box and look-again each run a
+    /// detector over its frames — exposure (D-002, D-017): a withheld recording (the final test, a lineage or
+    /// legacy holdout, an alias of one) is refused, an admitted one recorded before the first model runs, and
+    /// reservations or a ledger that can't be read or written refuse too. The ball is then placed by hand.
+    /// The same admission as a ball path's (`BallPathBuilder.admission`).
+    nonisolated static func modelAdmission(of name: String, in datasetRoot: URL) -> String? {
+        ScoringExposure.admission(of: name, kind: .preTracking, ref: "RallyLab Track tab",
+                                  note: "auto-track, click-to-box and look-again while a person tracks the ball", root: datasetRoot,
+                                  otherwise: "no model is run over it: place the ball by hand.")
+    }
+
+    /// False, with the reason shown, when no model may run over the open video now. Asked before every
+    /// model run, never kept from an earlier one: the video may have become withheld since.
+    func modelsAdmitted() -> Bool {
+        guard let sessionName else { return false }
+        let refusal = modelsAdmission.refusal(of: sessionName, in: sampler.datasetRoot)
+        if let refusal { status = refusal }
+        return refusal == nil
+    }
+
     /// Runs the detector over every frame of the selected rally, then solves.
     func autoTrack() {
-        guard let rally, let video, let frames else { return }
+        guard let rally, let video, let frames, modelsAdmitted() else { return }
         trackTask?.cancel()
         stop()
         let id = rally.id
@@ -320,7 +401,8 @@ final class TrackLabelModel {
             if let frames, !frames.has(times[i]) { frames.write(image, time: times[i]) }
             if done % 10 == 0 { await progress(Double(done) / Double(times.count)) }
         }
-        if let heat { TrackFinder.addHeatmapCandidates(heat, grays: grays, to: &found) }
+        // The Track tab asks its admission before the run (modelsAdmitted), not before each window.
+        if let heat { TrackFinder.addHeatmapCandidates(heat, grays: grays, to: &found, whileAllowed: { true }) }
         return found
     }
 
@@ -374,12 +456,13 @@ final class TrackLabelModel {
         guard let image, let shownIndex, let current = rally?.points[shownIndex], snapping == nil else { return }
         snapping = point
         let model = sampler.prelabelModel
-        let holder = snapDetector
+        // Not admitted (a withheld recording): the box is placed without the detector.
+        let holder = modelsAdmitted() ? snapDetector : nil
         let usual = usualWidth()
         let id = selectedId
         Task {
             let result = await Task.detached(priority: .userInitiated) {
-                BallSnapper.snap(at: point, in: image, detector: holder.detector(for: model), usualSize: usual)
+                BallSnapper.snap(at: point, in: image, detector: holder?.detector(for: model), usualSize: usual)
             }.value
             snapping = nil
             guard id == selectedId, let i = rally?.points.firstIndex(where: { $0.time == current.time }) else { return }
@@ -418,14 +501,15 @@ final class TrackLabelModel {
     /// Search near the fix on frame `fix` for the ball the first pass missed
     /// either side (TrackFinder.lookAgain), then re-solve with what's found.
     private func lookAgain(from fix: Int) {
-        guard let snapshot = rally, let frames else { return }
+        guard let snapshot = rally, let frames, modelsAdmitted() else { return }
         let model = sampler.prelabelModel, holder = snapDetector, heatHolder = lookAgainHeat
         // The newest trained multi-frame model, else the app's own.
         let heatModel = newestHeatModel ?? Bundle.main.url(forResource: "ball_heat", withExtension: "mlmodelc")
         Task {
             let added = await Task.detached(priority: .userInitiated) { () -> [Int: [TrackCandidate]] in
                 guard let detector = holder.detector(for: model) else { return [:] }
-                return TrackFinder.lookAgain(from: fix, in: snapshot, detector: detector, heat: heatHolder.detector(for: heatModel)) { i in
+                return TrackFinder.lookAgain(from: fix, in: snapshot, detector: detector, heat: heatHolder.detector(for: heatModel),
+                                             whileAllowed: { true }) { i in
                     frames.read(snapshot.points[i].time)
                 }
             }.value

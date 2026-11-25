@@ -20,8 +20,7 @@ final class DeciderRetuneTests: XCTestCase {
         // rally 5 split in two, rally 6 missed, plus a false clip and a clip that only grazes rally 1's tail.
         let truth = [iv(10, 20), iv(30, 40), iv(50, 60), iv(62, 72), iv(80, 90), iv(100, 110)]
         let clips = [iv(9, 21), iv(35, 40), iv(49, 73), iv(80, 84), iv(86, 90), iv(120, 125)]
-        // Rally 6 is a missed-serve mark (S then N): in the classes like any mark, and counted on its own.
-        let a = DeciderRetune.account(clips: clips, raw: [iv(11, 19)], truth: truth, kinds: [.rally, .rally, nil, .rally, .rally, .missedServe], preservedShare: 0.95)
+        let a = DeciderRetune.account(clips: clips, raw: [iv(11, 19)], truth: truth, preservedShare: 0.95)
         XCTAssertEqual(a.rallies, 6)
         XCTAssertEqual(a.preserved, 1)
         XCTAssertEqual(a.clipped, 1)
@@ -30,7 +29,7 @@ final class DeciderRetuneTests: XCTestCase {
         XCTAssertEqual(a.partial, 0)
         XCTAssertEqual(a.missed, 1)
         XCTAssertEqual(a.preserved + a.clipped + a.merged + a.split + a.partial + a.missed, a.rallies, "one class each")
-        XCTAssertEqual(a.missedServeMarks, 1); XCTAssertEqual(a.missedServeMarksMissed, 1)
+        XCTAssertEqual(a.excludedSpans, 0); XCTAssertEqual(a.unscoredClips, 0)
         XCTAssertEqual(a.clips, 6)
         XCTAssertEqual(a.falseClips, 1)
         XCTAssertEqual(a.rallyTime, 60)
@@ -43,10 +42,16 @@ final class DeciderRetuneTests: XCTestCase {
         XCTAssertEqual(a.rawStartErrors, [1])
         XCTAssertEqual(a.rawEndErrors, [-1])
         // Partial: a clip touches a rally but matches nothing and merges nothing.
-        let b = DeciderRetune.account(clips: [iv(19, 23)], raw: [], truth: [iv(10, 20)], kinds: [.missedServe], preservedShare: 0.95)
-        XCTAssertEqual(b.missedServeMarks, 1); XCTAssertEqual(b.missedServeMarksMissed, 0, "touched, so not missed")
+        let b = DeciderRetune.account(clips: [iv(19, 23)], raw: [], truth: [iv(10, 20)], preservedShare: 0.95)
         XCTAssertEqual(b.partial, 1)
         XCTAssertEqual(b.falseClips, 0)
+        // A missed serve is an excluded span (RallyTruth): a clip wholly inside it is unscored, one straddling it
+        // is scored on its piece outside, and the rally count never includes it.
+        let c = DeciderRetune.account(clips: [iv(30, 33), iv(31, 38), iv(100, 102)], raw: [], truth: [iv(10, 20)], excluded: [iv(30, 33)], preservedShare: 0.95)
+        XCTAssertEqual(c.rallies, 1); XCTAssertEqual(c.excludedSpans, 1)
+        XCTAssertEqual(c.unscoredClips, 1, "the clip inside the missed serve")
+        XCTAssertEqual(c.clips, 2); XCTAssertEqual(c.falseClips, 2, "the clip 31–38 on its piece 33–38, and the clip at 100–102")
+        XCTAssertEqual(c.deadTime, 7, accuracy: 1e-9, "5 + 2: nothing inside the excluded span")
     }
 
     func testObjectiveReadsAsWritten() {

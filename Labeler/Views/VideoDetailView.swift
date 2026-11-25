@@ -12,16 +12,32 @@ import SwiftUI
 struct VideoDetailView: View {
     let model: LabelerModel
     let video: LabelVideo
+    @State private var skipping = false
 
     var body: some View {
         let times = model.rallyTimes(for: video)
         let tracks = model.tracks(for: video)
-        let untracked = model.untrackedRallies(in: video)
+        // What the project's withheld list leaves open (LabelAccess): no rally to track, and nothing a model
+        // found, for a recording no model may run over — its rallies are still marked by hand.
+        let access = model.access(for: video)
+        let untracked = access == .open ? model.untrackedRallies(in: video) : []
+        // The row as the model has it now (the one handed in may predate a skip or a put-back).
+        let current = model.video(video.id) ?? video
         List {
             Section {
                 LabeledContent("Surface", value: "\(video.surface.rawValue) · \(video.camera.title)")
                 LabeledContent("Split", value: video.split)
                 LabeledContent("Rally times", value: times.complete ? "every rally marked (\(times.rallies.count))" : "\(times.rallies.count) marked")
+                if current.isBacklogged {
+                    LabeledContent("Backlog", value: current.backlogReason ?? "set aside")
+                    Button { model.setBacklog(current, reason: nil) } label: { Label("Put back in the queue", systemImage: "arrow.uturn.backward") }
+                } else {
+                    Button { skipping = true } label: { Label("Skip this video…", systemImage: "arrow.uturn.forward") }
+                }
+                if let why = access.modelRefusal {
+                    Label(why + " Its rallies can still be marked by hand.", systemImage: "hand.raised")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
             }
             Section("Rally times") {
                 NavigationLink {
@@ -33,6 +49,12 @@ struct VideoDetailView: View {
                 NavigationLink {
                     RallyTimesView(model: model, video: video)
                 } label: { Label("Edit rally times", systemImage: "slider.horizontal.3") }
+                // The footage type (D-033): chosen here, confirmed on the Mac; the state shown is the claim's.
+                NavigationLink {
+                    FootageTypeView(model: model, video: video, duration: video.duration, afterPass: false)
+                } label: {
+                    Label(footageTypeTitle, systemImage: "film.stack")
+                }
                 // Stage 1 rally boundaries (D-024): the same record and rules as RallyLab's Review tab.
                 NavigationLink {
                     RallyBoundariesPhoneView(model: model, video: video)
@@ -83,8 +105,22 @@ struct VideoDetailView: View {
                 }
             }
         }
+        .backlogDialog(isPresented: $skipping, video: current, model: model)
         .navigationTitle(video.name)
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// The footage-type entry with what the Mac has and where this phone's choice stands.
+    private var footageTypeTitle: String {
+        let published = RecordingTypeClaims.reviewed(kind: video.recordingType.flatMap(RecordingTypeClaims.Kind.init(rawValue:)), at: video.recordingTypeAt)
+        switch model.footageType(for: video) {
+        case .none: return "Footage type · \(published)"
+        case .pending: return "Footage type · \(published) · your choice is waiting to send"
+        case .submitted: return "Footage type · \(published) · your choice is waiting for the Mac"
+        case .accepted: return "Footage type · \(published)"
+        case .rejected: return "Footage type · \(published) · your choice was not accepted"
+        case .superseded: return "Footage type · \(published) · replaced by a newer choice"
+        }
     }
 
     /// The Stage 1 entry with where the review stands, so an unfinished recording is easy to resume.

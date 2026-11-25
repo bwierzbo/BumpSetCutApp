@@ -27,81 +27,6 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
-/// The net's four corners in the upright frame, Vision-normalised (bottom-up),
-/// named as the net is seen: the top two on the tape, the bottom two where the
-/// mesh meets the posts. The names are roles a person assigns by dragging, not
-/// a sort; `bounds` is the box a consumer reads.
-struct NetQuad: Codable, Equatable {
-    struct Point: Codable, Equatable {
-        var x: Double
-        var y: Double
-        init(x: Double, y: Double) { self.x = x; self.y = y }
-        init(_ p: CGPoint) { x = Double(p.x); y = Double(p.y) }
-        var cgPoint: CGPoint { CGPoint(x: x, y: y) }
-    }
-
-    var topLeft: Point
-    var topRight: Point
-    var bottomRight: Point
-    var bottomLeft: Point
-
-    init(topLeft: Point, topRight: Point, bottomRight: Point, bottomLeft: Point) {
-        self.topLeft = topLeft; self.topRight = topRight; self.bottomRight = bottomRight; self.bottomLeft = bottomLeft
-    }
-
-    /// A rectangle's corners (Vision: the top is maxY).
-    init(rect: CGRect) {
-        let r = rect.standardized
-        topLeft = Point(x: r.minX, y: r.maxY); topRight = Point(x: r.maxX, y: r.maxY)
-        bottomRight = Point(x: r.maxX, y: r.minY); bottomLeft = Point(x: r.minX, y: r.minY)
-    }
-
-    /// In the order top-left, top-right, bottom-right, bottom-left.
-    var points: [CGPoint] { [topLeft.cgPoint, topRight.cgPoint, bottomRight.cgPoint, bottomLeft.cgPoint] }
-
-    /// The rectangle that just contains the four corners.
-    var bounds: CGRect {
-        let xs = points.map(\.x), ys = points.map(\.y)
-        return CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
-    }
-
-    /// The quadrilateral's area (shoelace, frame fractions squared), whatever its winding.
-    var area: Double {
-        let p = points
-        var twice = 0.0
-        for i in 0..<4 {
-            let a = p[i], b = p[(i + 1) % 4]
-            twice += Double(a.x * b.y - b.x * a.y)
-        }
-        return abs(twice) / 2
-    }
-
-    /// Big enough to be a net and not collapsed onto a line — including a diagonal, whose
-    /// bounding box has width and height but whose area is nothing.
-    var isUsable: Bool { bounds.width > 0.005 && bounds.height > 0.005 && area > 0.0005 }
-
-    /// Corner `i` (in `points` order) moved to `p`, kept inside the frame.
-    func moving(corner i: Int, to p: CGPoint) -> NetQuad {
-        var q = self
-        let c = Point(x: min(1, max(0, Double(p.x))), y: min(1, max(0, Double(p.y))))
-        switch i {
-        case 0: q.topLeft = c
-        case 1: q.topRight = c
-        case 2: q.bottomRight = c
-        default: q.bottomLeft = c
-        }
-        return q
-    }
-
-    /// Every corner shifted by the same amount, the shift limited so none leaves the frame.
-    func offset(dx: CGFloat, dy: CGFloat) -> NetQuad {
-        let b = bounds
-        let x = min(max(dx, -b.minX), 1 - b.maxX), y = min(max(dy, -b.minY), 1 - b.maxY)
-        func moved(_ p: Point) -> Point { Point(x: p.x + Double(x), y: p.y + Double(y)) }
-        return NetQuad(topLeft: moved(topLeft), topRight: moved(topRight), bottomRight: moved(bottomRight), bottomLeft: moved(bottomLeft))
-    }
-}
-
 struct NetLabel: Codable, Equatable {
     /// Seconds into the video of the frame the corners were placed on.
     var time: Double
@@ -189,30 +114,68 @@ struct NetExclusionStore {
 }
 
 enum NetLabels {
-    enum Skip: String, Codable { case withheld, handheld, unidentified, sideView = "side_view" }
+    enum Skip: String, Codable { case withheld, handheld, unidentified, sideView = "side_view", noSession = "no_session" }
 
     /// `NetLabel.proposalSource` of a label that started as the old net model's box.
     static let oldModelSource = "old net model"
+
+    /// Where a recording's label stands against the file it is now: `labeled` (its corners are on file for this
+    /// file), `boxOnly` (its box is, from before corners existed), or `stale` (a label under the id, but for another
+    /// file). The one rule for the tab and the work queue.
+    struct LabelStatus: Equatable, Sendable {
+        var labeled = false
+        var boxOnly = false
+        var stale = false
+        /// This recording's label is on a frame inside a cut range: not a label of footage, to label again (D-030).
+        var cutLabel = false
+    }
+
+    /// The recording's label state — the one rule the Net labels tab and the work queue share. `cuts`: the
+    /// recording's cut ranges, normalised; a label on a frame inside one is not a label of footage.
+    static func status(of label: NetLabel?, fingerprint: String?, cuts: [CutRange]) -> LabelStatus {
+        guard let label else { return LabelStatus() }
+        let mine = fingerprint != nil && label.fingerprint == fingerprint
+        let cutLabel = mine && cuts.contains(label.time)
+        return LabelStatus(labeled: mine && label.corners != nil && !cutLabel, boxOnly: mine && label.corners == nil && !cutLabel,
+                           stale: !mine, cutLabel: cutLabel)
+    }
+
+    /// Whether a vision model's proposal is offered on the recording: only one with no label of its own (never over
+    /// a person's label, box-only included), not skipped, made on this file, not rejected, and on a frame outside
+    /// the recording's cut ranges (a proposal inside one is not offered: the frame comes from outside the cuts).
+    static func isOffered(_ ai: NetAIProposal?, skip: Skip?, fingerprint: String?, status: LabelStatus, cuts: [CutRange]) -> Bool {
+        guard skip == nil, !status.labeled, !status.boxOnly, let fingerprint, let ai else { return false }
+        return ai.fingerprint == fingerprint && ai.rejectedAt == nil && !cuts.contains(ai.time)
+    }
 
     /// Why a recording gets no net label, or nil when it should have one. A
     /// recording without a file identity can't carry a label that is checked
     /// against the file later, so it is skipped too. `excluded`: the owner's side views
     /// (NetExclusionStore.excluded — already matched to the file).
-    static func skip(video: String, camera: String, withheld: Set<String>, fingerprint: String?, excluded: Set<String> = []) -> Skip? {
+    /// `cuts`: the recording's cut ranges from its session — nil when no session is over it, which is unknown cuts,
+    /// not none: such a recording is skipped (no label taken, exported or proposed on; Codex on #139) until it is
+    /// sampled again.
+    static func skip(video: String, camera: String, withheld: Set<String>, fingerprint: String?, excluded: Set<String> = [], cuts: [CutRange]?) -> Skip? {
         if withheld.contains(video) { return .withheld }
         if camera.lowercased().hasPrefix("handheld") { return .handheld }
         if fingerprint == nil { return .unidentified }
         if excluded.contains(video) { return .sideView }
+        if cuts == nil { return .noSession }
         return nil
     }
 
     /// Where to take the frame: the middle of the first marked rally at least
-    /// `minRally` seconds long, else the middle of the video.
-    static func frameTime(duration: Double, rallies: [(start: Double, end: Double)], minRally: Double = 2) -> Double {
-        if let r = rallies.sorted(by: { $0.start < $1.start }).first(where: { $0.end - $0.start >= minRally && $0.end <= duration }) {
+    /// `minRally` seconds long that touches no cut range, else the middle of the
+    /// longest stretch outside the cut ranges (the whole video when there are
+    /// none). A cut range is not footage — a replay may be shot from elsewhere
+    /// (D-030) — so a recording cut whole has no frame to take: nil.
+    static func frameTime(duration: Double, rallies: [(start: Double, end: Double)], minRally: Double = 2, cuts: [CutRange] = []) -> Double? {
+        if let r = rallies.sorted(by: { $0.start < $1.start })
+            .first(where: { $0.end - $0.start >= minRally && $0.end <= duration && !cuts.overlaps($0.start, $0.end) }) {
             return (r.start + r.end) / 2
         }
-        return duration / 2
+        guard let longest = cuts.outside(0, duration).max(by: { $0.end - $0.start < $1.end - $1.start }) else { return nil }
+        return (longest.start + longest.end) / 2
     }
 
     /// The YOLO text line for class 0: centre x, centre y (top-down), width and
@@ -271,7 +234,13 @@ enum NetDatasetExport {
         var imageSHA256: String
         var width: Int
         var height: Int
+        /// The identity the card was registered with (the label's and the file's, which the export requires equal).
         var fingerprint: String
+        /// The card's confirmed sourceId, when it has one. Absent in a record from before packages carried provenance.
+        var sourceId: String?
+        /// The content of the video the frame was decoded from (ProjectsModel.fileFingerprint): a card's stored
+        /// fingerprint names the file it was registered from, which need not be the video it holds (D-036).
+        var contentFingerprint: String?
     }
 
     struct Skipped: Codable, Equatable {
@@ -286,6 +255,13 @@ enum NetDatasetExport {
         var entries: [Entry]
         var skipped: [Skipped]
         var note: String
+        /// The split manifest the export ran against — of the project as it was then, or nothing was written —
+        /// and the withheld closure it refused, with every identity (RallyClassifierExporter.ProjectClosure; the
+        /// same two blocks a rally-classifier dataset carries). The trainer refuses a package without them, a
+        /// manifest that is not this one, and a package a later closure has outgrown. Absent in a record from
+        /// before packages carried provenance.
+        var splitManifest: RallyClassifierExporter.SplitHashes?
+        var withheld: RallyClassifierExporter.Withheld?
     }
 
     struct Source {
@@ -295,9 +271,21 @@ enum NetDatasetExport {
         var url: URL
         /// The file's identity now (ReservedVideos.effectiveFingerprint).
         var fingerprint: String?
+        /// The card's confirmed sourceId.
+        var sourceId: String? = nil
+        /// The content of the video at `url`, read by `plan` for a recording that would otherwise be exported.
+        var contentFingerprint: String? = nil
+        /// The recording's cut ranges (not footage; D-030): a label on a frame inside one is not a label of footage.
+        /// nil: no session over the recording — its cuts are unknown and it is skipped.
+        var cuts: [CutRange]?
     }
 
     static let cornersNotMarked = "corners not marked (a box-only label from before) — mark them in the Net labels tab"
+    static let frameInsideCut = "the labeled frame lies inside a cut range (not footage) — label the net again outside it in the Net labels tab"
+    static let videoNotRead = "its video can't be read for its content fingerprint, so what footage it is can't be held against the withheld recordings'"
+    static func withheldFootage(_ identity: String) -> String {
+        "the same footage as a withheld recording (its \(identity) is one of the withheld identities) — fix the split before it can be exported"
+    }
 
     /// Which recordings go out and which stay, in a stable order. A withheld
     /// recording is refused even if someone labeled it; a label whose
@@ -305,19 +293,33 @@ enum NetDatasetExport {
     /// a label without corners (from before they existed) is not a label yet;
     /// a recording without a label is listed as skipped so the count is explained. An excluded
     /// recording (the owner's side views) is refused even if it carries a label.
-    static func plan(labels: [String: NetLabel], sources: [Source], withheld: Set<String>, exclusions: [String: NetExclusion] = [:])
-        -> (export: [Source], skipped: [Skipped]) {
+    /// A recording that would go out is then read for its content (`content`, called for those only) and held
+    /// against the closure by every identity — its confirmed sourceId, its stored fingerprint, its content — as
+    /// the rally-classifier export holds its own (RallyClassifierExporter.withheldIdentity): the same footage as
+    /// a withheld recording under another card is refused, and so is a video that can't be read.
+    static func plan(labels: [String: NetLabel], sources: [Source], withheld: RallyClassifierExporter.Withheld, exclusions: [String: NetExclusion] = [:],
+                     content: (Source) -> String?) -> (export: [Source], skipped: [Skipped]) {
         var export: [Source] = []
         var skipped: [Skipped] = []
+        let names = Set(withheld.names)
         let fingerprints = Dictionary(sources.map { ($0.video, $0.fingerprint) }, uniquingKeysWith: { a, _ in a })
         let excluded = NetExclusionStore.excluded(exclusions) { fingerprints[$0] ?? nil }
         for s in sources.sorted(by: { $0.video < $1.video }) {
-            if let why = NetLabels.skip(video: s.video, camera: s.camera, withheld: withheld, fingerprint: s.fingerprint, excluded: excluded) {
+            if let why = NetLabels.skip(video: s.video, camera: s.camera, withheld: names, fingerprint: s.fingerprint, excluded: excluded, cuts: s.cuts) {
                 skipped.append(Skipped(video: s.video, reason: why.rawValue))
             } else if let label = labels[s.video] {
                 if label.fingerprint != s.fingerprint { skipped.append(Skipped(video: s.video, reason: "label is another recording's (fingerprint differs)")) }
                 else if label.corners == nil { skipped.append(Skipped(video: s.video, reason: cornersNotMarked)) }
-                else { export.append(s) }
+                else if (s.cuts ?? []).contains(label.time) { skipped.append(Skipped(video: s.video, reason: frameInsideCut)) }
+                else if let read = content(s) {
+                    if let identity = RallyClassifierExporter.withheldIdentity(name: s.video, sourceId: s.sourceId, fingerprint: s.fingerprint, content: read, in: withheld) {
+                        skipped.append(Skipped(video: s.video, reason: withheldFootage(identity)))
+                    } else {
+                        var out = s
+                        out.contentFingerprint = read
+                        export.append(out)
+                    }
+                } else { skipped.append(Skipped(video: s.video, reason: videoNotRead)) }
             } else {
                 skipped.append(Skipped(video: s.video, reason: "unlabeled"))
             }
@@ -327,14 +329,17 @@ enum NetDatasetExport {
 
     /// Write the dataset into `dir` (created; must not exist). Every frame is
     /// decoded again from the video at the label's time and must come back at
-    /// the size the label was drawn on, or the export stops.
-    static func write(labels: [String: NetLabel], sources: [Source], withheld: Set<String>, exclusions: [String: NetExclusion] = [:],
-                      project: String, to dir: URL, progress: (String) -> Void = { _ in }) async throws -> Manifest {
+    /// the size the label was drawn on, or the export stops. `closure`: the project's withheld closure and split
+    /// manifest as they are now (RallyClassifierExporter.ProjectClosure.current) — what is refused here and what
+    /// the record carries, so the trainer can tell this package from one a later project state has outgrown.
+    static func write(labels: [String: NetLabel], sources: [Source], closure: RallyClassifierExporter.ProjectClosure,
+                      exclusions: [String: NetExclusion] = [:], project: String, to dir: URL, progress: (String) -> Void = { _ in }) async throws -> Manifest {
         let fm = FileManager.default
         guard !fm.fileExists(atPath: dir.path) else {
             throw CocoaError(.fileWriteFileExists, userInfo: [NSFilePathErrorKey: dir.path])
         }
-        let (export, skipped) = plan(labels: labels, sources: sources, withheld: withheld, exclusions: exclusions)
+        let (export, skipped) = plan(labels: labels, sources: sources, withheld: closure.withheld, exclusions: exclusions,
+                                     content: { ProjectsModel.fileFingerprint(atPath: $0.url.path) })
         try fm.createDirectory(at: dir.appendingPathComponent("images"), withIntermediateDirectories: true)
         try fm.createDirectory(at: dir.appendingPathComponent("labels"), withIntermediateDirectories: true)
         var entries: [Entry] = []
@@ -360,7 +365,7 @@ enum NetDatasetExport {
                                  proposed: label.proposed, adjusted: label.adjusted, proposalSource: label.proposalSource,
                                  reviewedAt: label.reviewedAt,
                                  image: imageFile, imageSHA256: digest, width: image.width, height: image.height,
-                                 fingerprint: label.fingerprint))
+                                 fingerprint: label.fingerprint, sourceId: s.sourceId, contentFingerprint: s.contentFingerprint))
         }
         let yaml = """
         # One labeled frame per recording; split by recording group before training, never here.
@@ -373,7 +378,8 @@ enum NetDatasetExport {
         """
         try yaml.write(to: dir.appendingPathComponent("data.yaml"), atomically: true, encoding: .utf8)
         let manifest = Manifest(createdAt: Date(), project: project, labeled: entries.count, entries: entries, skipped: skipped,
-                                note: "Upright frames; corners (top-left, top-right, bottom-right, bottom-left) and their bounding box Vision-normalised (bottom-up) in the manifest, the box YOLO top-down in labels/. Withheld, handheld and unidentified recordings are not exported; a label whose fingerprint is not the file's, or without corners, is refused.")
+                                note: "Upright frames; corners (top-left, top-right, bottom-right, bottom-left) and their bounding box Vision-normalised (bottom-up) in the manifest, the box YOLO top-down in labels/. Withheld, handheld and unidentified recordings are not exported; a label whose fingerprint is not the file's, or without corners, is refused. splitManifest and withheld: the split manifest and the withheld closure of the project when this was exported; train only with that manifest and a closure written from the project as it is then (--withheld-closure).",
+                                splitManifest: closure.splitManifest, withheld: closure.withheld)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys, .prettyPrinted]

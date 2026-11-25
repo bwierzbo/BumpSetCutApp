@@ -2,7 +2,7 @@
 //  VideoListView.swift
 //  RallyLab (iPhone)
 //
-//  Every video by surface, unfinished first, to pick one yourself;
+//  The dataset's totals, then every video by surface, unfinished first, to pick one yourself;
 //  uploading a video recorded on this phone; and Process, which runs one
 //  through BumpSetCut's pipeline for a debug video (PipelineRunView).
 //
@@ -16,8 +16,34 @@ struct VideoListView: View {
 
     var body: some View {
         List {
+            Section {
+                let videos = model.videos, progress = model.progress
+                HStack(spacing: 10) {
+                    tile("\(progress.rallies)", "tracked rallies", .orange)
+                    tile(progress.frames.formatted(), "labeled frames", .teal)
+                    tile("\(videos.filter { model.rallyTimes(for: $0).complete }.count)/\(videos.count)", "videos finished", .purple)
+                    // Confirmed by a person (`recordingTypeAt`): a published default of unknown with no one behind it is not.
+                    tile("\(videos.filter { $0.recordingTypeAt != nil }.count)/\(videos.count)", "footage confirmed", .blue)
+                }
+                .listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
+            }
+            // Marked through with no footage type yet: say what each is (watch it in the step).
+            let toConfirm = model.footageTypeToConfirm
+            if !toConfirm.isEmpty {
+                Section {
+                    ForEach(toConfirm) { video in
+                        NavigationLink {
+                            FootageTypeView(model: model, video: video, duration: video.duration, afterPass: false)
+                        } label: { VideoRow(model: model, video: video) }
+                    }
+                } header: {
+                    Label("Footage type to confirm · \(toConfirm.count)", systemImage: "film.stack")
+                } footer: {
+                    Text("Every rally is marked in these; say whether each is continuous or edited.")
+                }
+            }
             ForEach(LabelSurface.allCases) { surface in
-                let videos = sorted(model.videos.filter { $0.surface == surface })
+                let videos = sorted(model.videos.filter { $0.surface == surface && !$0.isBacklogged })
                 if !videos.isEmpty {
                     Section {
                         ForEach(videos) { video in
@@ -27,6 +53,22 @@ struct VideoListView: View {
                         let done = videos.filter { model.rallyTimes(for: $0).complete }.count
                         Label("\(surface.rawValue) · \(done)/\(videos.count) finished", systemImage: surface.icon)
                     }
+                }
+            }
+            // Set aside (the backlog): out of the queue on both devices until put back; swipe to put one back.
+            let backlog = model.backlog
+            if !backlog.isEmpty {
+                Section {
+                    ForEach(backlog) { video in
+                        NavigationLink(value: video) { VideoRow(model: model, video: video) }
+                            .swipeActions(edge: .trailing) {
+                                Button { model.setBacklog(video, reason: nil) } label: { Label("Put back", systemImage: "arrow.uturn.backward") }.tint(.green)
+                            }
+                    }
+                } header: {
+                    Label("Backlog · \(backlog.count) set aside", systemImage: "arrow.uturn.forward")
+                } footer: {
+                    Text("Not good to mark for now. They stay out of Home on the phone and the Mac until put back; the marks they have stay.")
                 }
             }
         }
@@ -53,6 +95,16 @@ struct VideoListView: View {
         }
         .sheet(isPresented: $uploading) { UploadView(model: model) }
         .fullScreenCover(isPresented: $processing) { PipelineRunView() }
+    }
+
+    private func tile(_ value: String, _ label: String, _ tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value).font(.title2.bold().monospacedDigit())
+            Text(label).font(.caption).foregroundStyle(tint)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
     }
 
     /// Unfinished first, then by name.

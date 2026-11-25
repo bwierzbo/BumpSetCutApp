@@ -137,38 +137,41 @@ final class HeatmapLab {
         defer { isScoring = false }
         let root = sampler.datasetRoot.appendingPathComponent("scores", isDirectory: true)
         let jobs: [TestSetScore.Job]
-        do { jobs = try TestSetScore.jobs(export: export) } catch {
+        let insideCuts: Int
+        // Windows inside a recording's cut ranges are left out, whatever the export holds (D-030); the
+        // cuts come from every session read strictly — one that won't decode is unknown cuts, not none.
+        let cutsByClip: [String: [CutRange]]
+        do { cutsByClip = try cutRanges() } catch {
+            scoringLine = "The cut ranges can't be known: \(error.localizedDescription)"
+            log("❌ " + scoringLine)
+            return false
+        }
+        do { (jobs, insideCuts) = try TestSetScore.jobs(export: export, cuts: cutsByClip) } catch {
             scoringLine = "Couldn't read \(export.lastPathComponent): \(error.localizedDescription)"
             log("❌ " + scoringLine)
             return false
         }
-        // Reserved final-test clips (D-002) must never be scored, whatever export they sit in; fail closed.
-        let reserved: Set<String>
-        do { reserved = try PipelineTuner.ValidationSet.finalTestNames(in: sampler.datasetRoot) } catch {
-            scoringLine = error.localizedDescription
-            log("❌ " + scoringLine)
-            return false
-        }
-        let reservedInExport = Set(jobs.map(\.clip)).intersection(reserved)
-        guard reservedInExport.isEmpty else {
-            scoringLine = "\(export.lastPathComponent) contains reserved final-test clips (\(reservedInExport.sorted().joined(separator: ", "))) — not scored. Re-export the test set."
+        if insideCuts > 0 { log("  \(insideCuts) val window(s) inside cut ranges left out (D-030)") }
+        // A kept result counts only for these jobs: one scored on windows now inside a cut is scored again.
+        let jobsKey = TestSetScore.jobsKey(jobs, export: export)
+        // Withheld clips (D-002, D-017) are never scored, and the run is on the ledger before any model runs; fail closed.
+        do {
+            try ScoringExposure.admit(Set(jobs.map(\.clip)), kind: .testSetScoring, ref: export.lastPathComponent,
+                                      note: "models: " + models.map(\.name).joined(separator: ", "), root: sampler.datasetRoot)
+        } catch let refused as ScoringExposure.Withheld {
+            scoringLine = "\(export.lastPathComponent) holds clips no model is run over (\(refused.reason)) — not scored. Re-export the test set."
             log("⛔ " + scoringLine)
             return false
-        }
-        // Logged before any model runs, so an interrupted run is still on record (D-002).
-        do {
-            try ExposureLog.record(videos: Set(jobs.map(\.clip)), kind: .testSetScoring, ref: export.lastPathComponent,
-                                   note: "models: " + models.map(\.name).joined(separator: ", "), in: sampler.datasetRoot)
         } catch {
             scoringLine = error.localizedDescription
             log("❌ " + scoringLine)
             return false
         }
-        scoringLine = "\(jobs.count) frames in \(export.lastPathComponent)"
+        scoringLine = "\(jobs.count) frames in \(export.lastPathComponent)" + (insideCuts > 0 ? " (\(insideCuts) windows inside cut ranges left out)" : "")
         log(scoringLine)
         for model in models {
-            if TestSetScore.cached(model: model.name, export: export, scores: root) != nil {
-                log("  \(model.name): scored before")
+            if TestSetScore.cached(model: model.name, export: export, scores: root, jobsKey: jobsKey, insideCuts: insideCuts) != nil {
+                log("  \(model.name): scored before on these frames")
                 continue
             }
             scoringLine = "\(model.name): 0/\(jobs.count)"
@@ -187,7 +190,7 @@ final class HeatmapLab {
             log(String(format: "  %@: %d frames, %.0f ms a window", model.name, result.items.count, result.ms))
         }
         // Everything scored on this export, newest model first (as the models list).
-        let results = self.models.compactMap { TestSetScore.cached(model: $0.name, export: export, scores: root) }
+        let results = self.models.compactMap { TestSetScore.cached(model: $0.name, export: export, scores: root, jobsKey: jobsKey, insideCuts: insideCuts) }
         guard !results.isEmpty else { scoringLine = "Nothing scored."; return false }
         scoringLine = "Comparing \(results.count) models…"
         let scores = await Task.detached(priority: .userInitiated) { TestSetScore.score(results) }.value
@@ -246,13 +249,12 @@ final class HeatmapLab {
     func renderVideo(session name: String, rally: TrackedRally) {
         guard !isBusy, let model = selected,
               let session = sampler.sessions.first(where: { $0.name == name }) else { return }
-        // Running a model over reserved footage is exposure (D-002): refuse, fail closed, log the use.
+        // Running a model over withheld footage is exposure (D-002, D-017): refuse, fail closed, log the use.
         do {
-            if try PipelineTuner.ValidationSet.finalTestNames(in: sampler.datasetRoot).contains(name) {
-                status = "⛔ \(name) is reserved as final_test (D-002) — not rendered."
-                return
-            }
-            try ExposureLog.record(videos: [name], kind: .detectorEvaluation, ref: "render " + model.name, note: nil, in: sampler.datasetRoot)
+            try ScoringExposure.admit([name], kind: .detectorEvaluation, ref: "render " + model.name, note: nil, root: sampler.datasetRoot)
+        } catch let refused as ScoringExposure.Withheld {
+            status = "⛔ \(refused.reason) — not rendered."
+            return
         } catch {
             status = "❌ \(error.localizedDescription)"
             return
@@ -296,11 +298,28 @@ final class HeatmapLab {
 
     private static let desktopScript = converter.deletingLastPathComponent().appendingPathComponent("desktop.sh")
 
-    /// Send the newest multi-frame package to the desktop, train there, follow
+    /// Why `package` is not trained from, or nil: a model trains only from a lineage package — the folder
+    /// `RallyLab --project <name> --package-l2` writes, whose record (l2-manifest.json, there only when the
+    /// preflight passed) names every recording with its identities (D-018). A plain multi-frame export does not
+    /// say what its recordings are, so the trainer can't hold it against the withheld closure and refuses it;
+    /// this says so before anything is exported for it, recorded or sent.
+    static func trainingRefusal(package: URL) -> String? {
+        guard !FileManager.default.fileExists(atPath: package.appendingPathComponent(LineagePackage.recordFile).path) else { return nil }
+        return "\(package.lastPathComponent) is not a lineage package (no \(LineagePackage.recordFile)), so it is not trained from. " + lineagePackageHowTo
+    }
+
+    static let lineagePackageHowTo = "A model trains only from a package written by `RallyLab --project <name> --package-l2` "
+        + "whose preflight passed (D-018): write one (RallyLab closed; it reads every eligible video), then train from it here."
+
+    /// The newest lineage package in the dataset's exports, nil when there is none.
+    var lineagePackage: URL? { packages.first { Self.trainingRefusal(package: $0) == nil } }
+
+    /// Send the newest lineage package to the desktop, train there, follow
     /// it, bring the model back, add it and score it — all from here.
     func trainOnDesktop(size: Int) {
-        guard !desktopBusy, let package = packages.first else {
-            if packages.isEmpty { status = "Export a multi-frame package first." }
+        guard !desktopBusy else { return }
+        guard let package = lineagePackage else {
+            desktopLine = "No lineage package in this project's exports. " + Self.lineagePackageHowTo
             return
         }
         desktopBusy = true
@@ -313,10 +332,30 @@ final class HeatmapLab {
     }
 
     /// Start training `package` (an exported multi-frame package folder) on
-    /// the desktop; the run's name, or nil if it couldn't start.
+    /// the desktop; the run's name, or nil if it couldn't start. The trainer is given the project's
+    /// withheld closure as it is now, written for this run (RallyClassifierExporter.ProjectClosure):
+    /// desktop.sh and the trainer hold the package to it and refuse one that holds a withheld
+    /// recording or does not say what it holds — so nothing starts when the closure can't be written
+    /// (a split manifest that is not current, reservations that can't be read).
     func startDesktopRun(package: URL, arguments: [String]) async -> String? {
+        if let why = Self.trainingRefusal(package: package) {
+            desktopLine = why
+            return nil
+        }
+        let root = sampler.datasetRoot
+        let closure = FileManager.default.temporaryDirectory.appendingPathComponent("withheld-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: closure) }
+        do {
+            // Off the main thread: the withheld recordings' videos are read for their content, over the footage share.
+            try await Task.detached {
+                try RallyClassifierExporter.ProjectClosure.current(in: root).file(project: root.lastPathComponent).write(to: closure)
+            }.value
+        } catch {
+            desktopLine = "Couldn't start: \(error.localizedDescription)"
+            return nil
+        }
         desktopLine = "Sending \(package.lastPathComponent).zip…"
-        let started = await streamDesktop(["train", package.path + ".zip"] + arguments)
+        let started = await streamDesktop(["train", package.path + ".zip", "--withheld", closure.path] + arguments)
         guard started.status == 0, let name = started.lines.lazy.compactMap({ Self.runName(in: $0) }).first else {
             desktopLine = "Couldn't start: " + (started.lines.last ?? "no output")
             return nil
@@ -395,14 +434,16 @@ final class HeatmapLab {
 
     func evaluate() {
         guard !isBusy, let model = selected, let package else { return }
+        let cuts: [String: [CutRange]]
+        do { cuts = try cutRanges() } catch { status = "The cut ranges can't be known: \(error.localizedDescription)"; return }
         isBusy = true
         result = nil
         status = "Scoring \(model.name) on \(package.lastPathComponent)…"
-        let yolo = sampler.prelabelModel
+        let yolo = sampler.prelabelModel, root = sampler.datasetRoot
         Task {
             defer { isBusy = false; progress = nil }
             let outcome = await Task.detached(priority: .userInitiated) {
-                HeatEvaluation.run(model: model.url, package: package, yolo: yolo) { done, total in
+                HeatEvaluation.run(model: model.url, package: package, yolo: yolo, cuts: cuts, root: root) { done, total in
                     Task { @MainActor [weak self] in self?.progress = "\(done)/\(total) windows" }
                 }
             }.value
@@ -410,10 +451,18 @@ final class HeatmapLab {
             case .success(let r):
                 result = r
                 status = "Scored \(r.windows) val windows (\(r.trackedWindows) from tracked rallies)."
+                    + (r.windowsInsideCuts > 0 ? " \(r.windowsInsideCuts) inside cut ranges left out (D-030)." : "")
             case .failure(let e):
                 status = e.message
             }
         }
+    }
+
+    /// Each recording's cut ranges (not footage; D-030), by name — every session, with none as an empty list, so
+    /// a clip with no entry is one with no session over it: unknown cuts, not none (Codex on #139). From every
+    /// session read strictly: one that won't decode is unknown cuts too (fails closed).
+    func cutRanges() throws -> [String: [CutRange]] {
+        Dictionary(try sampler.store.loadSessionsStrict().map { ($0.name, $0.cutRanges) }, uniquingKeysWith: { a, _ in a })
     }
 }
 
@@ -438,6 +487,8 @@ enum HeatEvaluation {
         /// Balls in play on tracked rallies, by who found them.
         var both = 0, onlyYOLO = 0, onlyHeatmap = 0, neither = 0
         var windows = 0, trackedWindows = 0
+        /// Val windows left out as inside their recording's cut ranges (D-030).
+        var windowsInsideCuts = 0
         var yoloName = ""
     }
 
@@ -446,22 +497,42 @@ enum HeatEvaluation {
     /// Grey-level change around a ball over ±4 frames that means "in play".
     static let motion = 10.0
 
-    static func run(model: URL, package: URL, yolo: URL?,
+    /// `cuts`: each clip's cut ranges, every recording with a session (none as an empty list) — a val window with
+    /// a frame inside one is not scored, and a val clip with no entry has no session: unknown cuts, not scored at
+    /// all (D-030; fails closed). `root`: the project the package was made from — a package with a withheld
+    /// clip among the val windows it would score is refused, and the run is on that project's exposure ledger
+    /// before a model is loaded, so a run that never starts is on record too (D-002, D-017; `ScoringExposure.admit`,
+    /// as the test-set scoring).
+    static func run(model: URL, package: URL, yolo: URL?, cuts: [String: [CutRange]], root: URL,
                     progress: @escaping @Sendable (Int, Int) -> Void) -> Swift.Result<Result, Failure> {
+        guard let text = try? String(contentsOf: package.appendingPathComponent("windows.jsonl"), encoding: .utf8) else {
+            return .failure(Failure(message: "No windows.jsonl in \(package.lastPathComponent)."))
+        }
+        let val = text.split(separator: "\n").compactMap { line -> Window? in
+            try? JSONDecoder().decode(Window.self, from: Data(line.utf8))
+        }.filter { $0.split == "val" }
+        if let gone = val.first(where: { cuts[$0.clip] == nil }) {
+            return .failure(Failure(message: "\(gone.clip): no session over it — its cut ranges can't be known; the package is not scored."))
+        }
+        let windows = val.filter { !TestSetScore.insideCut($0.frames, cuts: cuts[$0.clip] ?? []) }
+        guard !windows.isEmpty else { return .failure(Failure(message: "No val windows in the package" + (val.isEmpty ? "." : " outside cut ranges."))) }
+        do {
+            try ScoringExposure.admit(Set(windows.map(\.clip)), kind: .detectorEvaluation,
+                                      ref: "score vs YOLO " + model.deletingPathExtension().lastPathComponent + " on " + package.lastPathComponent,
+                                      note: nil, root: root)
+        } catch let refused as ScoringExposure.Withheld {
+            return .failure(Failure(message: "⛔ \(package.lastPathComponent) holds clips no model is run over (\(refused.reason)) — not scored. Export the package again."))
+        } catch {
+            return .failure(Failure(message: "❌ \(error.localizedDescription)"))
+        }
         guard let heat = HeatmapBallDetector(modelURL: model) else {
             return .failure(Failure(message: "Couldn't load \(model.lastPathComponent)."))
         }
         let detector = SamplerModel.detector(model: yolo, confidence: Float(ProcessorConfig().detectionConfidence))
-        guard let text = try? String(contentsOf: package.appendingPathComponent("windows.jsonl"), encoding: .utf8) else {
-            return .failure(Failure(message: "No windows.jsonl in \(package.lastPathComponent)."))
-        }
-        let windows = text.split(separator: "\n").compactMap { line -> Window? in
-            try? JSONDecoder().decode(Window.self, from: Data(line.utf8))
-        }.filter { $0.split == "val" }
-        guard !windows.isEmpty else { return .failure(Failure(message: "No val windows in the package.")) }
 
         var result = Result()
         result.windows = windows.count
+        result.windowsInsideCuts = val.count - windows.count
         result.yoloName = yolo?.deletingPathExtension().lastPathComponent ?? "app's model"
         var cache: [String: HeatmapBallDetector.Frame] = [:]
         var cacheOrder: [String] = []

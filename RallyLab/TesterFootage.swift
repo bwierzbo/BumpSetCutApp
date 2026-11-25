@@ -91,7 +91,8 @@ enum TesterFootage {
                     report.skipped += 1
                     continue
                 }
-                if await projects.waitForSampling(videoId) { added += 1 } else { report.failed += 1 }
+                // Headless, one project for the run: a cancelled wait (the run itself ending) counts as not added.
+                if (try? await projects.waitForSampling(videoId)) == true { added += 1 } else { report.failed += 1 }
             }
             report.added += added
             if added == 0 { projects.removeExtra(card) }

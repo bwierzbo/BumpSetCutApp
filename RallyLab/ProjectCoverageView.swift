@@ -15,6 +15,15 @@ import SwiftUI
 
 struct ProjectCoverageView: View {
     let projects: ProjectsModel
+    /// Open a recording's task from a row: the marking pass, or its next rally to track (owner, 2026-11-05: "in
+    /// coverage I need to be able to see the screen where I mark the rallies and everything else").
+    var open: (LabelQueue.Job) -> Void = { _ in }
+    /// Put a set-aside recording back in the queue (the backlog; server first, then the session) — the Mac's way
+    /// back for a recording the phone never lists (no phone copy).
+    var putBack: (String) -> Void = { _ in }
+    /// The lead's check of another labeler's footage-type choice (LabelingSync.checkClaim): accept or decline;
+    /// returns why it could not be done.
+    var check: (RecordingTypeClaim, Bool) async -> String? = { _, _ in nil }
 
     var body: some View {
         let c = Coverage(sessions: projects.sampler.sessions)
@@ -82,16 +91,20 @@ struct ProjectCoverageView: View {
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.primary.opacity(0.07)))
                 }
 
+                FootageTypeList(projects: projects, open: open, putBack: putBack, check: check)
+
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Every video").font(.title3.weight(.bold))
                     Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 6) {
                         GridRow {
-                            ForEach(["Video", "Split", "On Mac", "Rallies", "Guesses left", "Rally times", "Sampled"], id: \.self) {
+                            ForEach(["Video", "Split", "On Mac", "Rallies", "Guesses left", "Rally times", "Sampled", ""], id: \.self) {
                                 Text($0).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                             }
                         }
                         Divider().gridCellUnsizedAxes(.horizontal)
-                        ForEach(c.videos) { VideoRow(video: $0) }
+                        ForEach(c.videos) { video in
+                            VideoRow(video: video) { OpenButtons(name: video.name, projects: projects, open: open, putBack: putBack) }
+                        }
                     }
                     .padding(16)
                     .background(.background, in: RoundedRectangle(cornerRadius: 12))
@@ -148,15 +161,17 @@ struct Coverage {
     }
 
     init(sessions: [VideoSession]) {
+        // Built on every redraw of the coverage table: `FootagePresence` answers.
+        let here = FootagePresence.shared.here(sessions.map(\.sourcePath))
         for s in sessions {
             let env = Self.environment(s.name)
-            let onMac = FileManager.default.fileExists(atPath: s.sourcePath)
+            let onMac = here.contains(s.sourcePath)
             let tracks = s.tracks ?? []
             let done = tracks.filter(\.isReady)
             let sampled = s.frames.filter { $0.keep && $0.reviewed }.count
             let guesses = TrackLabelModel.suggestions(from: s, excluding: tracks).count
             let labels = RallyMarkModel.labelsURL(for: URL(fileURLWithPath: s.sourcePath))
-            let rallyTimes = (s.ralliesMarked ?? false) ? "marked" : FileManager.default.fileExists(atPath: labels.path) ? "partial" : "—"
+            let rallyTimes = s.backlogAt != nil ? "backlog" : (s.ralliesMarked ?? false) ? "marked" : FileManager.default.fileExists(atPath: labels.path) ? "partial" : "—"
             var row = rows[env] ?? Row()
             if s.split == "val" {
                 row.valRallies += done.count
@@ -218,11 +233,13 @@ struct Coverage {
 
 private struct VideoRow: View {
     let video: Coverage.Video
+    let actions: () -> OpenButtons
 
     private var rallyTimesTint: Color {
         switch video.rallyTimes {
         case "marked": return ReviewStyle.yours
         case "partial": return ReviewStyle.guess
+        case "backlog": return .orange
         default: return .secondary
         }
     }
@@ -241,7 +258,33 @@ private struct VideoRow: View {
             Chip(text: video.rallyTimes, tint: rallyTimesTint)
             Text("\(video.sampled)").font(.caption.monospacedDigit())
                 .foregroundStyle(video.onMac ? Color.primary : Color.red)
+            actions()
         }
+    }
+}
+
+/// From any row straight to the recording's work: the marking pass (Mark the rallies), or its next rally to track.
+struct OpenButtons: View {
+    let name: String
+    let projects: ProjectsModel
+    let open: (LabelQueue.Job) -> Void
+    var putBack: (String) -> Void = { _ in }
+
+    var body: some View {
+        let session = projects.sampler.sessions.first { $0.name == name }
+        HStack(spacing: 6) {
+            Button("Mark") { open(.review(name)) }
+                .help("Mark the rallies in this recording (the live pass)")
+            Button("Track") { if let s = session, let rally = LabelQueue.Video.nextRally(in: s) { open(.track(name, rally)) } }
+                .disabled(session.flatMap { LabelQueue.Video.nextRally(in: $0) } == nil)
+                .help("Track the next rally of this recording frame by frame")
+            if session?.backlogAt != nil {
+                Button("Put back") { putBack(name) }
+                    .help("Set aside (the backlog): \(session?.backlogReason ?? "no reason given") — put it back in the queue on the phone and the Mac")
+            }
+        }
+        .controlSize(.small)
+        .disabled(session == nil)
     }
 }
 
@@ -292,4 +335,210 @@ private struct Chip: View {
             .background(tint.opacity(0.15), in: Capsule())
             .foregroundStyle(tint)
     }
+}
+
+// MARK: - Footage type: what still needs confirming, and what each recording is
+
+/// Every recording's footage type as the project knows it (the footage-properties record, D-032) and as the phone
+/// has asked for it (the newest claim on the server, D-033): the ones still to confirm first — a marked recording
+/// with no confirmed type is what holds the classifier's negatives back — with a Confirm button that opens the same
+/// step the pass ends with. Owner, 2026-11-05: "a list in the GUI of things to be confirmed with the type of
+/// footage it is".
+struct FootageTypeList: View {
+    let projects: ProjectsModel
+    var open: (LabelQueue.Job) -> Void = { _ in }
+    var putBack: (String) -> Void = { _ in }
+    var check: (RecordingTypeClaim, Bool) async -> String? = { _, _ in nil }
+
+    /// This Mac's account: a claim it sent is the lead's own and counts without a check (D-033 amendment).
+    @State private var me: UUID?
+    /// Other labelers' names (the lead's view of them, labeler_summary); a short id when unknown.
+    @State private var names: [UUID: String] = [:]
+    @State private var checkProblem: String?
+
+    @State private var claims: [String: RecordingTypeClaim] = [:]
+    @State private var claimsProblem: String?
+    @State private var records: [String: FootageProperties.File] = [:]
+    @State private var unreadable: [String: String] = [:]
+    @State private var onlyUnconfirmed = true
+    @State private var confirming: Confirming?
+    @State private var reloads = 0
+
+    private struct Confirming: Identifiable {
+        let id = UUID()
+        let session: VideoSession
+        let opening: ProjectsModel.Opening
+    }
+
+    struct Row: Identifiable {
+        var id: String { name }
+        let name: String
+        let marked: Bool
+        /// The confirmed type with its provenance; nil when no one has confirmed one.
+        let confirmed: (type: FootageProperties.RecordingType, by: String?, at: String?)?
+        /// The phone's newest claim, when there is one and nothing is confirmed yet.
+        let claim: RecordingTypeClaim?
+        let unreadable: String?
+        var backlog: Bool = false
+        /// The claim is another labeler's, waiting for the lead's check.
+        var awaitingCheck: Bool = false
+        var needsConfirming: Bool { confirmed == nil }
+        /// Marked all the way through, no type confirmed, and no phone choice waiting for the Mac (a refused one
+        /// asks again; another labeler's waits for you); set-aside recordings wait.
+        var toConfirm: Bool {
+            guard marked, confirmed == nil, !backlog else { return false }
+            return awaitingCheck || (claim.map { $0.status == .rejected || $0.status == .superseded } ?? true)
+        }
+    }
+
+    var rows: [Row] {
+        let project = projects.project
+        let all = projects.sampler.sessions.map { s -> Row in
+            // A record bound to another file's fingerprint (the recording was replaced under its name) is not this
+            // recording's confirmation — the confirmation step's and the source index's rule.
+            let record = (records[DatasetStore.safeName(s.name)] ?? records[s.name]).flatMap { r in
+                FootageTypeConfirmation.anotherFile(r, sourceFingerprint: FootageTypeConfirmation.sourceFingerprint(of: s.name, in: project)) == nil ? r : nil
+            }
+            let confirmed = record.flatMap { r in r.recordingTypeAt == nil ? nil : (r.recordingType, r.recordingTypeBy, r.recordingTypeAt) }
+            let claim = claims[s.name]
+            return Row(name: s.name, marked: s.ralliesMarked ?? false, confirmed: confirmed, claim: claim,
+                       unreadable: unreadable[DatasetStore.safeName(s.name)] ?? unreadable[s.name], backlog: s.backlogAt != nil,
+                       awaitingCheck: claim.map { $0.status == .submitted && (me == nil || $0.submittedBy != me) } ?? false)
+        }
+        // Marked and unconfirmed first (they gate training), then unmarked and unconfirmed, then the confirmed.
+        return all.sorted { a, b in
+            let ka = (a.needsConfirming ? 0 : 1, a.marked ? 0 : 1, a.name), kb = (b.needsConfirming ? 0 : 1, b.marked ? 0 : 1, b.name)
+            return ka < kb
+        }
+    }
+
+    var body: some View {
+        let rows = rows
+        let shown = onlyUnconfirmed ? rows.filter(\.toConfirm) : rows
+        let marked = rows.filter(\.marked)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Footage type").font(.title3.weight(.bold))
+                Text("\(rows.count - rows.filter(\.needsConfirming).count) of \(rows.count) confirmed · \(marked.filter { !$0.needsConfirming }.count) of \(marked.count) marked recordings")
+                    .font(.callout).foregroundStyle(.secondary)
+                Spacer()
+                Toggle("Only marked ones still to confirm (\(rows.filter(\.toConfirm).count))", isOn: $onlyUnconfirmed).toggleStyle(.checkbox).font(.callout)
+            }
+            if let claimsProblem {
+                Label(claimsProblem, systemImage: "iphone.slash").font(.caption).foregroundStyle(.secondary)
+            }
+            if let checkProblem {
+                Label(checkProblem, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.red)
+            }
+            if shown.isEmpty {
+                Text(onlyUnconfirmed ? "Every marked recording has a footage type confirmed or waiting for the Mac." : "No recordings.").font(.callout).foregroundStyle(.secondary)
+            } else {
+                Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 6) {
+                    GridRow {
+                        ForEach(["Video", "Pass", "Footage type", "Phone", "", " "], id: \.self) {
+                            Text($0).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        }
+                    }
+                    Divider().gridCellUnsizedAxes(.horizontal)
+                    ForEach(shown) { row in
+                        GridRow {
+                            Text(row.name).font(.caption.monospaced()).lineLimit(1)
+                            Chip(text: row.marked ? "marked" : "not finished", tint: row.marked ? ReviewStyle.yours : .secondary)
+                            if let c = row.confirmed {
+                                // Confirmed means a person is on record (`recordingTypeAt`); the date itself is only shown.
+                                Chip(text: RecordingTypeClaims.reviewed(kind: RecordingTypeClaims.Kind(rawValue: c.type.rawValue), at: c.at.map { Self.date($0) ?? Date() }),
+                                     tint: c.type == .continuous ? ReviewStyle.yours : c.type == .edited ? .orange : .secondary)
+                            } else if let why = row.unreadable {
+                                Chip(text: "record unreadable", tint: .red).help(why)
+                            } else {
+                                Chip(text: "not yet reviewed", tint: .secondary)
+                            }
+                            if let claim = row.claim, row.awaitingCheck {
+                                // Another labeler's choice: yours to check, as their ball frames are.
+                                HStack(spacing: 6) {
+                                    Text("\(who(claim)): \(claim.kind?.title ?? claim.recordingType)").font(.caption).lineLimit(1)
+                                    Button("Accept") { review(claim, accept: true) }.controlSize(.small)
+                                    Button("Decline") { review(claim, accept: false) }.controlSize(.small)
+                                }
+                            } else if let claim = row.claim {
+                                Text(Self.phone(claim)).font(.caption).foregroundStyle(claim.status == .rejected ? .red : .secondary).lineLimit(1)
+                            } else {
+                                Text("—").font(.caption).foregroundStyle(.secondary)
+                            }
+                            Button(row.confirmed == nil ? "Confirm…" : "Change…") {
+                                guard let opening = projects.opening, let session = projects.sampler.sessions.first(where: { $0.name == row.name }) else { return }
+                                confirming = Confirming(session: session, opening: opening)
+                            }
+                            .controlSize(.small).disabled(projects.opening == nil)
+                            OpenButtons(name: row.name, projects: projects, open: open, putBack: putBack)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.primary.opacity(0.07)))
+        .task(id: "\(reloads)-\(projects.opening?.generation.uuidString ?? "")") { await load() }
+        .sheet(item: $confirming) { step in
+            FootageTypeSheet(recording: FootageTypeConfirmation.Recording(step.session), opening: step.opening, projects: projects,
+                             duration: nil, afterPass: false) {
+                confirming = nil
+                reloads += 1
+            }
+        }
+    }
+
+    /// The records from the project's files; the phone's claims from the server (the newest per recording). Read
+    /// for the opening in force when the load began: another project opened meanwhile keeps nothing of it (the
+    /// task restarts for the new opening), and nothing read for the old one lands on the new one's names.
+    private func load() async {
+        records = [:]; unreadable = [:]; claims = [:]; claimsProblem = nil
+        guard let opening = projects.opening else { return }
+        let me = await LabelingClient.shared.userId
+        let names = (try? await LabelingClient.shared.labelerSummary())?.map { ($0.labeler, $0.name) } ?? []
+        // The awaits above suspend: a project opened meanwhile gets nothing of this one's.
+        guard !Task.isCancelled, projects.opening == opening else { return }
+        self.me = me
+        self.names = Dictionary(names, uniquingKeysWith: { a, _ in a })
+        if let all = try? FootageProperties.Store(root: opening.root).loadAll() { records = all.records; unreadable = all.unreadable }
+        do {
+            let rows = try await LabelingClient.shared.recordingTypeClaims(since: nil).filter { $0.project == opening.name }
+            guard projects.opening == opening else { return }
+            var newest: [String: RecordingTypeClaim] = [:]
+            for c in rows where (newest[c.sessionName].map { ($0.revision, $0.submittedAt) < (c.revision, c.submittedAt) } ?? true) { newest[c.sessionName] = c }
+            claims = newest
+            claimsProblem = nil
+        } catch {
+            guard projects.opening == opening else { return }
+            claims = [:]
+            claimsProblem = "The phone's choices can't be read: \(error.localizedDescription) (sign in under Plan)"
+        }
+    }
+
+    private func who(_ c: RecordingTypeClaim) -> String {
+        c.submittedBy.map { names[$0] ?? String($0.uuidString.lowercased().prefix(8)) } ?? "a labeler"
+    }
+
+    /// Accepted, the next sync round applies it (a few seconds); declined, it is settled now. The list reloads after.
+    private func review(_ claim: RecordingTypeClaim, accept: Bool) {
+        Task {
+            checkProblem = await check(claim, accept)
+            if accept { try? await Task.sleep(for: .seconds(4)) }
+            reloads += 1
+        }
+    }
+
+    private static func phone(_ c: RecordingTypeClaim) -> String {
+        let kind = c.kind?.title ?? c.recordingType
+        switch c.status {
+        case .submitted: return "\(kind) · waiting for the Mac"
+        case .accepted: return "\(kind) · accepted"
+        case .rejected: return "\(kind) · not accepted" + (c.reason.map { " — \($0)" } ?? "")
+        case .superseded: return "\(kind) · replaced"
+        }
+    }
+
+    private static func date(_ iso: String) -> Date? { ISO8601DateFormatter().date(from: iso) }
 }

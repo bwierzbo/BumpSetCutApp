@@ -13,7 +13,7 @@
 import Foundation
 
 /// Everything the app shows, as last loaded.
-struct LabelSnapshot: Codable {
+struct LabelSnapshot: Codable, Sendable {
     var videos: [LabelVideo] = []
     var times: [LabelRallyTimes] = []
     var tracks: [LabelTrack] = []
@@ -22,10 +22,16 @@ struct LabelSnapshot: Codable {
     var events: [LabelRallyEvents] = []
     /// The project's withheld recordings as published; nil = no list published for that project (nothing reviewable).
     var withheld: [String: [String]] = [:]
+    /// Footage-type claims (migration 052; D-033): this phone's and others', with their state.
+    var claims: [RecordingTypeClaim] = []
+    /// The signed-in account is a lead (public.labelers.lead), as last loaded; false until it has been (a snapshot
+    /// from an older build): then a withheld recording is closed here, as it is for an ordinary labeler.
+    var lead = false
 
     init(videos: [LabelVideo] = [], times: [LabelRallyTimes] = [], tracks: [LabelTrack] = [], states: [LabelProjectState] = [],
-         events: [LabelRallyEvents] = [], withheld: [String: [String]] = [:]) {
+         events: [LabelRallyEvents] = [], withheld: [String: [String]] = [:], claims: [RecordingTypeClaim] = [], lead: Bool = false) {
         self.videos = videos; self.times = times; self.tracks = tracks; self.states = states; self.events = events; self.withheld = withheld
+        self.claims = claims; self.lead = lead
     }
 
     init(from decoder: Decoder) throws {
@@ -36,10 +42,19 @@ struct LabelSnapshot: Codable {
         states = try c.decodeIfPresent([LabelProjectState].self, forKey: .states) ?? []
         events = try c.decodeIfPresent([LabelRallyEvents].self, forKey: .events) ?? []
         withheld = try c.decodeIfPresent([String: [String]].self, forKey: .withheld) ?? [:]
+        claims = try c.decodeIfPresent([RecordingTypeClaim].self, forKey: .claims) ?? []
+        lead = try c.decodeIfPresent(Bool.self, forKey: .lead) ?? false
     }
 }
 
 /// A Stage 1 record edited on the phone and not saved yet: the record and the server revision it was loaded from.
+/// A recording set aside (reason, when) or put back (both nil), waiting to be sent; who, the server learns from
+/// the account that sends it.
+struct BacklogChange: Codable, Equatable, Sendable {
+    var reason: String?
+    var at: Date?
+}
+
 struct PendingRallyEvents: Codable, Equatable {
     var videoId: UUID
     var expected: Int
@@ -57,8 +72,37 @@ struct Outbox: Codable {
 
     /// Stage 1 records waiting to be saved, by recording (the latest edit of each).
     var events: [UUID: PendingRallyEvents] = [:]
-    var isEmpty: Bool { times.isEmpty && tracks.isEmpty && frames.isEmpty && rallies.isEmpty && events.isEmpty }
-    var count: Int { times.count + tracks.count + frames.count + rallies.count + events.count }
+    /// Footage-type choices waiting to be sent, by claim id (D-033): durable until the server has them.
+    var claims: [UUID: RecordingTypeClaims.Pending] = [:]
+    /// Recordings set aside or put back (the backlog), by video: the latest change, sent as it is.
+    var backlog: [UUID: BacklogChange] = [:]
+    var isEmpty: Bool { times.isEmpty && tracks.isEmpty && frames.isEmpty && rallies.isEmpty && events.isEmpty && claims.isEmpty && backlog.isEmpty }
+    var count: Int { times.count + tracks.count + frames.count + rallies.count + events.count + claims.count + backlog.count }
+
+    /// This outbox with `settling`'s rows behind it: a live edit of the same thing wins, and the settled checks and
+    /// decisions come first, as they were made.
+    func carrying(_ settling: Outbox) -> Outbox {
+        var all = self
+        all.times.merge(settling.times) { mine, _ in mine }
+        all.tracks.merge(settling.tracks) { mine, _ in mine }
+        all.events.merge(settling.events) { mine, _ in mine }
+        all.claims.merge(settling.claims) { mine, _ in mine }
+        all.backlog.merge(settling.backlog) { mine, _ in mine }
+        all.frames = settling.frames + frames
+        all.rallies = settling.rallies + rallies
+        return all
+    }
+
+    /// Takes `carried`'s rows out, each only where it is still the same row.
+    mutating func drop(_ carried: Outbox) {
+        for (id, row) in carried.times where times[id] == row { times[id] = nil }
+        for (id, row) in carried.tracks where tracks[id] == row { tracks[id] = nil }
+        for (id, row) in carried.events where events[id] == row { events[id] = nil }
+        for (id, row) in carried.claims where claims[id] == row { claims[id] = nil }
+        for (id, row) in carried.backlog where backlog[id] == row { backlog[id] = nil }
+        for edit in carried.frames { if let i = frames.firstIndex(of: edit) { frames.remove(at: i) } }
+        for verdict in carried.rallies { if let i = rallies.firstIndex(of: verdict) { rallies.remove(at: i) } }
+    }
 
     init() {}
 
@@ -69,6 +113,8 @@ struct Outbox: Codable {
         frames = try c.decodeIfPresent([LabelingClient.FrameEdit].self, forKey: .frames) ?? []
         rallies = try c.decodeIfPresent([LabelingClient.RallyVerdict].self, forKey: .rallies) ?? []
         events = try c.decodeIfPresent([UUID: PendingRallyEvents].self, forKey: .events) ?? [:]
+        claims = try c.decodeIfPresent([UUID: RecordingTypeClaims.Pending].self, forKey: .claims) ?? [:]
+        backlog = try c.decodeIfPresent([UUID: BacklogChange].self, forKey: .backlog) ?? [:]
     }
 }
 
@@ -120,9 +166,25 @@ enum LocalStore {
         (try? Data(contentsOf: support.appendingPathComponent(name))).flatMap { try? decoder.decode(T.self, from: $0) }
     }
 
+    /// Written before returning: the outbox (what this phone still owes the server) and the day's count are small,
+    /// and an edit counts as kept only once this has returned.
     static func save<T: Encodable>(_ value: T, _ name: String) {
         if let data = try? encoder.encode(value) { try? data.write(to: support.appendingPathComponent(name), options: .atomic) }
     }
+
+    /// Encoded and written off the main thread, one write at a time in the order asked, then `done` on the main
+    /// actor once the file holds this value. For the snapshot — the server's rows as last seen, with every tracked
+    /// rally's points: ~12 MB of JSON on a phone that labels Scratch — whose encoding on the main thread took
+    /// 370–410 ms on the owner's iPhone (2026-11-04), felt as a stutter about two seconds after every Dead ball.
+    /// A write still queued when the process dies is lost, so nothing may depend on it until `done` has run.
+    static func saveInBackground<T: Encodable & Sendable>(_ value: T, _ name: String, then done: @escaping @MainActor @Sendable () -> Void) {
+        writer.async {
+            if let data = try? makeEncoder().encode(value) { try? data.write(to: support.appendingPathComponent(name), options: .atomic) }
+            Task { @MainActor in done() }
+        }
+    }
+
+    private static let writer = DispatchQueue(label: "app.BumpSetCut.RallyLab.LocalStore.writer", qos: .userInitiated)
 
     // MARK: - A rally being tracked
 
@@ -219,11 +281,13 @@ enum LocalStore {
     /// A found rally by its start, to the tenth of a second.
     static func key(_ found: [Double]) -> Int { Int((found[0] * 10).rounded()) }
 
-    private static let encoder: JSONEncoder = {
+    private static let encoder: JSONEncoder = makeEncoder()
+
+    private static func makeEncoder() -> JSONEncoder {
         let e = JSONEncoder()
         e.dateEncodingStrategy = .iso8601
         return e
-    }()
+    }
     private static let decoder: JSONDecoder = {
         let d = JSONDecoder()
         d.dateDecodingStrategy = .iso8601
@@ -231,7 +295,7 @@ enum LocalStore {
     }()
 }
 
-/// What you labeled today, for the Next tab.
+/// What you labeled today, for the Home tab.
 struct DayStats: Codable {
     var day: String
     var rallies = 0

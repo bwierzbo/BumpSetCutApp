@@ -2,7 +2,7 @@
 name: roadmap-amendments
 status: living (CI-BSC-021)
 created: 2026-10-22T02:29:29Z
-updated: 2026-10-22T02:29:29Z
+updated: 2026-11-13T03:24:04Z
 ---
 
 # Roadmap amendments
@@ -33,8 +33,12 @@ Decisions logged after the roadmap whose entries change the plan. The section co
 
 | Decision | Date | Roadmap section affected | Change |
 |---|---|---|---|
+| D-028 (amendment 2026-11-04) | 2026-11-04 | Phase 1A (event truth), Phase 2 (scoring contract consumers), RallyLab workflow | The marking pass drops the N key; `missedServe` / `other` marks are excluded spans for every scorer, tuner and exporter (one shared reading, `RallyTruth`), and not-rally time exists only for a complete pass. Earlier scores that counted missed serves as rallies are superseded (MARK_KIND_IMPACT_AUDIT_2026-11-04.md). |
 | D-016 | 2026-10-21 | Two independent validation products (final-test collection) | The seven provisional candidates are not promotable; the roadmap's new-footage final-test collection is the only path to a verified `final_test`. |
 | D-017 | 2026-10-21 | not named in the entry (owner to confirm) | Adds a model-lineage holdout (16 recordings) withheld from all future training, distinct from the final test; new lineages preregister before evaluating on it. |
 | D-018 | 2026-10-21 | not named in the entry (owner to confirm) | L2 training only from a manifest-generated package with a fail-closed preflight; preregistration from a fixed template is mandatory before any L2 training. |
 | D-019 | 2026-10-21 | not named in the entry (owner to confirm) | First L2 recipe approved with amendments (paired H1, label provenance, one seed); training and holdout evaluation each need separate authorisation. |
 | D-024 | 2026-10-23 | Phase 1A (event-boundary pilot); RallyLab review workflow and future classifier datasets | Stage 1 expands from the approved 24-rally calibration pilot to full eligible-video review of exact serve contact/dead ball, with simple missed-serve and non-rally ball-activity flags. An independently resumable, optional Stage 2 adds per-contact action/technique labels without redoing boundaries. Stage 3 player identities/stats are deferred; frozen L2 and protected footage controls remain unchanged. |
+| D-031 | 2026-11-02 | not named in the entry (owner to confirm); touches Phase 1 (dataset manifest), Phase 1A (review tooling) and the RallyLab workflow | RallyLab becomes the dataset-management and annotation platform: a derived source registry and a persistent labeling task queue over the existing stores, built in reviewable phases with stability fixes first; the roadmap's measurement-first ordering, reservations and training gates are unchanged. |
+| D-037 | 2026-11-12 | not named in the entry (owner to confirm); touches the model-lineage holdout and the L2 lineage (D-017, D-018) and every phase that runs a model over project recordings | Completes D-036: three train copies of lineage-holdout recordings are withheld with them (the closure is 24). The first L2 model is kept as a development comparator and marked exposed — it no longer counts as a lineage isolated under D-017; a clean L2 needs a new package and its own preregistration. Routine model runs (training and packaging, pre-tracking, scoring, tuning, comparison, proposals) refuse the whole withheld closure, the legacy holdout included; a holdout evaluation needs its own controlled, logged path. |
+| D-038 | 2026-11-14 | not named in the entry (owner to confirm); touches Phase 8 (learned temporal classifier vs FSM) through its data-readiness gates, and the dataset-integrity work of D-036/D-037 | The classifier experiment's negatives must be verified before training: gate G7 is adopted (only intervals a person reviewed as clean, or eligible Stage 1 coverage, supply negatives; edited footage never does), G6 is counted over those, and the audit starts with a frozen 12-recording pilot. The preregistration's amendments A1–A13 are accepted with reporting requirements. The experiment runs on a new export after the audit, not on `rc-v1-20261112`. No training is authorised. |

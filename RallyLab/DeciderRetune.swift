@@ -8,7 +8,11 @@
 //  in the experiment record before anything runs. Every pool recording is
 //  checked against the final-test reservation and the lineage-withheld
 //  closure, must have every rally marked, and no recording group may sit in
-//  both pools. The detector runs once per recording per model (the tuner's
+//  both pools. The groups and identities come from the split manifest, which
+//  counts only while it is of the project as it is now (`admit`): a manifest
+//  written before a provenance change still names the old groups, and a
+//  recording that shares footage with a withheld one is refused whatever its
+//  card is called. The detector runs once per recording per model (the tuner's
 //  evidence cache); every candidate is a replay of the decision from that
 //  evidence. Settings are chosen on the tune pool only and the chosen settings
 //  are then replayed on the evaluation pool — development evidence, not
@@ -121,10 +125,9 @@ enum DeciderRetune {
     struct Account: Codable, Equatable {
         var rallies = 0, preserved = 0, clipped = 0, merged = 0, split = 0, partial = 0, missed = 0
         var clips = 0, falseClips = 0
-        /// Marks closed with N (a serve nothing followed: into the net, long, wide): in the classes above like
-        /// every mark, and counted here on their own — a one-second flight is under the decider's shortest rally
-        /// and the shortest clip, so the pipeline misses most by design.
-        var missedServeMarks = 0, missedServeMarksMissed = 0
+        /// The missed serves and "not a rally" marks (outside the cuts): excluded spans, masked like the cuts (the
+        /// scoring contract; owner, 2026-11-04) — and the clips that lay wholly inside one, unscored.
+        var excludedSpans = 0, unscoredClips = 0
         var rallyTime = 0.0, covered = 0.0, deadTime = 0.0
         /// Delivered clip − marked rally, over one-to-one matches (IoU ≥ 0.3).
         var startErrors: [Double] = [], endErrors: [Double] = []
@@ -135,7 +138,7 @@ enum DeciderRetune {
             Account(rallies: a.rallies + b.rallies, preserved: a.preserved + b.preserved, clipped: a.clipped + b.clipped,
                     merged: a.merged + b.merged, split: a.split + b.split, partial: a.partial + b.partial, missed: a.missed + b.missed,
                     clips: a.clips + b.clips, falseClips: a.falseClips + b.falseClips,
-                    missedServeMarks: a.missedServeMarks + b.missedServeMarks, missedServeMarksMissed: a.missedServeMarksMissed + b.missedServeMarksMissed,
+                    excludedSpans: a.excludedSpans + b.excludedSpans, unscoredClips: a.unscoredClips + b.unscoredClips,
                     rallyTime: a.rallyTime + b.rallyTime, covered: a.covered + b.covered, deadTime: a.deadTime + b.deadTime,
                     startErrors: a.startErrors + b.startErrors, endErrors: a.endErrors + b.endErrors,
                     rawStartErrors: a.rawStartErrors + b.rawStartErrors, rawEndErrors: a.rawEndErrors + b.rawEndErrors)
@@ -157,38 +160,44 @@ enum DeciderRetune {
     }
 
     /// The accounting of one video: `clips` delivered (padded, joined), `raw` their raw decided spans, `truth` the
-    /// marks, `kinds` each mark's kind in the same order (nil when the mark has none).
-    static func account(clips: [Interval], raw: [Interval], truth: [Interval], kinds: [RallyKind?], preservedShare: Double) -> Account {
+    /// rallies (RallyTruth: kind rally, or a legacy mark with none), `excluded` the missed serves and other marks.
+    /// `cuts`: the recording's cut ranges (not footage; D-030). Every interval is taken outside the cuts and the
+    /// excluded spans first; a clip with nothing left is unscored.
+    static func account(clips: [Interval], raw: [Interval], truth: [Interval], excluded: [Interval] = [], preservedShare: Double,
+                        cuts: [CutRange] = []) -> Account {
+        // The cuts split every interval; the excluded spans mask each clip's pieces, the clip staying one (CutMask).
+        let excluded = excluded.outside(cuts)
+        let truth = truth.outside(cuts).outside(excluded.map { CutRange(start: $0.start, end: $0.end) })
+        let (clips, unscored) = clips.outside(cuts).scorable(excluding: excluded)
+        let (raw, _) = raw.outside(cuts).scorable(excluding: excluded)
         var a = Account()
         a.rallies = truth.count
         a.clips = clips.count
-        let clipUnion = union(clips), truthUnion = union(truth)
-        let matched = RallySegmentationScorer.score(predicted: clips, groundTruth: truth,
-                                                    config: ScoringConfig(iouMatchThreshold: 0.3, boundaryToleranceSec: 1.0))
+        a.excludedSpans = excluded.count
+        a.unscoredClips = unscored
+        let clipUnion = union(clips.flatMap(\.pieces)), truthUnion = union(truth)
+        let matched = MaskedMatch(clips, truth: truth, iou: 0.3)
         let matchedTruth: [Interval] = matched.matches.map { $0.truth }
-        func coversMostOf(_ c: Interval, _ t: Interval) -> Bool { overlap(c, t) > 0.5 * (t.end - t.start) }
+        func coversMostOf(_ c: ScorableClip, _ t: Interval) -> Bool { c.overlap(t) > 0.5 * (t.end - t.start) }
         // A clip that covers more than half of two or more rallies merges them.
-        let mergingClips: [Interval] = clips.filter { c in
+        let mergingClips: [ScorableClip] = clips.filter { c in
             var covered = 0
             for t in truth where coversMostOf(c, t) { covered += 1 }
             return covered >= 2
         }
-        for (index, t) in truth.enumerated() {
+        for t in truth {
             let length = max(0, t.end - t.start)
             a.rallyTime += length
-            let missedServeMark = index < kinds.count && kinds[index] == .missedServe
-            if missedServeMark { a.missedServeMarks += 1 }
             var inside = 0.0
             for c in clipUnion { inside += overlap(c, t) }
             a.covered += inside
             var touching = 0, overHalfSecond = 0
-            for c in clips where overlap(c, t) > 0 {
+            for c in clips where c.overlap(t) > 0 {
                 touching += 1
-                if overlap(c, t) > 0.5 { overHalfSecond += 1 }
+                if c.overlap(t) > 0.5 { overHalfSecond += 1 }
             }
             if touching == 0 {
                 a.missed += 1
-                if missedServeMark { a.missedServeMarksMissed += 1 }
             } else if mergingClips.contains(where: { coversMostOf($0, t) }) {
                 a.merged += 1
             } else if overHalfSecond >= 2 {
@@ -204,16 +213,14 @@ enum DeciderRetune {
             for t in truthUnion { insideTruth += overlap(c, t) }
             a.deadTime += (c.end - c.start) - insideTruth
         }
-        for c in clips where !truth.contains(where: { overlap(c, $0) > 0 }) { a.falseClips += 1 }
+        for c in clips where !truth.contains(where: { c.overlap($0) > 0 }) { a.falseClips += 1 }
         for m in matched.matches {
-            a.startErrors.append(m.pred.start - m.truth.start)
-            a.endErrors.append(m.pred.end - m.truth.end)
+            a.startErrors.append(m.clip.span.start - m.truth.start)
+            a.endErrors.append(m.clip.span.end - m.truth.end)
         }
-        let rawMatched = RallySegmentationScorer.score(predicted: raw, groundTruth: truth,
-                                                       config: ScoringConfig(iouMatchThreshold: 0.3, boundaryToleranceSec: 1.0))
-        for m in rawMatched.matches {
-            a.rawStartErrors.append(m.pred.start - m.truth.start)
-            a.rawEndErrors.append(m.pred.end - m.truth.end)
+        for m in MaskedMatch(raw, truth: truth, iou: 0.3).matches {
+            a.rawStartErrors.append(m.clip.span.start - m.truth.start)
+            a.rawEndErrors.append(m.clip.span.end - m.truth.end)
         }
         return a
     }
@@ -241,9 +248,11 @@ enum DeciderRetune {
 
     // MARK: - Recording groups
 
-    /// Recording groups over the manifest's videos: one clip card, one uploader, one alias group, or a shared
-    /// confirmed source, session or venue put two videos in one group (transitively) — `_v2`… variants and
-    /// same-channel videos are not independent evidence. Video → group ID (the smallest name in the group).
+    /// Recording groups over the manifest's videos: one clip card, one uploader, one alias group, a shared
+    /// confirmed source, session or venue, or one file — the fingerprint a card was registered with or the content
+    /// of the video it holds (D-036: the same footage under two cards shares neither a name nor a card) — put two
+    /// videos in one group (transitively): `_v2`… variants and same-channel videos are not independent evidence.
+    /// Video → group ID (the smallest name in the group).
     static func groups(_ videos: [ManifestVideo]) -> [String: String] {
         var parent: [String: String] = [:]
         func find(_ x: String) -> String {
@@ -262,6 +271,7 @@ enum DeciderRetune {
             if let c = v.clipId, !c.isEmpty { keys.append("clip:" + c) }
             if let u = v.uploader?.trimmingCharacters(in: .whitespaces), !u.isEmpty { keys.append("up:" + u) }
             if let g = v.aliasGroup, !g.isEmpty { keys.append("grp:" + g) }
+            for f in [v.fingerprint, v.contentFingerprint] { if let f, !f.isEmpty { keys.append("fp:" + f) } }
             if let s = v.sourceId.value, !s.isEmpty { keys.append("src:" + s) }
             if let s = v.sessionId.value, !s.isEmpty { keys.append("ses:" + s) }
             if let s = v.venueId.value, !s.isEmpty { keys.append("ven:" + s) }
@@ -284,6 +294,63 @@ enum DeciderRetune {
         let straddling = tuneGroups.intersection(evalGroups)
         if !straddling.isEmpty { return "recording group(s) in both pools: \(straddling.sorted()) — settings would be evaluated on recordings they were chosen with" }
         if candidates(plan.grid).isEmpty { return "the grid lists no values" }
+        return nil
+    }
+
+    // MARK: - Admission
+
+    /// What the plan's recordings are, by the split manifest of the project as it is now.
+    struct Admission: Equatable {
+        /// Video → recording group, over every manifest video.
+        var groups: [String: String]
+        /// Video → manifest split.
+        var splits: [String: String]
+    }
+
+    struct Refusal: LocalizedError, Equatable {
+        let why: String
+        var errorDescription: String? { "Plan refused: \(why)" }
+    }
+
+    /// Admits the plan against the project at `root` as it is now, or throws why not — before anything is recorded
+    /// in the ledger, read from the pass cache or run. The reservations and the withheld closure are the files'
+    /// (`ScoringExposure.Closures`, as every model run reads them); the split manifest must be of project.json, the sessions and validation.json as they are
+    /// today (`DatasetSplitManifest.readCurrent`), or its groups and identities are another project state's. Every
+    /// pool recording must then be one the manifest can vouch for (`identityRefusal`).
+    static func admit(_ plan: Plan, root: URL) throws -> Admission {
+        let closures = try ScoringExposure.Closures(in: root)
+        let reserved = closures.reserved, withheld = closures.withheld
+        let manifest = try DatasetSplitManifest.readCurrent(from: NetInventory.manifestURL(in: root), projectDir: root).manifest
+        let groups = groups(manifest.videos)
+        if let why = planRefusal(plan, reserved: reserved, withheld: withheld, groups: groups) { throw Refusal(why: why) }
+        let rows = Dictionary(manifest.videos.map { ($0.video, $0) }, uniquingKeysWith: { a, _ in a })
+        func isWithheld(_ v: ManifestVideo) -> Bool { v.split.isReserved || v.reservedAs != nil || withheld.contains(v.video) }
+        let held = LineagePackage.WithheldIdentities(manifest.videos.filter(isWithheld)
+            .map { (video: $0.video, identities: LineagePackage.identities(of: $0), aliasGroup: $0.aliasGroup) })
+        for n in plan.tune + plan.eval {
+            guard let row = rows[n] else { throw Refusal(why: "\(n) is not in the split manifest") }
+            guard !isWithheld(row) else { throw Refusal(why: "\(n) is withheld in the split manifest (split \(row.split.rawValue))") }
+            if let why = identityRefusal(row, held: held) { throw Refusal(why: why) }
+        }
+        return Admission(groups: groups, splits: Dictionary(uniqueKeysWithValues: manifest.videos.map { ($0.video, "\($0.split)") }))
+    }
+
+    /// Why the manifest can't vouch for this recording, or nil: it must have a file identity, its video must have
+    /// been read when the manifest was built (a card's stored fingerprint names the file it was registered from,
+    /// which need not be the video it holds — D-036), and none of its identities or its alias group may be a
+    /// withheld recording's. A cached pass of such a recording is never scored.
+    static func identityRefusal(_ row: ManifestVideo, held: LineagePackage.WithheldIdentities) -> String? {
+        let identities = LineagePackage.identities(of: row)
+        guard identities.contains(where: { $0.hasPrefix("fp:") }) else {
+            return "\(row.video) has no file identity in the split manifest, so which recording it is can't be verified"
+        }
+        guard row.contentState == "read" else {
+            return "\(row.video)'s video was not read when the split manifest was built (content \(row.contentState ?? "not recorded")), so the footage it "
+                + "holds was not compared with the withheld recordings'. Make its footage reachable, then: \(DatasetSplitManifest.CurrencyError.refresh)"
+        }
+        if let hit = held.shared(identities: identities, aliasGroup: row.aliasGroup) {
+            return "\(row.video) shares \(hit.identity) with withheld \(hit.withheld) — the same footage as a withheld recording is not scored"
+        }
         return nil
     }
 
@@ -338,34 +405,14 @@ enum DeciderRetune {
         let planSHA = SHA256.hash(data: planData).map { String(format: "%02x", $0) }.joined()
         guard !FileManager.default.fileExists(atPath: out.path) else { log("❌ \(out.path) exists; name a new folder."); return false }
 
-        // Eligibility: the reservation and the withheld closure, every rally marked, groups apart.
-        let reserved: Set<String>, withheld: Set<String>
-        do {
-            reserved = try ReservedVideos.reservedNames(in: root)
-            withheld = try ReservedVideos.lineageWithheldNames(in: root)
-        } catch { log("❌ \(error.localizedDescription)"); return false }
-        let manifest: DatasetSplitManifest
-        do {
-            guard let m = try DatasetSplitManifest.readStrict(from: NetInventory.manifestURL(in: root)) else {
-                log("❌ No manifests/manifest.json: write the split manifest first (--manifest)."); return false
-            }
-            manifest = m
-        } catch { log("❌ \(error.localizedDescription)"); return false }
-        let groups = groups(manifest.videos)
-        let splits = Dictionary(uniqueKeysWithValues: manifest.videos.map { ($0.video, "\($0.split)") })
-        if let why = planRefusal(plan, reserved: reserved, withheld: withheld, groups: groups) { log("❌ Plan refused: \(why)"); return false }
+        // Eligibility: the reservation and the withheld closure, a current manifest that vouches for every pool
+        // recording, groups apart (admit); then every rally marked.
+        let admission: Admission
+        do { admission = try admit(plan, root: root) } catch { log("❌ \(error.localizedDescription)"); return false }
+        let groups = admission.groups, splits = admission.splits
         let pool = plan.tune + plan.eval
-        for n in pool where groups[n] == nil { log("❌ \(n) is not in the split manifest."); return false }
         var videos: [String: PipelineTuner.Video] = [:]
         for v in PipelineTuner.videos(pool, sampler: projects.sampler, log: log) { videos[v.session.name] = v }
-        // Each mark's kind, in the marks' order (the same file and order PipelineTuner.videos read the times from).
-        var kinds: [String: [RallyKind?]] = [:]
-        for v in videos.values {
-            let file = RallyMarkModel.labelsURL(for: URL(fileURLWithPath: v.session.sourcePath))
-            guard let data = try? Data(contentsOf: file), let marks = try? JSONDecoder().decode([RallyMarkRecord].self, from: data),
-                  marks.count == v.truth.count else { log("❌ \(v.session.name): the marks' kinds can't be read beside their times."); return false }
-            kinds[v.session.name] = marks.map(\.kind)
-        }
         let unmarked = pool.filter { videos[$0] == nil }
         guard unmarked.isEmpty else { log("❌ Not every rally is marked (or not in the project): \(unmarked.joined(separator: ", "))"); return false }
         log("Plan \(plan.id) (sha256 \(planSHA.prefix(16))): tune \(plan.tune.count) recordings in \(Set(plan.tune.compactMap { groups[$0] }).count) groups · eval \(plan.eval.count) in \(Set(plan.eval.compactMap { groups[$0] }).count) groups · \(candidates(plan.grid).count) candidates")
@@ -438,7 +485,8 @@ enum DeciderRetune {
             let p = passes[model]![video]!
             let config = candidate.apply(to: configs[model]!)
             let (clips, raw) = replay(evidence: p.evidence, duration: p.duration, config: config, minRallySec: plan.minRallySec)
-            return Self.account(clips: clips, raw: raw, truth: p.video.truth, kinds: kinds[video] ?? [], preservedShare: plan.preservedShare)
+            return Self.account(clips: clips, raw: raw, truth: p.video.truth, excluded: p.video.excluded, preservedShare: plan.preservedShare,
+                                cuts: p.video.cuts)
         }
         func condition(_ label: String, _ model: String, _ candidate: Candidate) -> Condition {
             Condition(label: label, model: model, candidate: candidate,
@@ -487,10 +535,10 @@ enum DeciderRetune {
     static func line(_ a: Account) -> String {
         func med(_ v: [Double]) -> String { Account.median(v).map { String(format: "%+.1f", $0) } ?? "—" }
         return "\(a.rallies) | \(a.preserved) | \(a.clipped) | \(a.merged) | \(a.split) | \(a.partial) | \(a.missed) | \(a.clips) | \(a.falseClips) | "
-            + String(format: "%.1f", a.rallies > 0 ? a.deadTime / Double(a.rallies) : 0) + " | \(med(a.startErrors)) / \(med(a.endErrors)) | \(med(a.rawStartErrors)) / \(med(a.rawEndErrors)) | \(a.within1s) | \(a.missedServeMarks) (\(a.missedServeMarksMissed))"
+            + String(format: "%.1f", a.rallies > 0 ? a.deadTime / Double(a.rallies) : 0) + " | \(med(a.startErrors)) / \(med(a.endErrors)) | \(med(a.rawStartErrors)) / \(med(a.rawEndErrors)) | \(a.within1s) | \(a.excludedSpans) (\(a.unscoredClips))"
     }
 
-    static let header = "| condition | rallies | preserved | clipped | merged | split | partial | missed | clips | false | dead s/rally | start/end (padded) | start/end (raw) | both within 1 s | missed-serve marks (of them missed) |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
+    static let header = "| condition | rallies | preserved | clipped | merged | split | partial | missed | clips | false | dead s/rally | start/end (padded) | start/end (raw) | both within 1 s | excluded missed-serve/other spans (clips unscored inside them) |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
 
     static func markdown(_ r: Report, pool: [String]) -> String {
         var md: [String] = ["# Decider retune — \(r.plan.id)", "",
