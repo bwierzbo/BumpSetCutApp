@@ -20,9 +20,12 @@ extension PlanVideo {
     init(session s: VideoSession) {
         let tracks = s.tracks ?? []
         let ready = tracks.filter(\.isReady)
-        // Reachable footage: here, or moved to the desktop's mirror (marking
-        // plays the review copy; tracking fetches the original back).
-        let available = s.isOnMac || FootageRemote.remotePath(for: s, projectsRoot: ProjectsModel.defaultLocation) != nil
+        // Reachable footage: moved to the desktop's mirror (marking plays the
+        // review copy; tracking fetches the original back), or here. The mirror
+        // is asked first: it is a path comparison, and the other is a file
+        // check per video on every redraw of the Label and Plan tabs — over a
+        // slow footage share that froze the window.
+        let available = FootageRemote.remotePath(for: s, projectsRoot: ProjectsModel.defaultLocation) != nil || s.isOnMac
         self.init(name: s.name, surface: Coverage.environment(s.name), split: s.split,
                   available: available,
                   rallies: ready.count,
