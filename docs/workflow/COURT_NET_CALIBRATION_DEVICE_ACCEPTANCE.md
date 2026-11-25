@@ -11,6 +11,17 @@ The checks a person makes on a **physical iPhone** before the manual Court & Net
 
 No model and no proposal is involved anywhere in these steps.
 
+## Installing from Xcode (no TestFlight)
+
+The whole stack is on one branch: `refactor/yolo-free-shipping-baseline` (PR #208, which contains #206 and #207).
+
+1. **First, with the builds already on the phone**, do section H's "before" column. Installing from Xcode replaces the TestFlight build of the same app, so the comparison has to be taken first.
+2. Open the project of a checkout of that branch in Xcode. It needs `BumpSetCut/Core/Networking/Secrets.swift` (gitignored; copy it from the usual checkout if the checkout is new).
+3. Plug in the phone, pick it as the run destination, and run the **BumpSetCut** scheme. Then run the **Labeler** scheme (RallyLab on the iPhone). Both install over the existing apps and keep their data.
+4. Xcode's console, with the phone attached, is where the log lines in section G appear.
+
+Nothing is uploaded or distributed by these steps. Both schemes archive for a device in Release with no Ultralytics-derived model and no research detector code (`scripts/check_shipping_build.sh <archive>`).
+
 ## Before starting
 
 - A build of the branch on the phone, with at least one landscape and one portrait volleyball video in the library, each a minute or longer; one of them with a near end line that is out of the picture, if there is one.
@@ -80,7 +91,7 @@ No model and no proposal is involved anywhere in these steps.
 
 ## G. Processing without YOLO (the removal PR)
 
-Run on the build that has the YOLO removal. For each of one beach, one grass and one indoor recording that is not withheld, filmed from behind an end line.
+Run on the build that has the YOLO removal. For each of one beach, one grass and one indoor recording that is not withheld, filmed from behind an end line — three recordings, each through G1–G3, with the numbers written in the record at the end.
 
 | # | Do | Expect |
 |---|---|---|
@@ -92,9 +103,38 @@ Run on the build that has the YOLO removal. For each of one beach, one grass and
 | G6 | In RallyLab on the iPhone: track a rally not tracked before | Candidates appear (from the multi-frame model); fixing a point re-solves and looks again. Note the frames where no candidate is offered and the ball had to be placed by hand. |
 | G7 | In RallyLab on the iPhone: open a rally tracked before this build | It opens as it was saved; nothing moved. |
 | G8 | In RallyLab on the iPhone: Run pipeline on a video | It runs; the title says "Multi-frame only"; no net box is drawn. |
+| G9 | Split a video into two camera views and confirm the net in both; return to its screen | The line under Court & Net says the video has more than one camera view and rallies aren't checked against the net yet. Processing it logs "No net geometry (the camera view changes during the video)". |
+| G10 | Start processing a long video with a confirmed net, leave the app until the run is suspended, change the net in Court & Net, process again | The run starts from the beginning, not from where it stopped (the progress bar starts at zero). |
+
+## H. Assisted tracking in RallyLab on the iPhone, before and after
+
+The new build finds candidates with the multi-frame model alone; the build before it also ran a single-frame detector. This measures what that costs. Use two recordings that are not withheld, each with at least six rallies not tracked yet.
+
+| # | Do | Write down |
+|---|---|---|
+| H1 | **Before installing the new build:** on each recording track three rallies not tracked before | For each rally: frames in the rally, frames where no candidate was offered and the ball was placed by hand, fixes made, minutes taken |
+| H2 | **After installing:** on the same two recordings track three other rallies not tracked before | The same four numbers |
+| H3 | In either build, after a fix | Whether "look again" filled in frames either side |
+
+The rallies differ between the two columns, so this is a comparison of rates (hand-placed frames per hundred frames), not of the same frames. A clearly worse rate on the new build is a result to report, not a reason to change a label.
 
 ## Results
 
-| Date | Phone / iOS | Build | Passed | Failed (ids) | Notes |
+| Date | Phone / iOS | Branch head | Sections passed | Failed (ids) | Notes |
 |---|---|---|---|---|---|
 | | | | | | |
+
+Processing record (section G):
+
+| Recording | Surface | Length | No net: rallies · time to process · phone warm? | Confirmed net: rallies · time | Rallies lost with the net | False rallies removed by the net |
+|---|---|---|---|---|---|---|
+| | beach | | | | | |
+| | grass | | | | | |
+| | indoor | | | | | |
+
+Tracking record (section H):
+
+| Recording | Build | Rally | Frames | Placed by hand | Fixes | Minutes |
+|---|---|---|---|---|---|---|
+| | before | | | | | |
+| | after | | | | | |
