@@ -289,6 +289,10 @@ final class RallyClassifierExporterTests: XCTestCase {
         // The manifest: the closure, the committed config as r0, both variants, the recordings as the contract has them.
         let m = try json(result.dataset.appendingPathComponent("dataset-manifest.json"))
         XCTAssertEqual(m["pipelineConfigSha256"] as? String, ProcessorConfig().canonicalSHA256)
+        // The detector is named by the model package the build compiled, not by the compiled model in the app.
+        let detector = try XCTUnwrap(m["detector"] as? [String: String])
+        XCTAssertEqual(detector["name"], "ball_heat")
+        XCTAssertEqual(detector["canonicalDigest"], String(try XCTUnwrap(X.modelSourceDigest(named: "ball_heat")).prefix(16)))
         let withheld = try XCTUnwrap(m["withheld"] as? [String: Any])
         XCTAssertEqual(withheld["names"] as? [String], ["bch_w"])
         let withheldFile = try XCTUnwrap(ProjectsModel.fileFingerprint(atPath: footage("bch_w").path))
@@ -718,6 +722,31 @@ final class RallyClassifierExporterTests: XCTestCase {
         let bundled = try XCTUnwrap(Bundle.main.url(forResource: "validate_dataset", withExtension: "py"))
         XCTAssertEqual(try Data(contentsOf: bundled), try Data(contentsOf: validator), "the validator built into the app is this tree's")
         XCTAssertNotNil(X.executableSha256())
+    }
+
+    func testThisBuildRecordsTheModelPackageItsDetectorWasCompiledFrom() throws {
+        // What the build phase wrote for the app hosting these tests is the digest of this tree's package: the same
+        // for every build of it, where the compiled model in the app is not.
+        let recorded = try XCTUnwrap(X.modelSourceDigest(named: "ball_heat"), "model-source-digests.txt has no ball_heat")
+        let package = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("BumpSetCut/Resources/ML/ball_heat.mlpackage", isDirectory: true)
+        let files = try XCTUnwrap(DatasetSplitManifest.canonicalFileHashes(ofDirectory: package)).filter { !$0.path.hasSuffix(".DS_Store") }
+        XCTAssertFalse(files.isEmpty)
+        XCTAssertEqual(recorded, DatasetSplitManifest.canonicalDigest(lines: files.map { ($0.path, $0.sha256) }))
+        let compiled = try XCTUnwrap(ProcessorConfig().heatmapModel)
+        XCTAssertNotEqual(recorded, DatasetSplitManifest.canonicalDigest(ofDirectory: compiled), "the compiled model is not what names the detector")
+    }
+
+    func testAModelsDigestIsReadFromTheBuildsRecordOrNotAtAll() {
+        let a = String(repeating: "a", count: 64), b = String(repeating: "b", count: 64)
+        XCTAssertEqual(X.modelSourceDigest(named: "ball_heat", in: "ball_heat \(a)\nnet \(b)\n"), a)
+        XCTAssertEqual(X.modelSourceDigest(named: "net", in: "ball_heat \(a)\nnet \(b)\n"), b)
+        XCTAssertNil(X.modelSourceDigest(named: "ball", in: "ball_heat \(a)\n"), "a name is the whole name")
+        XCTAssertNil(X.modelSourceDigest(named: "ball_heat", in: ""), "no record")
+        XCTAssertNil(X.modelSourceDigest(named: "ball_heat", in: "ball_heat \(a)\nball_heat \(b)\n"), "two lines for one model")
+        XCTAssertNil(X.modelSourceDigest(named: "ball_heat", in: "ball_heat \(a.dropLast())\n"), "not a digest")
+        XCTAssertNil(X.modelSourceDigest(named: "ball_heat", in: "ball_heat \(a.uppercased())\n"), "not as the build writes one")
+        XCTAssertNil(X.modelSourceDigest(named: "ball_heat", in: "ball_heat \(a) extra\n"))
     }
 
     // MARK: - Steps, labels, segments, features
