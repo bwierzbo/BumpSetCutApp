@@ -216,6 +216,38 @@ final class CalibrationEditorViewModelTests: XCTestCase {
         XCTAssertTrue(model.isStableView)
     }
 
+    func testMarksOfAViewCalledStableAgainCanBeConfirmedWithoutMovingThem() async throws {
+        let model = await open()
+        place(courtTaps, in: model)
+        model.confirm()
+        model.target = .net
+        place(netTaps, in: model)
+        model.confirm()
+        model.setView(.unsuitable)
+        XCTAssertNil(try onFile().confirmed(\.court, at: 1))
+
+        model.setView(.stable)
+        // What was on screen is the view's draft again — not a confirmation.
+        var segment = try onFile().segments[0]
+        XCTAssertEqual(segment.court.draft, CalibrationFixtures.court)
+        XCTAssertEqual(segment.net.draft, CalibrationFixtures.net)
+        XCTAssertNil(segment.court.confirmation)
+        XCTAssertEqual(model.status, .draft)
+        XCTAssertEqual(model.partState(.net), .placing)
+
+        model.confirm()
+        model.target = .court
+        model.confirm()
+        segment = try onFile().segments[0]
+        XCTAssertEqual(model.status, .bothConfirmed)
+        XCTAssertEqual(segment.court.confirmation?.geometry, CalibrationFixtures.court)
+        XCTAssertEqual(segment.court.confirmation?.startedFrom, CourtNetCalibrationV1.confirmation)
+        XCTAssertEqual(segment.court.confirmation?.adjustedPoints, [])
+        XCTAssertEqual(segment.net.confirmation?.geometry, CalibrationFixtures.net)
+        XCTAssertEqual(segment.court.history.count, 1)
+        XCTAssertEqual(segment.net.history.count, 1)
+    }
+
     func testTheCourtTypeIsSavedWithTheCalibration() async throws {
         let model = await open()
         model.setSetup(surface: .beach, format: .twos)
