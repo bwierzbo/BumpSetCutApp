@@ -4,7 +4,7 @@
 //
 //  Process a video the way BumpSetCut does, on the phone: pick it from
 //  Photos, say where it was filmed from, and run the app's own pipeline
-//  (ProcessorConfig's defaults with the camera rules, BallFinder.current).
+//  (ProcessorConfig's defaults with the camera rules: the multi-frame ball model alone).
 //  The rallies it cut are listed; Export Debug Video then draws what the
 //  pipeline saw over the whole video (PipelineVideo) — detections, the
 //  ball's trail, the net, the gate's readout, the rally bar — to share or
@@ -34,7 +34,7 @@ struct PipelineRunView: View {
                         LabeledContent("Length", value: clockText(run.duration))
                     }
                 } footer: {
-                    Text("Runs BumpSetCut's own pipeline with the app's settings (\(BallFinder.current.title)).")
+                    Text("Runs BumpSetCut's own pipeline with the app's settings (the multi-frame ball model).")
                 }
 
                 Section("Filmed from") {
@@ -206,7 +206,7 @@ final class PipelineRun {
             let outcome = await PipelineVideo.render(
                 evidence: result.evidence, clips: result.segments.map { Interval(start: $0.startTime, end: $0.endTime) }, serves: result.serves,
                 video: source, from: 0, length: result.duration + 1,
-                title: "\(name) · BumpSetCut pipeline (\(BallFinder.current.title))", to: output) { fraction in
+                title: "\(name) · BumpSetCut pipeline (Multi-frame only)", to: output) { fraction in
                     Task { @MainActor [weak self] in
                         guard let self, case .rendering(let r, _) = self.phase else { return }
                         self.phase = .rendering(r, fraction)

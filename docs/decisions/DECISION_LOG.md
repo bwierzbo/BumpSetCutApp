@@ -174,6 +174,8 @@ The authoritative record of product, architecture, data and process decisions fo
 
 **Source.** Session memory `ultralytics-licensing`.
 
+**Status 2026-11-24.** Carried out, and extended by [D-042](#d-042): the six packages and the detectors that load them are out of the BumpSetCut app and out of the Labeler as well (this entry had let the internal Labeler keep them); RallyLab on the Mac keeps them as research. The debug picker is gone. [Inventory](../ml-roadmap/YOLO_DEPENDENCY_INVENTORY_2026-11-24.md).
+
 ### D-013
 
 **From-scratch multi-frame ball model + learned decision layer, all on-device** — 2026-10-06 — accepted, amended by [D-001](#d-001) — owner.

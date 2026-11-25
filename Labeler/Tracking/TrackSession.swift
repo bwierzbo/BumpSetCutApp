@@ -4,8 +4,9 @@
 //
 //  One rally being tracked on the phone, the same way the Mac's Track tab
 //  does it: the same frames (every frame ~1/30 s apart, read from the
-//  clip's own sample times), the same detectors (YOLO + the multi-frame
-//  model, merged by TrackFinder) and the same path solver (TrackSolver).
+//  clip's own sample times) and the same path solver (TrackSolver). The
+//  candidates are the multi-frame model's alone: the iPhone has no
+//  single-frame detector (D-042), which the Mac adds to them.
 //  You only look at the frames worth a look; every fix re-solves the rest,
 //  then looks again near it for a ball the first pass missed.
 //
@@ -83,11 +84,8 @@ final class TrackSession {
         if case .byHand(let why) = work.reconciled(with: model.access(for: video), existingTrack: isTracked) { return why }
         return nil
     }
-    @ObservationIgnored private let lookAgainDetector = LookAgainDetector()
     @ObservationIgnored private let lookAgainHeat = LookAgainHeat()
 
-    /// Detections this sure or more are candidates (as on the Mac).
-    static let candidateConfidence: Float = 0.15
     /// Frames are read about this often, whatever the video's rate.
     static let frameRate = 30.0
 
@@ -244,32 +242,24 @@ final class TrackSession {
         var candidates: [[TrackCandidate]]
     }
 
-    /// Every frame read once, in order. Assisted: YOLO's candidates and the
-    /// frame for the multi-frame model, then the multi-frame model's peaks
-    /// merged in. By hand: the frames only — the detectors are built through
+    /// Every frame read once, in order. Assisted: each frame as the
+    /// multi-frame model takes it, then that model's peaks as the candidates
+    /// (it is the only ball detector on the iPhone). By hand, or with no model
+    /// in the bundle: the frames only — the detector is built through
     /// `work.models`, so none is for a recording no model may run over, and
     /// no candidate comes back. `whileAllowed` (ModelLeave) is asked before
-    /// the detectors are built, before each frame's detection and before
-    /// each of the multi-frame model's windows: once the recording is
-    /// withheld they stop there, the rest of the frames are only read, and
-    /// nothing found comes back.
+    /// the detector is built, before each frame is taken and before each of
+    /// the model's windows: once the recording is withheld it stops there,
+    /// the rest of the frames are only read, and nothing found comes back.
     private static func readFrames(asset: AVURLAsset, times: [Double], work: TrackWork.Now,
                                    whileAllowed: @escaping @Sendable () -> Bool,
                                    progress: @escaping @Sendable (Int) -> Void) async throws -> Found {
         try await Task.detached(priority: .userInitiated) {
-            let models = !whileAllowed() ? nil : try? work.models { () -> (yolo: YOLODetector, heat: HeatmapBallDetector?) in
-                let yolo = YOLODetector(modelName: "ball_v2_small", computeUnits: .cpuAndNeuralEngine)
-                yolo.minConfidence = candidateConfidence
-                yolo.suppressesStaticObjects = false
-                // Portrait frames letterboxed, as the pipeline does: stretched into
-                // the square input the ball goes oval and is mostly missed.
-                yolo.adaptiveLetterbox = true
-                let heat = Bundle.main.url(forResource: "ball_heat", withExtension: "mlmodelc")
+            let heat = !whileAllowed() ? nil : try? work.models {
+                Bundle.main.url(forResource: "ball_heat", withExtension: "mlmodelc")
                     .flatMap { HeatmapBallDetector(modelURL: $0, computeUnits: .cpuAndNeuralEngine) }
-                return (yolo, heat)
             }
-            let heat = models?.heat
-            var detecting = models != nil
+            var detecting = heat != nil
             let generator = AVAssetImageGenerator(asset: asset)
             generator.appliesPreferredTrackTransform = true
             generator.requestedTimeToleranceBefore = .zero
@@ -288,10 +278,7 @@ final class TrackSession {
                     // Each frame's buffers drained before the next: hundreds of
                     // frames otherwise pile up past what iOS allows an app.
                     autoreleasepool {
-                        if detecting, let yolo = models?.yolo {
-                            found[i] = yolo.detect(in: image, at: .zero).map { TrackCandidate(rect: $0.bbox, confidence: Double($0.confidence)) }
-                            grays[i] = heat?.frame(image)
-                        }
+                        if detecting { grays[i] = heat?.frame(image) }
                         frames[i] = UIImage(cgImage: image).jpegData(compressionQuality: 0.8) ?? Data()
                     }
                     done += 1
@@ -345,17 +332,17 @@ final class TrackSession {
     private func lookAgain(from fix: Int) {
         let launched = workNow()
         guard launched.work == .assisted else { return }
-        let snapshot = rally, frames = frames, holder = lookAgainDetector, heatHolder = lookAgainHeat
+        let snapshot = rally, frames = frames, heatHolder = lookAgainHeat
         let whileAllowed = model.modelLeave.question(for: video.id)
         isLookingAgain = true
         Task {
             let added = await Task.detached(priority: .userInitiated) { () -> [Int: [TrackCandidate]] in
-                let models = !whileAllowed() ? nil : try? launched.models {
-                    (yolo: holder.detector, heat: heatHolder.detector(for: Bundle.main.url(forResource: "ball_heat", withExtension: "mlmodelc")))
+                let heat = !whileAllowed() ? nil : try? launched.models {
+                    heatHolder.detector(for: Bundle.main.url(forResource: "ball_heat", withExtension: "mlmodelc"))
                 }
-                guard let detector = models?.yolo else { return [:] }
-                let heat = models?.heat
-                return TrackFinder.lookAgain(from: fix, in: snapshot, detector: detector, heat: heat, whileAllowed: whileAllowed) { i in
+                guard let heat else { return [:] }
+                // The multi-frame model only: the iPhone has no single-frame detector to run on crops.
+                return TrackFinder.lookAgain(from: fix, in: snapshot, heat: heat, whileAllowed: whileAllowed, detect: { _ in [] }) { i in
                     autoreleasepool { frames.indices.contains(i) ? UIImage(data: frames[i])?.cgImage : nil }
                 }
             }.value
@@ -484,23 +471,5 @@ final class TrackSession {
 
     private func save() {
         model.save(LabelTrack(rally, videoId: video.id))
-    }
-}
-
-/// The ball detector for looking again, loaded once, at a low threshold:
-/// it's only asked about the spot where the ball should be.
-private final class LookAgainDetector: @unchecked Sendable {
-    private let lock = NSLock()
-    private var loaded: YOLODetector?
-
-    var detector: YOLODetector? {
-        lock.lock(); defer { lock.unlock() }
-        if let loaded { return loaded }
-        let yolo = YOLODetector(modelName: "ball_v2_small", computeUnits: .cpuAndNeuralEngine)
-        yolo.minConfidence = 0.05
-        yolo.suppressesStaticObjects = false
-        guard yolo.isLoaded else { return nil }
-        loaded = yolo
-        return yolo
     }
 }

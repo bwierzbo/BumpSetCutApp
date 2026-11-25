@@ -60,13 +60,16 @@ struct ProcessingCheckpoint: Codable {
         let width: Double
         let height: Double
         let confidence: Double
+        /// Where the net came from (NetGeometry.origin); absent in a checkpoint written before it was recorded.
+        let origin: String?
 
-        init(_ net: DetectedNet) {
+        init(_ net: DetectedNet, origin: String) {
             x = Double(net.box.origin.x)
             y = Double(net.box.origin.y)
             width = Double(net.box.size.width)
             height = Double(net.box.size.height)
             confidence = net.confidence
+            self.origin = origin
         }
 
         var detectedNet: DetectedNet {
@@ -117,6 +120,22 @@ struct ProcessingCheckpoint: Codable {
             .joined(separator: ";")
         let digest = SHA256.hash(data: Data(description.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Whether this checkpoint was written by a run with the net a run has now: the same box from the same
+    /// origin, or none in both. Its segments and evidence were decided against that net — a calibration
+    /// confirmed, corrected or withdrawn since makes it another run's.
+    func wasWritten(with net: DetectedNet?, origin: String) -> Bool {
+        switch (self.net, net) {
+        case (nil, nil):
+            return true
+        case (let saved?, let now?):
+            let (a, b) = (saved.detectedNet.box, now.box)
+            return saved.origin == origin
+                && [a.minX - b.minX, a.minY - b.minY, a.width - b.width, a.height - b.height].allSatisfy { abs($0) < 1e-9 }
+        default:
+            return false
+        }
     }
 
     /// Whether this checkpoint can seed a run for the given inputs.

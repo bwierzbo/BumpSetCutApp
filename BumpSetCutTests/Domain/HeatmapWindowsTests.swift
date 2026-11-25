@@ -15,7 +15,7 @@ final class HeatmapWindowsTests: XCTestCase {
     private var detector: HeatmapBallDetector!
 
     override func setUpWithError() throws {
-        let url = try XCTUnwrap(BallFinder.multiFrameOnly.heatmapModel, "bundled multi-frame model")
+        let url = try XCTUnwrap(ProcessorConfig.bundledHeatmapModel, "bundled multi-frame model")
         detector = try XCTUnwrap(HeatmapBallDetector(modelURL: url, computeUnits: .cpuOnly))
     }
 

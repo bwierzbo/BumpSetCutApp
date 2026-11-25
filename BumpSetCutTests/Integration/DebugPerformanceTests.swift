@@ -118,8 +118,10 @@ final class DebugPerformanceTests: XCTestCase {
         
         let results = try await withThrowingTaskGroup(of: URL.self) { group in
             for _ in 0..<concurrentTasks {
-                group.addTask { [self] in
-                    return try await videoProcessor.processVideoDebug(testVideoURL)
+                // A processor of its own for each run, as the app gives each run (ProcessingCoordinator): the debug
+                // video is the pipeline's own run, and one processor holds one run's tracker, rules and decision.
+                group.addTask {
+                    return try await VideoProcessor().processVideoDebug(testVideoURL)
                 }
             }
             

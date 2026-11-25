@@ -27,15 +27,14 @@ import UIKit
 final class DebugAnnotator {
     struct OverlayFrameData {
         let detections: [DetectionResult]
-        let track: KalmanBallTracker.TrackedBall?
+        /// The selected track's recent positions, oldest first (Vision-normalised); empty when no track is selected.
+        let trail: [CGPoint]
         let isProjectile: Bool
         let inRally: Bool
         let time: CMTime
         // Physics validation metrics for the active track (R², confidence, sub-criteria).
         // Pass nil when no track is being validated this frame.
         let validation: BallisticsGate.ValidationResult?
-        // Optional: verified trajectory (distinct color). Defaults to nil so existing callers compile.
-        let verifiedTrack: KalmanBallTracker.TrackedBall? = nil
     }
 
     private let writer: AVAssetWriter
@@ -226,8 +225,8 @@ final class DebugAnnotator {
         }
 
         // 3) Path (dotted = detections in blue; solid = verified trajectory in red)
-        if let track = data.track {
-            let pts = track.positions.suffix(30).map { $0.0 } // last 30 points
+        do {
+            let pts = data.trail.suffix(30) // last 30 points
             if pts.count >= 2 {
                 // Dotted blue: raw detection chain
                 ctx.setLineWidth(3)

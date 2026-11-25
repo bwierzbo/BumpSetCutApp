@@ -308,18 +308,7 @@ private extension SettingsView {
     var testerSection: some View {
         BSCSettingsSection(title: "TestFlight", subtitle: "Visible to beta testers only", icon: "hammer.fill", iconColor: .bscTealText) {
             VStack(spacing: BSCSpacing.md) {
-                proModeToggle
-
-                Divider()
-                    .overlay(Color.bscSurfaceBorder)
-
-                BallModelPicker()
-
-                Divider()
-                    .overlay(Color.bscSurfaceBorder)
-
-                BallFinderPicker()
-            }
+                proModeToggle            }
         }
     }
 }
@@ -352,18 +341,7 @@ private extension SettingsView {
                     subtitle: "Show frame rate and memory usage",
                     icon: "gauge.with.needle.fill",
                     isOn: $appSettings.showPerformanceMetrics
-                )
-
-                Divider()
-                    .overlay(Color.bscSurfaceBorder)
-
-                BallModelPicker()
-
-                Divider()
-                    .overlay(Color.bscSurfaceBorder)
-
-                BallFinderPicker()
-            }
+                )            }
         }
     }
 }

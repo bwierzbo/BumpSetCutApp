@@ -46,6 +46,8 @@ struct ProcessingMetadata: Codable, Identifiable {
     /// reference that side-on serve detection compares `RallySegment.serveBallX`
     /// against. nil if no net was found.
     let netCenterX: Double?
+    /// Which net-dependent rules the run made, and on what net (nil for videos processed before this was recorded).
+    let spatialChecks: SpatialChecks?
 
     init(videoId: UUID,
          processingConfig: ProcessorConfig,
@@ -58,7 +60,8 @@ struct ProcessingMetadata: Codable, Identifiable {
          performanceMetrics: PerformanceData,
          eventLog: [ProcessingEvent]? = nil,
          sourceDurationSec: Double? = nil,
-         netCenterX: Double? = nil) {
+         netCenterX: Double? = nil,
+         spatialChecks: SpatialChecks? = nil) {
         self.id = UUID()
         self.videoId = videoId
         self.processingVersion = "1.0"
@@ -75,6 +78,7 @@ struct ProcessingMetadata: Codable, Identifiable {
         self.sourceDurationSec = sourceDurationSec
         self.cameraSetup = processingConfig.camera
         self.netCenterX = netCenterX
+        self.spatialChecks = spatialChecks
     }
 
     // Custom decoder for backwards compatibility
@@ -99,13 +103,14 @@ struct ProcessingMetadata: Codable, Identifiable {
         sourceDurationSec = try container.decodeIfPresent(Double.self, forKey: .sourceDurationSec)
         cameraSetup = try container.decodeIfPresent(CameraSetup.self, forKey: .cameraSetup)
         netCenterX = try container.decodeIfPresent(Double.self, forKey: .netCenterX)
+        spatialChecks = try container.decodeIfPresent(SpatialChecks.self, forKey: .spatialChecks)
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, videoId, processingVersion, processingDate, processingConfig
         case rallySegments, processingStats, qualityMetrics
         case trajectoryData, classificationResults, physicsValidation
-        case performanceMetrics, eventLog, sourceDurationSec, cameraSetup, netCenterX
+        case performanceMetrics, eventLog, sourceDurationSec, cameraSetup, netCenterX, spatialChecks
     }
 
     /// Copy preserving identity and all processing data, with edited rally
@@ -136,6 +141,44 @@ struct ProcessingMetadata: Codable, Identifiable {
         self.sourceDurationSec = sourceDurationSec
         self.cameraSetup = other.cameraSetup
         self.netCenterX = other.netCenterX
+        self.spatialChecks = other.spatialChecks
+    }
+}
+
+/// Which net-dependent rules a run made, and on what net. A rule that is on but had no net did not run: its state is
+/// `noNetGeometry`, and nothing was assumed in its place.
+struct SpatialChecks: Codable, Equatable {
+    enum State: String, Codable {
+        /// The rule ran against the run's net.
+        case ran
+        /// The configuration had the rule off.
+        case off
+        /// The rule was on and there was no net: it was skipped.
+        case noNetGeometry = "no_net_geometry"
+    }
+    /// "person_confirmed", an automatic method's name, or "unavailable".
+    var netOrigin: String
+    /// Why there was no net, when there was none.
+    var netUnavailableReason: String?
+    var underNetRejection: State
+    var offCourtRejection: State
+    var aboveNetRequirement: State
+
+    init(config: ProcessorConfig, net: NetGeometry) {
+        func state(_ on: Bool) -> State { !on ? .off : (net.net != nil ? .ran : .noNetGeometry) }
+        netOrigin = net.origin
+        netUnavailableReason = net.unavailableReason
+        underNetRejection = state(config.enableUnderNetRejection)
+        offCourtRejection = state(config.enableOffCourtRejection)
+        aboveNetRequirement = state(config.enableAboveNetRequirement)
+    }
+
+    /// The rules that were on and skipped for want of a net, as one line for a log; nil when none was.
+    var skippedLine: String? {
+        let skipped = [("under-net", underNetRejection), ("off-court", offCourtRejection), ("above-net", aboveNetRequirement)]
+            .filter { $0.1 == .noNetGeometry }.map(\.0)
+        guard !skipped.isEmpty else { return nil }
+        return "No net geometry (\(netUnavailableReason ?? netOrigin)): the \(skipped.joined(separator: ", ")) rule\(skipped.count == 1 ? " was" : "s were") skipped."
     }
 }
 
@@ -646,7 +689,8 @@ extension ProcessingMetadata {
                                      physics: [PhysicsValidationData],
                                      performance: PerformanceData,
                                      eventLog: [ProcessingEvent]? = nil,
-                                     netCenterX: Double? = nil) -> ProcessingMetadata {
+                                     netCenterX: Double? = nil,
+                                     spatialChecks: SpatialChecks? = nil) -> ProcessingMetadata {
         return ProcessingMetadata(
             videoId: videoId,
             processingConfig: config,
@@ -658,7 +702,8 @@ extension ProcessingMetadata {
             physicsValidation: physics,
             performanceMetrics: performance,
             eventLog: eventLog,
-            netCenterX: netCenterX
+            netCenterX: netCenterX,
+            spatialChecks: spatialChecks
         )
     }
 }

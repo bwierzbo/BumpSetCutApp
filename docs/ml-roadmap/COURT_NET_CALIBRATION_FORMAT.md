@@ -9,7 +9,7 @@ updated: 2026-11-25T01:01:46Z
 
 Where the court and the physical net lie in a recording, as a person confirmed them. Decision: [D-042](../decisions/DECISION_LOG.md#d-042). Code: `BumpSetCut/Core/Calibration/` (`CourtLayout.swift`, `NetQuad.swift`, `CourtNetCalibration.swift`, `CourtNetCalibrationStore.swift`). Tests: `BumpSetCutTests/Domain/Calibration/`.
 
-This document describes the file and its rules. Nothing reads a calibration to make a rally decision yet (D-042, point 4).
+This document describes the file and its rules. One reader uses a calibration in processing: the app's `CalibrationNetSource` gives the pipeline the box round a **confirmed net**, for the existing under-net, off-court and above-net rules, when that net was confirmed for the file being processed and one stable camera view covers the whole video ([what changed and what is not verified](YOLO_DEPENDENCY_INVENTORY_2026-11-24.md)). Nothing reads the **court** to make a rally decision (D-042, point 4).
 
 ## Coordinates
 

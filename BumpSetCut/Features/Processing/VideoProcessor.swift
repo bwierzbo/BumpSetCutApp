@@ -43,26 +43,27 @@ final class VideoProcessor: @unchecked Sendable {
     // breaks the parabola fit for a few frames).
     @ObservationIgnored private var selectedDropCount = 0
 
-    // iOS: CPU+ANE so detection keeps running when processing continues in
-    // the background (GPU access is restricted there); the ANE is this
-    // model's primary engine, so foreground speed is unaffected. macOS
-    // (RallyLab) has no such restriction and keeps every engine.
-    #if os(iOS)
-    @ObservationIgnored private var detector = YOLODetector(computeUnits: .cpuAndNeuralEngine)
-    #else
-    @ObservationIgnored private var detector = YOLODetector()
-    #endif
+    /// A detector that reads one frame at a time, for a configuration that asks for one in a build that
+    /// has one (PipelineDefaults): research builds only. The apps that ship find the ball with the
+    /// multi-frame model alone, and this stays nil.
+    @ObservationIgnored private var detector: (any SingleFrameBallDetector)?
     @ObservationIgnored private var gate = BallisticsGate(config: ProcessorConfig())
     @ObservationIgnored private var decider = RallyDecider(config: ProcessorConfig())
     /// Serves as they fly, for the decider's serve-primed start.
     @ObservationIgnored private var serveWatch = ServeWatch()
     @ObservationIgnored private var segments = SegmentBuilder(config: ProcessorConfig())
 
-    // Net detection (for off-court / under-net rules). The net is stationary, so a
-    // single pre-pass samples it across the video (same spread as RallyLab's Net
-    // tab) and freezes one box for the whole run. Reset per video.
-    @ObservationIgnored private var netDetector: NetDetector?
+    /// Where a run's net comes from (for the under-net, off-court and above-net rules): the build's own
+    /// source unless the caller names one — the app names the video's confirmed calibration.
+    @ObservationIgnored var netSource: any NetGeometrySource = PipelineDefaults.netSource()
+    /// What the run was told of the net, asked once before the first frame. Reset per video.
+    @ObservationIgnored private var netGeometry: NetGeometry = .unavailable(reason: "no net-dependent rule is on")
+    /// The run's net: one box for the whole video, nil when there is none — the rules that need it are then
+    /// skipped and the metadata says so (SpatialChecks).
     @ObservationIgnored private var detectedNet: DetectedNet?
+    /// Which net rules the last run made and on what net: in its metadata too, and here for a run that
+    /// ended with no rally and so no metadata.
+    @ObservationIgnored private(set) var lastSpatialChecks: SpatialChecks?
 
     @ObservationIgnored private var metadataStore: MetadataStore?
 
@@ -188,6 +189,9 @@ final class VideoProcessor: @unchecked Sendable {
         /// applied — `applyVideoRotation`); false means stored-frame space, which
         /// differs only for rotated (e.g. portrait phone) video.
         var upright = false
+        /// The gate's whole verdict on the selected track this frame (nil when none
+        /// was validated): what a debug drawing shows, as the gate gave it.
+        var gate: BallisticsGate.ValidationResult? = nil
     }
 
     /// Off by default: evidence costs memory proportional to frame count, so
@@ -236,9 +240,8 @@ final class VideoProcessor: @unchecked Sendable {
     @ObservationIgnored private var heatWindows: HeatmapWindows?
     @ObservationIgnored private var heatLastTime: Double?
 
-    /// The multi-frame model the last run actually loaded, nil when it ran without one (no model configured, or the
-    /// configured one failed to load and the run fell back to YOLO) — so a caller that names the detector its evidence
-    /// came from can check it did.
+    /// The multi-frame model the last run actually loaded, nil when it had none (no model configured, or the
+    /// configured one failed to load) — so a caller that names the detector its evidence came from can check it did.
     var loadedHeatmapModel: URL? { heatDetector == nil ? nil : heatModelURL }
 
     /// Load the configured multi-frame model, if it changed.
@@ -284,26 +287,17 @@ final class VideoProcessor: @unchecked Sendable {
         }
     }
 
-    /// Load the configured ball model (if it isn't the one loaded) and set how
-    /// frames are fitted into it: models trained on letterboxed frames get
-    /// every frame letterboxed; the shipping model keeps the config's choice.
-    private func prepareDetector() {
-        if detector.modelName != config.ballModel.rawValue {
-            #if os(iOS)
-            detector = YOLODetector(modelName: config.ballModel.rawValue, computeUnits: .cpuAndNeuralEngine)
-            #else
-            detector = YOLODetector(modelName: config.ballModel.rawValue)
-            #endif
-        }
-        detector.minConfidence = VNConfidence(config.detectionConfidence)
-        if config.ballModel.needsLetterbox {
-            detector.useScaleFitLetterbox = true
-            detector.adaptiveLetterbox = false
+    /// Loads what finds the ball for this configuration, or refuses the run. With `heatmapOnly` that is
+    /// the multi-frame model, and a model that isn't there or won't load is an error — never a reason to run
+    /// another detector. Otherwise it is the build's single-frame detector, and a build without one refuses.
+    private func prepareDetectors() throws {
+        prepareHeatmap()
+        if config.heatmapOnly {
+            guard heatDetector != nil else { throw ProcessingError.modelNotFound }
         } else {
-            detector.useScaleFitLetterbox = config.useScaleFitLetterbox
-            detector.adaptiveLetterbox = config.adaptiveLetterbox
+            detector = PipelineDefaults.singleFrameBallDetector(for: config, reusing: detector)
+            guard detector != nil else { throw ProcessingError.modelNotFound }
         }
-        detector.adaptiveWideRatio = config.adaptiveLetterboxWideRatio
     }
 
     func processVideo(_ url: URL, videoId: UUID) async throws -> ProcessingMetadata {
@@ -321,169 +315,104 @@ final class VideoProcessor: @unchecked Sendable {
 
     #if os(iOS)
     // MARK: - Debug path (no cutting, full-length annotated video)
+    /// The whole video with what the pipeline saw drawn over it. The run is the pipeline itself — the
+    /// detector, tracker, rules and decision of processVideo, with nothing kept on disk — and the drawing
+    /// is made from its evidence in a second pass over the frames.
     func processVideoDebug(_ url: URL) async throws -> URL {
+        let debugger = TrajectoryDebugger()
+        debugger.isEnabled = true
+        debugger.isRecording = true
+        debugger.startDebugSession(name: "Video Processing Session")
+        trajectoryDebugger = debugger
+        let collecting = collectFrameEvidence
+        collectFrameEvidence = true
+        defer {
+            collectFrameEvidence = collecting
+            debugger.stopDebugSession()
+        }
+        // A video the pipeline found no rally in is still drawn: what it saw is why.
+        let rallies: [ClosedRange<Double>]
+        do {
+            rallies = try await processVideoMetadata(url, videoId: UUID(), persist: false).rallySegments.map { $0.startTime...$0.endTime }
+        } catch ProcessingError.noRalliesDetected {
+            rallies = []
+        }
+        let evidence = frameEvidence
+
         await MainActor.run {
             isProcessing = true; progress = 0
             backgroundGuard.begin {
                 print("⚠️ BackgroundProcessingGuard: background time expiring during debug processing")
             }
         }
-
-        // Initialize debug session
-        trajectoryDebugger = TrajectoryDebugger()
-        trajectoryDebugger?.isEnabled = true
-        trajectoryDebugger?.isRecording = true
-        trajectoryDebugger?.startDebugSession(name: "Video Processing Session")
-
-        // Recreate stage objects with current config
-        self.gate = BallisticsGate(config: config)
-        self.decider = RallyDecider(config: config)
-        prepareDetector()
-        decider.reset()
-        serveWatch.reset()
-        selectedTrackId = nil
-        selectedDropCount = 0
-
-        let asset = AVURLAsset(url: url)
-        guard let track = try await asset.loadTracks(withMediaType: .video).first else {
+        do {
+            let out = try await annotate(url, evidence: evidence, rallies: rallies)
+            await MainActor.run {
+                processedURL = out
+                isProcessing = false
+                progress = 1
+                backgroundGuard.end()
+            }
+            return out
+        } catch {
             await MainActor.run { isProcessing = false; backgroundGuard.end() }
-            throw ProcessingError.noVideoTrack
+            throw error
         }
+    }
 
+    /// Every frame of the video with the newest evidence at or before it drawn over it: the balls found, the
+    /// selected track's last second, the gate's verdict and whether the frame is inside a kept rally.
+    private func annotate(_ url: URL, evidence: [FrameEvidence], rallies: [ClosedRange<Double>]) async throws -> URL {
+        let asset = AVURLAsset(url: url)
+        guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw ProcessingError.noVideoTrack }
         let duration = try await asset.load(.duration)
         let fps = max(10, Int(try await track.load(.nominalFrameRate)))
-        // Process every Nth frame to reduce load
-        let stride = 3
         let naturalSize = try await track.load(.naturalSize)
         let preferredTransform = (try? await track.load(.preferredTransform)) ?? .identity
-        // Same frame space as processVideo: upright when the rotation is applied.
+        // The evidence's frame space: upright when the rotation is applied.
         let frameOrientation: CGImagePropertyOrientation = config.applyVideoRotation
             ? VideoFrameGeometry.orientation(for: preferredTransform)
             : .up
-        // Reuse last overlay on skipped frames
-        var lastDets: [DetectionResult] = []
-        var lastActiveTrack: KalmanBallTracker.TrackedBall? = nil
-        var lastIsProjectile = false
-        var lastInRally = false
-        var lastGateResult: BallisticsGate.ValidationResult? = nil
-
-        // Reader
         let reader = try AVAssetReader(asset: asset)
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: Self.readerSettings(standardColor: config.standardColorFrames))
         reader.add(output)
-
-        // Annotator (writes full-length MP4 with overlays)
         let annotator = try DebugAnnotator(size: naturalSize, transform: preferredTransform, orientation: frameOrientation)
 
-        // Tracking
-        let tracker = KalmanBallTracker()
-        // Reuse stateless classifiers across frames to avoid per-frame allocation
-        let movementClassifier = MovementClassifier()
-        let trajectoryQualityScore = TrajectoryQualityScore()
-
+        // Evidence older than this is not drawn on a frame: the pipeline had nothing to say of it.
+        let freshFor = 1.0 / 3
+        var next = 0
+        var trail: [(time: Double, point: CGPoint)] = []
         var frameCount = 0
-        // We will write every frame in debug output
         let totalFramesEstimate = Int(duration.seconds * Double(fps))
-        var rawFrameIndex = 0
 
         reader.startReading()
         defer { reader.cancelReading() }
-        while reader.status == .reading, let sbuf = output.copyNextSampleBuffer(),
-              let pix = CMSampleBufferGetImageBuffer(sbuf) {
-
-            // Check for cancellation before processing each frame
+        while reader.status == .reading, let sbuf = output.copyNextSampleBuffer() {
             try Task.checkCancellation()
-
-            rawFrameIndex += 1
             let pts = CMSampleBufferGetPresentationTimeStamp(sbuf)
-
-            // Decide whether to run the heavy path this frame
-            let shouldProcess = (rawFrameIndex == 1) || (rawFrameIndex % stride == 0)
-            if shouldProcess {
-                // Detect → track
-                let dets = detector.detect(in: pix, at: pts, orientation: frameOrientation)
-                tracker.update(with: dets, at: pts)
-
-                // Best rally trajectory across courts (quality-first, sticky).
-                let selection = bestTrack(now: pts, tracker: tracker)
-                let activeTrack = selection.track
-                let gateResult = selection.gate
-                let isProjectile = gateResult?.isValid ?? false
-                let hasBall = !dets.isEmpty
-                for serve in serveWatch.add(.init(t: CMTimeGetSeconds(pts), balls: dets.map(\.bbox))) { decider.noteServe(serve) }
-                let inRally = decider.update(hasBall: hasBall, isProjectile: isProjectile, timestamp: pts)
-
-                // Capture debug data if available
-                if let debugger = trajectoryDebugger, let track = activeTrack {
-                    let gr = gateResult ?? BallisticsGate.ValidationResult(
-                        isValid: false, rSquared: 0, curvatureDirectionValid: false,
-                        hasMotionEvidence: false, positionJumpsValid: true, confidenceLevel: 0)
-                    let physicsResult = PhysicsValidationResult(
-                        isValid: gr.isValid,
-                        rSquared: gr.rSquared,
-                        curvatureDirectionValid: gr.curvatureDirectionValid,
-                        accelerationMagnitudeValid: gr.hasMotionEvidence,
-                        velocityConsistencyValid: true,
-                        positionJumpsValid: gr.positionJumpsValid,
-                        confidenceLevel: gr.confidenceLevel
-                    )
-
-                    let movementClassification = movementClassifier.classifyMovement(track)
-                    let qualityMetrics = trajectoryQualityScore.calculateQuality(for: track)
-
-                    debugger.analyzeTrajectory(
-                        track,
-                        physicsResult: physicsResult,
-                        classificationResult: movementClassification,
-                        qualityScore: qualityMetrics
-                    )
-                }
-
-                // Cache for skipped frames
-                lastDets = dets
-                lastActiveTrack = activeTrack
-                lastIsProjectile = isProjectile
-                lastInRally = inRally
-                lastGateResult = gateResult
+            let now = CMTimeGetSeconds(pts)
+            while next < evidence.count, evidence[next].time <= now + 1e-6 {
+                if let point = evidence[next].trackPoint { trail.append((evidence[next].time, point)) }
+                next += 1
             }
-
-            // Append annotated frame using the latest available overlay state
+            trail.removeAll { now - $0.time > 1 }
+            let seen = next > 0 && now - evidence[next - 1].time <= freshFor ? evidence[next - 1] : nil
             try annotator.append(sampleBuffer: sbuf,
-                                 overlay: .init(detections: lastDets,
-                                                track: lastActiveTrack,
-                                                isProjectile: lastIsProjectile,
-                                                inRally: lastInRally,
+                                 overlay: .init(detections: seen?.detections.map { DetectionResult(bbox: $0.bbox, confidence: $0.confidence, timestamp: pts) } ?? [],
+                                                trail: seen?.trackPoint == nil ? [] : trail.map(\.point),
+                                                isProjectile: seen?.isProjectile ?? false,
+                                                inRally: rallies.contains { $0.contains(now) },
                                                 time: pts,
-                                                validation: lastGateResult))
-
-            // Progress (~once per second)
+                                                validation: seen?.gate))
             frameCount += 1
             if frameCount % fps == 0 {
                 let p = min(1.0, max(0.0, Double(frameCount) / Double(max(totalFramesEstimate, 1))))
                 await MainActor.run { self.progress = p }
-                print(String(format: "[debug] t=%.2fs det=%d proj=%@ rally=%@ tracks=%d",
-                             CMTimeGetSeconds(pts),
-                             lastDets.count,
-                             lastIsProjectile ? "Y" : "N",
-                             lastInRally ? "Y" : "N",
-                             tracker.tracks.count))
             }
         }
-
-        // Check for cancellation before finishing (which can take time)
+        if reader.status == .failed { throw ProcessingError.assetReaderFailed(reader.error) }
         try Task.checkCancellation()
-        let out = try await annotator.finish()
-        
-        // Stop debug session
-        trajectoryDebugger?.stopDebugSession()
-        
-        await MainActor.run {
-            processedURL = out
-            isProcessing = false
-            progress = 1
-            backgroundGuard.end()
-        }
-        return out
+        return try await annotator.finish()
     }
     #endif
 
@@ -519,12 +448,10 @@ final class VideoProcessor: @unchecked Sendable {
         self.decider = RallyDecider(config: config)
         self.segments = SegmentBuilder(config: config)
         serveWatch.reset()
-        prepareDetector()
-        prepareHeatmap()
-        if config.enableUnderNetRejection || config.enableOffCourtRejection || config.enableAboveNetRequirement {
-            if netDetector == nil { netDetector = NetDetector() }   // cache the model across videos
-            netDetector?.minConfidence = config.netDetectionConfidence
-            netDetector?.useScaleFitLetterbox = config.netUseScaleFitLetterbox
+        do { try prepareDetectors() } catch {
+            eventLog.log(.processingFailed, detail: "no ball detector for this configuration (heatmapOnly=\(config.heatmapOnly))")
+            await MainActor.run { isProcessing = false; backgroundGuard.end() }
+            throw error
         }
 
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
@@ -547,16 +474,33 @@ final class VideoProcessor: @unchecked Sendable {
         }
         let configHash = ProcessingCheckpoint.hash(of: config)
         urgentCheckpoint.withLock { $0 = false }
+
+        // The net, asked of the run's source once, before anything else of the
+        // run is decided: one box for the whole video, or none — and then the
+        // rules that need it are skipped, never answered as if the ball were in
+        // the court or above the net. Asked on a resume too: what a checkpoint
+        // holds was decided against the net it was written with.
+        detectedNet = nil
+        netGeometry = .unavailable(reason: "no net-dependent rule is on")
+        if config.enableUnderNetRejection || config.enableOffCourtRejection || config.enableAboveNetRequirement {
+            let netStart = CFAbsoluteTimeGetCurrent()
+            netGeometry = await netSource.netGeometry(forVideoAt: url, asset: asset, durationSec: lastVideoDurationSec, config: config)
+            timing.net = CFAbsoluteTimeGetCurrent() - netStart
+            detectedNet = netGeometry.net
+        }
+
         var restored: ProcessingCheckpoint?
         if let checkpointURL, let candidate = ProcessingCheckpoint.load(from: checkpointURL) {
             if candidate.isValid(for: videoId, configHash: configHash,
                                  durationSec: lastVideoDurationSec,
-                                 collectEvidence: collectFrameEvidence) {
+                                 collectEvidence: collectFrameEvidence),
+               candidate.wasWritten(with: detectedNet, origin: netGeometry.origin) {
                 restored = candidate
                 eventLog.log(.processingStarted,
                              detail: String(format: "resuming from checkpoint at %.1fs", candidate.resumeTime))
             } else {
-                // Different config or source — a stale checkpoint must not leak in.
+                // Different config, source or net (a calibration confirmed, corrected or withdrawn since) —
+                // a stale checkpoint must not leak in: the run starts from the first frame.
                 ProcessingCheckpoint.delete(at: checkpointURL)
             }
         }
@@ -590,21 +534,11 @@ final class VideoProcessor: @unchecked Sendable {
             }
         }
 
-        // Net pre-pass: sample the net across the whole video (same spread as
-        // RallyLab's Net tab) and freeze one box, BEFORE the main loop so the
-        // off-court / under-net rules have it from the first frame. A resumed
-        // run reuses the frozen net from the checkpoint.
-        detectedNet = nil
-        if config.enableUnderNetRejection || config.enableOffCourtRejection || config.enableAboveNetRequirement {
-            if let restoredNet = restored?.net {
-                detectedNet = restoredNet.detectedNet
-            } else {
-                let netStart = CFAbsoluteTimeGetCurrent()
-                detectedNet = await sampleNetAcrossVideo(asset: asset, durationSec: lastVideoDurationSec)
-                timing.net = CFAbsoluteTimeGetCurrent() - netStart
-            }
-            gate.net = detectedNet
-        }
+        // The run's net, from before its first frame, for the under-net rule.
+        gate.net = detectedNet
+        let spatialChecks = SpatialChecks(config: config, net: netGeometry)
+        lastSpatialChecks = spatialChecks
+        if let line = spatialChecks.skippedLine { print("ℹ️ \(line)") }
 
         // Metadata collection variables (seeded from the checkpoint on resume)
         var frameCount = restored?.counters.frameCount ?? 0
@@ -698,7 +632,7 @@ final class VideoProcessor: @unchecked Sendable {
                     physicsValidFrameCount: physicsValidFrameCount, confidenceSum: confidenceSum,
                     rSquaredSum: rSquaredSum, rSquaredCount: rSquaredCount
                 ),
-                net: self.detectedNet.map(ProcessingCheckpoint.NetBox.init),
+                net: self.detectedNet.map { ProcessingCheckpoint.NetBox($0, origin: self.netGeometry.origin) },
                 savedAt: Date()
             ).write(to: checkpointURL)
         }
@@ -765,6 +699,26 @@ final class VideoProcessor: @unchecked Sendable {
             let gateResult = selection.gate
             let isProjectile = gateResult?.isValid ?? false
             let hasBall = !courtDets.isEmpty
+            // A debug session records the selected track with its verdict, classification and quality.
+            if let debugger = trajectoryDebugger, let track = activeTrack {
+                let verdict = gateResult ?? BallisticsGate.ValidationResult(
+                    isValid: false, rSquared: 0, curvatureDirectionValid: false,
+                    hasMotionEvidence: false, positionJumpsValid: true, confidenceLevel: 0)
+                debugger.analyzeTrajectory(
+                    track,
+                    physicsResult: PhysicsValidationResult(
+                        isValid: verdict.isValid,
+                        rSquared: verdict.rSquared,
+                        curvatureDirectionValid: verdict.curvatureDirectionValid,
+                        accelerationMagnitudeValid: verdict.hasMotionEvidence,
+                        velocityConsistencyValid: true,
+                        positionJumpsValid: verdict.positionJumpsValid,
+                        confidenceLevel: verdict.confidenceLevel
+                    ),
+                    classificationResult: MovementClassifier().classifyMovement(track),
+                    qualityScore: TrajectoryQualityScore().calculateQuality(for: track)
+                )
+            }
             // Ball height (Vision y, 1.0 = top) for sky-ball grace: the selected
             // tracked ball, or the highest court-eligible detection this frame.
             let ballY = activeTrack?.positions.last?.0.y ?? courtDets.map { $0.bbox.midY }.max()
@@ -801,7 +755,8 @@ final class VideoProcessor: @unchecked Sendable {
                     rejectionReason: gateResult?.rejectionReason,
                     candidates: selection.candidates,
                     detectedNet: detectedNet,
-                    upright: config.applyVideoRotation
+                    upright: config.applyVideoRotation,
+                    gate: gateResult
                 ))
             }
 
@@ -992,7 +947,7 @@ final class VideoProcessor: @unchecked Sendable {
                 // Detect: YOLO now; the multi-frame model's balls YOLO missed
                 // (or, with config.heatmapOnly, all of them) when its window comes.
                 let yoloDets = heatAlone ? [] : StageTiming.time(&timing.yolo) {
-                    detector.detect(in: pix, at: pts, orientation: frameOrientation)
+                    detector?.detect(in: pix, at: pts, orientation: frameOrientation) ?? []
                 }
                 if !heatAlone { timing.yoloFrames += 1 }
                 pending.append(PendingFrame(pts: pts, rawFrameIndex: rawFrameIndex, skippedFrames: skippedFrames,
@@ -1250,7 +1205,8 @@ final class VideoProcessor: @unchecked Sendable {
             physics: physicsValidationData,
             performance: performanceMetrics,
             eventLog: eventLog.allEvents,
-            netCenterX: detectedNet.map { Double($0.box.midX) }
+            netCenterX: detectedNet.map { Double($0.box.midX) },
+            spatialChecks: spatialChecks
         )
 
         // Save metadata to store
@@ -1420,40 +1376,6 @@ final class VideoProcessor: @unchecked Sendable {
             )
         }
         return (selected?.track, selected?.gate, candidates)
-    }
-
-    // MARK: - Net pre-pass
-
-    /// Samples the net across the whole video and returns one median box — the same
-    /// spread-sampling process RallyLab's Net tab uses (N frames over the middle
-    /// 90%, highest-confidence box per frame, component-wise median). Runs in RAW
-    /// frame space (`appliesPreferredTrackTransform = false`) so the net box shares
-    /// the ball detector's coordinate space. Nil if no net is found.
-    private func sampleNetAcrossVideo(asset: AVAsset, durationSec: Double) async -> DetectedNet? {
-        guard durationSec > 0, let netDetector else { return nil }
-        let gen = AVAssetImageGenerator(asset: asset)
-        // The ball detector's frame space: raw, or upright when the rotation is applied.
-        gen.appliesPreferredTrackTransform = config.applyVideoRotation
-        gen.maximumSize = CGSize(width: 1280, height: 1280)
-        gen.requestedTimeToleranceBefore = CMTime(seconds: 0.3, preferredTimescale: 600)
-        gen.requestedTimeToleranceAfter = CMTime(seconds: 0.3, preferredTimescale: 600)
-
-        let count = max(2, config.netSampleFrameCount)
-        var boxes: [CGRect] = []
-        var confs: [Double] = []
-        for i in 0..<count {
-            // Spread across the middle 90% to skip black intro/outro frames.
-            let frac = count == 1 ? 0.5 : 0.05 + 0.9 * Double(i) / Double(count - 1)
-            let t = CMTime(seconds: frac * durationSec, preferredTimescale: 600)
-            guard let cg = try? await gen.image(at: t).image else { continue }
-            if let best = netDetector.detect(in: cg).first {
-                boxes.append(best.rect)
-                confs.append(Double(best.confidence))
-            }
-        }
-        guard !boxes.isEmpty else { return nil }
-        return DetectedNet(box: BallNetSampler.medianBox(boxes),
-                           confidence: confs.reduce(0, +) / Double(confs.count))
     }
 
 }

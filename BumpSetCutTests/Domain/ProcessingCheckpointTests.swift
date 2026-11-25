@@ -32,9 +32,19 @@ final class ProcessingCheckpointTests: XCTestCase {
                 rallyFrameCount: 300, physicsValidFrameCount: 250,
                 confidenceSum: 640.5, rSquaredSum: 210.2, rSquaredCount: 260
             ),
-            net: .init(DetectedNet(box: CGRect(x: 0.2, y: 0.4, width: 0.6, height: 0.1), confidence: 0.9)),
+            net: .init(DetectedNet(box: CGRect(x: 0.2, y: 0.4, width: 0.6, height: 0.1), confidence: 0.9), origin: NetGeometry.personConfirmed),
             savedAt: Date()
         )
+    }
+
+    func testACheckpointBelongsToTheNetItWasWrittenWith() {
+        let box = CGRect(x: 0.2, y: 0.4, width: 0.6, height: 0.1)
+        let checkpoint = makeCheckpoint()
+        XCTAssertTrue(checkpoint.wasWritten(with: DetectedNet(box: box, confidence: 1), origin: NetGeometry.personConfirmed))
+        // The same box from another origin, a corrected box, or no net now: another run's.
+        XCTAssertFalse(checkpoint.wasWritten(with: DetectedNet(box: box, confidence: 1), origin: "some_method_v1"))
+        XCTAssertFalse(checkpoint.wasWritten(with: DetectedNet(box: box.offsetBy(dx: 0.01, dy: 0), confidence: 1), origin: NetGeometry.personConfirmed))
+        XCTAssertFalse(checkpoint.wasWritten(with: nil, origin: NetGeometry.unavailable))
     }
 
     func testCheckpointRoundTripsThroughDisk() throws {
@@ -56,6 +66,7 @@ final class ProcessingCheckpointTests: XCTestCase {
         let net = try XCTUnwrap(loaded.net?.detectedNet)
         XCTAssertEqual(net.box.minX, 0.2, accuracy: 0.0001)
         XCTAssertEqual(net.confidence, 0.9, accuracy: 0.0001)
+        XCTAssertEqual(loaded.net?.origin, NetGeometry.personConfirmed)
 
         ProcessingCheckpoint.delete(at: url)
         XCTAssertNil(ProcessingCheckpoint.load(from: url))
