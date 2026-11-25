@@ -321,6 +321,17 @@ final class CourtNetCalibrationTests: XCTestCase {
         XCTAssertEqual(f.problems, ["the recording id can't name a file", "frame 0×1080", "no segments"])
     }
 
+    func testACoordinateThatIsNotANumberIsMalformedEvenInADraft() throws {
+        var f = file()
+        var net = F.net
+        net.topLeft.y = .infinity
+        try f.saveDraft(net, of: \.net, segment: 0, startedFrom: manual, baseline: nil)
+        XCTAssertEqual(f.problems, ["segment 0 holds a value that is not a number"])
+        XCTAssertEqual(f.status(for: F.binding), .needsReview)
+        try f.discardDraft(of: \.net, segment: 0)
+        XCTAssertEqual(f.problems, [])
+    }
+
     func testOnlyNamesMakeRecordingIds() {
         for id in ["5D1F0C0E-0000-4000-8000-000000000001", "video_01", "a.b"] { XCTAssertTrue(CourtNetCalibrationFile.isSafeId(id), id) }
         for id in ["", ".hidden", "a/b", "..", "a b", "é"] { XCTAssertFalse(CourtNetCalibrationFile.isSafeId(id), id) }

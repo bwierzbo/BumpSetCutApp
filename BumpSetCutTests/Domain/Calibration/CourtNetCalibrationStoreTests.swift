@@ -125,6 +125,35 @@ final class CourtNetCalibrationStoreTests: XCTestCase {
         XCTAssertNoThrow(try store.save(withdrawn))
     }
 
+    func testAReplacementThatCannotBeWrittenLeavesTheEarlierFileInPlace() throws {
+        let old = try confirmed()
+        try store.save(old)
+        var replaced = F.binding
+        replaced.sourceFingerprint = "file:def"
+
+        // A draft holding a coordinate that is not a number is refused before anything on disk moves.
+        var broken = CourtNetCalibrationFile.new(for: replaced)
+        var court = F.court
+        court.farLeft.x = .nan
+        try broken.saveDraft(court, of: \.court, segment: 0, startedFrom: CourtNetCalibrationV1.manual, baseline: nil)
+        XCTAssertEqual(broken.problems, ["segment 0 holds a value that is not a number"])
+        XCTAssertThrowsError(try store.save(broken))
+        XCTAssertEqual(store.lookup(for: replaced), .stale(old, reason: "the video file changed"))
+        XCTAssertEqual(try names(), ["\(F.binding.recordingId)_calibration.json"])
+
+        // A write that fails after the earlier file was set aside puts it back.
+        struct DiskFull: Error {}
+        let failing = CourtNetCalibrationStore(directory: dir, write: { _, _ in throw DiskFull() })
+        XCTAssertThrowsError(try failing.save(.new(for: replaced))) { XCTAssertTrue($0 is DiskFull) }
+        XCTAssertEqual(store.lookup(for: replaced), .stale(old, reason: "the video file changed"))
+        XCTAssertEqual(store.lookup(for: F.binding), .usable(old))
+        XCTAssertEqual(try names(), ["\(F.binding.recordingId)_calibration.json"])
+
+        // The same failing write over a file for the same video leaves that file as it was.
+        XCTAssertThrowsError(try failing.save(old))
+        XCTAssertEqual(try store.load(F.binding.recordingId), old)
+    }
+
     func testAFileForAnotherVideoUnderTheSameIdIsStaleThenSetAside() throws {
         let old = try confirmed()
         try store.save(old)

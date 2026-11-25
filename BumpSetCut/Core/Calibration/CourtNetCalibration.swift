@@ -37,17 +37,21 @@ protocol CalibrationGeometry: Codable, Equatable, Sendable {
     static var pointNames: [String] { get }
     /// Every reason the shape can't be used; empty when it can.
     var problems: [String] { get }
+    /// Whether every coordinate is a number. A draft may be unusable; it may not hold one that isn't.
+    var isFinite: Bool { get }
     /// The points that differ from other's.
     func changedPoints(from other: Self) -> [String]
 }
 
 extension CourtLayout: CalibrationGeometry {
     static var pointNames: [String] { Role.allCases.map(\.rawValue) }
+    var isFinite: Bool { Role.allCases.allSatisfy { self[$0].x.isFinite && self[$0].y.isFinite } }
     func changedPoints(from other: CourtLayout) -> [String] { changedRoles(from: other).map(\.rawValue) }
 }
 
 extension NetQuad: CalibrationGeometry {
     static let pointNames = ["topLeft", "topRight", "bottomRight", "bottomLeft"]
+    var isFinite: Bool { [topLeft, topRight, bottomRight, bottomLeft].allSatisfy { $0.x.isFinite && $0.y.isFinite } }
 
     var problems: [String] {
         let corners = [topLeft, topRight, bottomRight, bottomLeft]
@@ -113,6 +117,13 @@ struct CalibrationPart<Geometry: CalibrationGeometry>: Codable, Equatable, Senda
     var confirmation: CalibrationConfirmation<Geometry>?
     /// Earlier confirmations, replaced by a later one or withdrawn with the view.
     var history: [CalibrationConfirmation<Geometry>] = []
+
+    /// Whether every geometry held here — proposed, drafted, confirmed or superseded — has numbers for coordinates.
+    var isFinite: Bool {
+        let confirmations = [confirmation].compactMap { $0 } + history
+        let all = proposals.map(\.geometry) + [draft, draftBaseline].compactMap { $0 } + confirmations.flatMap { [$0.geometry] + [$0.baseline].compactMap { $0 } }
+        return all.allSatisfy(\.isFinite) && proposals.allSatisfy(\.confidence.isFinite)
+    }
 
     /// Where an editor opens, in order: the draft; the confirmation; the latest detection; the latest estimate;
     /// nothing (the person places every point).
@@ -253,6 +264,9 @@ struct CourtNetCalibrationFile: Codable, Equatable, Sendable {
             cursor = g.validToSec
             if g.view != .stable, g.court.confirmation != nil || g.net.confirmation != nil {
                 out.append("segment \(g.id) holds a confirmation but is not a stable view")
+            }
+            if !g.court.isFinite || !g.net.isFinite || !g.validFromSec.isFinite || !g.validToSec.isFinite || g.frameTimeSec?.isFinite == false {
+                out.append("segment \(g.id) holds a value that is not a number")
             }
             for p in g.court.confirmation?.geometry.problems ?? [] { out.append("segment \(g.id) court: \(p)") }
             for p in g.net.confirmation?.geometry.problems ?? [] { out.append("segment \(g.id) net: \(p)") }
