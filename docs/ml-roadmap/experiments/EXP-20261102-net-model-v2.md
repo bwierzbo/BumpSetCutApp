@@ -2,7 +2,7 @@
 id: EXP-20261102-net-model-v2
 status: run — results in, H1 not met; decision pending (owner)
 created: 2026-11-02T16:23:54Z
-updated: 2026-11-02T19:16:10Z
+updated: 2026-11-25T21:43:01Z
 decision: owner direction 2026-11-02 ("do a higher input resolution and more data augmentation"), after EXP-20261031-net-model-v1 missed H1; D-002, D-017, D-018 honoured
 roadmap_phase: net model replacement (licensing, 2026-10-09; plan: ../NET_MODEL_PLAN.md)
 pr: #129 exp/net-model-v2-recipe (the trainer options and this record, merged 6138744); results on exp/net-model-v2-run
@@ -87,6 +87,8 @@ Outputs are copied to `~/Movies/RallyLab/Reports/net-v2/` (the bring_back folder
 - One seed.
 
 ## Results
+
+**Correction, 2026-11-25 — holdout exposure (D-036 §2; [EXP-20261110-lineage-holdout-copies-audit](EXP-20261110-lineage-holdout-copies-audit.md) §3 and §8).** The "Withheld" row under Inputs says what the export and the trainer checked at the time: names, `reservedAs` and stored fingerprints. Those checks did not catch train cards that are copies of lineage-holdout recordings, and one frame of each copy is in `Scratch-net-20261102-0140`. The audit puts the copies' groups in the validation split, so `net_v2_res`, `net_v2_aug`, `net_v2` and the re-scored control `net_v1_extra` have **confirmed selection exposure** to footage that duplicates two holdouts — the H1 numbers below include it — and no confirmed gradient exposure; a third copy, `bch_tri_sun_land_self_01_v4`, was probably in the train split (one frame of gradient exposure: likely, not confirmed — audit §8). The exclusion claimed in that row therefore did not hold for these copies, and the affected holdouts are not independent evaluation footage for these models. The measurements are as measured and are not changed. It also qualifies the limitation stated before the run ("The withheld recordings remain the unseen test, untouched"): true of the withheld names, not of the copies.
 
 Run 2026-11-02 on the desktop (RTX 3060) as the Procedure gives it: one detached queue (`run_v2.cmd`, SHA-256 `04c68ce3…d614`), started 11:35 MST, every step exit 0, finished 12:13 MST. Each arm trained on 640 frames (93 of ours + 547 Roboflow) and was scored on v1's 36 validation frames from 15 groups. All validation digests are `050294b6…ef65b`, and all split files are `c7be716f…4f13`.
 
