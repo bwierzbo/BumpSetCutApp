@@ -54,7 +54,7 @@ A segment: `id`, `validFromSec`, `validToSec`, `view` (`stable`, `not_stable_cou
 3. **A camera change splits the segment.** The second half starts with nothing confirmed. With reuse, the first half's court and net become the second's drafts (`startedFrom: "segment N"`) — a starting point, never a confirmation.
 4. **A view that is not stable holds no confirmation.** Marking one moves its confirmations to `history`.
 5. **Stale is never used.** A file whose schema, coordinates, recording, fingerprint, frame, orientation or length (beyond 0.05 s) differs from the video as it is now is `stale`: the store returns it marked so, for display only.
-6. **The store fails closed.** A file that exists but can't be decoded, or is malformed, is an error — never an empty calibration — and is not written over. A save that would lose a confirmation on file (in force or in history) is refused. Saving a file for another video under the same id sets the old one aside as `<recordingId>_calibration.superseded-<time>.json`. Writes are atomic.
+6. **The store fails closed.** A file that exists but can't be decoded, or is malformed, is an error — never an empty calibration — and is not written over. A save that would lose a confirmation on file (in force or in history) is refused. Saving a file for another video under the same id sets the old one aside as `<recordingId>_calibration.superseded-<time>.json` — only once the replacement is encoded, and it is put back if the replacement's write fails. A coordinate that is not a number is malformed anywhere, a draft included. Writes are atomic.
 
 ## Status
 

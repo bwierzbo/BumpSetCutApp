@@ -13,6 +13,8 @@ import Foundation
 
 struct CourtNetCalibrationStore {
     let directory: URL
+    /// How the encoded file reaches the disk: atomically. A test puts a failing write here.
+    var write: @Sendable (Data, URL) throws -> Void = { try $0.write(to: $1, options: .atomic) }
 
     func url(_ recordingId: String) -> URL { directory.appendingPathComponent("\(recordingId)_calibration.json") }
 
@@ -48,15 +50,26 @@ struct CourtNetCalibrationStore {
         let problems = file.problems
         guard problems.isEmpty else { throw CourtNetCalibrationError.invalid(problems) }
         let live = url(file.recordingId)
+        // Encoded before anything on disk moves: a file that can't be written leaves what is there untouched.
+        let data = try Self.encoder.encode(file)
+        var setAside: URL?
         if let onFile = try load(file.recordingId) {
             if onFile.staleReason(for: file.binding) != nil {
-                try FileManager.default.moveItem(at: live, to: supersededURL(file.recordingId))
+                let aside = supersededURL(file.recordingId)
+                try FileManager.default.moveItem(at: live, to: aside)
+                setAside = aside
             } else if !Self.keepsConfirmations(of: onFile, in: file) {
                 throw CourtNetCalibrationError.wouldDropConfirmation
             }
         }
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try Self.encoder.encode(file).write(to: live, options: .atomic)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try write(data, live)
+        } catch {
+            // The replacement didn't land: the file that was set aside is the recording's calibration again.
+            if let setAside { try? FileManager.default.moveItem(at: setAside, to: live) }
+            throw error
+        }
     }
 
     /// Where a file made for another video is set aside: beside the live one, under the recording's id.
