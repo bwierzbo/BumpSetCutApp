@@ -347,8 +347,24 @@ final class CalibrationEditorViewModel {
 
     func setView(_ view: CalibrationSegment.View) {
         guard let id = segmentId else { return }
+        if view == .stable { restageWithdrawnMarks(id) }
         commit(view == .stable ? String(localized: "Marked as a stable court view.") : String(localized: "This part of the video won't be used.")) { next in
             try next.setView(view, segment: id, note: nil, at: Date())
+        }
+    }
+
+    /// A view marked not stable gave up its confirmations (they are in history) but its marks are still on
+    /// screen. Called stable again, those marks are the view's drafts — started from the confirmation that was
+    /// withdrawn — so they can be confirmed as they stand, without moving a point first.
+    private func restageWithdrawnMarks(_ id: Int) {
+        guard let segment = file?.segments.first(where: { $0.id == id }), let shapes = working[id]?.shapes else { return }
+        if segment.court.confirmation == nil, segment.court.draft == nil, shapes.hasCourtPoints {
+            working[id]?.court = Origin(startedFrom: CourtNetCalibrationV1.confirmation, baseline: segment.court.history.last?.geometry)
+            working[id]?.courtEdited = true
+        }
+        if segment.net.confirmation == nil, segment.net.draft == nil, shapes.netQuad != nil {
+            working[id]?.net = Origin(startedFrom: CourtNetCalibrationV1.confirmation, baseline: segment.net.history.last?.geometry)
+            working[id]?.netEdited = true
         }
     }
 
