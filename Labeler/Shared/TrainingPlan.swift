@@ -184,6 +184,13 @@ struct PlanVideo: Identifiable, Hashable {
     let ralliesMarked: Bool
 
     var type: VideoType { VideoType(clipID: name) }
+
+    /// The same video, not available to track: a set-aside recording (the backlog) counts in the totals but is
+    /// never a candidate the plan picks.
+    var unavailable: PlanVideo {
+        PlanVideo(name: name, surface: surface, split: split, available: false, rallies: rallies, labeledFrames: labeledFrames,
+                  checkedFrames: checkedFrames, openRallies: openRallies, ralliesMarked: ralliesMarked)
+    }
 }
 
 /// Where the tracked frames stand against a round.

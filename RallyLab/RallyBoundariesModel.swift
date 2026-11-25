@@ -57,14 +57,33 @@ final class RallyBoundariesModel {
 
     // MARK: - Recordings
 
-    /// The inventory, read-only: eligible recordings with their coverage; withheld ones are listed as such and never opened.
+    /// The inventory is being rebuilt (the list shown is the previous one meanwhile).
+    private(set) var refreshing = false
+    private var refreshTask: Task<Void, Never>?
+
+    /// The inventory, read-only: eligible recordings with their coverage; withheld ones are listed as such and never
+    /// opened. Built off the main actor: the inventory judges every recording by name, path and content (the
+    /// withheld guard, EventReview.refusal), and the content check reads each recording's file on the footage
+    /// share — on the main actor that was a beachball of a minute and more after every commit (2026-11-02).
+    /// A refresh started before the project changed lands nowhere.
     func refreshRecordings() {
-        do {
-            recordings = try EventInventory.build(root: root).recordings
-            inventoryProblem = nil
-        } catch {
-            recordings = []
-            inventoryProblem = error.localizedDescription
+        refreshTask?.cancel()
+        let root = self.root
+        refreshing = true
+        refreshTask = Task { [weak self] in
+            let result: Result<EventInventory.Report, Error> = await Task.detached(priority: .userInitiated) {
+                Result { try EventInventory.build(root: root) }
+            }.value
+            guard let self, !Task.isCancelled, self.root == root else { return }
+            switch result {
+            case .success(let report):
+                self.recordings = report.recordings
+                self.inventoryProblem = nil
+            case .failure(let error):
+                self.recordings = []
+                self.inventoryProblem = error.localizedDescription
+            }
+            self.refreshing = false
         }
     }
 
@@ -124,6 +143,8 @@ final class RallyBoundariesModel {
     /// The project (dataset root) changed or closed: nothing of the old one stays open, and an open in flight is discarded.
     func projectChanged() {
         close()
+        refreshTask?.cancel()
+        refreshing = false
         recordings = []
         inventoryProblem = nil
         status = "Pick a recording."

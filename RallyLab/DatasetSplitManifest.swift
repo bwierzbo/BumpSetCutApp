@@ -73,11 +73,12 @@ struct ExposureRecord: Codable, Equatable, Hashable {
         case pipelineTune = "pipeline_tuning_tune"
         case pipelineHoldout = "pipeline_tuning_holdout"
         /// The rally pipeline was run on the video and scored against its marks
-        /// (--score-rallies, --diagnose-rallies, --render-pipeline, --serve-report, the RallyLab Pipeline/Compare tabs).
+        /// (--score-rallies, --diagnose-rallies, --render-pipeline, --serve-report, the RallyLab Pipeline/Compare/FSM tabs).
         case rallyScoring = "rally_scoring"
         /// A detector was evaluated on the video's reviewed frames (ModelLibrary evaluate, --pretrack-check).
         case detectorEvaluation = "detector_evaluation"
-        /// A model wrote machine tracks into the video (--pretrack).
+        /// A model wrote machine tracks into the video (--pretrack), or ran over its frames while a person
+        /// labeled them (the Track tab's detectors, the Sampler review's click-to-box).
         case preTracking = "pre_tracking"
         /// The pipeline ran over the whole video to save where it saw the ball (BallPathBuilder,
         /// for marking in the Label / Live-tag tabs).
@@ -87,8 +88,13 @@ struct ExposureRecord: Codable, Equatable, Hashable {
         case eventReview = "event_review"
         /// The old net model ran on one frame of the video to propose a net box in the Net labels
         /// tab (NetLabelsModel): a model-assisted annotation use, written before the model runs,
-        /// whether or not the person then confirms a label.
+        /// whether or not the person then confirms a label. Also the single-video Net tab's
+        /// detection over sampled frames.
         case netProposal = "net_proposal"
+        /// A person watched the video's unmarked intervals for the negative-coverage audit of a frozen
+        /// draw (CoverageAudit, ref `coverage-audit <drawId>`): an annotation use like `eventReview`,
+        /// never a model's. Written before the recording is shown and before every verdict is saved.
+        case coverageAudit = "coverage_audit"
     }
 
     var kind: Kind
@@ -97,6 +103,10 @@ struct ExposureRecord: Codable, Equatable, Hashable {
     /// ISO-8601 date when known.
     var date: String?
     var note: String?
+    /// Set on a row this video did not earn itself but took from a project video with no dataset
+    /// session in its alias group: `recording` when that video is the same recording (a shared file
+    /// or confirmed sourceId), `group` when it only shares a session or venue. Absent on a direct row.
+    var inherited: String? = nil
 }
 
 struct ManifestVideo: Codable, Equatable {
@@ -110,7 +120,17 @@ struct ManifestVideo: Codable, Equatable {
     var uploader: String?
     /// "link" or "file"; the origin itself (URL or local path) stays in project.json.
     var originKind: String?
+    /// The identity the card was registered with (ClipSource.fingerprint, else derived from its origin):
+    /// a link's video ID, or the content fingerprint of the file it was added from. It can name another
+    /// file's bytes than the one read today — the original a cut was made from, or a file since replaced.
     var fingerprint: String?
+    /// The content fingerprint (ProjectsModel.fileFingerprint) of the video this session is read from, as
+    /// it is now; nil unless `contentState` is "read". Compared with every other video's `fingerprint` and
+    /// `contentFingerprint` by the audit, so the same file under two cards is seen whatever the cards say (D-036).
+    var contentFingerprint: String? = nil
+    /// "read", "absent" (no file on this Mac) or "unreadable" (a file is here and could not be read);
+    /// nil in a manifest written before D-036. Anything but "read" was not compared by content.
+    var contentState: String? = nil
     var sourceId: ProvenanceValue
     var sessionId: ProvenanceValue
     var venueId: ProvenanceValue
@@ -132,6 +152,8 @@ struct ManifestVideo: Codable, Equatable {
     /// name in the group. nil for a session with no project video.
     var aliasGroup: String?
     var ralliesMarked: Bool
+    /// The session's cut ranges as marked (raw; not footage, D-030); nil when it has none.
+    var cuts: [CutRange]? = nil
     var frames: Int
     var reviewedFrames: Int
     var addedAt: Date
@@ -148,6 +170,13 @@ struct DatasetSplitManifest: Codable {
         var sessions: String?
         /// SHA-256 of pipeline_tuning/validation.json.
         var validationJson: String?
+
+        /// The same three, of the project folder as it is now; nil for a file that is not there or can't be read.
+        static func current(of projectDir: URL) -> Hashes {
+            Hashes(projectJson: DatasetSplitManifest.sha256(of: projectDir.appendingPathComponent("project.json")),
+                   sessions: DatasetSplitManifest.canonicalDigest(ofDirectory: projectDir.appendingPathComponent("sessions", isDirectory: true)),
+                   validationJson: DatasetSplitManifest.sha256(of: PipelineTuner.ValidationSet.file(in: projectDir)))
+        }
     }
 
     var schemaVersion: Int
@@ -170,6 +199,23 @@ struct DatasetSplitManifest: Codable {
         }
     }
 
+    /// What reading a session's video for its content fingerprint gave.
+    enum ContentIdentity: Equatable {
+        case read(String)
+        /// No file at the session's path on this Mac.
+        case absent
+        /// Something is there (a file, or a link into a share that is down) and it could not be read.
+        case unreadable
+
+        var state: String {
+            switch self {
+            case .read: return "read"
+            case .absent: return "absent"
+            case .unreadable: return "unreadable"
+            }
+        }
+    }
+
     /// Everything `build` reads, so it can run on fixtures without a project folder.
     struct Inputs {
         var project: Project?
@@ -177,6 +223,8 @@ struct DatasetSplitManifest: Codable {
         var validation: PipelineTuner.ValidationSet?
         /// The file identity of a video, nil when the file is unreachable and the link has none.
         var fingerprint: (ClipSource) -> String?
+        /// The content of the video a session is read from, as it is now.
+        var content: (VideoSession) -> ContentIdentity = { _ in .absent }
         /// The manifest written last time; its exposure records carry forward.
         var previous: DatasetSplitManifest?
         /// Exposure found in artefacts (score runs, exported packages, the seed file), by video.
@@ -210,11 +258,19 @@ struct DatasetSplitManifest: Codable {
         let sessionNames = Set(inputs.sessions.map(\.name))
         var sessionless: [String: [String]] = [:]   // group id → sessionless member names
         for (name, group) in groupOf where !sessionNames.contains(name) { sessionless[group, default: []].append(name) }
-        func inheritedExposure(forGroup group: String?) -> Set<ExposureRecord> {
+        // The same use is the video's own when the sessionless member is the same recording, and only
+        // its group's when they were filmed together: the row says which, so a reader that asks "was
+        // this recording used" (the audit's LINEAGE-HOLDOUT-TRAINED) does not count a venue mate's use.
+        let recordingOf = ReservedVideos.groups(over: sources, recordingOnly: true)
+        func inheritedExposure(for name: String) -> Set<ExposureRecord> {
             var out = Set<ExposureRecord>()
-            for m in (group.flatMap { sessionless[$0] } ?? []).sorted() {
+            for m in (groupOf[name].flatMap { sessionless[$0] } ?? []).sorted() {
+                let relation = recordingOf[m] != nil && recordingOf[m] == recordingOf[name] ? "recording" : "group"
                 for r in (previous[m] ?? []) + (inputs.discovered[m] ?? []) {
-                    out.insert(ExposureRecord(kind: r.kind, ref: r.ref, date: r.date, note: (r.note.map { $0 + "; " } ?? "") + "via sessionless alias \(m)"))
+                    // A row the member itself only took from its group stays the group's, however close
+                    // the member is to this video: it was never the member's recording's use.
+                    out.insert(ExposureRecord(kind: r.kind, ref: r.ref, date: r.date, note: (r.note.map { $0 + "; " } ?? "") + "via sessionless alias \(m)",
+                                              inherited: r.inherited == "group" ? "group" : relation))
                 }
             }
             return out
@@ -245,7 +301,13 @@ struct DatasetSplitManifest: Codable {
             var exposure = Set(previous[session.name] ?? [])
             exposure.formUnion(inputs.discovered[session.name] ?? [])
             if let source = card?.source, let print = inputs.fingerprint(source) { exposure.formUnion(previousByPrint[print] ?? []) }
-            exposure.formUnion(inheritedExposure(forGroup: groupOf[session.name]))
+            for row in inheritedExposure(for: session.name) {
+                // A manifest written before rows said how they were inherited holds the same row unmarked.
+                var unmarked = row
+                unmarked.inherited = nil
+                exposure.remove(unmarked)
+                exposure.insert(row)
+            }
             if tune.contains(session.name) {
                 exposure.insert(ExposureRecord(kind: .pipelineTune, ref: "pipeline_tuning/validation.json", date: nil, note: nil))
             }
@@ -258,6 +320,9 @@ struct DatasetSplitManifest: Codable {
             if let confirmed = card?.source.sourceId, !confirmed.isEmpty { sourceId = .confirmed(confirmed) }
             else if let source = card?.source, let print = inputs.fingerprint(source) { sourceId = .inferred(print) }
             else { sourceId = .unknown }
+            let content = inputs.content(session)
+            var contentFingerprint: String?
+            if case .read(let print) = content { contentFingerprint = print }
 
             return ManifestVideo(
                 video: session.name,
@@ -269,6 +334,8 @@ struct DatasetSplitManifest: Codable {
                 uploader: card.flatMap { $0.source.uploader.isEmpty ? nil : $0.source.uploader },
                 originKind: card?.source.kind.rawValue,
                 fingerprint: card.flatMap { inputs.fingerprint($0.source) },
+                contentFingerprint: contentFingerprint,
+                contentState: content.state,
                 sourceId: sourceId,
                 sessionId: card?.source.sessionId.flatMap { $0.isEmpty ? nil : ProvenanceValue.confirmed($0) } ?? ProvenanceValue.unknown,
                 venueId: card?.source.venueId.flatMap { $0.isEmpty ? nil : ProvenanceValue.confirmed($0) } ?? ProvenanceValue.unknown,
@@ -279,6 +346,7 @@ struct DatasetSplitManifest: Codable {
                 reservedAs: reservedAs,
                 aliasGroup: groupOf[session.name],
                 ralliesMarked: session.ralliesMarked ?? false,
+                cuts: (session.cuts ?? []).isEmpty ? nil : session.cuts,
                 frames: session.frames.count,
                 reviewedFrames: session.reviewedCount,
                 addedAt: session.addedAt,
@@ -494,6 +562,53 @@ struct DatasetSplitManifest: Codable {
     /// Lenient reader for display; never use it to decide what to overwrite.
     static func read(from file: URL) -> DatasetSplitManifest? { (try? readStrict(from: file)) ?? nil }
 
+    /// A manifest that can't stand for the project as it is now. A consumer that picks, groups or splits
+    /// recordings by the manifest must have none of these: a manifest written before a provenance change
+    /// (a recording newly withheld, two recordings confirmed as one) still names the old splits and groups.
+    enum CurrencyError: LocalizedError, Equatable {
+        case missing(URL)
+        case stale(String)
+
+        static let refresh = "Write it again from the project as it is now: RallyLab --project <name> --manifest --audit-dataset."
+
+        var errorDescription: String? {
+            switch self {
+            case .missing(let file): return "No split manifest at \(file.path). \(Self.refresh)"
+            case .stale(let why): return "The split manifest is not the project's current one (\(why)), so its splits, identities and groups can't be relied on. \(Self.refresh)"
+            }
+        }
+    }
+
+    /// Why this manifest is not of the project at `projectDir` as it is now, or nil when it is: the hashes it
+    /// recorded of project.json, sessions/ and validation.json must be the files' today. A hash the manifest
+    /// lacks, or a file that can't be hashed now, is unverifiable and counts as stale; only a validation.json
+    /// that is not there matches a manifest written when there was none.
+    func staleness(in projectDir: URL) -> String? {
+        let now = Hashes.current(of: projectDir)
+        for (label, have, current) in [("project.json", hashes.projectJson, now.projectJson), ("sessions", hashes.sessions, now.sessions)] {
+            guard let have else { return "it records no hash of \(label)" }
+            guard let current else { return "\(label) can't be read now" }
+            guard have == current else { return "\(label) changed since it was built" }
+        }
+        if FileManager.default.fileExists(atPath: PipelineTuner.ValidationSet.file(in: projectDir).path) {
+            guard let current = now.validationJson else { return "validation.json can't be read now" }
+            guard let have = hashes.validationJson else { return "validation.json was added since it was built" }
+            guard have == current else { return "validation.json changed since it was built" }
+        } else if hashes.validationJson != nil {
+            return "validation.json was there when it was built and is gone"
+        }
+        return nil
+    }
+
+    /// The manifest at `file`, only when it is of the project at `projectDir` as it is now, with the file's
+    /// SHA-256. Throws `CurrencyError` when there is none or it is stale, and what `readStrict` throws when it
+    /// can't be decoded: nothing is ever picked from a manifest that could not be verified.
+    static func readCurrent(from file: URL, projectDir: URL) throws -> (manifest: DatasetSplitManifest, sha256: String) {
+        guard let manifest = try readStrict(from: file), let sha = sha256(of: file) else { throw CurrencyError.missing(file) }
+        if let why = manifest.staleness(in: projectDir) { throw CurrencyError.stale(why) }
+        return (manifest, sha)
+    }
+
     func write(to file: URL) throws {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -528,11 +643,12 @@ struct DatasetSplitManifest: Codable {
             let values = videos.map { $0[keyPath: path].origin }
             md += "| \(name) | \(values.filter { $0 == .confirmed }.count) | \(values.filter { $0 == .inferredFingerprint }.count) | \(values.filter { $0 == .unknown }.count) |\n"
         }
-        md += "\n## Videos\n\n| Video | Split | Surface | Card | Card split | Uploader | sourceId | Exposure |\n|---|---|---|---|---|---|---|---|\n"
+        md += "\n## Videos\n\n| Video | Split | Surface | Card | Card split | Uploader | sourceId | Exposure | Cut s |\n|---|---|---|---|---|---|---|---|---|\n"
         for v in videos {
             let source = v.sourceId.value.map { "\($0) (\(v.sourceId.origin.rawValue))" } ?? "unknown"
             let exposure = v.exposure.isEmpty ? "none" : Set(v.exposure.map(\.kind.rawValue)).sorted().joined(separator: ", ")
-            md += "| \(v.video) | \(v.split.rawValue) | \(v.surface ?? "?") | \(v.clipId ?? "—") | \(v.cardSplit ?? "auto") | \(v.uploader ?? "—") | \(source) | \(exposure) |\n"
+            let cut = (v.cuts ?? []).normalised().reduce(0) { $0 + $1.seconds }
+            md += "| \(v.video) | \(v.split.rawValue) | \(v.surface ?? "?") | \(v.clipId ?? "—") | \(v.cardSplit ?? "auto") | \(v.uploader ?? "—") | \(source) | \(exposure) | \(cut == 0 ? "—" : String(format: "%.1f", cut)) |\n"
         }
         return md
     }
@@ -606,8 +722,14 @@ enum ExposureLog {
     /// sidecar instead, so nothing is lost either way. A write failure throws:
     /// a use that can't be recorded must fail the operation that caused it,
     /// or the video could later pass as unseen.
+    /// One ledger write at a time in this process: `record` reads the whole log and replaces it, so two at once (two
+    /// recordings opened in quick succession, a tab and a background job) would each drop the other's row.
+    private static let writeLock = NSLock()
+
     static func record(videos: Set<String>, kind: ExposureRecord.Kind, ref: String, note: String?, in projectDir: URL, now: Date = Date()) throws {
         guard !videos.isEmpty else { return }
+        writeLock.lock()
+        defer { writeLock.unlock() }
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.timeZone = TimeZone(identifier: "UTC")

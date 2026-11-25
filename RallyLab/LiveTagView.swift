@@ -3,17 +3,22 @@
 //  RallyLab
 //
 //  Mark every rally in a video in one pass, live: watch at ½–4× and press
-//  one key per event as it happens. S at the serve starts a rally; P pass,
-//  T set, A attack, B block, F free ball tag its touches; D at the dead
-//  ball ends it. N ends it as not a rally (a missed serve when nothing
-//  followed the serve). ⇧ far and ⌥ near say the side when the net guess
-//  is wrong; Z takes back the last press. The rules are LiveTagger's,
-//  shared with the phone.
+//  one key per event as it happens. S at the serve starts a rally; D at
+//  the dead ball ends it; M ends it as a missed serve, N as not a rally;
+//  X cuts out a stretch that is not footage (an instant replay), from one
+//  press to the next, and ⇧X cuts from the clip's start to the next serve
+//  for a clip that begins mid-rally (D-030); Z takes back the last press.
+//  The touches inside a rally are advanced marking, not part of this pass
+//  (D-028). The rules are LiveTagger's, shared with the phone.
 //
 //  Pre-tracked rallies inside a rally you mark are confirmed and trimmed to
 //  it; "That's every rally" turns down the ones you never marked, drops
-//  the found rallies you passed over, and marks the video finished, so it
-//  counts in rally scoring and the decision model's training.
+//  the found rallies you passed over, ends a cut still open at the
+//  recording's end, and marks the video finished, so it counts in rally
+//  scoring and the decision model's training. Then the footage-type step
+//  (FootageTypeSheet, D-032): what the recording is — continuous, edited
+//  or unknown — is the person's call, kept apart from the pass being
+//  complete; "Footage type…" opens the same step any time.
 //
 
 import AVFoundation
@@ -24,26 +29,42 @@ struct LiveTagView: View {
     @Bindable var marker: RallyMarkModel
     let review: ProjectReviewStore
     let paths: BallPathBuilder
+    let projects: ProjectsModel
     let isActive: Bool
     let onClose: () -> Void
     let onDone: () -> Void
+    /// Skip this recording: set aside with the reason (the backlog), then on to the next task.
+    let onSkip: (String) -> Void
 
     @State private var tagger: LiveTagger
-    @State private var findingNet = false
     @State private var speed: Float = 1
+    /// The footage-type step on screen, under the opening the recording is marked in.
+    @State private var footageType: FootageTypeStep?
+    /// Dragging the timeline: paused meanwhile, playing on again when the drag ends if it was.
+    @State private var scrubbing = false
+    @State private var playingBeforeScrub = false
+
+    private struct FootageTypeStep: Identifiable {
+        let id = UUID()
+        /// Right after the pass (going on to the next task when it closes), or opened to change the type.
+        let afterPass: Bool
+        let opening: ProjectsModel.Opening
+    }
 
     private static let speeds: [Float] = [0.5, 1, 2, 3, 4]
 
-    init(session: VideoSession, marker: RallyMarkModel, review: ProjectReviewStore, paths: BallPathBuilder, isActive: Bool,
-         onClose: @escaping () -> Void, onDone: @escaping () -> Void) {
+    init(session: VideoSession, marker: RallyMarkModel, review: ProjectReviewStore, paths: BallPathBuilder, projects: ProjectsModel, isActive: Bool,
+         onClose: @escaping () -> Void, onDone: @escaping () -> Void, onSkip: @escaping (String) -> Void = { _ in }) {
         self.session = session
         self.marker = marker
         self.review = review
         self.paths = paths
+        self.projects = projects
         self.isActive = isActive
         self.onClose = onClose
         self.onDone = onDone
-        _tagger = State(initialValue: LiveTagger(tracks: session.tracks ?? [], net: session.netBox?.rect,
+        self.onSkip = onSkip
+        _tagger = State(initialValue: LiveTagger(tracks: session.tracks ?? [],
                                                  store: ProjectLiveTagStore(session: session, marker: marker, review: review)))
     }
 
@@ -56,6 +77,8 @@ struct LiveTagView: View {
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
                 .help("Playback speed (1–4; 0 for ½×)")
                 Text("\(marker.rallies.count) marked").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                Button { showFootageType(afterPass: false) } label: { Label("Footage type…", systemImage: "film.stack") }
+                    .help("What the recording is — continuous, edited or unknown — as confirmed in its footage-properties record; change it any time")
             }
             Divider()
             if marker.footageMissing {
@@ -76,13 +99,20 @@ struct LiveTagView: View {
             loadPath()
         }
         .onChange(of: paths.finished) { loadPath() }
-        .task { await findNet() }
         .onDisappear { if marker.isPlaying { marker.togglePlay() } }
         .onChange(of: speed) { _, s in marker.rate = s }
         .onChange(of: marker.playhead) { _, t in
             if marker.isPlaying, marker.duration > 0, t >= marker.duration - 0.05 { marker.togglePlay() }
         }
-        .labelKeys(isActive: isActive, handleKey)
+        .labelKeys(isActive: isActive && footageType == nil, handleKey)
+        .sheet(item: $footageType) { step in
+            FootageTypeSheet(recording: FootageTypeConfirmation.Recording(name: session.name, sourcePath: session.sourcePath,
+                                                                          cuts: marker.cuts.normalised(), ralliesMarked: marker.wholeVideoMarked),
+                             opening: step.opening, projects: projects, duration: marker.duration > 0 ? marker.duration : nil, afterPass: step.afterPass) {
+                footageType = nil
+                if step.afterPass { onDone() }
+            }
+        }
     }
 
     // MARK: - The picture and the live state
@@ -97,15 +127,29 @@ struct LiveTagView: View {
             .clipShape(RoundedRectangle(cornerRadius: 12))
             RallyTimesBar(time: marker.playhead, duration: marker.duration, found: marker.guesses.map { [$0.start, $0.end] },
                           marked: marker.rallies.map { LabelRally(start: $0.start, end: $0.end) },
-                          current: nil, pending: tagger.open?.first?.time,
-                          ticks: (tagger.open ?? marker.rallies.first { $0.contains(marker.playhead) }?.contacts ?? []).map(\.time))
+                          current: nil, pending: tagger.open,
+                          ticks: marker.rallies.first { $0.contains(marker.playhead) }?.contacts.map(\.time) ?? [],
+                          cuts: marker.cuts.map { [$0.start, $0.end] }, pendingCut: tagger.cutFrom)
                 .frame(height: 22)
                 .overlay {
                     GeometryReader { geo in
+                        // A click lands exactly; a drag scrubs — the marker chases the pointer loosely (one seek
+                        // in flight, a frame within a tenth of a second) and lands exactly when the drag ends.
                         Color.clear.contentShape(Rectangle())
-                            .gesture(SpatialTapGesture().onEnded { tap in
-                                marker.seek(to: tap.location.x / max(geo.size.width, 1) * marker.duration)
-                            })
+                            .gesture(DragGesture(minimumDistance: 0)
+                                .onChanged { drag in
+                                    if !scrubbing {
+                                        scrubbing = true
+                                        playingBeforeScrub = marker.isPlaying
+                                        if marker.isPlaying { marker.togglePlay() }
+                                    }
+                                    marker.seek(to: drag.location.x / max(geo.size.width, 1) * marker.duration, exact: false)
+                                }
+                                .onEnded { drag in
+                                    scrubbing = false
+                                    marker.seek(to: drag.location.x / max(geo.size.width, 1) * marker.duration)
+                                    if playingBeforeScrub, !marker.isPlaying { marker.togglePlay() }
+                                })
                     }
                 }
             controls
@@ -113,24 +157,22 @@ struct LiveTagView: View {
         .padding(16)
     }
 
-    /// Dead or in a rally, the touches so far, and the last press.
+    /// Dead or in a rally, and the last press.
     private var state: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                if let open = tagger.open {
+                if let from = tagger.cutFrom {
+                    Circle().fill(.black).frame(width: 9, height: 9)
+                    Text("Cut from \(from == 0 ? "the start" : clockText(from)) · X ends it, S at the next serve")
+                } else if let open = tagger.open {
                     Circle().fill(.orange).frame(width: 9, height: 9)
-                    Text("Rally · \(clockText(open[0].time)) · \(open.count) \(open.count == 1 ? "touch" : "touches")")
+                    Text("Rally · served at \(clockText(open))")
                 } else {
                     Circle().fill(.secondary).frame(width: 9, height: 9)
                     Text("Dead ball · S at the serve")
                 }
             }
             .font(.callout.weight(.semibold).monospacedDigit())
-            if let open = tagger.open {
-                HStack(spacing: 6) {
-                    ForEach(Array(open.enumerated()), id: \.offset) { _, c in chip(c) }
-                }
-            }
             if let note = tagger.recentNote {
                 Text(note).font(.caption).foregroundStyle(.secondary)
             }
@@ -140,38 +182,30 @@ struct LiveTagView: View {
         .environment(\.colorScheme, .dark)
     }
 
-    private func chip(_ c: RallyContact) -> some View {
-        Text(c.kind.name + (c.side.map { " · \($0 == .near ? "near" : "far")" } ?? ""))
-            .font(.caption.weight(.medium))
-            .padding(.horizontal, 7).padding(.vertical, 3)
-            .background(c.kind == .serve ? Color.orange.opacity(0.35) : Color.white.opacity(0.15), in: Capsule())
-    }
-
     private var controls: some View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
                 key("S", "Serve", .orange) { tagger.serve(press()) }
-                key("P", "Pass") { tagger.touch(.pass, press()) }
-                key("T", "Set") { tagger.touch(.set, press()) }
-                key("A", "Attack") { tagger.touch(.attack, press()) }
-                key("B", "Block") { tagger.touch(.block, press()) }
-                key("F", "Free ball") { tagger.touch(.freeBall, press()) }
-                Divider().frame(height: 24)
                 key("D", "Dead ball", .green) { tagger.close(as: .rally, press()) }
-                key("N", "Not a rally", .red) { tagger.close(as: nil, press()) }
+                Divider().frame(height: 24)
+                key("M", "Missed serve", .red) { tagger.close(as: .missedServe, press()) }
+                    .help("A serve nothing followed — into the net, long, wide: no rally there; an excluded span for scoring and training")
+                Divider().frame(height: 24)
+                key("X", "Cut", .gray) { tagger.cut(press()) }
+                    .help("Cut out footage: X where a replay starts, X again where it ends")
+                key("⇧X", "Starts mid-rally", .gray) { tagger.cutFromStart() }
+                    .help("The clip begins inside a rally: cut from its start up to the next serve (S)")
             }
             .controlSize(.large)
             HStack(spacing: 14) {
                 Button { marker.togglePlay() } label: { Image(systemName: marker.isPlaying ? "pause.fill" : "play.fill") }
                     .help("Play / pause (Space)")
                 Text(clockText(marker.playhead)).font(.callout.monospacedDigit()).foregroundStyle(.secondary)
-                if findingNet { ProgressView().controlSize(.mini); Text("Finding the net…").font(.caption).foregroundStyle(.secondary) }
-                else if tagger.net == nil { Text("No net found · sides are up to ⇧ far and ⌥ near").font(.caption).foregroundStyle(.secondary) }
-                if paths.building == session.name {
+                if paths.isBuilding(session) {
                     ProgressView().controlSize(.mini)
                     Text("Finding the ball… \(Int(paths.fraction * 100))%").font(.caption).foregroundStyle(.secondary)
                         .help("The pipeline is running over the video; once it's done, presses snap to where the ball changed course")
-                } else if let why = paths.refused[session.name] {
+                } else if let why = paths.refusal(for: session) {
                     Text(why).font(.caption).foregroundStyle(.secondary)
                 } else if marker.duration > 0 {
                     let covered = tagger.path.stretches.reduce(0) { $0 + $1.upperBound - $1.lowerBound }
@@ -180,13 +214,20 @@ struct LiveTagView: View {
                         .help("Where the ball was seen; a press within 0.4 s of it changing course moves to that moment")
                 }
                 Spacer()
-                Text("⇧ far · ⌥ near · Z takes back a press · ←/→ 2 s · ⌫ removes the rally here")
+                Text("Z takes back a press · ←/→ 2 s · ⌫ removes the rally here · X cuts out footage")
                     .font(.caption).foregroundStyle(.secondary)
+                Menu {
+                    ForEach(BacklogReason.allCases, id: \.self) { reason in
+                        Button(reason.title) { if marker.isPlaying { marker.togglePlay() }; onSkip(reason.rawValue) }
+                    }
+                } label: { Label("Skip…", systemImage: "arrow.uturn.forward") }
+                    .fixedSize()
+                    .help("Not a good one to mark: set it aside (the backlog) with a reason and go on to the next; the marks made so far stay")
                 Button { finish() } label: { Label("That's every rally", systemImage: "flag.checkered") }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(tagger.open != nil)
-                    .help("Every rally is marked — the video then counts in rally scoring (⌘↩)")
+                    .disabled(tagger.open != nil || (tagger.cutFrom != nil && marker.duration <= 0))
+                    .help("Every rally is marked — a cut still open ends at the recording's end, the video counts in rally scoring, and then you say what the footage is (⌘↩)")
             }
             .buttonStyle(.borderless)
         }
@@ -208,6 +249,25 @@ struct LiveTagView: View {
 
     private var rallies: some View {
         List(selection: $marker.selectedId) {
+            if !marker.cuts.isEmpty {
+                Section("Cut out") {
+                    ForEach(marker.cuts, id: \.self) { c in
+                        HStack(spacing: 8) {
+                            Image(systemName: "scissors").foregroundStyle(.secondary).frame(width: 18)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(clockText(c.start)) – \(clockText(c.end))").font(.callout.monospacedDigit())
+                                Text(String(format: "%.1f s not footage", c.end - c.start)).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture(count: 2) { play(from: c.start - 1) }
+                        .contextMenu {
+                            Button("Play from here") { play(from: c.start - 1) }
+                            Button("Remove", role: .destructive) { marker.setCuts(marker.cuts.filter { $0 != c }) }
+                        }
+                    }
+                }
+            }
             ForEach(marker.rallies) { r in
                 HStack(spacing: 8) {
                     Image(systemName: r.kind == .rally ? "figure.volleyball" : r.kind == .missedServe ? "xmark.circle" : "minus.circle")
@@ -232,7 +292,7 @@ struct LiveTagView: View {
         .listStyle(.inset)
         .frame(width: 230)
         .overlay {
-            if marker.rallies.isEmpty {
+            if marker.rallies.isEmpty && marker.cuts.isEmpty {
                 Text("Rallies you mark show here.\nDouble-click one to watch it.")
                     .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).padding()
             }
@@ -241,26 +301,45 @@ struct LiveTagView: View {
 
     // MARK: - Presses
 
-    private func press(_ flags: NSEvent.ModifierFlags = []) -> LiveTagger.Press {
-        LiveTagger.Press(now: marker.now, playing: marker.isPlaying, rate: marker.rate,
-                         side: flags.contains(.shift) ? .far : flags.contains(.option) ? .near : nil)
+    private func press() -> LiveTagger.Press {
+        LiveTagger.Press(now: marker.now, playing: marker.isPlaying, rate: marker.rate)
     }
 
-    /// Everything you didn't mark isn't a rally: pre-tracked rallies are
-    /// turned down, found rallies dropped; the video is finished.
+    /// Everything you didn't mark as a rally isn't one: pre-tracked rallies
+    /// not mostly inside a marked rally are turned down, found rallies not
+    /// touching one are dropped — a missed serve covers nothing (RallyTruth) —
+    /// except inside a cut range, which is not footage and is left alone
+    /// (D-030); the video is finished. Then the footage-type step: what the
+    /// recording is, is the person's call, asked now and kept apart from the
+    /// completion (D-032).
     private func finish() {
         guard tagger.open == nil else { return }
+        if tagger.cutFrom != nil {
+            // The rest of the recording is not footage: the open cut ends where the recording does (D-030).
+            guard marker.duration > 0 else { return }
+            tagger.finishCut(atEnd: marker.duration)
+        }
         if marker.isPlaying { marker.togglePlay() }
-        let marks = marker.rallies
-        func covered(_ a: Double, _ b: Double) -> Bool { marks.contains { min($0.end, b) - max($0.start, a) > 0.5 * (b - a) } }
-        for t in session.tracks ?? [] where t.awaitsRallyCheck && !covered(t.start, t.end) {
+        let truth = RallyTruth(marks: marker.rallies.map { RallyTruth.Mark(start: $0.start, end: $0.end, kind: $0.kind) },
+                               cuts: marker.cuts, complete: true)
+        let cuts = truth.cuts
+        for t in session.tracks ?? [] where t.awaitsRallyCheck && !truth.coveredByRally(t.start, t.end) && !cuts.overlaps(t.start, t.end) {
             review.setIsRally(false, AnnotationReview.RallyCheck(video: session.name, track: t.id, start: t.start, end: t.end))
         }
-        for g in marker.openGuesses where !(session.notRallies ?? []).contains(where: { abs($0 - g.start) < 0.05 }) {
+        for g in marker.guesses where truth.rallySeconds(within: g.start, g.end) <= 0.3
+            && !(session.notRallies ?? []).contains(where: { abs($0 - g.start) < 0.05 }) && !cuts.overlaps(g.start, g.end) {
             marker.sampler.addNotRally(start: g.start, session: session.name)
         }
         marker.wholeVideoMarked = true
-        onDone()
+        showFootageType(afterPass: true)
+    }
+
+    /// The footage-type step, under the project open now — the one the recording is marked in. With no project
+    /// open there is nothing to confirm into: after the pass, straight on to the next task.
+    private func showFootageType(afterPass: Bool) {
+        guard let opening = projects.opening else { if afterPass { onDone() }; return }
+        if marker.isPlaying { marker.togglePlay() }
+        footageType = FootageTypeStep(afterPass: afterPass, opening: opening)
     }
 
     private func play(from t: Double) {
@@ -272,17 +351,6 @@ struct LiveTagView: View {
     /// sightings over the rest of the video once BallPathBuilder has them.
     private func loadPath() {
         tagger.path = BallPath(tracks: session.tracks ?? [], seen: paths.samples(for: session) ?? [])
-    }
-
-    /// The net, once per video, from the review copy; kept on the session.
-    private func findNet() async {
-        guard session.netBox == nil, tagger.net == nil, !findingNet,
-              let url = session.playbackURL(in: marker.sampler.datasetRoot) else { return }
-        findingNet = true
-        defer { findingNet = false }
-        guard let found = await LiveTagger.findNet(in: url) else { return }
-        tagger.net = found.rect
-        marker.sampler.setNetBox(found, session: session.name)
     }
 
     // MARK: - Keys
@@ -303,14 +371,10 @@ struct LiveTagView: View {
         guard let ch = event.charactersIgnoringModifiers?.lowercased() else { return false }
         if let n = Int(ch), let s = Self.speeds.first(where: { $0 == (n == 0 ? 0.5 : Float(n)) }) { speed = s; return true }
         switch ch {
-        case "s": tagger.serve(press(flags))
-        case "p": tagger.touch(.pass, press(flags))
-        case "t": tagger.touch(.set, press(flags))
-        case "a": tagger.touch(.attack, press(flags))
-        case "b": tagger.touch(.block, press(flags))
-        case "f": tagger.touch(.freeBall, press(flags))
+        case "s": tagger.serve(press())
         case "d": tagger.close(as: .rally, press())
-        case "n": tagger.close(as: nil, press())
+        case "m": tagger.close(as: .missedServe, press())
+        case "x": if flags.contains(.shift) { tagger.cutFromStart() } else { tagger.cut(press()) }
         case "z": tagger.undo()
         default: return false
         }
@@ -332,23 +396,21 @@ final class ProjectLiveTagStore: LiveTagStore {
         self.review = review
     }
 
-    func mark(start: Double, end: Double, kind: RallyKind, contacts: [RallyContact]) -> AnyHashable {
-        marker.mark(start: start, end: end, kind: kind, contacts: contacts).id
+    func mark(start: Double, end: Double, kind: RallyKind) -> AnyHashable {
+        marker.mark(start: start, end: end, kind: kind).id
     }
 
     func delete(_ mark: AnyHashable) {
         if let id = mark as? UUID { marker.delete(id) }
     }
 
-    func confirmPretracked(start: Double, end: Double) -> [TrackedRally] {
-        var before: [TrackedRally] = []
-        for t in session.tracks ?? [] where t.isMachine && min(t.end, end) - max(t.start, start) > 0.5 * (t.end - t.start) {
-            before.append(t)
-            let check = AnnotationReview.RallyCheck(video: session.name, track: t.id, start: t.start, end: t.end)
-            review.replace(check, with: t.trimmed(start: start, end: end))
-            review.setIsRally(true, check)
+    func confirmPretracked(start: Double, end: Double, kind: RallyKind) -> [TrackedRally] {
+        RallyTruth.pretrackedChanges(session.tracks ?? [], start: start, end: end, kind: kind).map { change in
+            let check = AnnotationReview.RallyCheck(video: session.name, track: change.before.id, start: change.before.start, end: change.before.end)
+            if change.after != change.before { review.replace(check, with: change.after) }
+            review.setIsRally(change.isRally, check)
+            return change.before
         }
-        return before
     }
 
     func restore(_ rallies: [TrackedRally]) {
@@ -357,5 +419,28 @@ final class ProjectLiveTagStore: LiveTagStore {
             review.replace(check, with: t)
             review.setIsRally(t.isRally, check)
         }
+    }
+
+    func marks(overlapping start: Double, _ end: Double) -> [LiveTagger.ExistingMark] {
+        marker.rallies.filter { min($0.end, end) - max($0.start, start) > 0 }.map {
+            LiveTagger.ExistingMark(handle: $0.id, start: $0.start, end: $0.end, kind: $0.kind, contacts: $0.contacts.isEmpty ? nil : $0.contacts)
+        }
+    }
+
+    func restoreMark(_ mark: LiveTagger.ExistingMark) -> AnyHashable {
+        marker.mark(start: mark.start, end: mark.end, kind: mark.kind ?? .rally, contacts: mark.contacts ?? []).id
+    }
+
+    func cut(start: Double, end: Double) -> AnyHashable {
+        let range = CutRange(start: start, end: end)
+        marker.setCuts(marker.cuts + [range])
+        return range
+    }
+
+    func uncut(_ cut: AnyHashable) {
+        guard let range = cut as? CutRange, let i = marker.cuts.firstIndex(of: range) else { return }
+        var cuts = marker.cuts
+        cuts.remove(at: i)
+        marker.setCuts(cuts)
     }
 }

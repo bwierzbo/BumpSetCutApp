@@ -56,10 +56,12 @@ struct TrackReviewView: View {
                 Button { session.setBound(start: true) } label: { Label("Rally starts on this frame", systemImage: "arrow.right.to.line") }
                 Button { session.setBound(start: false) } label: { Label("Rally ends on this frame", systemImage: "arrow.left.to.line") }
             }
-            Section("Frames") {
+            // More frames are found by the detectors: off for a rally worked on by hand.
+            Section(session.byHandReason == nil ? "Frames" : "Frames — no more are read: the detectors are off for this recording") {
                 Button { Task { await session.extend(before: 2) } } label: { Label("2 s more before", systemImage: "backward") }
                 Button { Task { await session.extend(after: 2) } } label: { Label("2 s more after", systemImage: "forward") }
             }
+            .disabled(session.byHandReason != nil)
             Button(role: .destructive) {
                 session.discard()
                 dismiss()
@@ -70,6 +72,11 @@ struct TrackReviewView: View {
     private var review: some View {
         let left = session.toCheck.count
         return VStack(spacing: 10) {
+            if let why = session.byHandReason {
+                Label("By hand: nothing is found or re-solved, each fix changes its frame only. \(why)", systemImage: "hand.raised")
+                    .font(.footnote).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal)
+            }
             FrameStrip(session: session).frame(height: 26).padding(.horizontal)
             HStack {
                 Text(left == 0 ? "Nothing left to check" : "\(left) to check")

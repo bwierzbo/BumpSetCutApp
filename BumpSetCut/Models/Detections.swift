@@ -7,6 +7,8 @@
 
 import CoreGraphics
 import CoreMedia
+import CryptoKit
+import Foundation
 
 struct DetectionResult {
     let bbox: CGRect
@@ -488,6 +490,71 @@ struct ProcessorConfig {
         }
         
         return config
+    }
+}
+
+// MARK: - Canonical identity
+
+extension ProcessorConfig {
+    /// Every stored property but the multi-frame model's URL (a model is named by its package digest, so the same
+    /// model at another path is the same configuration), as one JSON object in declaration order: booleans as
+    /// `true`/`false`, integers in decimal, `Double`/`CGFloat`/`Float` as Swift's shortest round-trip text, an
+    /// enum by its raw value, `nil` as `null`, any other `Encodable` (the camera setup) as sorted-key JSON. One
+    /// text for one configuration on every target, so its SHA-256 (`canonicalSHA256`) identifies the settings a
+    /// dataset's evidence and baseline were produced with (the registry's `pipelineConfigSha256`). Reflection, so a
+    /// setting added later is in the identity from then on. The scoring ledger's 8-hex fingerprint is separate.
+    var canonicalJSON: String {
+        let fields = Mirror(reflecting: self).children.compactMap { child -> String? in
+            guard let label = child.label, label != "heatmapModel" else { return nil }
+            return "\(Self.canonicalString(label)):\(Self.canonicalValue(child.value))"
+        }
+        return "{" + fields.joined(separator: ",") + "}"
+    }
+
+    /// SHA-256 (hex) of `canonicalJSON`.
+    var canonicalSHA256: String {
+        SHA256.hash(data: Data(canonicalJSON.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func canonicalValue(_ value: Any) -> String {
+        let mirror = Mirror(reflecting: value)
+        if mirror.displayStyle == .optional {
+            guard let wrapped = mirror.children.first?.value else { return "null" }
+            return canonicalValue(wrapped)
+        }
+        // By exact type: a cast through `Any` may bridge one number type into another (a Bool into an Int).
+        let type = Swift.type(of: value)
+        if type == Bool.self, let v = value as? Bool { return v ? "true" : "false" }
+        if type == Int.self, let v = value as? Int { return String(v) }
+        if type == Double.self, let v = value as? Double { return "\(v)" }
+        if type == CGFloat.self, let v = value as? CGFloat { return "\(Double(v))" }
+        if type == Float.self, let v = value as? Float { return "\(v)" }
+        if type == String.self, let v = value as? String { return canonicalString(v) }
+        switch value {
+        case let v as any RawRepresentable: return canonicalValue(v.rawValue)
+        case let v as any Encodable:
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+            if let data = try? encoder.encode(v), let text = String(data: data, encoding: .utf8) { return text }
+            return canonicalString(String(describing: value))
+        default: return canonicalString(String(describing: value))
+        }
+    }
+
+    private static func canonicalString(_ s: String) -> String {
+        var out = "\""
+        for u in s.unicodeScalars {
+            switch u {
+            case "\"": out += "\\\""
+            case "\\": out += "\\\\"
+            case "\n": out += "\\n"
+            case "\r": out += "\\r"
+            case "\t": out += "\\t"
+            default:
+                if u.value < 0x20 { out += String(format: "\\u%04x", u.value) } else { out.unicodeScalars.append(u) }
+            }
+        }
+        return out + "\""
     }
 }
 

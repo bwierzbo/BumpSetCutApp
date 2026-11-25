@@ -3,15 +3,15 @@
 //  RallyLab (macOS and iPhone)
 //
 //  What happens in a rally, as live tagging marks it: what kind of rally it
-//  was, and every touch of the ball — when, what, and which side of the
-//  net. A video's rallylabels file keeps them with the rally's times
+//  was and, where a rally was marked with them (advanced marking, D-028),
+//  every touch of the ball — when, what, and which side of the net. A
+//  video's rallylabels file keeps them with the rally's times
 //  (RallyMarkRecord); the pipeline's scorer reads only the times from the
 //  same file (LabeledRally), so nothing that scores changes.
 //
 //  BallPath turns a video's pre-tracked ball paths into the moments a press
 //  can snap to: where the ball changed course (a touch), and where each
-//  path starts and ends (a serve, a dead ball). The ball's size against the
-//  net's tells which side of the net a touch was on.
+//  path starts and ends (a serve, a dead ball).
 //
 
 import CoreGraphics
@@ -38,8 +38,6 @@ enum NetSide: String, Codable {
     /// The camera's half.
     case near
     case far
-
-    var flipped: NetSide { self == .near ? .far : .near }
 }
 
 enum ContactKind: String, Codable, CaseIterable {
@@ -94,11 +92,6 @@ struct BallPath {
 
     /// A press within this of a moment on the path snaps to it.
     static let window = 0.4
-    /// How much bigger than the ball would look at the net a ball has to be
-    /// to count as nearer than the net: detector boxes run loose.
-    static let nearRatio = 1.2
-    /// A volleyball is 0.21 m across; the net's band is a metre tall.
-    static let ballToNet = 0.21
 
     /// A gap in the pipeline's sightings longer than this ends a stretch.
     static let gap = 0.5
@@ -181,16 +174,5 @@ struct BallPath {
     static func snap(_ t: Double, to moments: [Double]) -> Double {
         guard let best = moments.min(by: { abs($0 - t) < abs($1 - t) }), abs(best - t) <= window else { return t }
         return best
-    }
-
-    /// Which side of the net the ball was on at `time`, by how big it looks
-    /// against how big it would look at the net (the net band's height in
-    /// the frame, scaled by a ball's size against a net's). Nil without a
-    /// net, or a ball seen within a tenth of a second.
-    func side(at time: Double, net: CGRect?) -> NetSide? {
-        guard let net, net.height > 0,
-              let s = samples.min(by: { abs($0.time - time) < abs($1.time - time) }), abs(s.time - time) <= 0.1 else { return nil }
-        let atNet = Self.ballToNet * net.height
-        return s.size > Self.nearRatio * atNet ? .near : .far
     }
 }

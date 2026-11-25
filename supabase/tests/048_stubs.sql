@@ -51,8 +51,9 @@ CREATE TABLE public.label_videos (
     id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     project      text,
     session_name text,
-    title        text NOT NULL DEFAULT ''
-);
+    title        text NOT NULL DEFAULT '',
+    -- As live (028): every row is dated; 052's settle touches it.
+    updated_at timestamptz NOT NULL DEFAULT now());
 ALTER TABLE public.label_videos ENABLE ROW LEVEL SECURITY;
 -- As live (028): labelers have every command on label_videos.
 CREATE POLICY label_videos_labelers ON public.label_videos FOR ALL TO authenticated USING ((SELECT private.is_labeler())) WITH CHECK ((SELECT private.is_labeler()));

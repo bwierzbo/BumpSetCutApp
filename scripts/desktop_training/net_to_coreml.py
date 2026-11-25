@@ -5,7 +5,8 @@ Runs on the Mac, in the same .venv as heatmap_to_coreml.py.
 
     python net_to_coreml.py <bring_back folder or best.pt> <out.mlpackage>
 
-Input "frame": an RGB image of 384×216, the frame letterboxed (scaled to fit,
+Input "frame": an RGB image of the run's input size (384×216 unless the run
+passed --input; the checkpoint records it), the frame letterboxed (scaled to fit,
 centred, grey 114 borders) — pixels 0–255, scaled to 0–1 inside the model.
 Output "net": [1, 9] — presence (0–1), then x, y of the net's top-left,
 top-right, bottom-right and bottom-left corners as fractions of the
@@ -42,9 +43,10 @@ def convert(checkpoint: Path, out: Path) -> float:
     torch, _ = t.torch_modules()
     metrics_file = checkpoint.parent / "metrics.json"
     metrics = json.loads(metrics_file.read_text()) if metrics_file.exists() else {}
+    saved = torch.load(checkpoint, map_location="cpu")
+    t.set_input(saved.get("input", (384, 216)))   # checkpoints from before --input are 384×216
     NetBoxNet, Deploy = t.build_model()
     model = NetBoxNet()
-    saved = torch.load(checkpoint, map_location="cpu")
     model.load_state_dict(saved["state_dict"])
     deploy = Deploy(model).eval()
     example = torch.rand(1, 3, t.HEIGHT, t.WIDTH)
@@ -60,7 +62,7 @@ def convert(checkpoint: Path, out: Path) -> float:
     best = metrics.get("best") or metrics.get("scored") or {}
     mlmodel.author = "BumpSetCut — train_net_model.py (from scratch, no third-party weights)"
     mlmodel.short_description = ("Net detector: presence and the net's four corners (top-left, top-right, bottom-right, bottom-left; "
-                                 "x, y fractions of the 384×216 letterboxed frame, y down) from one upright RGB frame.")
+                                 f"x, y fractions of the {t.WIDTH}×{t.HEIGHT} letterboxed frame, y down) from one upright RGB frame.")
     mlmodel.version = f"epoch {saved.get('epoch')}"
     mlmodel.user_defined_metadata["trainer"] = "train_net_model.py"
     mlmodel.user_defined_metadata["letterbox"] = f"fit in {t.WIDTH}x{t.HEIGHT}, centred, pad {t.PAD_GREY}"

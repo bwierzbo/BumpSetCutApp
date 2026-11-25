@@ -17,9 +17,11 @@ frame widths and the corner error, not a mAP.
 
 Data:
     python train_net_model.py <RallyLab net dataset> --manifest <manifests/manifest.json>
+                              --withheld <closure.json>
                               [--extra <YOLO folder>]... [--epochs 40] [--seed N]
                               [--val-fraction 0.25] [--split <split.json>] [--name net_v1]
-    python train_net_model.py <dataset> --manifest <m> --score-only <best.pt> --name <run>
+                              [--input 384x216] [--aug basic|strong]
+    python train_net_model.py <dataset> --manifest <m> --withheld <c> --score-only <best.pt> --name <run>
 
   <RallyLab net dataset>  a folder written by `RallyLab --project P --export-net-dataset`:
       images/<video>.jpg, labels/<video>.txt (YOLO, class 0 = net: the corners'
@@ -33,6 +35,28 @@ Data:
       the export recorded. Any failure stops the run naming the recording —
       the export refuses the same things, and the trainer refuses them again
       (D-002: an exclusion is only real if every consumer honours it).
+  The package, the manifest and the project as it is now are held to each other
+  before anything is read as a sample (D-036: a package and a manifest written
+  before a provenance change still name the old splits and groups, and nothing
+  on this machine can see the project):
+      net-dataset.json must carry its provenance — `splitManifest` (the hashes of
+      project.json, the sessions, validation.json and manifest.json the export
+      ran against) and `withheld` (the closure it refused: names, confirmed
+      sourceIds, stored and content fingerprints), and every entry its
+      `fingerprint` and `contentFingerprint`. A package from before the export
+      recorded them is refused: export it again.
+      --manifest must be that manifest.json, byte for byte (its SHA-256 is the
+      package's `splitManifest.manifestJson`).
+      --withheld <closure.json> is the project's withheld closure as it is NOW
+      (withheld_closure.py, which must sit beside this file), written by
+      `RallyLab --project P --manifest --audit-dataset --withheld-closure
+      <file>` at the time of training, not of the export. It
+      is required; a file that is missing, unreadable, empty or whose hash does
+      not match its lists stops the run — no closure is never "nothing withheld".
+      Its project.json and validation.json hashes must be the package's (else
+      identities, groups or reservations changed since the export: export
+      again), it must hold nothing the package's own closure lacks, and no entry
+      may be in either closure by name, sourceId, fingerprint or content.
   --extra <folder>  a YOLO-format folder from elsewhere (a Roboflow export): data.yaml
       with `names`, images and labels under train/valid/test or flat. Only the
       `net` class is read; an image with no net line is a no-net example. The
@@ -63,7 +87,13 @@ Results:
     runs/net/<name>/   best.pt  best.onnx  metrics.json  log.csv  split.json
     bring_back/<name>/ the same  ← copy this folder back; net_to_coreml.py converts it
 
-The ONNX/Core ML model takes "frame" [1, 3, 216, 384] RGB 0–1 (letterboxed:
+--input sets the letterbox canvas (default 384×216, v1; v2 uses 640×360);
+the checkpoint records it, and --score-only scores only at that size.
+--aug strong adds a deeper crop, a small rotation, a zoom-out, colour, gamma,
+blur, JPEG and more noise to v1's flip/crop/contrast (augment()); the
+default, basic, draws exactly what v1 drew.
+
+The ONNX/Core ML model takes "frame" [1, 3, H, W] (216×384 by default) RGB 0–1 (letterboxed:
 scaled to fit, centred, grey borders) and gives "net" [1, 9]: presence, then
 x, y of the top-left, top-right, bottom-right and bottom-left corners in the
 letterboxed frame (all 0–1, y downwards). The caller maps the corners back
@@ -96,17 +126,49 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-WIDTH, HEIGHT = 384, 216
+import withheld_closure  # noqa: E402  (beside this file: the closure file and its checks, shared with train_heatmap_model.py)
+
+WIDTH, HEIGHT = 384, 216   # the default input; --input changes it for a run (set_input), and the checkpoint records it
+AUG_LEVELS = ("basic", "strong")
 NET_CLASS = "net"
 PAD_GREY = 114
 WITHHELD_SPLITS = {"lineage_holdout", "legacy_holdout", "final_test_candidate", "final_test"}
+SPLIT_HASH_KEYS = ("projectJson", "sessions", "validationJson", "manifestJson")
 PRESENCE_THRESHOLD = 0.5
 PROVENANCE_FIELDS = ("source", "license", "obtained", "note")
 DRAWS, DRAW_SEED = 1000, 0
 
 
 def say(msg: str) -> None:
-    print(msg, flush=True)
+    try:
+        print(msg, flush=True)
+    except UnicodeEncodeError:   # a console that cannot show ✅ (Windows cp1252) must not stop the run after its outputs are written
+        print(msg.encode("ascii", "replace").decode("ascii"), flush=True)
+
+
+def set_input(size) -> None:
+    """The letterbox canvas (width, height) for this process. Data-loader workers start a fresh
+    interpreter on Windows, so Frames sets it again in each worker."""
+    global WIDTH, HEIGHT
+    w, h = int(size[0]), int(size[1])
+    if w % 2 or h % 2 or w < 64 or h < 64:
+        fail(f"--input {w}x{h}: both sides must be even and at least 64")
+    WIDTH, HEIGHT = w, h
+
+
+def parse_input(text: str) -> tuple[int, int]:
+    try:
+        w, h = (int(v) for v in text.lower().split("x"))
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r}: expected WIDTHxHEIGHT, e.g. 640x360")
+    return w, h
+
+
+def feature_size(w: int, h: int) -> tuple[int, int]:
+    """(height, width) of the feature map after the six stride-2 blocks."""
+    for _ in range(6):
+        w, h = (w + 1) // 2, (h + 1) // 2
+    return h, w
 
 
 def fail(msg: str) -> None:
@@ -211,19 +273,78 @@ def load_manifest(path: Path) -> tuple[dict, dict[str, dict]]:
     return manifest, {row["video"]: row for row in manifest["videos"]}
 
 
-def read_rallylab_export(root: Path, manifest_rows: dict[str, dict]) -> tuple[list[Sample], dict]:
-    """The frames of a `--export-net-dataset` folder, each checked against the
-    manifest and against the export's own record before it is a sample."""
+def refused(check, *args):
+    """A withheld_closure check, its refusal the run's."""
+    try:
+        return check(*args)
+    except withheld_closure.Refused as e:
+        fail(str(e))
+
+
+def read_split_hashes(block, where: str, keys: tuple) -> dict[str, str]:
+    if not isinstance(block, dict) or not all(isinstance(block.get(k), str) and block[k] for k in keys):
+        fail(f"{where}: no splitManifest hashes ({', '.join(keys)})")
+    return {k: block[k] for k in keys}
+
+
+def load_withheld(path: Path) -> dict:
+    """The project's withheld closure as it is now (withheld_closure.load), which for this trainer
+    must also say which project.json and validation.json it was computed from: the recording groups
+    the validation split is drawn from come from the manifest at training time."""
+    now = refused(withheld_closure.load, path)
+    now["splitManifest"] = read_split_hashes(now["splitManifest"], f"--withheld {path}", ("projectJson", "validationJson"))
+    return now
+
+
+def check_provenance(record: dict, where: Path, manifest_sha256: str, now: dict) -> tuple[dict[str, set], dict]:
+    """Hold a package to the manifest it is trained with and to the project as it is now (`now`:
+    load_withheld), or stop. Returns every identity no entry may carry — the package's own closure
+    and the current one — and the package's provenance for the run's record."""
+    stale = "export the dataset again from the project as it is now"
+    if "splitManifest" not in record or "withheld" not in record:
+        fail(f"{where}: no provenance (splitManifest, withheld) — exported before packages recorded the manifest and the "
+             f"closure they stand on, so nothing here can be verified; {stale}")
+    exported = read_split_hashes(record["splitManifest"], str(where), SPLIT_HASH_KEYS)
+    closure = refused(withheld_closure.read_closure, record["withheld"], str(where))
+    if manifest_sha256 != exported["manifestJson"]:
+        fail(f"--manifest is not the split manifest {where.name} was exported against (SHA-256 {manifest_sha256[:16]}…, the package "
+             f"records {exported['manifestJson'][:16]}…) — pass that manifest, or {stale}")
+    for key, label in (("projectJson", "project.json"), ("validationJson", "validation.json")):
+        if now["splitManifest"][key] != exported[key]:
+            fail(f"{label} changed since {where.name} was exported (--withheld is of another project state): identities, "
+                 f"recording groups or reservations may differ — {stale}")
+    for k in withheld_closure.CLOSURE_KEYS:
+        extra = now["closure"][k] - closure[k]
+        if extra:
+            fail(f"the current withheld closure has {len(extra)} {k} the package's closure lacks (e.g. {sorted(extra)[0]!r}): "
+                 f"the export ran against a smaller closure — {stale}")
+    return ({k: closure[k] | now["closure"][k] for k in withheld_closure.CLOSURE_KEYS},
+            {"splitManifest": exported, "closureSha256": record["withheld"]["closureSha256"]})
+
+
+def read_rallylab_export(root: Path, manifest_rows: dict[str, dict], manifest_sha256: str, now: dict) -> tuple[list[Sample], dict]:
+    """The frames of a `--export-net-dataset` folder: the package held to the manifest and to the
+    project's current closure (`now`: load_withheld), then each entry checked against the manifest,
+    both closures and the export's own record before it is a sample."""
     record_path = root / "net-dataset.json"
     if not record_path.exists():
         fail(f"{root}: no net-dataset.json — not a RallyLab net dataset export")
     record = json.loads(record_path.read_text())
+    withheld, provenance = check_provenance(record, record_path, manifest_sha256, now)
     names = read_names(root / "data.yaml") if (root / "data.yaml").exists() else {0: NET_CLASS}
     net_index = index_of_net(names, root)
     samples: list[Sample] = []
     multi = 0
     for entry in record["entries"]:
         video = entry["video"]
+        if not entry.get("fingerprint") or not entry.get("contentFingerprint"):
+            fail(f"{video}: the package does not say what file it is (no fingerprint or contentFingerprint) — its identity "
+                 "can't be held against the withheld recordings', so it is not used")
+        identity = withheld_closure.withheld_identity(withheld, video, [entry.get("sourceId")],
+                                                      {"fingerprint": entry["fingerprint"], "content": entry["contentFingerprint"]})
+        if identity:
+            fail(f"{video}: withheld — its {identity} is in the withheld closure; a withheld recording, or the same footage "
+                 "under another card, never trains or validates a model")
         row = manifest_rows.get(video)
         if row is None:
             fail(f"{video}: not in the manifest — its identity and split are unknown, so it is not used")
@@ -254,7 +375,7 @@ def read_rallylab_export(root: Path, manifest_rows: dict[str, dict]) -> tuple[li
                               source="rallylab", box=box, corners=corners))
     info = {"folder": str(root), "project": record.get("project"), "createdAt": record.get("createdAt"),
             "entries": len(samples), "skipped_by_export": len(record.get("skipped", [])), "multi_net_images": multi,
-            "record_sha256": sha256_file(record_path)}
+            "record_sha256": sha256_file(record_path), **provenance}
     return samples, info
 
 
@@ -581,7 +702,7 @@ def torch_modules():
 def build_model():
     """A small CNN from scratch: 6 stride-2 blocks over the letterboxed frame with two
     coordinate channels (where in the frame each pixel is — a corner regressor needs
-    position), then the 4×6 map flattened into the nine outputs (logits; sigmoid
+    position), then the final map (4×6 at 384×216, 6×10 at 640×360) flattened into the nine outputs (logits; sigmoid
     makes them presence and the four corners' x, y)."""
     torch, nn = torch_modules()
 
@@ -594,7 +715,8 @@ def build_model():
                 layers += [nn.Conv2d(cin, cout, 3, stride=2, padding=1, bias=False), nn.BatchNorm2d(cout), nn.ReLU(inplace=True),
                            nn.Conv2d(cout, cout, 3, padding=1, bias=False), nn.BatchNorm2d(cout), nn.ReLU(inplace=True)]
             self.features = nn.Sequential(*layers)
-            self.head = nn.Sequential(nn.Flatten(), nn.Linear(160 * 4 * 6, 256), nn.ReLU(inplace=True), nn.Dropout(0.2), nn.Linear(256, 9))
+            fh, fw = feature_size(WIDTH, HEIGHT)
+            self.head = nn.Sequential(nn.Flatten(), nn.Linear(160 * fh * fw, 256), nn.ReLU(inplace=True), nn.Dropout(0.2), nn.Linear(256, 9))
             ys = torch.linspace(-1, 1, HEIGHT).view(1, 1, HEIGHT, 1).expand(1, 1, HEIGHT, WIDTH)
             xs = torch.linspace(-1, 1, WIDTH).view(1, 1, 1, WIDTH).expand(1, 1, HEIGHT, WIDTH)
             self.register_buffer("coords", torch.cat([xs, ys], dim=1))
@@ -626,8 +748,9 @@ class Frames:
     `epoch` before each pass; the loader's workers are not persistent, so they
     pick the dataset up again, epoch included."""
 
-    def __init__(self, samples: list[Sample], train: bool, seed: int):
-        self.samples, self.train, self.seed = samples, train, seed
+    def __init__(self, samples: list[Sample], train: bool, seed: int, aug: str = "basic"):
+        self.samples, self.train, self.seed, self.aug = samples, train, seed, aug
+        self.size = (WIDTH, HEIGHT)
         self.epoch = 0
 
     def __len__(self):
@@ -636,6 +759,7 @@ class Frames:
     def __getitem__(self, i: int):
         import cv2
         torch, _ = torch_modules()
+        set_input(self.size)
         s = self.samples[i]
         img = cv2.imread(str(s.image), cv2.IMREAD_COLOR)
         if img is None:
@@ -646,7 +770,7 @@ class Frames:
         size = torch.tensor(img.shape[1::-1])   # (w, h) of the frame as read
         if self.train:
             rng = random.Random(f"{self.seed}/{self.epoch}/{i}")
-            img, corners = augment(img, corners, rng)
+            img, corners = augment(img, corners, rng, strong=self.aug == "strong")
         h, w = img.shape[:2]
         canvas, _ = letterbox_image(img)
         target = np.zeros(10, dtype=np.float32)
@@ -658,7 +782,13 @@ class Frames:
         return x, torch.from_numpy(target), i, size
 
 
-def augment(img: np.ndarray, corners: Optional[tuple], rng: random.Random) -> tuple[np.ndarray, Optional[tuple]]:
+def augment(img: np.ndarray, corners: Optional[tuple], rng: random.Random, strong: bool = False) -> tuple[np.ndarray, Optional[tuple]]:
+    """Basic (v1): a flip, a crop of 80–100% that keeps the net whole, contrast and brightness,
+    sometimes a little noise. Strong (--aug strong) adds to that: a deeper crop (60–100%), a
+    small rotation and sometimes a zoom-out (the frame smaller on a grey canvas), each kept only
+    when every corner stays in the frame; saturation, hue and gamma; wider contrast and
+    brightness; blur; JPEG recompression; more noise. The basic path draws exactly what v1 drew,
+    so a basic run repeats v1's augmentation."""
     h, w = img.shape[:2]
     if rng.random() < 0.5:
         img = img[:, ::-1]
@@ -666,8 +796,8 @@ def augment(img: np.ndarray, corners: Optional[tuple], rng: random.Random) -> tu
             # Mirrored: the left corners become the right ones and vice versa.
             tl, tr, br, bl = ((1 - x, y) for x, y in corners)
             corners = (tr, tl, bl, br)
-    # A crop of 80–100% that keeps the whole net (no crop when it doesn't fit).
-    frac = rng.uniform(0.8, 1.0)
+    # A crop that keeps the whole net (no crop when it doesn't fit).
+    frac = rng.uniform(0.6 if strong else 0.8, 1.0)
     cw, ch = int(w * frac), int(h * frac)
     if cw < w or ch < h:
         if corners is None:
@@ -686,11 +816,63 @@ def augment(img: np.ndarray, corners: Optional[tuple], rng: random.Random) -> tu
             img = img[y0:y0 + ch, x0:x0 + cw]
             if corners is not None:
                 corners = tuple(((x * w - x0) / cw, (y * h - y0) / ch) for x, y in corners)
+    if strong:
+        img, corners = geometric_strong(np.ascontiguousarray(img), corners, rng)
+        return photometric_strong(img, rng), corners
     img = np.ascontiguousarray(img).astype(np.float32)
     img = (img - 128) * rng.uniform(0.8, 1.2) + 128 + rng.uniform(-30, 30)
     if rng.random() < 0.3:
         img += np.random.default_rng(rng.getrandbits(32)).normal(0, 4, img.shape).astype(np.float32)
     return np.clip(img, 0, 255).astype(np.uint8), corners
+
+
+def geometric_strong(img: np.ndarray, corners: Optional[tuple], rng: random.Random) -> tuple[np.ndarray, Optional[tuple]]:
+    """A rotation of up to ±6° about the centre (70% of frames), then a zoom-out to 70–100% on a
+    grey canvas of the same size (30%). Either is skipped when it would push a corner out of the frame."""
+    import cv2
+    h, w = img.shape[:2]
+    angle = rng.uniform(-6.0, 6.0) if rng.random() < 0.7 else 0.0
+    if angle:
+        m = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1.0)
+        moved = None if corners is None else tuple(
+            ((m[0, 0] * x * w + m[0, 1] * y * h + m[0, 2]) / w, (m[1, 0] * x * w + m[1, 1] * y * h + m[1, 2]) / h) for x, y in corners)
+        if moved is None or all(0 <= x <= 1 and 0 <= y <= 1 for x, y in moved):
+            img = cv2.warpAffine(img, m, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(PAD_GREY,) * 3)
+            corners = moved
+    if rng.random() < 0.3:
+        z = rng.uniform(0.7, 1.0)
+        nw, nh = max(1, int(round(w * z))), max(1, int(round(h * z)))
+        ox, oy = rng.randint(0, w - nw), rng.randint(0, h - nh)
+        canvas = np.full_like(img, PAD_GREY)
+        canvas[oy:oy + nh, ox:ox + nw] = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_AREA)
+        img = canvas
+        if corners is not None:
+            corners = tuple(((x * nw + ox) / w, (y * nh + oy) / h) for x, y in corners)
+    return img, corners
+
+
+def photometric_strong(img: np.ndarray, rng: random.Random) -> np.ndarray:
+    """Colour and quality: saturation 0.5–1.5 and hue ±8 (OpenCV units), gamma 0.7–1.4, contrast
+    0.6–1.4 and brightness ±45, blur (25%), JPEG at quality 35–90 (30%), noise up to σ 8 (40%)."""
+    import cv2
+    hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV).astype(np.float32)
+    hsv[..., 1] *= rng.uniform(0.5, 1.5)
+    hsv[..., 0] = (hsv[..., 0] + rng.uniform(-8, 8)) % 180
+    img = cv2.cvtColor(np.clip(hsv, 0, [179, 255, 255]).astype(np.uint8), cv2.COLOR_HSV2RGB).astype(np.float32)
+    img = 255.0 * (img / 255.0) ** rng.uniform(0.7, 1.4)
+    img = (img - 128) * rng.uniform(0.6, 1.4) + 128 + rng.uniform(-45, 45)
+    img = np.clip(img, 0, 255).astype(np.uint8)
+    if rng.random() < 0.25:
+        k = rng.choice((3, 5))
+        img = cv2.GaussianBlur(img, (k, k), 0)
+    if rng.random() < 0.3:
+        ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, rng.randint(35, 90)])
+        if ok:
+            img = cv2.imdecode(buf, cv2.IMREAD_UNCHANGED)
+    if rng.random() < 0.4:
+        noisy = img.astype(np.float32) + np.random.default_rng(rng.getrandbits(32)).normal(0, rng.uniform(2, 8), img.shape)
+        img = np.clip(noisy, 0, 255).astype(np.uint8)
+    return img
 
 
 def box_of(corners):
@@ -740,13 +922,19 @@ def evaluate(model, samples: list[Sample], device, batch: int, workers: int) -> 
                              "presence": float(o[0]), "pred": unflat(o[1:9]),
                              "truth": unflat(t[1:9]) if t[0] > 0.5 else None, "w": w, "h": h})
     m = summarize(rows)
-
-    def tape(r: dict) -> list[float]:
-        back = letterbox_corners_back(r["pred"], r["w"], r["h"])
-        return [round(back[0][1], 4), round(back[1][1], 4)]
-
-    m["per_frame"] = [{"video": r["video"], "presence": round(r["presence"], 4), "top": tape(r)} for r in rows]
+    m["per_frame"] = [frame_record(r) for r in rows]
     return m
+
+
+def frame_record(r: dict) -> dict:
+    """One val frame's prediction in frame fractions (y down), enough to pair it with
+    another run's: the two tape ends' y (`top`) and the left and right edges of the box
+    the predicted corners span (`sides`), which against the label give the frame's top
+    and side errors exactly as `summarize` computes them."""
+    back = letterbox_corners_back(r["pred"], r["w"], r["h"])
+    left, _, right, _ = edges(corners_box(back))
+    return {"video": r["video"], "presence": round(r["presence"], 4),
+            "top": [round(back[0][1], 4), round(back[1][1], 4)], "sides": [round(left, 4), round(right, 4)]}
 
 
 def git_sha() -> Optional[str]:
@@ -773,7 +961,9 @@ def export_onnx(model, path: Path) -> None:
 def main(argv: Optional[list[str]] = None) -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("dataset", type=Path, help="A RallyLab --export-net-dataset folder")
-    p.add_argument("--manifest", type=Path, required=True, help="The project's manifests/manifest.json (identity, splits, groups)")
+    p.add_argument("--manifest", type=Path, required=True, help="The manifests/manifest.json the dataset was exported against (identity, splits, groups)")
+    p.add_argument("--withheld", type=Path, required=True, metavar="CLOSURE",
+                   help="The project's withheld closure as it is now (RallyLab --project P --withheld-closure <file>)")
     p.add_argument("--extra", type=Path, action="append", default=[], help="A YOLO-format folder with provenance.json (train only)")
     p.add_argument("--epochs", type=int, default=40)
     p.add_argument("--batch", type=int, default=32)
@@ -783,10 +973,13 @@ def main(argv: Optional[list[str]] = None) -> None:
     p.add_argument("--split", type=Path, default=None, help="A split.json from another run: validate on the same groups")
     p.add_argument("--seed", type=int, default=0, help="Fixes the split (without --split), the initialisation and the augmentation")
     p.add_argument("--name", default="net_v1")
+    p.add_argument("--input", type=parse_input, default=(384, 216), metavar="WxH", help="Letterbox canvas, e.g. 640x360 (default 384x216, v1)")
+    p.add_argument("--aug", choices=AUG_LEVELS, default="basic", help="Training augmentation: basic (v1) or strong")
     p.add_argument("--score-only", type=Path, default=None, metavar="WEIGHTS", help="Score this checkpoint on the val frames and stop")
     p.add_argument("--runs", type=Path, default=HERE / "runs" / "net", help=argparse.SUPPRESS)
     p.add_argument("--bring-back", type=Path, default=HERE / "bring_back", help=argparse.SUPPRESS)
     args = p.parse_args(argv)
+    set_input(args.input)
 
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -804,7 +997,8 @@ def main(argv: Optional[list[str]] = None) -> None:
     if not args.manifest.exists():
         fail(f"{args.manifest}: no such manifest")
     manifest, rows = load_manifest(args.manifest)
-    samples, export_info = read_rallylab_export(args.dataset, rows)
+    now = load_withheld(args.withheld)
+    samples, export_info = read_rallylab_export(args.dataset, rows, sha256_file(args.manifest), now)
     group_samples(samples, args.manifest)
     extras_info = []
     for folder in args.extra:
@@ -835,8 +1029,8 @@ def main(argv: Optional[list[str]] = None) -> None:
     (run / "split.json").write_text(json.dumps({"val_groups": val_groups_list, "val_videos": sorted({s.video for s in val_s}),
                                                 "val_fraction": args.val_fraction, "seed": args.seed,
                                                 "from": str(args.split) if args.split else None}, indent=2))
-    metrics = {"trainer": "train_net_model.py", "code_sha": git_sha(), "torch": torch.__version__, "input": [WIDTH, HEIGHT],
-               "dataset": export_info, "extras": extras_info, "manifest_sha256": sha256_file(args.manifest),
+    metrics = {"trainer": "train_net_model.py", "code_sha": git_sha(), "torch": torch.__version__, "input": [WIDTH, HEIGHT], "aug": args.aug,
+               "dataset": export_info, "extras": extras_info, "manifest_sha256": sha256_file(args.manifest), "withheld": now["record"],
                "manifest_createdAt": manifest.get("createdAt"), "seed": args.seed, "epochs": args.epochs, "batch": args.batch,
                "lr": args.lr, "train_frames": len(train_s), "train_digest": dataset_digest(train_s), "val_frames": len(val_s),
                "val_digest": val_digest, "val_groups": val_groups_list, "best": None, "best_epoch": None}
@@ -854,6 +1048,8 @@ def main(argv: Optional[list[str]] = None) -> None:
 
     if args.score_only:
         saved = torch.load(args.score_only, map_location=device)
+        if tuple(saved.get("input", (384, 216))) != (WIDTH, HEIGHT):
+            fail(f"{args.score_only} was trained at {saved.get('input', (384, 216))}; pass --input to match")
         model.load_state_dict(saved["state_dict"])
         metrics["scored"] = evaluate(model, val_s, device, args.batch, args.workers)
         metrics["scored_weights"] = {"path": str(args.score_only), "epoch": saved.get("epoch"), "sha256": sha256_file(args.score_only)}
@@ -863,7 +1059,7 @@ def main(argv: Optional[list[str]] = None) -> None:
 
     g = torch.Generator()
     g.manual_seed(args.seed)
-    train_frames = Frames(train_s, True, args.seed)
+    train_frames = Frames(train_s, True, args.seed, args.aug)
     # Not persistent: each epoch's workers are started with the dataset as it is then (its epoch set below).
     loader = torch.utils.data.DataLoader(train_frames, batch_size=args.batch, shuffle=True, num_workers=args.workers,
                                          drop_last=len(train_s) > args.batch, generator=g, persistent_workers=False)
@@ -895,7 +1091,7 @@ def main(argv: Optional[list[str]] = None) -> None:
         if best_key is None or key < best_key:
             best_key = key
             metrics["best"], metrics["best_epoch"] = m, epoch
-            torch.save({"state_dict": model.state_dict(), "epoch": epoch}, run / "best.pt")
+            torch.save({"state_dict": model.state_dict(), "epoch": epoch, "input": [WIDTH, HEIGHT], "aug": args.aug}, run / "best.pt")
         with open(run / "log.csv", "w", newline="") as f:
             csv.writer(f).writerows(log)
 

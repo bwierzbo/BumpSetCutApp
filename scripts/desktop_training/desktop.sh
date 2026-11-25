@@ -1,12 +1,20 @@
 #!/bin/zsh
 # Train multi-frame models on the desktop GPU from the Mac, over SSH.
 #
-#   scripts/desktop_training/desktop.sh train [package] [--size 512|768|1024] [--from-scratch] [--color] [--epochs N] [--name NAME]
+#   scripts/desktop_training/desktop.sh train [package] --withheld CLOSURE.json
+#                                              [--size 512|768|1024] [--from-scratch] [--color] [--epochs N] [--name NAME]
 #                                              [--aug] [--occluded] [--qfl] [--mine] [--pseudo] [--seed N]
 #                                              [--batch N] [--lr X] [--workers N] [--resume]
 #                                              [--score-only C:\BallTraining\runs\heatmap\RUN\best.pt]
 #       send the package (default: the newest multi-frame export) and the
-#       current trainer, start training detached, return right away
+#       current trainer, start training detached, return right away.
+#       --withheld is required: the project's withheld closure as it is now
+#       (RallyLab --project P --manifest --audit-dataset --withheld-closure FILE,
+#       written for this run). The package is checked against it here first
+#       (withheld_closure.py: it must carry a lineage package's l2-manifest.json
+#       and hold no recording of the closure) — a package that fails, whether
+#       named or picked as the newest, is not sent and nothing starts — and the
+#       trainer checks it again on the desktop with the same file
 #       (--score-only: score that checkpoint on the package's val windows
 #       instead of training, for paired_compare.py; `wait`, `fetch` and
 #       `run` work as for training — fetch brings the metrics and adds no model)
@@ -59,9 +67,10 @@ newest_package() {
 # The train/queue arguments → T_package T_zip T_name T_args (the trainer's
 # arguments after the package, --name apart).
 parse_train() {
-    local package="" size=512 epochs=60 name="" scratch="" color="" opts=()
+    local package="" size=512 epochs=60 name="" scratch="" color="" withheld="" opts=()
     while (( $# )); do
         case $1 in
+            --withheld) withheld=$2; shift 2 ;;
             --size) size=$2; shift 2 ;;
             --from-scratch) scratch=--from-scratch; shift ;;
             --color) color=--color; shift ;;
@@ -74,6 +83,12 @@ parse_train() {
     done
     [[ -n $package ]] || package=$(newest_package)
     [[ -f $package || -d $package ]] || die "No multi-frame package zip (export one in RallyLab's Models tab)."
+    # The package — named, or the newest export — is held to the project's withheld closure as it is now before
+    # anything else is decided: one that holds a withheld recording, or does not say what it holds, goes nowhere.
+    [[ -n $withheld ]] || die "--withheld CLOSURE.json is required: the project's withheld closure as it is now (RallyLab --project $PROJECT --manifest --audit-dataset --withheld-closure FILE). Nothing is sent or started without it."
+    [[ -f $withheld ]] || die "--withheld $withheld: no such file. Nothing is sent or started."
+    python3 $HERE/withheld_closure.py $package --withheld $withheld || die "${package:t} is not trained from (see above). Nothing was sent or started."
+    T_withheld=$withheld
     local stem=${package:t:r}
     [[ -n $name ]] || name="heat_${stem##*-multiframe-}_${size}${scratch:+_scratch}${color:+_color}"
     T_package=$package; T_zip=${package:t}; T_name=$name
@@ -85,7 +100,7 @@ parse_train() {
     elif [[ -d $package ]]; then
         die "A package folder is only trained in place from the staging mount ($STAGING_MOUNT); elsewhere pass the zip."
     fi
-    T_args="--size $size --epochs $epochs $scratch $color ${opts[*]}"
+    T_args="--withheld $REMOTE\\$name.withheld.json --size $size --epochs $epochs $scratch $color ${opts[*]}"
     T_summary="${size}, ${epochs} epochs${scratch:+, from scratch}${color:+, colour}${opts:+, ${opts[*]}}"
 }
 
@@ -106,6 +121,8 @@ send_package() {
         scp -o BatchMode=yes -o LogLevel=ERROR $T_package "$HOST:C:/BallTraining/$zip"
     fi
     scp -o BatchMode=yes -o LogLevel=ERROR $HERE/train_heatmap_model.py "$HOST:C:/BallTraining/train_heatmap_model.py"
+    scp -o BatchMode=yes -o LogLevel=ERROR $HERE/withheld_closure.py "$HOST:C:/BallTraining/withheld_closure.py"
+    scp -o BatchMode=yes -o LogLevel=ERROR $T_withheld "$HOST:C:/BallTraining/$T_name.withheld.json"
     scp -o BatchMode=yes -o LogLevel=ERROR $HERE/queue_runner.ps1 "$HOST:C:/BallTraining/queue_runner.ps1"
     scp -o BatchMode=yes -o LogLevel=ERROR $HERE/verify_package.ps1 "$HOST:C:/BallTraining/verify_package.ps1"
     # Not `… && die`: under set -e a failed last-command-of-a-list ends the function with 1, which ends the script.
@@ -115,7 +132,7 @@ send_package() {
 }
 
 cmd_plan() {
-    local T_package T_zip T_name T_args T_summary T_remote
+    local T_package T_zip T_name T_args T_summary T_remote T_withheld
     parse_train "$@"
     say "package:  $T_package"
     if [[ -n $T_remote ]]; then say "desktop:  $T_remote (read in place$([[ -d $T_package ]] && print -n '; L2 folder verified first'))"
@@ -125,7 +142,7 @@ cmd_plan() {
 }
 
 cmd_train() {
-    local T_package T_zip T_name T_args T_summary T_remote
+    local T_package T_zip T_name T_args T_summary T_remote T_withheld
     parse_train "$@"
     say "Package: $T_zip  →  run \"$T_name\" ($T_summary)"
     send_package
@@ -140,7 +157,7 @@ cmd_train() {
 
 # Queue the run: a line for queue_runner.ps1, which is started if it isn't up.
 cmd_queue() {
-    local T_package T_zip T_name T_args T_summary T_remote
+    local T_package T_zip T_name T_args T_summary T_remote T_withheld
     parse_train "$@"
     say "Package: $T_zip  →  run \"$T_name\" ($T_summary), queued"
     send_package
@@ -240,5 +257,5 @@ case ${1:-} in
     run) shift; cmd_run "$@" ;;
     verify) shift; cmd_verify "$@" ;;
     plan) shift; cmd_plan "$@" ;;
-    *) sed -n '2,19p' $SCRIPT; exit 2 ;;
+    *) sed -n '2,27p' $SCRIPT; exit 2 ;;
 esac

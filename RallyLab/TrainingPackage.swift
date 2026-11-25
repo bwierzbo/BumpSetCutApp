@@ -53,11 +53,13 @@ enum TrainingPackage {
 
     /// Write the package and its zip. Returns the zip's URL and the summary.
     static func export(sessions: [VideoSession], store: DatasetStore, name: String) async throws -> (zip: URL, summary: Summary) {
-        // Final-test recordings (D-002) never enter a package, train or val.
-        let finalTest = try PipelineTuner.ValidationSet.finalTestNames(in: store.root)
-        let sessions = sessions.filter { !finalTest.contains($0.name) }
+        // No withheld recording — the final test, a lineage or legacy holdout, an alias of one (D-002, D-017) —
+        // enters a package, train or val.
+        let sessions = try ScoringExposure.Closures(in: store.root).admitted(sessions)
         let frames = sessions.flatMap { session in
-            session.frames.filter { $0.keep && $0.reviewed }.map { (session, $0) }
+            // A frame inside a cut range is not footage (D-030).
+            let cuts = session.cutRanges
+            return session.frames.filter { $0.keep && $0.reviewed && !cuts.contains($0.time) }.map { (session, $0) }
         }
         guard !frames.isEmpty else { throw PackageError.nothingReviewed }
         guard frames.contains(where: { $0.0.split == "val" }) else { throw PackageError.noValidation }

@@ -10,7 +10,7 @@ import SwiftUI
 
 @main
 struct RallyLabApp: App {
-    @State private var model = RallyLabModel()
+    @State private var model: RallyLabModel
     @State private var sampler: SamplerModel
     /// Reopens the last project on launch, the way Xcode restores its window.
     @State private var projects: ProjectsModel
@@ -21,9 +21,21 @@ struct RallyLabApp: App {
     @State private var phone: LabelingSync
     /// Stage 1 rally-boundary review (D-024).
     @State private var boundaries: RallyBoundariesModel
+    /// The negative-coverage audit's review queue (Audit tab).
+    @State private var coverage: CoverageAuditModel
     @State private var netLabels: NetLabelsModel
+    /// RallyLab 2.0: the project's labeling tasks and source index (Queue tab).
+    @State private var queue: WorkQueueModel
 
     init() {
+        // A launch with flags is a headless run or nothing: refused before any model exists, so a mistyped command
+        // never falls through to the window app and reopens the person's last project (LaunchGuard).
+        if let refusal = LaunchGuard.refusal(for: CommandLine.arguments, home: FileManager.default.homeDirectoryForCurrentUser) {
+            FileHandle.standardError.write(Data("RallyLab: \(refusal.message)\n".utf8))
+            exit(2)
+        }
+        // A guarded run keeps its labeling session apart from the app's: a Keychain item of its own.
+        if CommandLine.arguments.contains("--project-root") { LabelingClient.keychainService = LaunchGuard.acceptanceKeychainService }
         // `RallyLab --export-training-data [path]` batch-exports classifier
         // training data and exits (no UI interaction needed).
         HeadlessTrainingExport.runIfRequested()
@@ -36,6 +48,8 @@ struct RallyLabApp: App {
         let sampling = HeadlessSampler.runIfRequested()
         if HeadlessProjects.runIfRequested() || sampling { dispatchMain() }
 
+        let pipeline = RallyLabModel()
+        _model = State(initialValue: pipeline)
         let sampler = SamplerModel()
         _sampler = State(initialValue: sampler)
         _library = State(initialValue: ModelLibrary(sampler: sampler))
@@ -46,14 +60,22 @@ struct RallyLabApp: App {
         _marker = State(initialValue: marker)
         let boundaries = RallyBoundariesModel(sampler: sampler)
         _boundaries = State(initialValue: boundaries)
+        let coverage = CoverageAuditModel(sampler: sampler)
+        _coverage = State(initialValue: coverage)
         _netLabels = State(initialValue: NetLabelsModel(projects: projects))
+        _queue = State(initialValue: WorkQueueModel(projects: projects))
+        // Records every stall of the main thread (≥ 0.5 s) to the unified log and ~/Library/Logs/RallyLab/stalls.log.
+        MainThreadWatchdog.shared.start()
         let phone = LabelingSync(projects: projects)
         phone.onTracksChanged = { tracker.reloadRallies(session: $0) }
-        phone.onTimesChanged = { marker.reloadMarks(session: $0) }
+        // Rally times pulled from the phone carry the cut ranges: the Pipeline tab scores over them again (D-030).
+        phone.onTimesChanged = { marker.reloadMarks(session: $0); pipeline.refreshCuts() }
         phone.onRecordSynced = { boundaries.recordSynced(root: $0, $1, $2) }
+        // A coverage-audit record merged with the phone's: the Audit tab reads it again.
+        phone.onAuditSynced = { coverage.recordSynced(root: $0, recordingId: $1) }
         // A rally finished here or on the phone gets its boxes fitted to the
         // ball before it's reviewed.
-        let fitter = ProjectReviewStore(sampler: sampler, tracker: tracker, sync: phone)
+        let fitter = ProjectReviewStore(sampler: sampler, tracker: tracker, sync: phone, projects: projects)
         phone.afterSync = { await fitter.fitNewRallies() }
         phone.startAutomatic()
         _phone = State(initialValue: phone)
@@ -61,7 +83,7 @@ struct RallyLabApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView(model: model, sampler: sampler, projects: projects, library: library, tracker: tracker, marker: marker, boundaries: boundaries, netLabels: netLabels, phone: phone)
+            ContentView(model: model, sampler: sampler, projects: projects, library: library, tracker: tracker, marker: marker, boundaries: boundaries, coverage: coverage, netLabels: netLabels, queue: queue, phone: phone)
         }
         .commands {
             CommandGroup(replacing: .newItem) {

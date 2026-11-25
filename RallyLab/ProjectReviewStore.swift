@@ -16,11 +16,15 @@ final class ProjectReviewStore: ReviewStore {
     let tracker: TrackLabelModel
     /// Sends each decision up on its own (nil headless: saved here only).
     let sync: LabelingSync?
+    /// Whose sessions the sampler holds, when the project can change while boxes are fitted (the app; nil
+    /// headless, where one project is open for the whole run).
+    let projects: ProjectsModel?
 
-    init(sampler: SamplerModel, tracker: TrackLabelModel, sync: LabelingSync? = nil) {
+    init(sampler: SamplerModel, tracker: TrackLabelModel, sync: LabelingSync? = nil, projects: ProjectsModel? = nil) {
         self.sampler = sampler
         self.tracker = tracker
         self.sync = sync
+        self.projects = projects
     }
 
     /// Val videos first: their rallies are the test set.
@@ -120,10 +124,14 @@ final class ProjectReviewStore: ReviewStore {
     /// Fit the boxes of rallies finished since the last time (here or on the
     /// phone), save them, and remember they're done. True if any changed.
     func fitNewRallies() async -> Bool {
+        // The boxes are fitted for the project open now; they are put into its sessions only if it is still the one
+        // open when fitting ends (the sessions are looked up by name, which another project may share).
+        let opening = projects?.opening
         // Taken first: a rally finished while fitting waits for next time.
         let done = sampler.sessions.map { s in (s.name, (s.tracks ?? []).filter { $0.done && !(s.fittedTracks ?? []).contains($0.id) }.map(\.id)) }
         guard done.contains(where: { !$0.1.isEmpty }) else { return false }
         let fitted = await fittedBoxes(onlyNew: true) { _, _ in }
+        if let projects, projects.opening != opening { return false }
         apply(fitted)
         for (name, ids) in done where !ids.isEmpty { sampler.markFitted(ids, session: name) }
         return !fitted.isEmpty

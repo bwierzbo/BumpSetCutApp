@@ -72,14 +72,59 @@ final class LineagePackageTests: XCTestCase {
         return dir
     }
 
-    private func plan(eligible: [(String, String)], withheld: [String]) -> LineagePackage.Plan {
+    private func plan(eligible: [(String, String)], withheld: [String], cuts: [String: [CutRange]] = [:]) -> LineagePackage.Plan {
         LineagePackage.Plan(lineage: "L2", project: "Fixture", createdAt: F.day, generator: "test",
                             manifestHashes: .init(projectJson: "p", sessions: "s", validationJson: "v"),
                             audit: .init(hard: 0, soft: 0, info: 0),
                             withheld: withheld.map { .init(video: $0, split: .lineageHoldout, reservedAs: "listed", aliasGroup: $0, identities: []) },
                             withheldClosure: withheld,
                             eligible: eligible.map { .init(video: $0.0, split: $0.1 == "train" ? .train : .devVal, packageSplit: $0.1,
-                                                           aliasGroup: $0.0, identities: [], reviewedFrames: 1, ralliesMarked: false) })
+                                                           aliasGroup: $0.0, identities: [], reviewedFrames: 1, ralliesMarked: false, cuts: cuts[$0.0]) })
+    }
+
+    // MARK: - Cut ranges (D-030)
+
+    func testPlanCarriesEachEligibleRecordingsCutRangesNormalised() throws {
+        var inputs = lineageInputs()
+        inputs.sessions = inputs.sessions.map { s in
+            var s = s
+            if s.name == "bch_b" { s.cuts = [CutRange(start: 150, end: 160), CutRange(start: 141.6, end: 157.0)] }
+            if s.name == "grs_c" { s.cuts = [] }
+            return s
+        }
+        let plan = try planned(inputs)
+        XCTAssertEqual(plan.eligible.first { $0.video == "bch_b" }?.cuts, [CutRange(start: 141.6, end: 160)])
+        XCTAssertNil(plan.eligible.first { $0.video == "grs_c" }?.cuts)
+        let md = LineagePackage.markdown(plan)
+        XCTAssertTrue(md.contains("| bch_b | train | train | 0 | no | 18.4 |"), md)
+        XCTAssertTrue(md.contains("| grs_c | train | train | 0 | no | — |"), md)
+    }
+
+    func testExportSessionsCarryTheCutRanges() throws {
+        var s = try session("bch_x", split: "train", videoPresent: true)
+        s.cuts = [CutRange(start: 1, end: 2)]
+        let val = try session("v", split: "val", marked: true, videoPresent: true)
+        let out = try LineagePackage.exportSessions([s, val], plan: plan(eligible: [("bch_x", "train"), ("v", "val")], withheld: ["w"]))
+        XCTAssertEqual(out[0].cuts, [CutRange(start: 1, end: 2)])
+        XCTAssertNil(out[1].cuts)
+    }
+
+    func testPreflightFailsOnAFrameInsideItsRecordingsCutRange() throws {
+        let dir = try writeCleanPackage()
+        // t's frames are at 1000 and 2000 µs. A cut over 1.5–2.5 ms covers the second.
+        let covering = plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"], cuts: ["t": [CutRange(start: 0.0015, end: 0.0025)]])
+        let failed = try preflight(dir, plan: covering)
+        XCTAssertEqual(self.failed(failed), ["no-frame-in-cut-range"])
+        XCTAssertTrue(failed.checks.first { $0.name == "no-frame-in-cut-range" }?.detail.contains("frames/t/2000.jpg") == true)
+        // A cut elsewhere in t, and one in v (whose only frame is at 1000 µs, outside it): clean.
+        let clear = plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"],
+                         cuts: ["t": [CutRange(start: 0.003, end: 0.004)], "v": [CutRange(start: 0.002, end: 0.003)]])
+        let passed = try preflight(dir, plan: clear)
+        XCTAssertTrue(passed.passed, self.failed(passed).joined(separator: ","))
+        XCTAssertTrue(passed.checks.first { $0.name == "no-frame-in-cut-range" }?.detail.contains("2 recording(s)") == true)
+        // A frame file in the folder that no window names is held to the cut as well.
+        try write("t-frame-3", to: "\(dir.lastPathComponent)/frames/t/3500.jpg")
+        XCTAssertTrue(self.failed(try preflight(dir, plan: clear)).contains("no-frame-in-cut-range"))
     }
 
     private func failed(_ p: LineagePackage.Preflight) -> Set<String> { Set(p.checks.filter { !$0.passed }.map(\.name)) }
@@ -161,6 +206,33 @@ final class LineagePackageTests: XCTestCase {
         XCTAssertThrowsError(try LineagePackage.plan(manifest: manifest, audit: empty, withheldClosure: ["bch_l", "bch_n"], generator: "test", now: F.day)) { error in
             XCTAssertEqual(error as? LineagePackage.PlanError, .sharedIdentity(eligible: "bch_b", withheld: "bch_a_v2", identity: "ven:beach-shared"))
         }
+    }
+
+    /// The 2026-10-25 failure (D-036): a train card registered with the bytes of a lineage-holdout
+    /// recording's video, its own video a different encode. Stored identities differ, contents differ;
+    /// the train card's stored fingerprint is the holdout's content.
+    func testPlanRefusesATrainCardRegisteredWithAWithheldRecordingsVideo() throws {
+        let clips = [F.clip("grs_t", environment: "Grass", split: "train", videos: [F.source("grs_t", uploader: "", fingerprint: "file:CUT")]),
+                     F.clip("grs_h", environment: "Grass", split: nil, videos: [F.source("grs_h", uploader: "", fingerprint: "file:ORIGINAL")])]
+        var inputs = F.inputs(validation: PipelineTuner.ValidationSet(tune: ["bch_a"], holdout: ["bch_a_v2"], lineageHoldout: ["grs_h"]),
+                              extraClips: clips, extraSessions: [F.session("grs_t", split: "train"), F.session("grs_h", split: "val")])
+        inputs.content = { ["grs_h": .read("file:CUT"), "grs_t": .read("file:REENCODED")][$0.name] ?? .absent }
+        let manifest = try DatasetSplitManifest.build(inputs)
+        // The audit names it a hard leak, and the plan refuses on that alone…
+        XCTAssertThrowsError(try LineagePackage.plan(manifest: manifest, audit: DatasetAudit.run(manifest: manifest, now: F.day),
+                                                     withheldClosure: ["grs_h", "bch_a_v2"], generator: "test", now: F.day)) { error in
+            XCTAssertEqual(error as? LineagePackage.PlanError, .hardLeak(1))
+        }
+        // …and with no audit finding to lean on, the plan's own identity check still refuses it.
+        let empty = DatasetAudit(createdAt: F.day, manifestHashes: manifest.hashes, findings: [])
+        XCTAssertThrowsError(try LineagePackage.plan(manifest: manifest, audit: empty, withheldClosure: ["grs_h", "bch_a_v2"], generator: "test", now: F.day)) { error in
+            XCTAssertEqual(error as? LineagePackage.PlanError, .sharedIdentity(eligible: "grs_t", withheld: "grs_h", identity: "fp:file:CUT"))
+        }
+        // A manifest written before content fingerprints (or with the footage away) cannot see it: the audit says what was not compared.
+        inputs.content = { _ in .absent }
+        let blind = try DatasetSplitManifest.build(inputs)
+        XCTAssertNoThrow(try LineagePackage.plan(manifest: blind, audit: empty, withheldClosure: ["grs_h", "bch_a_v2"], generator: "test", now: F.day))
+        XCTAssertTrue(DatasetAudit.run(manifest: blind, now: F.day).findings.contains { $0.code == "CONTENT-ABSENT" && $0.videos.contains("grs_h") })
     }
 
     func testPlanNeedsBothSides() throws {
@@ -415,6 +487,18 @@ final class LineagePackageTests: XCTestCase {
         XCTAssertTrue(q.checks.first { $0.name == "sources-not-protected" }!.detail.contains("t: no source fingerprint"))
     }
 
+    func testPreflightFailsWhenAPackagedCardWasRegisteredWithAWithheldRecordingsVideo() throws {
+        let dir = try writeCleanPackage()
+        var thePlan = plan(eligible: [("t", "train"), ("v", "val")], withheld: ["w"])
+        // t's own video is a different encode (file:T), but its card was registered with w's video.
+        thePlan.eligible[0].identities = ["fp:file:T", "fp:file:W"]
+        let p = try preflight(dir, plan: thePlan)
+        XCTAssertEqual(failed(p), ["sources-not-protected"])
+        XCTAssertTrue(p.checks.first { $0.name == "sources-not-protected" }!.detail.contains("t: its card was registered with a withheld recording's video"))
+        thePlan.eligible[0].identities = ["fp:file:T", "fp:youtube:T", "src:IMG_1"]
+        XCTAssertTrue(try preflight(dir, plan: thePlan).passed)
+    }
+
     func testSourceFingerprintsRecogniseACopyOfProtectedFootageByContent() throws {
         // Real bytes, not names: w's cut file copied to another path under an eligible session.
         try write(String(repeating: "protected footage bytes ", count: 5000), to: "footage/w_cut.mp4")
@@ -491,6 +575,41 @@ final class LineagePackageTests: XCTestCase {
         XCTAssertThrowsError(try LineagePackage.sourceFingerprints(of: [t])) {
             XCTAssertEqual($0 as? LineagePackage.SourceError, .sourceUnreadable(clip: "t", path: root.appendingPathComponent("footage/t.mp4").path))
         }
+    }
+
+    func testAVideoBehindAnUnreachableLinkIsUnreadableNotAbsent() throws {
+        // A footage link whose share is down: skipping it would drop the content identity while a stored `file:`
+        // fingerprint still satisfied the guard, so a copy of the withheld footage could not be recognised.
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("footage"), withIntermediateDirectories: true)
+        let link = root.appendingPathComponent("footage/w.mp4").path
+        try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: "/Volumes/unreachable-share/w.mp4")
+        let stored = ClipSource(kind: .file, origin: "/gone/IMG_0001.MOV", start: 0, length: 300, license: "own", title: "w", uploader: "",
+                                clipFile: link, fetchedAt: F.day, videoId: "w", frames: nil,
+                                fingerprint: "file:registered-before-a-re-encode", sourceId: nil, sessionId: nil, venueId: nil)
+        let w = VideoSession(name: "w", sourcePath: link, split: "val", addedAt: F.day, frames: [])
+        XCTAssertThrowsError(try LineagePackage.protectedSourceFingerprints(sessions: [w], withheld: ["w"], sources: ["w": stored])) {
+            XCTAssertEqual($0 as? LineagePackage.SourceError, .sourceUnreadable(clip: "w", path: link))
+        }
+        let t = VideoSession(name: "t", sourcePath: link, split: "train", addedAt: F.day, frames: [])
+        XCTAssertThrowsError(try LineagePackage.sourceFingerprints(of: [t])) {
+            XCTAssertEqual($0 as? LineagePackage.SourceError, .sourceUnreadable(clip: "t", path: link))
+        }
+        // Nothing at the path at all is still "not here": the stored identity stands, as before.
+        let absent = VideoSession(name: "w", sourcePath: "/gone/w.mp4", split: "val", addedAt: F.day, frames: [])
+        var elsewhere = stored
+        elsewhere.clipFile = "/gone/w_cut.mp4"
+        XCTAssertEqual(try LineagePackage.protectedSourceFingerprints(sessions: [absent], withheld: ["w"], sources: ["w": elsewhere]),
+                       ["file:registered-before-a-re-encode"])
+    }
+
+    func testAFileThatCantBeReadHasNoFingerprint() throws {
+        try write(String(repeating: "footage ", count: 2000), to: "footage/locked.mp4")
+        let path = root.appendingPathComponent("footage/locked.mp4").path
+        XCTAssertNotNil(ProjectsModel.readFileFingerprint(atPath: path))
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: path) }
+        XCTAssertNil(ProjectsModel.readFileFingerprint(atPath: path))
+        XCTAssertNil(ProjectsModel.readFileFingerprint(atPath: root.appendingPathComponent("footage").path), "a folder is not a file")
     }
 
     func testProtectedFramesCoverRecordsOrphansAndParkedFilesButNotSiblings() throws {

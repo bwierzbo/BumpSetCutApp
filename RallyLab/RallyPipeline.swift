@@ -45,7 +45,7 @@ struct StandardPipeline: RallyPipeline {
         processor.config = cfg
         processor.collectFrameEvidence = true
         do {
-            _ = try await processor.processVideo(url, videoId: UUID())
+            _ = try await processor.analyzeVideo(url)
         } catch ProcessingError.noRalliesDetected {
             // Zero predicted segments is a legitimate outcome; evidence was still captured.
         }

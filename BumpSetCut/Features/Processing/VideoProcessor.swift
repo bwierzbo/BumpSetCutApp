@@ -236,6 +236,11 @@ final class VideoProcessor: @unchecked Sendable {
     @ObservationIgnored private var heatWindows: HeatmapWindows?
     @ObservationIgnored private var heatLastTime: Double?
 
+    /// The multi-frame model the last run actually loaded, nil when it ran without one (no model configured, or the
+    /// configured one failed to load and the run fell back to YOLO) — so a caller that names the detector its evidence
+    /// came from can check it did.
+    var loadedHeatmapModel: URL? { heatDetector == nil ? nil : heatModelURL }
+
     /// Load the configured multi-frame model, if it changed.
     private func prepareHeatmap() {
         defer { heatWindows = heatDetector.map { HeatmapWindows(detector: $0, hop: config.heatmapHop) } }
@@ -304,6 +309,14 @@ final class VideoProcessor: @unchecked Sendable {
     func processVideo(_ url: URL, videoId: UUID) async throws -> ProcessingMetadata {
         // Delegate to metadata processing method
         return try await processVideoMetadata(url, videoId: videoId)
+    }
+
+    /// Run the pipeline on a video and return what it found, keeping nothing on disk: no metadata
+    /// file and no resume checkpoint. For analysis runs on videos that are not in the library
+    /// (RallyLab's scoring, tuning, export and labeling runs): a file saved under an ID nothing
+    /// remembers is never read again and never removed.
+    func analyzeVideo(_ url: URL) async throws -> ProcessingMetadata {
+        try await processVideoMetadata(url, videoId: UUID(), persist: false)
     }
 
     #if os(iOS)
@@ -475,7 +488,9 @@ final class VideoProcessor: @unchecked Sendable {
     #endif
 
     // MARK: - Metadata path (production mode with metadata generation)
-    func processVideoMetadata(_ url: URL, videoId: UUID) async throws -> ProcessingMetadata {
+    /// `persist: false` (analyzeVideo) leaves the metadata store unset for the run, so nothing below
+    /// reads or writes a checkpoint, looks for earlier manual segments, or saves the result.
+    func processVideoMetadata(_ url: URL, videoId: UUID, persist: Bool = true) async throws -> ProcessingMetadata {
         await MainActor.run {
             isProcessing = true; progress = 0; processedMetadata = nil
             backgroundGuard.begin {
@@ -495,7 +510,7 @@ final class VideoProcessor: @unchecked Sendable {
         eventLog.log(.processingStarted, detail: "videoId=\(videoId)")
 
         // Initialize metadata store on main actor
-        self.metadataStore = await MainActor.run { MetadataStore.shared }
+        self.metadataStore = persist ? await MainActor.run { MetadataStore.shared } : nil
 
         let asset = AVURLAsset(url: url)
 
@@ -1239,16 +1254,18 @@ final class VideoProcessor: @unchecked Sendable {
         )
 
         // Save metadata to store
-        do {
-            guard let metadataStore = metadataStore else {
-                throw ProcessingError.metadataStoreUnavailable
+        if persist {
+            do {
+                guard let metadataStore = metadataStore else {
+                    throw ProcessingError.metadataStoreUnavailable
+                }
+                try await metadataStore.saveMetadata(metadata)
+                print("✅ Successfully saved metadata for video \(videoId)")
+            } catch {
+                print("❌ Failed to save metadata: \(error)")
+                await MainActor.run { backgroundGuard.end() }
+                throw error // eventLog already embedded in metadata at this point
             }
-            try await metadataStore.saveMetadata(metadata)
-            print("✅ Successfully saved metadata for video \(videoId)")
-        } catch {
-            print("❌ Failed to save metadata: \(error)")
-            await MainActor.run { backgroundGuard.end() }
-            throw error // eventLog already embedded in metadata at this point
         }
 
         // The run finished — its resume checkpoint is obsolete.

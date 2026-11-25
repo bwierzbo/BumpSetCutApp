@@ -19,6 +19,10 @@ enum EvidenceReplayer {
         let range: Interval
         let raw: Interval
         let serve: ServeDetector.Serve?
+        /// The raw rallies the clip joined, before the merge, each clamped to `range`, in time order
+        /// (SegmentBuilder.BuiltSegment.parts): `raw` is their union. The rally-classifier baseline stores
+        /// these, since a short one's capped pre-roll can't be rebuilt from the union.
+        var parts: [Interval] = []
     }
 
     /// Runs the production decider + segment builder over recorded evidence.
@@ -88,7 +92,8 @@ enum EvidenceReplayer {
             let raw = Interval(start: CMTimeGetSeconds(seg.raw.start), end: CMTimeGetSeconds(CMTimeRangeGetEnd(seg.raw)))
             return (padded: Interval(start: CMTimeGetSeconds(seg.padded.start), end: CMTimeGetSeconds(CMTimeRangeGetEnd(seg.padded))),
                     raw: raw,
-                    serve: startedServes.first { $0.startsRally(raw) })
+                    serve: startedServes.first { $0.startsRally(raw) },
+                    parts: seg.parts.map { Interval(start: CMTimeGetSeconds($0.start), end: CMTimeGetSeconds(CMTimeRangeGetEnd($0))) })
         }
 
         // Per-segment rally-score verdict: drop rallies whose confidence is below
@@ -124,6 +129,6 @@ enum EvidenceReplayer {
                                                         arcProminence: cfg.aboveNetArcProminence)
             }
         }
-        return segs.map { Rally(range: $0.padded, raw: $0.raw, serve: $0.serve) }
+        return segs.map { Rally(range: $0.padded, raw: $0.raw, serve: $0.serve, parts: $0.parts) }
     }
 }

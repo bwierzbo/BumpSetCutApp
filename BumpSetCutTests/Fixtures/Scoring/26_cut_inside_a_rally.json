@@ -1,0 +1,122 @@
+{
+ "note": "A cut range strictly inside a surviving rally (D-030): the mark 10-30 and the matching prediction 10-30 are both split at the cut 18-22 into 10-18 and 22-30, each piece a rally and a prediction of its own, so both match with no boundary error. Export: the one padded clip keeps both pieces complete; its 4 s inside the cut are excludedSecondsDelivered.",
+ "duration": 120.0,
+ "truth": [
+  {
+   "start": 10.0,
+   "end": 30.0,
+   "kind": "rally",
+   "contact": 10.0
+  }
+ ],
+ "cuts": [
+  [
+   18.0,
+   22.0
+  ]
+ ],
+ "decided": [
+  [
+   10.0,
+   30.0
+  ]
+ ],
+ "raw": [
+  [
+   10.0,
+   30.0
+  ]
+ ],
+ "padded": [
+  [
+   8.0,
+   30.5
+  ]
+ ],
+ "fullyMarked": true,
+ "expected": {
+  "contract": "SCORING_CONTRACT v1",
+  "params": {
+   "iou": 0.5,
+   "tolerance": 1.0,
+   "complete": 0.98,
+   "detected": 0.5,
+   "split": 0.25,
+   "merged": 0.5
+  },
+  "rawBoundary": {
+   "rallies": 2,
+   "predictions": 2,
+   "unscoredPredictions": 0,
+   "tp": 2,
+   "fp": 0,
+   "fn": 0,
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "startMAE": 0.0,
+   "endMAE": 0.0,
+   "startMedianSigned": 0.0,
+   "endMedianSigned": 0.0,
+   "startWithinTolerance": 1.0,
+   "endWithinTolerance": 1.0,
+   "split": 0,
+   "merged": 0,
+   "excludedTimeDiagnostics": {
+    "predictionsEnteringExcludedTime": 0,
+    "excludedSecondsOverlapped": 0.0,
+    "partiallyMaskedPredictions": 0,
+    "predictionsWithDisconnectedPieces": 0
+   },
+   "matches": [
+    {
+     "truth": 0,
+     "prediction": 0,
+     "startError": 0.0,
+     "endError": 0.0
+    },
+    {
+     "truth": 1,
+     "prediction": 1,
+     "startError": 0.0,
+     "endError": 0.0
+    }
+   ]
+  },
+  "paddedExport": {
+   "rallies": 2,
+   "clips": 1,
+   "complete": 2,
+   "clipped": 0,
+   "missed": 0,
+   "completeRallyRecall": 1.0,
+   "mergedRallies": 2,
+   "rallySeconds": 16.0,
+   "exportSeconds": 22.5,
+   "excludedSecondsDelivered": 4.0,
+   "scorableDeadSecondsDelivered": 2.5,
+   "deadSeconds": 100.0,
+   "deadSecondsRetained": 2.5,
+   "deadTimeRetention": 0.025,
+   "falseClips": 0,
+   "fullyMarked": true,
+   "perRally": [
+    {
+     "retainedFraction": 1.0,
+     "contactInExport": true,
+     "deadBallInExport": true,
+     "status": "complete",
+     "inMergedExport": true
+    },
+    {
+     "retainedFraction": 1.0,
+     "contactInExport": true,
+     "deadBallInExport": true,
+     "status": "complete",
+     "inMergedExport": true
+    }
+   ],
+   "legacyCoveredMinusQuarterDead": 0.898438
+  }
+ }
+}

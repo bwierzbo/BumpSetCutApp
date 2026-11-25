@@ -89,15 +89,23 @@ final class NetLabelsModel {
         var stale: Bool
         /// This recording's label has a box but no corners (from before corners were marked): still to label.
         var boxOnly = false
+        /// The recording's cut ranges (not footage; D-030): the frame is taken outside them.
+        var cuts: [CutRange] = []
+        /// This recording's label is on a frame inside a cut range: not a label of footage, to label again.
+        var cutLabel = false
 
         func with(skip: NetLabels.Skip?) -> Item {
             var it = Item(video: video, clip: clip, camera: camera, url: url, fingerprint: fingerprint, skip: skip, labeled: labeled, stale: stale)
             it.boxOnly = boxOnly
+            it.cuts = cuts
+            it.cutLabel = cutLabel
             return it
         }
     }
 
-    private let projects: ProjectsModel?
+    /// The open project and its folder, as they are now; nil when none is open. The app reads
+    /// the ProjectsModel; a test hands in its own fixture and can switch it under the tab.
+    private let currentProject: () -> (project: Project, dir: URL)?
     private let footage: any NetLabelFootage
     /// Set with the project: records a proposal use before the model runs.
     private var recordProposal: NetProposalRecorder?
@@ -138,6 +146,21 @@ final class NetLabelsModel {
     private var loadTask: Task<Void, Never>?
     /// Counts decode requests; a decode publishes its frame only while it is the latest.
     private var decodeSerial = 0
+    /// The folder the listed recordings were read from; nil while nothing is listed (blocked, or no project).
+    private var inventoryRoot: URL?
+    /// Whether the tab is on screen (the view reports it): a request to show a recording is
+    /// applied only while it is, after the activation reload, which clears the selection.
+    private(set) var isActive = false
+    /// A recording another tab asked to show (the Queue's "Open in Net labels"), in the project it
+    /// named. Kept until this tab is active and lists that project — the activation reload resets
+    /// the selection, so selecting first would lose it — and dropped when the project changes
+    /// meanwhile. Applying it goes through `select`, so a withheld or skipped recording is named
+    /// and never opened, and one not in the project is reported.
+    struct Request: Equatable, Sendable {
+        let video: String
+        let root: URL
+    }
+    private(set) var pending: Request?
     /// Counts inventories (`reload`/`install`); a read-ahead keeps its frame only for the one it began in.
     private var inventory = 0
 
@@ -156,8 +179,13 @@ final class NetLabelsModel {
     /// The recordings whose frames are being read now.
     private(set) var prefetching: String?
 
-    init(projects: ProjectsModel, footage: any NetLabelFootage = RealNetLabelFootage(), prefetchAhead: Int = 8) {
-        self.projects = projects
+    convenience init(projects: ProjectsModel, footage: any NetLabelFootage = RealNetLabelFootage(), prefetchAhead: Int = 8) {
+        self.init(project: { projects.project.flatMap { p in projects.projectDir.map { (p, $0) } } }, footage: footage, prefetchAhead: prefetchAhead)
+    }
+
+    /// Over whatever `project` answers: the app's ProjectsModel, or a test's fixture.
+    init(project: @escaping () -> (project: Project, dir: URL)?, footage: any NetLabelFootage, prefetchAhead: Int = 8) {
+        currentProject = project
         self.footage = footage
         self.prefetchAhead = prefetchAhead
         reload()
@@ -168,7 +196,7 @@ final class NetLabelsModel {
          aiProposals: [String: NetAIProposal] = [:], aiStore: NetAIProposalStore? = nil, proposalFrames: [String: URL] = [:],
          exclusions: [String: NetExclusion] = [:], exclusionStore: NetExclusionStore? = nil,
          exposure: @escaping NetProposalRecorder) {
-        projects = nil
+        currentProject = { nil }
         self.footage = footage
         self.prefetchAhead = prefetchAhead
         recordProposal = exposure
@@ -188,8 +216,9 @@ final class NetLabelsModel {
     /// The frame on screen is the one `time` names and nothing is still decoding.
     var frameIsCurrent: Bool { !loading && frame != nil && frameTime == time }
     var canConfirm: Bool {
-        guard let item = selectedItem, item.skip == nil, frameIsCurrent, let quad, quad.isUsable else { return false }
-        return blocked == nil
+        guard let item = selectedItem, item.skip == nil, frameIsCurrent, let quad, quad.isUsable, let frameTime else { return false }
+        // A frame inside a cut range is not footage (D-030): never a label.
+        return blocked == nil && !item.cuts.contains(frameTime)
     }
     private var summary: String {
         "\(labeledCount) labeled · \(toLabelCount) to label" + (boxOnlyCount > 0 ? " (\(boxOnlyCount) box-only, corners to mark)" : "")
@@ -198,14 +227,12 @@ final class NetLabelsModel {
 
     private static func marked(_ item: Item, labels: [String: NetLabel]) -> Item {
         var it = item
-        if let label = labels[item.video] {
-            let mine = item.fingerprint != nil && label.fingerprint == item.fingerprint
-            it.labeled = mine && label.corners != nil
-            it.boxOnly = mine && label.corners == nil
-            it.stale = !mine
-        } else {
-            it.labeled = false; it.stale = false; it.boxOnly = false
-        }
+        // The one rule (NetLabels.status): a label on a frame inside a cut range is not a label of footage (D-030).
+        let status = NetLabels.status(of: labels[item.video], fingerprint: item.fingerprint, cuts: item.cuts)
+        it.labeled = status.labeled
+        it.boxOnly = status.boxOnly
+        it.stale = status.stale
+        it.cutLabel = status.cutLabel
         return it
     }
 
@@ -215,7 +242,9 @@ final class NetLabelsModel {
     /// a labels file that can't be read, blocks the tab.
     func reload() {
         clear()
-        guard let projects, let project = projects.project, let dir = projects.projectDir else { status = "Open a project."; return }
+        guard let current = currentProject() else { pending = nil; status = "Open a project."; return }
+        let project = current.project, dir = current.dir
+        defer { settle(in: dir) }
         let inventory: NetInventory
         do { inventory = try NetInventory.load(projectDir: dir) } catch {
             blocked = "Nothing can be labeled: \(error.localizedDescription)"; status = blocked!; return
@@ -236,18 +265,67 @@ final class NetLabelsModel {
         do { exclusions = try exclusionStore.load() } catch {
             blocked = "\(exclusionStore.url.lastPathComponent) unreadable: \(error.localizedDescription)"; status = blocked!; return
         }
+        // Every session read strictly: one that won't decode is unknown cut ranges, not none (D-030).
+        let sessions: [VideoSession]
+        do { sessions = try DatasetStore(root: dir).loadSessionsStrict() } catch {
+            blocked = "Nothing can be labeled: the cut ranges can't be known — \(error.localizedDescription)"; status = blocked!; return
+        }
+        let cuts = Dictionary(uniqueKeysWithValues: sessions.map { ($0.name, $0.cutRanges) })
         let items = project.clips.flatMap { clip in
             clip.videos.map { video in
                 let id = clip.videoId(of: video)
                 let fingerprint = inventory.fingerprint[id] ?? inventory.fingerprint[DatasetStore.safeName(id)]
-                return Item(video: id, clip: clip.id, camera: clip.camera, url: URL(fileURLWithPath: video.clipFile), fingerprint: fingerprint,
-                            skip: NetLabels.skip(video: id, camera: clip.camera, withheld: inventory.withheld, fingerprint: fingerprint),
-                            labeled: false, stale: false)
+                var item = Item(video: id, clip: clip.id, camera: clip.camera, url: URL(fileURLWithPath: video.clipFile), fingerprint: fingerprint,
+                                skip: NetLabels.skip(video: id, camera: clip.camera, withheld: inventory.withheld, fingerprint: fingerprint, cuts: cuts[id]),
+                                labeled: false, stale: false)
+                item.cuts = cuts[id] ?? []   // none only when skipped as noSession
+                return item
             }
         }
         install(items: items, labels: labels, store: store, aiProposals: aiProposals, aiStore: aiStore,
                 proposalFrames: NetAIPilot.proposalFrames(projectDir: dir, proposals: aiProposals),
                 exclusions: exclusions, exclusionStore: exclusionStore)
+        inventoryRoot = dir
+    }
+
+    /// The view reports the tab coming on or off screen. Coming on, the project is read again
+    /// (labels and proposals may have changed on disk) and a pending request is applied to it.
+    func activate(_ active: Bool) {
+        isActive = active
+        if active { reload() }
+    }
+
+    /// Show `video` of the project at `root` once this tab is active and lists that project — at
+    /// once when it already does; otherwise after the activation reload (`activate`). Nothing is
+    /// selected before then: the reload would clear it.
+    func open(_ video: String, in root: URL?) {
+        guard let root else { status = "Open a project."; return }
+        pending = Request(video: video, root: root.standardizedFileURL)
+        guard isActive else { return }
+        if inventoryRoot == pending?.root { settle(in: root) } else { reload() }
+    }
+
+    /// Apply or drop the pending request against the project just read from `dir`: a request for
+    /// another project is dropped and said so; one for this project waits while the tab is off
+    /// screen and is otherwise consumed — selected when the recording is listed (a withheld or
+    /// skipped one is named, not opened, as `select` does), reported when it isn't, left to the
+    /// block's message when the tab is blocked.
+    private func settle(in dir: URL) {
+        guard let request = pending else { return }
+        let root = dir.standardizedFileURL
+        guard request.root == root else {
+            pending = nil
+            status = "\(request.video) was asked for in \(request.root.lastPathComponent), not \(root.lastPathComponent): not opened."
+            return
+        }
+        guard isActive else { return }
+        pending = nil
+        guard blocked == nil else { return }
+        guard items.contains(where: { $0.video == request.video }) else {
+            status = "\(request.video) isn't a recording of \(root.lastPathComponent): not opened."
+            return
+        }
+        select(request.video)
     }
 
     /// Nothing on screen, nothing in flight that can still land: a load or read-ahead started
@@ -258,6 +336,7 @@ final class NetLabelsModel {
         inventory += 1
         prefetched = [:]; prefetching = nil
         decodeSerial += 1
+        inventoryRoot = nil
         items = []; labels = [:]; aiProposals = [:]; aiStore = nil; proposalFrames = [:]; exclusions = [:]; exclusionStore = nil; selected = nil; frame = nil; frameTime = nil; quad = nil; proposal = nil; shownAI = nil; labelSource = nil; blocked = nil
     }
 
@@ -286,10 +365,12 @@ final class NetLabelsModel {
     /// The vision model's proposal to offer on this recording: only one with no label of its
     /// own (never over a person's label, box-only included), not skipped, made on this file and
     /// not rejected. A manual-review answer is offered too: it names why the net wasn't placed.
+    /// A proposal on a frame inside a cut range (made before the cut) is not footage's (D-030):
+    /// not offered, so the frame comes from outside the cuts as for an unproposed recording.
     func offeredAI(_ item: Item) -> NetAIProposal? {
-        guard item.skip == nil, !item.labeled, !item.boxOnly, let fingerprint = item.fingerprint,
-              let ai = aiProposals[item.video], ai.fingerprint == fingerprint, ai.rejectedAt == nil else { return nil }
-        return ai
+        let ai = aiProposals[item.video]
+        let status = NetLabels.LabelStatus(labeled: item.labeled, boxOnly: item.boxOnly, stale: item.stale, cutLabel: item.cutLabel)
+        return NetLabels.isOffered(ai, skip: item.skip, fingerprint: item.fingerprint, status: status, cuts: item.cuts) ? ai : nil
     }
 
     /// The offered proposal and where its own frame lies on this Mac, if it does.
@@ -342,7 +423,8 @@ final class NetLabelsModel {
             if let ai = offeredAI(item) { t = ai.time } else {   // the frame the vision model saw
                 let marks = await footage.rallyMarks(for: item.url)
                 guard !Task.isCancelled else { return }
-                t = NetLabels.frameTime(duration: dur, rallies: marks)
+                guard let outside = NetLabels.frameTime(duration: dur, rallies: marks, cuts: item.cuts) else { continue }   // cut whole: nothing to label
+                t = outside
             }
             guard let frame = try? await footage.frame(of: item.url, at: t) else { continue }
             // A frame that took seconds to read is kept even if the read-ahead was paused
@@ -426,7 +508,10 @@ final class NetLabelsModel {
         } else {
             let marks = await footage.rallyMarks(for: item.url)
             guard !Task.isCancelled, selected == item.video else { return }
-            time = NetLabels.frameTime(duration: duration, rallies: marks)
+            guard let outside = NetLabels.frameTime(duration: duration, rallies: marks, cuts: item.cuts) else {
+                status = "\(item.video): every frame lies inside a cut range (not footage) — nothing to label."; return
+            }
+            time = outside
         }
         await decode(item, at: time)
         guard !Task.isCancelled, selected == item.video else { return }
@@ -437,6 +522,7 @@ final class NetLabelsModel {
         } else if let frame {
             status = present(on: frame, for: item)
             if item.stale { status += " (The label on file is another recording's and is replaced when you confirm.)" }
+            if item.cutLabel { status += " (The label on file is on a frame inside a cut range — not footage; confirm the corners on this frame to replace it.)" }
         }
     }
 
@@ -483,6 +569,19 @@ final class NetLabelsModel {
     private func propose(on frame: CGImage, for item: Item) -> String {
         let byHand = "drag a box around the net, then drag its corners onto the net's corners."
         guard footage.modelAvailable else { return "\(item.video): no net model — \(byHand)" }
+        // The list's skips are as of its last reload, and the reservations may have changed since (a recording
+        // listed, or made an alias by a provenance change): asked again as they are now, before the ledger and
+        // the model.
+        if let root = inventoryRoot {
+            do {
+                let closures = try ScoringExposure.Closures.current(in: root)
+                if let why = closures.standing(of: item.video) ?? closures.standing(of: DatasetStore.safeName(item.video)) {
+                    return "⛔ \(item.video) is \(why) — the model does not run over it. Reload the list."
+                }
+            } catch {
+                return "\(item.video): the model's proposal was not made because the reservations can't be read (\(error.localizedDescription)) — \(byHand)"
+            }
+        }
         guard let recordProposal else { return "\(item.video): no exposure ledger for this project — \(byHand)" }
         do { try recordProposal(item.video, time) } catch {
             return "\(item.video): the model's proposal was not made because its use could not be recorded (\(error.localizedDescription)) — \(byHand)"
@@ -522,9 +621,23 @@ final class NetLabelsModel {
     }
 
     /// Another frame of the same recording; the box stays where it is.
+    /// A step that lands inside a cut range (not footage; D-030) goes on to the next frame
+    /// outside the cuts in that direction, and stays put when there is none.
     func step(seconds: Double) {
         guard let item = selectedItem, item.skip == nil, duration > 0 else { return }
-        time = min(max(0, time + seconds), max(0, duration - 0.1))
+        let last = max(0, duration - 0.1)
+        var target = min(max(0, time + seconds), last)
+        if item.cuts.contains(target) {
+            let pieces = item.cuts.outside(0, last)
+            if seconds >= 0, let next = pieces.first(where: { $0.start > target }) { target = next.start }
+            else if seconds < 0, let previous = pieces.last(where: { $0.end <= target }) { target = max(previous.start, previous.end - 0.1) }
+            else {
+                status = pieces.isEmpty ? "\(item.video): every frame lies inside a cut range (not footage) — nothing to label."
+                    : "\(item.video): no frame outside the cut ranges \(seconds >= 0 ? "after" : "before") this one."
+                return
+            }
+        }
+        time = target
         loadTask?.cancel()
         prefetchTask?.cancel()   // this frame first
         let t = time

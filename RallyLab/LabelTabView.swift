@@ -28,6 +28,20 @@ struct LabelTabView: View {
     @State private var paths: BallPathBuilder
     /// The task on screen, if any.
     @State private var active: LabelQueue.Job?
+    /// The withheld closure of an opening as last read (the one the sync publishes, LabelingSync.withheldClosure);
+    /// `names` nil when it could not be read. Until it is read for the project open now, no recording is known not
+    /// to be withheld.
+    @State private var withheld: (opening: ProjectsModel.Opening, names: Set<String>?)?
+
+    /// Read when the project opens and each time the tab comes to the front — for the queue shown. A track task
+    /// never opens under that read: the closure is read again for the job at hand first (`checkedTrack`).
+    private struct WithheldRead: Equatable {
+        let opening: ProjectsModel.Opening?
+        let front: Bool
+    }
+    /// The track job the closure was read again for, under the opening it was read in: only that job opens, and
+    /// only under the closure as it was then. Any other job, or the same one opened again, reads it again.
+    @State private var checkedTrack: (job: LabelQueue.Job, opening: ProjectsModel.Opening)?
 
     enum Page: String { case next, review, coverage, plan }
 
@@ -40,8 +54,8 @@ struct LabelTabView: View {
         self.phone = phone
         self.isActive = isActive
         _plan = State(initialValue: TrainingPlanModel(library: library))
-        _review = State(initialValue: ProjectReviewStore(sampler: projects.sampler, tracker: tracker, sync: phone))
-        _paths = State(initialValue: BallPathBuilder(sampler: projects.sampler))
+        _review = State(initialValue: ProjectReviewStore(sampler: projects.sampler, tracker: tracker, sync: phone, projects: projects))
+        _paths = State(initialValue: BallPathBuilder(sampler: projects.sampler, projects: projects))
     }
 
     private var sampler: SamplerModel { projects.sampler }
@@ -56,6 +70,20 @@ struct LabelTabView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // A job closed or another opened: the next track job reads the closure again.
+        .onChange(of: active) { _, _ in checkedTrack = nil }
+        .task(id: WithheldRead(opening: projects.opening, front: isActive)) {
+            guard isActive, let opening = projects.opening else { return }
+            withheld = (opening, await LabelingSync.withheldClosure(root: opening.root))
+        }
+    }
+
+    /// What the project's withheld closure leaves open for a recording (D-036 §5C/§5E): marking by hand goes on for
+    /// a withheld one here, but it is never a track task — the detector proposes every frame of one. A closure not
+    /// read yet, or unreadable, is not known: no recording gets a track task then.
+    private func access(of session: VideoSession) -> LabelAccess {
+        guard let withheld, withheld.opening == projects.opening, let names = withheld.names else { return LabelAccess(withheld: nil, byHand: true) }
+        return LabelAccess(withheld: names.contains(session.name), byHand: true)
     }
 
     private var pages: some View {
@@ -72,16 +100,18 @@ struct LabelTabView: View {
             switch page {
             case .next:
                 let videos = queueVideos
-                LabelHomeView(sampler: sampler, round: plan.currentRound, videos: videos,
+                LabelHomeView(sampler: sampler, projects: projects, round: plan.currentRound, videos: videos,
                               jobs: LabelQueue.jobs(videos, round: plan.currentRound), paths: paths, isActive: isActive) { active = $0 }
             case .review:
                 NavigationStack { ReviewHomeView(store: review, progress: review.progress) }
             case .coverage:
-                ProjectCoverageView(projects: projects)
+                ProjectCoverageView(projects: projects, open: { active = $0 },
+                                    putBack: { name in Task { await phone.setBacklog(session: name, reason: nil) } },
+                                    check: { claim, accept in await phone.checkClaim(claim, accept: accept) })
             case .plan:
                 ProjectPlanView(projects: projects, library: library, phone: phone) { session in
                     active = jobs.first { $0.video == session.name }
-                        ?? LabelQueue.Video(session: session).nextRally.map { .track(session.name, $0) }
+                        ?? LabelQueue.Video.nextRally(in: session).map { .track(session.name, $0) }
                 }
             }
         }
@@ -91,11 +121,33 @@ struct LabelTabView: View {
     private func job(_ job: LabelQueue.Job, _ session: VideoSession) -> some View {
         switch job {
         case .track(_, let rally):
-            LabelTrackTask(session: session, rally: rally, tracker: tracker, marker: marker, isActive: isActive,
-                           onClose: { active = nil }, onDone: next)
+            // Wherever the job came from (the queue never offers it; Coverage and Plan open one directly), and
+            // whatever the closure was when the queue was drawn: it is read again before this job opens.
+            if checkedTrack?.job != job || checkedTrack?.opening != projects.opening {
+                ProgressView("Checking the project's withheld recordings…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .task {
+                        guard let opening = projects.opening else { return }
+                        withheld = (opening, await LabelingSync.withheldClosure(root: opening.root))
+                        checkedTrack = (job, opening)
+                    }
+            } else if let why = LabelQueue.refusal(of: job, access: access(of: session)) {
+                VStack(spacing: 0) {
+                    LabelTaskHeader(title: "No track task", subtitle: session.name, onClose: { active = nil }) { EmptyView() }
+                    Divider()
+                    ContentUnavailableView("Not tracked from here", systemImage: "hand.raised", description: Text(why))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            } else {
+                LabelTrackTask(session: session, rally: rally, tracker: tracker, marker: marker, isActive: isActive,
+                               onClose: { active = nil }, onDone: next)
+            }
         case .review:
-            LiveTagView(session: session, marker: marker, review: review, paths: paths, isActive: isActive,
-                        onClose: { active = nil }, onDone: next)
+            LiveTagView(session: session, marker: marker, review: review, paths: paths, projects: projects, isActive: isActive,
+                        onClose: { active = nil }, onDone: next,
+                        // Set aside on the server first; only then on to the next task (which can no longer be this
+                        // recording's). A failure stays on screen in the sync status and the pass stays open.
+                        onSkip: { reason in Task { if await phone.setBacklog(session: session.name, reason: reason) { next() } } })
         }
     }
 
@@ -105,7 +157,7 @@ struct LabelTabView: View {
         active = jobs.first { $0 != finished }
     }
 
-    private var queueVideos: [LabelQueue.Video] { sampler.sessions.map(LabelQueue.Video.init(session:)) }
+    private var queueVideos: [LabelQueue.Video] { sampler.sessions.map { LabelQueue.Video(session: $0, access: access(of: $0)) } }
 
     private var jobs: [LabelQueue.Job] { LabelQueue.jobs(queueVideos, round: plan.currentRound) }
 }
@@ -113,21 +165,41 @@ struct LabelTabView: View {
 extension LabelQueue.Video {
     /// A Mac video: rallies marked in its rallylabels file and found by the
     /// Sampler (less the ones you said aren't rallies); a rally you started
-    /// tracking and didn't finish comes first.
+    /// tracking and didn't finish comes first. None touching a cut range is
+    /// a task (the pre-tracker's and the phone's rule; D-030) — the marks
+    /// and tracks themselves stay as they are. `access`: what the project's
+    /// withheld closure leaves open for it (the queue offers no track job
+    /// otherwise).
     @MainActor
-    init(session s: VideoSession) {
-        let tracks = s.tracks ?? []
+    init(session s: VideoSession, access: LabelAccess) {
         let (marked, found) = TrackLabelModel.markedAndFound(s)
-        let unfinished = tracks.filter(\.isOpen).map(\.bounds)
-        let open = TrackLabelModel.untracked(marked + found, tracks: tracks)
-        self.init(plan: PlanVideo(session: s), nextRally: (unfinished + open).first, found: found.count,
-                  marked: marked.count, complete: s.ralliesMarked ?? false)
+        self.init(plan: PlanVideo(session: s), nextRally: Self.nextRally(in: s, marked: marked, found: found), found: found.count,
+                  marked: marked.count, complete: s.ralliesMarked ?? false, backlog: s.backlogAt != nil, access: access)
+    }
+
+    /// The rally of a Mac video to track next, if any.
+    @MainActor
+    static func nextRally(in s: VideoSession) -> LabelRally? {
+        let (marked, found) = TrackLabelModel.markedAndFound(s)
+        return nextRally(in: s, marked: marked, found: found)
+    }
+
+    @MainActor
+    private static func nextRally(in s: VideoSession, marked: [LabelRally], found: [LabelRally]) -> LabelRally? {
+        let tracks = s.tracks ?? []
+        let cuts = s.cutRanges
+        let unfinished = tracks.filter(\.isOpen).map(\.bounds).outsideCuts(cuts)
+        let open = TrackLabelModel.untracked(marked + found, tracks: tracks).outsideCuts(cuts)
+        return (unfinished + open).first
     }
 }
 
-/// Next: marking progress, the round, today, and what to do — the first task big.
+/// Next: marking progress, the round, today, and what to do — the first task big; then the finished
+/// recordings' footage types, each a click from the footage-type step (a finished recording has no marking
+/// job any more, so the step is reached from here, not the queue; D-032).
 private struct LabelHomeView: View {
     let sampler: SamplerModel
+    let projects: ProjectsModel
     let round: TrainingPlan.Round?
     let videos: [LabelQueue.Video]
     let jobs: [LabelQueue.Job]
@@ -135,12 +207,28 @@ private struct LabelHomeView: View {
     let isActive: Bool
     let open: (LabelQueue.Job) -> Void
 
+    /// The type on file per finished recording, read off the main actor; nil until read. A record that can't be
+    /// read shows as such (the step refuses to write over it).
+    @State private var types: [String: String]?
+    /// The footage-type step on screen, under the opening it was opened in.
+    @State private var footageType: FootageTypeTarget?
+
+    private struct FootageTypeTarget: Identifiable {
+        let id = UUID()
+        let recording: FootageTypeConfirmation.Recording
+        let opening: ProjectsModel.Opening
+    }
+
     var body: some View {
         let progress = PlanProgress(videos: videos.map(\.plan), round: round)
         // How long a video runs: sessions don't keep it, but the Sampler's
         // random frames reach nearly to the end, so the last one's time is close.
         let reach = Dictionary(sampler.sessions.map { ($0.name, $0.frames.map(\.time).max()) }) { a, _ in a }
-        let marking = MarkingProgress(videos: videos) { reach[$0.plan.name] ?? nil }
+        // Less the video's cut ranges: not footage, nothing to mark there (D-030).
+        let cuts = Dictionary(sampler.sessions.map { ($0.name, $0.cutRanges) }) { a, _ in a }
+        let marking = MarkingProgress(videos: videos) { v in
+            (reach[v.plan.name] ?? nil).map { $0 - (cuts[v.plan.name] ?? []).seconds(within: $0) }
+        }
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 MarkingProgressView(progress: marking)
@@ -160,12 +248,20 @@ private struct LabelHomeView: View {
                         Button { open(job) } label: { card(job, big: false) }.buttonStyle(.plain)
                     }
                 }
+                footageTypes
             }
             .padding(24)
             .frame(maxWidth: 760)
             .frame(maxWidth: .infinity)
         }
         .background(.background.secondary)
+        .task(id: projects.opening) { await readTypes() }
+        .sheet(item: $footageType) { target in
+            FootageTypeSheet(recording: target.recording, opening: target.opening, projects: projects, duration: nil, afterPass: false) {
+                footageType = nil
+                Task { await readTypes() }
+            }
+        }
         .onAppear {
             // The ball's path for the next videos to mark, so snapping is ready when you open them.
             let upcoming = jobs.compactMap { job -> VideoSession? in
@@ -174,6 +270,59 @@ private struct LabelHomeView: View {
             }
             paths.ensure(Array(upcoming.prefix(4)))
         }
+    }
+
+    /// The finished recordings and what each is on file — continuous, edited, unknown — with the step a click away.
+    @ViewBuilder
+    private var footageTypes: some View {
+        let finished = sampler.sessions.filter { $0.ralliesMarked ?? false }.sorted { $0.name < $1.name }
+        if !finished.isEmpty {
+            Text("Footage type").font(.headline).padding(.top, 4)
+            Text("What each finished recording is — a separate fact from its rallies being marked. Unknown until you say.")
+                .font(.callout).foregroundStyle(.secondary)
+            VStack(spacing: 0) {
+                ForEach(finished, id: \.name) { session in
+                    HStack(spacing: 12) {
+                        Text(session.name).font(.callout.monospacedDigit())
+                        Spacer()
+                        Text(types.map { $0[session.name] ?? "not yet reviewed" } ?? "…").font(.callout).foregroundStyle(.secondary)
+                        Button("Footage type…") { show(session) }.controlSize(.small)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 8)
+                    Divider()
+                }
+            }
+            .background(.background, in: RoundedRectangle(cornerRadius: 16))
+        }
+    }
+
+    private func show(_ session: VideoSession) {
+        guard let opening = projects.opening else { return }
+        footageType = FootageTypeTarget(recording: FootageTypeConfirmation.Recording(session), opening: opening)
+    }
+
+    /// The type on file per recording — file work, off the main actor. A record bound to another fingerprint than
+    /// the card's is another file's (the recording was replaced under the same id): shown as unknown, to confirm
+    /// again — the same rule as the step and the source index (FootageTypeConfirmation.anotherFile).
+    private func readTypes() async {
+        guard let root = projects.opening?.root else { types = nil; return }
+        let fingerprints = Dictionary(uniqueKeysWithValues: sampler.sessions.map { ($0.name, FootageTypeConfirmation.sourceFingerprint(of: $0.name, in: projects.project)) })
+        types = await Task.detached(priority: .utility) { () -> [String: String] in
+            guard let all = try? FootageProperties.Store(root: root).loadAll() else { return [:] }
+            var out: [String: String] = [:]
+            for (name, file) in all.records {
+                if FootageTypeConfirmation.anotherFile(file, sourceFingerprint: fingerprints[name] ?? nil) != nil {
+                    out[name] = "not yet reviewed — the record on file is another file's; confirm again"
+                } else {
+                    // Not yet reviewed, reviewed and found unknown, or the confirmed type — with who confirmed it.
+                    out[name] = RecordingTypeClaims.reviewed(kind: RecordingTypeClaims.Kind(rawValue: file.recordingType.rawValue),
+                                                             at: file.recordingTypeAt.flatMap(RecordingTypeClaims.parse))
+                        + (file.recordingTypeAt != nil ? (file.recordingTypeBy.map { " · \($0)" } ?? "") : "")
+                }
+            }
+            for name in all.unreadable.keys { out[name] = "⚠︎ record unreadable" }
+            return out
+        }.value
     }
 
     private func roundCard(_ progress: PlanProgress) -> some View {
@@ -213,7 +362,7 @@ private struct LabelHomeView: View {
         let (title, detail, icon): (String, String, String) = {
             switch job {
             case .review:
-                let found = session.map { LabelQueue.Video(session: $0).found } ?? 0
+                let found = videos.first { $0.plan.name == job.video }?.found ?? 0
                 return ("Mark the rallies", found > 0 ? "Watch at speed, one key per touch · \(found) found rallies confirm as you go"
                             : "Watch at speed, one key per touch", "checklist")
             case .track(_, let r):

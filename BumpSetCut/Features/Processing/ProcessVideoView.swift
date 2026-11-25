@@ -14,6 +14,10 @@ struct ProcessVideoView: View {
     @State private var hasAppeared = false
     @State private var showReprocessConfirm = false
     @State private var showTimelineEditor = false
+    @State private var showCalibration = false
+    /// Where this video's court and net calibration stands; nil until read.
+    @State private var calibrationStatus: CalibrationStatus?
+    @Environment(AuthenticationService.self) private var authService: AuthenticationService?
     @Environment(\.dismiss) private var dismiss
     @Environment(AppSettings.self) private var appSettings
 
@@ -57,6 +61,12 @@ struct ProcessVideoView: View {
                                 .opacity(hasAppeared ? 1 : 0)
                                 .offset(y: hasAppeared ? 0 : 20)
                                 .animation(.bscSpring.delay(0.3), value: hasAppeared)
+
+                            if viewModel.currentVideoMetadata != nil {
+                                courtNetRow
+                                    .opacity(hasAppeared ? 1 : 0)
+                                    .animation(.bscSpring.delay(0.35), value: hasAppeared)
+                            }
                         }
                     }
                     .padding(BSCSpacing.xl)
@@ -143,6 +153,13 @@ struct ProcessVideoView: View {
                 dismiss()
             }
         }
+        .fullScreenCover(isPresented: $showCalibration, onDismiss: { Task { await loadCalibrationStatus() } }) {
+            if let videoId = viewModel.currentVideoMetadata?.id {
+                CalibrationEditorView(videoId: videoId, videoURL: viewModel.videoURL,
+                                      reviewer: authService?.currentUser.map { "user:\($0.id)" } ?? "device")
+            }
+        }
+        .task(id: viewModel.currentVideoMetadata?.id) { await loadCalibrationStatus() }
         .fullScreenCover(isPresented: $viewModel.showCameraSetup, onDismiss: viewModel.cameraSetupDismissed) {
             CameraSetupPickerView(
                 initial: viewModel.initialCameraSetup,
@@ -228,6 +245,46 @@ private extension ProcessVideoView {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+}
+
+// MARK: - Court & Net
+private extension ProcessVideoView {
+    /// Opens the Court & Net editor. Optional: nothing about viewing or processing a video waits for it.
+    var courtNetRow: some View {
+        Button { showCalibration = true } label: {
+            HStack(spacing: BSCSpacing.md) {
+                Image(systemName: "sportscourt")
+                    .bscFont(size: 20)
+                    .foregroundColor(.bscPrimaryText)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
+                    Text("Court & Net")
+                        .bscFont(size: 16, weight: .semibold)
+                        .foregroundColor(.bscTextPrimary)
+                    Text(calibrationStatus?.title ?? "Mark the court and net on this video")
+                        .bscFont(size: 13)
+                        .foregroundColor(calibrationStatus == .needsReview ? .bscWarningText : .bscTextSecondary)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.forward")
+                    .bscFont(size: 13, weight: .semibold)
+                    .foregroundColor(.bscTextTertiary)
+                    .accessibilityHidden(true)
+            }
+            .padding(BSCSpacing.md)
+            .frame(maxWidth: .infinity, minHeight: BSCTouchTarget.standard)
+            .background(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous).fill(Color.bscSurfaceGlass))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(AccessibilityID.Process.courtNet)
+    }
+
+    func loadCalibrationStatus() async {
+        guard let videoId = viewModel.currentVideoMetadata?.id else { return }
+        calibrationStatus = await CourtNetCalibrationStore.app.status(videoId: videoId, url: viewModel.videoURL)
     }
 }
 
