@@ -26,6 +26,68 @@ extension VideoSession {
     }
 }
 
+/// Whether a footage file is here, for lists that are rebuilt on every redraw (the Track tab's videos, the
+/// coverage table). The footage may sit on a network share, where one file check is a round trip: a hundred
+/// and more per redraw froze the window on a slow link. A list asks here: the first answer for a path is
+/// checked — a batch in parallel — and later ones are the last answer, checked again in the background once
+/// it is `maxAge` old. Anything that is about to read a file, or that decides what may be used, asks the
+/// file system itself (`VideoSession.isOnMac`), never this.
+final class FootagePresence: @unchecked Sendable {
+    static let shared = FootagePresence()
+    /// How old an answer may be before it is checked again.
+    static let maxAge: TimeInterval = 30
+
+    private let check: @Sendable (String) -> Bool
+    private let now: @Sendable () -> Date
+    private let lock = NSLock()
+    private var known: [String: (here: Bool, at: Date)] = [:]
+    private var refreshing: Set<String> = []
+
+    init(check: @escaping @Sendable (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }, now: @escaping @Sendable () -> Date = { Date() }) {
+        self.check = check
+        self.now = now
+    }
+
+    /// The paths among `paths` whose file is here.
+    func here(_ paths: [String]) -> Set<String> {
+        let time = now()
+        lock.lock()
+        let unknown = Array(Set(paths.filter { known[$0] == nil }))
+        let stale = Set(paths.filter { p in known[p].map { time.timeIntervalSince($0.at) > Self.maxAge } ?? false }).subtracting(refreshing)
+        refreshing.formUnion(stale)
+        lock.unlock()
+        if !unknown.isEmpty { record(unknown, at: time) }
+        if !stale.isEmpty {
+            DispatchQueue.global(qos: .utility).async { [self] in
+                record(Array(stale), at: now())
+                lock.lock()
+                refreshing.subtract(stale)
+                lock.unlock()
+            }
+        }
+        lock.lock()
+        defer { lock.unlock() }
+        return Set(paths.filter { known[$0]?.here == true })
+    }
+
+    /// Checks `paths` in parallel and keeps the answers.
+    private func record(_ paths: [String], at time: Date) {
+        var found = [Bool](repeating: false, count: paths.count)
+        found.withUnsafeMutableBufferPointer { buffer in
+            let answers = UncheckedSendableBuffer(buffer)
+            DispatchQueue.concurrentPerform(iterations: paths.count) { i in answers.base[i] = check(paths[i]) }
+        }
+        lock.lock()
+        for (i, path) in paths.enumerated() { known[path] = (found[i], time) }
+        lock.unlock()
+    }
+
+    private struct UncheckedSendableBuffer: @unchecked Sendable {
+        let base: UnsafeMutableBufferPointer<Bool>
+        init(_ base: UnsafeMutableBufferPointer<Bool>) { self.base = base }
+    }
+}
+
 enum FootageRemote {
     static let key = "RallyLab.footageRemote"
     static let defaultLocation = "bsc-desktop:D:/RallyLabFootage"

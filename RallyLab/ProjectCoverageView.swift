@@ -161,9 +161,11 @@ struct Coverage {
     }
 
     init(sessions: [VideoSession]) {
+        // Built on every redraw of the coverage table: `FootagePresence` answers.
+        let here = FootagePresence.shared.here(sessions.map(\.sourcePath))
         for s in sessions {
             let env = Self.environment(s.name)
-            let onMac = FileManager.default.fileExists(atPath: s.sourcePath)
+            let onMac = here.contains(s.sourcePath)
             let tracks = s.tracks ?? []
             let done = tracks.filter(\.isReady)
             let sampled = s.frames.filter { $0.keep && $0.reviewed }.count
