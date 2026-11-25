@@ -223,6 +223,21 @@ final class CourtNetCalibrationTests: XCTestCase {
         XCTAssertEqual(f.segments[1].court.confirmation?.adjustedPoints, [])
     }
 
+    func testReuseTakesTheMarksAsTheyStandTheDraftBeforeTheConfirmation() throws {
+        var f = try confirmed()
+        let edited = F.court.moving(.farRight, to: 0.70, 0.63)
+        try f.saveDraft(edited, of: \.court, segment: 0, startedFrom: CourtNetCalibrationV1.confirmation, baseline: F.court)
+        XCTAssertTrue(f.split(at: 40, reuse: true))
+        // The new view starts from what the person was looking at; the net, untouched, from its confirmation.
+        XCTAssertEqual(f.segments[1].court.draft, edited)
+        XCTAssertEqual(f.segments[1].court.draftBaseline, edited)
+        XCTAssertEqual(f.segments[1].net.draft, F.net)
+        // The first view keeps its confirmation in force and its own draft.
+        XCTAssertEqual(f.confirmed(\.court, at: 10)?.geometry, F.court)
+        XCTAssertEqual(f.segments[0].court.draft, edited)
+        XCTAssertNil(f.confirmed(\.court, at: 50))
+    }
+
     func testASplitWithoutReuseStartsEmpty() throws {
         var f = try confirmed()
         XCTAssertTrue(f.split(at: 40, reuse: false))

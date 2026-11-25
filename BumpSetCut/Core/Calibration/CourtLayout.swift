@@ -35,22 +35,29 @@ struct Homography: Equatable, Sendable {
     var m: [Double]
 
     /// The map taking `from[i]` to `to[i]` (four point pairs, no three collinear), nil when degenerate.
+    ///
+    /// Fitted about the centre of the `from` points: a projective map is known only up to a factor, and the
+    /// factor is fixed by making its weight 1 at that centre — a point inside the region, where the weight of a
+    /// map onto a finite convex shape is never zero. Fixing it at the origin instead loses every map whose weight
+    /// is zero there (a far half tapering to half its width is one) and leaves the others with either sign; fixed
+    /// at the centre, a weight ≤ 0 means beyond the horizon, for the map and for its inverse.
     static func fit(from: [(Double, Double)], to: [(Double, Double)]) -> Homography? {
         guard from.count == 4, to.count == 4 else { return nil }
-        // h33 = 1; eight unknowns, two rows per pair.
+        let (cx, cy) = (from.map(\.0).reduce(0, +) / 4, from.map(\.1).reduce(0, +) / 4)
+        // Eight unknowns, two rows per pair, in coordinates centred on (cx, cy).
         var a = [[Double]](repeating: [Double](repeating: 0, count: 9), count: 8)
         for i in 0..<4 {
-            let (x, y) = from[i], (u, v) = to[i]
+            let (x, y) = (from[i].0 - cx, from[i].1 - cy), (u, v) = to[i]
             a[2 * i] = [x, y, 1, 0, 0, 0, -u * x, -u * y, u]
             a[2 * i + 1] = [0, 0, 0, x, y, 1, -v * x, -v * y, v]
         }
         guard let h = solve(a) else { return nil }
-        // A projective map's overall sign is arbitrary, and fixing h33 = 1 fixes it at (0, 0) — which need not lie
-        // inside the four points. The weight is made positive at their centre, so that "weight ≤ 0" means beyond
-        // the horizon for the region the map was fitted to, and for its inverse.
-        let fitted = Homography(m: h + [1])
-        let centre = (from.map(\.0).reduce(0, +) / 4, from.map(\.1).reduce(0, +) / 4)
-        return fitted.apply(centre.0, centre.1).w < 0 ? Homography(m: fitted.m.map { -$0 }) : fitted
+        // Back to the caller's coordinates: the centred map after a shift by (−cx, −cy).
+        return Homography(m: [
+            h[0], h[1], h[2] - cx * h[0] - cy * h[1],
+            h[3], h[4], h[5] - cx * h[3] - cy * h[4],
+            h[6], h[7], 1 - cx * h[6] - cy * h[7],
+        ])
     }
 
     /// Gaussian elimination with partial pivoting on an n×(n+1) augmented matrix.
