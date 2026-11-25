@@ -225,19 +225,25 @@ struct CourtLayout: Codable, Equatable, Sendable {
 
     var isUsable: Bool { problems.isEmpty }
 
-    /// Court coordinates of an image point, from the half whose map puts it on that half's side of the net
-    /// (the near map below v = ½, the far map above); nil beyond the horizon or with no map.
+    /// How far past the net line (court units) a half's own answer may land and still be that half's: the two
+    /// halves' inverse maps agree on the line only to rounding.
+    static let netLineTolerance = 1e-9
+
+    /// Court coordinates of an image point, from the half whose map puts it on that half's side of the net (the
+    /// near map at or below v = ½, the far map above); nil beyond the horizon or with no map. A point on the net
+    /// line is the near half's, as `image(u:v:)` draws v = ½ through the near half: along that shared line the
+    /// two halves count u differently when the court is not symmetric, so the choice has to be the same both ways.
     func courtCoordinates(_ x: Double, _ y: Double) -> (u: Double, v: Double)? {
-        if let h = map(near: true)?.inverse {
-            let c = h.apply(x, y)
-            if c.w > 0, c.y <= 0.5 { return (c.x, c.y) }
-            if map(near: false) == nil { return c.w > 0 ? (c.x, c.y) : nil }
+        func inverse(near: Bool) -> (u: Double, v: Double)? {
+            guard let c = map(near: near)?.inverse?.apply(x, y), c.w > 0 else { return nil }
+            return (c.x, c.y)
         }
-        if let h = map(near: false)?.inverse {
-            let c = h.apply(x, y)
-            if c.w > 0, c.y >= 0.5 { return (c.x, c.y) }
-            if map(near: true) == nil { return c.w > 0 ? (c.x, c.y) : nil }
-        }
+        let (near, far) = (inverse(near: true), inverse(near: false))
+        if let near, near.v <= 0.5 + Self.netLineTolerance { return (near.u, min(near.v, 0.5)) }
+        if let far, far.v >= 0.5 - Self.netLineTolerance { return (far.u, max(far.v, 0.5)) }
+        // One half only: its map answers for the whole court.
+        if map(near: false) == nil { return near }
+        if map(near: true) == nil { return far }
         return nil
     }
 

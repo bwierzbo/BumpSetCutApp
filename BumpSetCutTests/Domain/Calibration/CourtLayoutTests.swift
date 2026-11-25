@@ -98,6 +98,28 @@ final class CourtLayoutTests: XCTestCase {
         }
     }
 
+    func testThePointsOfTheNetLineRoundTripOnACourtThatIsNotSymmetric() throws {
+        // The far-right corner pulled out and up: along the net line the far half counts u differently from the
+        // near half, so a point of the line answered by the far half's inverse comes back somewhere else.
+        var skew = court
+        skew.farRight = point(0.7, 0.8)
+        XCTAssertEqual(skew.problems, [])
+        for step in 0...20 {
+            let u = Double(step) / 20
+            let onLine = try XCTUnwrap(skew.image(u: u, v: 0.5))
+            let back = try XCTUnwrap(skew.courtCoordinates(onLine.x, onLine.y), "u \(u)")
+            XCTAssertEqual(back.u, u, accuracy: 1e-7, "u \(u)")
+            XCTAssertEqual(back.v, 0.5, accuracy: 1e-9, "u \(u)")
+        }
+        // Either side of the line each half still answers for its own points.
+        for (u, v) in [(0.5, 0.49), (0.2, 0.499999), (0.5, 0.51), (0.8, 0.500001), (0.3, 0.9)] {
+            let image = try XCTUnwrap(skew.image(u: u, v: v))
+            let back = try XCTUnwrap(skew.courtCoordinates(image.x, image.y), "\(u), \(v)")
+            XCTAssertEqual(back.u, u, accuracy: 1e-6, "\(u), \(v)")
+            XCTAssertEqual(back.v, v, accuracy: 1e-6, "\(u), \(v)")
+        }
+    }
+
     func testOutlineFollowsTheBoundaryThroughBothHalves() {
         let outline = court.outline([(0, 0), (1, 0), (1, 1), (0, 1)], steps: 4)
         XCTAssertEqual(outline.count, 16)
