@@ -185,6 +185,13 @@ enum AccessibilityID {
         static let viewRallies = "process.viewRallies"
         static let doneButton = "process.doneButton"
         static let cameraSetupContinue = "process.cameraSetupContinue"
+        static let courtNet = "process.courtNet"
+    }
+
+    enum Calibration {
+        static let close = "calibration.close"
+        static let saveDraft = "calibration.saveDraft"
+        static let confirm = "calibration.confirm"
     }
 
     enum Upload {
