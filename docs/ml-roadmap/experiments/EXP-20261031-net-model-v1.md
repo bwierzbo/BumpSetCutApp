@@ -2,7 +2,7 @@
 id: EXP-20261031-net-model-v1
 status: run — results in, decision pending (owner)
 created: 2026-10-31T03:44:39Z
-updated: 2026-11-02T09:03:15Z
+updated: 2026-11-25T21:43:01Z
 decision: owner direction 2026-10-30 (verbatim: ../../decisions/2026-10-30-net-model-direction.md); D-002, D-017, D-018 honoured; the decision that removes net.mlpackage is logged by the PR that removes it
 roadmap_phase: net model replacement (licensing, 2026-10-09; plan: ../NET_MODEL_PLAN.md)
 pr: feat/net-trainer (the trainer); the run's own PR carries the results
@@ -52,6 +52,8 @@ python scripts/desktop_training/net_to_coreml.py bring_back/net_v1 <out>/net_v1.
 Outputs: `runs/net/<name>/` (best.pt, best.onnx, metrics.json, log.csv, split.json) and `bring_back/<name>/` on the desktop; copied back under `~/Movies/RallyLab/Reports/net-v1/` with their SHA-256s listed here. The manifest copied beside the dataset is the one hashed in `metrics.json`.
 
 ## Results
+
+**Correction, 2026-11-25 — holdout exposure (D-036 §2; [EXP-20261110-lineage-holdout-copies-audit](EXP-20261110-lineage-holdout-copies-audit.md) §3 and §8).** The "Withheld" row under Inputs says what the export and the trainer checked at the time: names, `reservedAs` and stored fingerprints. Those checks did not catch train cards that are copies of lineage-holdout recordings, and one frame of each copy is in `Scratch-net-20261102-0140`. The audit puts the copies' groups in the validation split, so `net_v1` and `net_v1_extra` have **confirmed selection exposure** to footage that duplicates two holdouts — the H1 numbers below include it — and no confirmed gradient exposure; a third copy, `bch_tri_sun_land_self_01_v4`, was probably in the train split (one frame of gradient exposure: likely, not confirmed — audit §8). The exclusion claimed in that row therefore did not hold for these copies, and the affected holdouts are not independent evaluation footage for these models. The measurements are as measured and are not changed.
 
 Run 2026-11-02 (MST). Both runs: seed 0, 40 epochs, batch 32, lr 0.002, the same 36 val frames from 15 recording groups (val digest `050294b6f5a4eb9ca49d5dfb75d1ad132b15971c5548901b468c1e521ddef65b`, equal in both runs). Kept checkpoint = lowest mean top error with misses counted as 1 (net_v1 epoch 29, net_v1_extra epoch 26). Errors are medians over the val frames; top in frame heights (H), sides and corners in frame widths/fractions (W).
 
