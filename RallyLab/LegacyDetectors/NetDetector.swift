@@ -1,6 +1,8 @@
 //
 //  NetDetector.swift
-//  BumpSetCut
+//  RallyLab
+//
+//  Research only (D-042): compiled into RallyLab on the Mac and into nothing that ships.
 //
 //  Runs the single-class "net" CoreML model (net.mlpackage) on a frame and returns
 //  net bounding boxes. Deliberately leaner than YOLODetector: the net is STATIONARY,

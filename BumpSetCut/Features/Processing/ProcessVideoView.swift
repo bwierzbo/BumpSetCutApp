@@ -250,8 +250,22 @@ private extension ProcessVideoView {
 
 // MARK: - Court & Net
 private extension ProcessVideoView {
-    /// Opens the Court & Net editor. Optional: nothing about viewing or processing a video waits for it.
+    /// The way into Court & Net, and what processing does without it: with no confirmed net the rules that
+    /// need one are skipped, and the video's screen says so before the run rather than after.
     var courtNetRow: some View {
+        VStack(alignment: .leading, spacing: BSCSpacing.xs) {
+            courtNetButton
+            if calibrationStatus != .netConfirmed && calibrationStatus != .bothConfirmed {
+                Text("Until the net is confirmed here, rallies aren't checked against it: a ball on the next court or rolling under the net isn't ruled out.")
+                    .bscFont(size: 12)
+                    .foregroundColor(.bscTextTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// Opens the Court & Net editor. Optional: nothing about viewing or processing a video waits for it.
+    var courtNetButton: some View {
         Button { showCalibration = true } label: {
             HStack(spacing: BSCSpacing.md) {
                 Image(systemName: "sportscourt")

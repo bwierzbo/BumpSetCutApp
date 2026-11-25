@@ -50,6 +50,12 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				Resources/ML/ball_rallylab_960.mlpackage,
+				Resources/ML/ball_rallylab_1280.mlpackage,
+				Resources/ML/ball_v2_small.mlpackage,
+				Resources/ML/bestv2.mlpackage,
+				Resources/ML/bestv3.mlpackage,
+				Resources/ML/net.mlpackage,
 			);
 			target = 36F3901F2E1C86F40020C100 /* BumpSetCut */;
 		};
@@ -59,9 +65,6 @@
 				App/AppSettings.swift,
 				Core/Media/ThumbnailService.swift,
 				Core/ML/HeatmapBallDetector.swift,
-				Core/ML/NetDetector.swift,
-				Core/ML/YOLODetector.swift,
-				Core/ML/YOLORawDecode.swift,
 				Core/Networking/Secrets.swift,
 				Core/Storage/MetadataStore.swift,
 				Core/Storage/StorageManager.swift,
@@ -77,7 +80,6 @@
 				Features/Processing/Classification/MovementType.swift,
 				Features/Processing/Debug/DebugDataModels.swift,
 				Features/Processing/Debug/TrajectoryDebugger.swift,
-				Features/Processing/Deterministic/BallNetSampler.swift,
 				Features/Processing/Deterministic/DeterministicRallyEngine.swift,
 				Features/Processing/Deterministic/DeterministicRallyTypes.swift,
 				Features/Processing/Logic/BallisticsGate.swift,
@@ -87,6 +89,8 @@
 				Features/Processing/Logic/SegmentBuilder.swift,
 				Features/Processing/Logic/ServeDetector.swift,
 				Features/Processing/Optimization/RallySegmentationScorer.swift,
+				Features/Processing/PipelineDefaults.swift,
+				Features/Processing/PipelineDetectors.swift,
 				Features/Processing/ProcessingCheckpoint.swift,
 				Features/Processing/ProcessingEventLog.swift,
 				Features/Processing/ProcessingQualityMetrics.swift,
@@ -102,8 +106,6 @@
 				Models/GameScoring.swift,
 				Models/ProcessingMetadata.swift,
 				Resources/ML/ball_heat.mlpackage,
-				Resources/ML/ball_v2_small.mlpackage,
-				Resources/ML/net.mlpackage,
 			);
 			target = LABE1E000000000000000001 /* Labeler */;
 		};
@@ -148,9 +150,6 @@
 				App/AppSettings.swift,
 				Core/Calibration/NetQuad.swift,
 				Core/ML/HeatmapBallDetector.swift,
-				Core/ML/NetDetector.swift,
-				Core/ML/YOLODetector.swift,
-				Core/ML/YOLORawDecode.swift,
 				Core/Networking/Secrets.swift,
 				Core/Storage/MetadataStore.swift,
 				Core/Storage/StorageManager.swift,
@@ -162,7 +161,6 @@
 				Features/Processing/Classification/MovementType.swift,
 				Features/Processing/Debug/DebugDataModels.swift,
 				Features/Processing/Debug/TrajectoryDebugger.swift,
-				Features/Processing/Deterministic/BallNetSampler.swift,
 				Features/Processing/Deterministic/DeterministicRallyEngine.swift,
 				Features/Processing/Deterministic/DeterministicRallyTypes.swift,
 				Features/Processing/Logic/BallisticsGate.swift,
@@ -172,6 +170,7 @@
 				Features/Processing/Logic/SegmentBuilder.swift,
 				Features/Processing/Logic/ServeDetector.swift,
 				Features/Processing/Optimization/RallySegmentationScorer.swift,
+				Features/Processing/PipelineDetectors.swift,
 				Features/Processing/ProcessingCheckpoint.swift,
 				Features/Processing/ProcessingEventLog.swift,
 				Features/Processing/ProcessingQualityMetrics.swift,

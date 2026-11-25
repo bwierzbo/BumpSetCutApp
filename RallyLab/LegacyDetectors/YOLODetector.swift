@@ -1,6 +1,10 @@
 //
 //  YOLODetector.swift
-//  BumpSetCut
+//  RallyLab
+//
+//  Research only (D-042): an Ultralytics-derived single-frame ball detector. Compiled into
+//  RallyLab on the Mac and into nothing that ships — not the BumpSetCut app, not RallyLab on
+//  the iPhone. The shared pipeline reaches it only through PipelineDefaults.
 //
 //  Created by Benjamin Wierzbanowski on 8/8/25.
 //
@@ -337,69 +341,5 @@ final class YOLODetector {
             out.append(d)
         }
         return out
-    }
-}
-
-/// The ball models bundled with the apps. Processing uses `current` — the
-/// shipping model unless a debug build or TestFlight tester picks another
-/// to compare.
-/// How the ball is found — a debug choice like BallModel: YOLO alone, YOLO
-/// plus the balls the bundled multi-frame model finds that YOLO missed, or
-/// the multi-frame model alone (ProcessorConfig.heatmapModel / heatmapOnly).
-enum BallFinder: String, CaseIterable, Identifiable {
-    case yolo
-    case hybrid
-    case multiFrameOnly
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .yolo: return "YOLO"
-        case .hybrid: return "YOLO + multi-frame"
-        case .multiFrameOnly: return "Multi-frame only"
-        }
-    }
-
-    /// The multi-frame model this choice runs, nil for YOLO alone.
-    var heatmapModel: URL? {
-        self == .yolo ? nil : Bundle.main.url(forResource: "ball_heat", withExtension: "mlmodelc")
-    }
-
-    static let defaultsKey = "debugBallFinder"
-
-    /// The multi-frame model alone by default — YOLO is leaving processing
-    /// (see the Ultralytics licensing decision); YOLO and hybrid stay in the
-    /// debug picker for comparison while their models ship.
-    static var current: BallFinder {
-        UserDefaults.standard.string(forKey: defaultsKey).flatMap(BallFinder.init(rawValue:)) ?? .multiFrameOnly
-    }
-}
-
-enum BallModel: String, CaseIterable, Identifiable {
-    case shipping = "ball_v2_small"
-    /// Trained in RallyLab (Test1, 2,704 frames) at 1280 / 960.
-    case rallyLab1280 = "ball_rallylab_1280"
-    case rallyLab960 = "ball_rallylab_960"
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .shipping: return "Current (ball_v2_small)"
-        case .rallyLab1280: return "RallyLab 1280"
-        case .rallyLab960: return "RallyLab 960"
-        }
-    }
-
-    /// Trained on letterboxed frames (Ultralytics' default), so every frame
-    /// has to be letterboxed into it: a stretched landscape frame squashes
-    /// the ball into an oval it has never seen.
-    var needsLetterbox: Bool { self != .shipping }
-
-    static let defaultsKey = "debugBallModel"
-
-    static var current: BallModel {
-        UserDefaults.standard.string(forKey: defaultsKey).flatMap(BallModel.init(rawValue:)) ?? .shipping
     }
 }

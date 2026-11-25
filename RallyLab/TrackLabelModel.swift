@@ -506,8 +506,8 @@ final class TrackLabelModel {
         Task {
             let added = await Task.detached(priority: .userInitiated) { () -> [Int: [TrackCandidate]] in
                 guard let detector = holder.detector(for: model) else { return [:] }
-                return TrackFinder.lookAgain(from: fix, in: snapshot, detector: detector, heat: heatHolder.detector(for: heatModel),
-                                             whileAllowed: { true }) { i in
+                return TrackFinder.lookAgain(from: fix, in: snapshot, heat: heatHolder.detector(for: heatModel), whileAllowed: { true },
+                                             detect: { patch in detector.detect(in: patch, at: .zero).map { ($0.bbox, $0.confidence) } }) { i in
                     frames.read(snapshot.points[i].time)
                 }
             }.value

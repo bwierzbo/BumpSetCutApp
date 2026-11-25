@@ -60,13 +60,16 @@ struct ProcessingCheckpoint: Codable {
         let width: Double
         let height: Double
         let confidence: Double
+        /// Where the net came from (NetGeometry.origin); absent in a checkpoint written before it was recorded.
+        let origin: String?
 
-        init(_ net: DetectedNet) {
+        init(_ net: DetectedNet, origin: String) {
             x = Double(net.box.origin.x)
             y = Double(net.box.origin.y)
             width = Double(net.box.size.width)
             height = Double(net.box.size.height)
             confidence = net.confidence
+            self.origin = origin
         }
 
         var detectedNet: DetectedNet {

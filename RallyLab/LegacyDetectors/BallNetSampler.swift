@@ -1,6 +1,8 @@
 //
 //  BallNetSampler.swift
-//  BumpSetCut
+//  RallyLab
+//
+//  Research only (D-042): compiled into RallyLab on the Mac and into nothing that ships.
 //
 //  Dense, fixed-stride ball + net detection pass for the deterministic Phase 1
 //  pipeline. Ball detection runs on every processed frame; net detection runs on

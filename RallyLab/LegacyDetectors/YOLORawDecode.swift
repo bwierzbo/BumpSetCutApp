@@ -1,6 +1,8 @@
 //
 //  YOLORawDecode.swift
-//  BumpSetCut
+//  RallyLab
+//
+//  Research only (D-042): compiled into RallyLab on the Mac and into nothing that ships.
 //
 //  Shared raw-tensor decode for YOLO models exported with no built-in NMS
 //  pipeline, in either of the two layouts Ultralytics produces:

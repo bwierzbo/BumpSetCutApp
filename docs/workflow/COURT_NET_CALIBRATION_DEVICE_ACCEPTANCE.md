@@ -78,6 +78,21 @@ No model and no proposal is involved anywhere in these steps.
 | F5 | A 30-minute video, scrub end to end, zoom to the limit | No stall beyond a moment per frame, no crash, no heat warning. |
 | F6 | Delete a calibrated video from the library | Nothing of it is left (its calibration goes with it). Processing a calibrated video again keeps its calibration. |
 
+## G. Processing without YOLO (the removal PR)
+
+Run on the build that has the YOLO removal. For each of one beach, one grass and one indoor recording that is not withheld, filmed from behind an end line.
+
+| # | Do | Expect |
+|---|---|---|
+| G1 | Before confirming a net, open the video's screen | Under Court & Net: "Until the net is confirmed here, rallies aren't checked against it…". |
+| G2 | Process it | It completes. The console has one "ℹ️ No net geometry (no court and net calibration): the under-net, off-court, above-net rules were skipped." line and a "⏱ [timing] multi-frame only (ball_heat)" line with **YOLO 0.0 s (0 frames, none)**. Note the rally count, the processing time and whether the phone warmed. |
+| G3 | Confirm the net in Court & Net, then reprocess (Debug Features → Reprocess Video) | It completes; no "No net geometry" line. Compare the rallies with G2: a rally on a neighbouring court or a ball rolled under the net that G2 kept should be gone; no real rally should be lost. Write down any that is. |
+| G4 | Debug Features on → Debug Processing on a short video | A full-length video with the balls boxed, the track's trail, and the HUD (det, proj, rally, R²). It is made in two passes: the progress bar runs twice. |
+| G5 | Settings → Debug Features | No Ball Model or Ball Finder row. |
+| G6 | In RallyLab on the iPhone: track a rally not tracked before | Candidates appear (from the multi-frame model); fixing a point re-solves and looks again. Note the frames where no candidate is offered and the ball had to be placed by hand. |
+| G7 | In RallyLab on the iPhone: open a rally tracked before this build | It opens as it was saved; nothing moved. |
+| G8 | In RallyLab on the iPhone: Run pipeline on a video | It runs; the title says "Multi-frame only"; no net box is drawn. |
+
 ## Results
 
 | Date | Phone / iOS | Build | Passed | Failed (ids) | Notes |

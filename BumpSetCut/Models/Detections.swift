@@ -114,8 +114,9 @@ struct ProcessorConfig {
     /// hard-coded threshold in YOLODetector.
     var detectionConfidence: Double = 0.6021
 
-    /// Which bundled ball model detects (a debug choice; see BallModel). Part
-    /// of the config so a checkpoint from one model never resumes on another.
+    /// Which single-frame ball model a research run detects with (see BallModel). No shipping
+    /// build has one: there this is only a name, kept because the configuration's identity
+    /// (its canonical hash, a checkpoint's hash) covers every field.
     var ballModel: BallModel = .current
 
     /// Detect on frames turned upright by the video's rotation flag (phones
@@ -131,17 +132,18 @@ struct ProcessorConfig {
     /// AVAssetImageGenerator's tone mapping. No effect on SDR video.
     var standardColorFrames: Bool = false
 
-    /// A multi-frame (heatmap) ball model to run alongside YOLO; nil = off.
-    /// It sees 9 frames at once, so it finds the moving ball where YOLO's
-    /// single frame can't (blur, far court, low contrast) and never fires on
-    /// a still one. Its peaks YOLO didn't have are added to the tracker's
-    /// input. See HeatmapBallDetector. The app's default follows the debug
-    /// BallFinder choice; RallyLab sets its own.
-    var heatmapModel: URL? = BallFinder.current.heatmapModel
+    /// The multi-frame (heatmap) ball model; nil = none. It sees 9 frames at
+    /// once, so it finds the moving ball a single frame can't show (blur, far
+    /// court, low contrast) and never fires on a still one. See
+    /// HeatmapBallDetector. The default is the bundled model; RallyLab's tools
+    /// set their own.
+    var heatmapModel: URL? = ProcessorConfig.bundledHeatmapModel
 
-    /// With `heatmapModel` set: the multi-frame model alone finds the ball —
-    /// YOLO doesn't run.
-    var heatmapOnly: Bool = BallFinder.current == .multiFrameOnly
+    /// The multi-frame model alone finds the ball: the default, and the only
+    /// way a shipping build finds it. Off, a research build's single-frame
+    /// detector runs too (or alone, with no `heatmapModel`); a build without
+    /// one refuses the run.
+    var heatmapOnly: Bool = true
 
     /// The multi-frame model runs once every this many frames it's fed, on
     /// overlapping windows, keeping each window's middle frames (see
@@ -490,6 +492,41 @@ struct ProcessorConfig {
         }
         
         return config
+    }
+}
+
+extension ProcessorConfig {
+    /// The multi-frame model in this bundle.
+    static var bundledHeatmapModel: URL? { Bundle.main.url(forResource: "ball_heat", withExtension: "mlmodelc") }
+}
+
+/// The names of the single-frame (Ultralytics-derived) ball models research runs detect with. Names only: the
+/// models and the detector that loads them are in RallyLab on the Mac and in nothing that ships (D-042).
+enum BallModel: String, CaseIterable, Identifiable {
+    case shipping = "ball_v2_small"
+    /// Trained in RallyLab (Test1, 2,704 frames) at 1280 / 960.
+    case rallyLab1280 = "ball_rallylab_1280"
+    case rallyLab960 = "ball_rallylab_960"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .shipping: return "Current (ball_v2_small)"
+        case .rallyLab1280: return "RallyLab 1280"
+        case .rallyLab960: return "RallyLab 960"
+        }
+    }
+
+    /// Trained on letterboxed frames (Ultralytics' default), so every frame
+    /// has to be letterboxed into it: a stretched landscape frame squashes
+    /// the ball into an oval it has never seen.
+    var needsLetterbox: Bool { self != .shipping }
+
+    static let defaultsKey = "debugBallModel"
+
+    static var current: BallModel {
+        UserDefaults.standard.string(forKey: defaultsKey).flatMap(BallModel.init(rawValue:)) ?? .shipping
     }
 }
 

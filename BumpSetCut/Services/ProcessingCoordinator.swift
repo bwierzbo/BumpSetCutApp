@@ -136,6 +136,9 @@ final class ProcessingCoordinator {
         var config = config
         config.applyCamera(mediaStore.getAllVideos().first { $0.id == videoId }?.cameraSetup)
         self.processor.config = config
+        // The net is the one a person confirmed for this video, when there is one (Court & Net);
+        // otherwise the run has none and says which rules it skipped.
+        self.processor.netSource = CalibrationNetSource(store: .app, videoId: videoId)
         // Data flywheel: collect per-frame evidence only for opted-in users, so
         // borderline rallies can be staged for relabeling after processing.
         self.processor.collectFrameEvidence = AppSettings.shared.enableDataFlywheel

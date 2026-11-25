@@ -102,7 +102,9 @@ enum TrackFinder {
     ///  1. the candidates the first pass already has, and the multi-frame
     ///     model's peaks at a much lower threshold — it sees a blurred ball
     ///     the detector can't at any threshold;
-    ///  2. the detector on zoomed crops around the spot at a low threshold.
+    ///  2. a single-frame detector on zoomed crops around the spot at a low
+    ///     threshold, where the caller has one (`detect`): the Mac does, the
+    ///     iPhone does not and passes one that finds nothing.
     /// It stops at your other points, after two frames in a row without the
     /// ball, or when the "ball" stops moving (a head or a pole, not a ball in
     /// play). Returns the new candidates by frame, to add before re-solving.
@@ -110,15 +112,13 @@ enum TrackFinder {
     /// `whileAllowed` is asked before every window of the multi-frame model
     /// and every crop the detector is run on; once it says no the search
     /// stops there and nothing is returned.
-    static func lookAgain(from fix: Int, in rally: TrackedRally, detector: YOLODetector, heat: HeatmapBallDetector?,
-                          whileAllowed: () -> Bool, image: (Int) -> CGImage?) -> [Int: [TrackCandidate]] {
+    static func lookAgain(from fix: Int, in rally: TrackedRally, heat: HeatmapBallDetector?, whileAllowed: () -> Bool,
+                          detect: (CGImage) -> [(bbox: CGRect, confidence: Float)], image: (Int) -> CGImage?) -> [Int: [TrackCandidate]] {
         lookAgain(from: fix, in: rally, whileAllowed: whileAllowed, faint: { span in
             guard let heat else { return [] }
             var windows = HeatmapWindows(detector: heat)
             return heatPeaks(&windows, frames: span.map { k in image(k).flatMap { heat.frame($0) } }, whileAllowed: whileAllowed)
-        }, detect: { patch in
-            detector.detect(in: patch, at: .zero).map { ($0.bbox, $0.confidence) }
-        }, image: image)
+        }, detect: detect, image: image)
     }
 
     /// The search itself, over what the models are asked through: `faint` — the multi-frame model's peaks on

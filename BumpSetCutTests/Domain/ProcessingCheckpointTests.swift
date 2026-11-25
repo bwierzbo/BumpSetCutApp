@@ -32,7 +32,7 @@ final class ProcessingCheckpointTests: XCTestCase {
                 rallyFrameCount: 300, physicsValidFrameCount: 250,
                 confidenceSum: 640.5, rSquaredSum: 210.2, rSquaredCount: 260
             ),
-            net: .init(DetectedNet(box: CGRect(x: 0.2, y: 0.4, width: 0.6, height: 0.1), confidence: 0.9)),
+            net: .init(DetectedNet(box: CGRect(x: 0.2, y: 0.4, width: 0.6, height: 0.1), confidence: 0.9), origin: NetGeometry.personConfirmed),
             savedAt: Date()
         )
     }
@@ -56,6 +56,7 @@ final class ProcessingCheckpointTests: XCTestCase {
         let net = try XCTUnwrap(loaded.net?.detectedNet)
         XCTAssertEqual(net.box.minX, 0.2, accuracy: 0.0001)
         XCTAssertEqual(net.confidence, 0.9, accuracy: 0.0001)
+        XCTAssertEqual(loaded.net?.origin, NetGeometry.personConfirmed)
 
         ProcessingCheckpoint.delete(at: url)
         XCTAssertNil(ProcessingCheckpoint.load(from: url))
