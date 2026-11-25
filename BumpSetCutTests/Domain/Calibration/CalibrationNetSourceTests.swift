@@ -20,14 +20,17 @@ final class CalibrationNetSourceTests: XCTestCase {
         return f
     }
 
+    private func why(_ lookup: CourtNetCalibrationStore.Lookup, _ config: ProcessorConfig = ProcessorConfig()) -> CalibrationNetSource.Unavailable? {
+        if case .failure(let why) = CalibrationNetSource.usableNet(from: lookup, config: config) { return why }
+        return nil
+    }
+
     private func reason(_ lookup: CourtNetCalibrationStore.Lookup, _ config: ProcessorConfig = ProcessorConfig()) -> String? {
-        CalibrationNetSource.geometry(from: lookup, config: config).unavailableReason
+        why(lookup, config)?.reason
     }
 
     func testAConfirmedNetGivesTheBoxRoundItsFourCorners() throws {
-        let geometry = CalibrationNetSource.geometry(from: .usable(try file()), config: ProcessorConfig())
-        XCTAssertEqual(geometry.origin, NetGeometry.personConfirmed)
-        let net = try XCTUnwrap(geometry.net)
+        let net = try CalibrationNetSource.usableNet(from: .usable(try file()), config: ProcessorConfig()).get()
         // The quad tilts (its top-right is higher than its top-left): the box holds all of it.
         XCTAssertEqual(net.box.minX, 0.24, accuracy: 1e-9)
         XCTAssertEqual(net.box.maxX, 0.76, accuracy: 1e-9)
@@ -57,6 +60,18 @@ final class CalibrationNetSourceTests: XCTestCase {
         var unstable = try file()
         try unstable.setView(.unsuitable, segment: 0, note: nil, at: F.day)
         XCTAssertEqual(reason(.usable(unstable)), "the video is not marked as a stable court view")
+    }
+
+    func testEveryViewsNetConfirmedStillLeavesASplitVideoWithoutANetForTheRules() throws {
+        // What the status line calls "net confirmed" is not what the rules can use: they take one net for a run.
+        var split = try file()
+        XCTAssertTrue(split.split(at: 40, reuse: true))
+        try split.confirm(\.net, segment: 1, by: "tester", tool: "test", now: F.day)
+        XCTAssertEqual(split.status(for: F.binding), .netConfirmed)
+        XCTAssertEqual(why(.usable(split)), .severalViews)
+        XCTAssertEqual(why(.usable(try file())), nil)
+        XCTAssertEqual(why(.none), .noCalibration)
+        XCTAssertEqual(why(.usable(try file(confirmNet: false))), .netNotConfirmed)
     }
 
     func testAnUprightCalibrationIsNotUsedByARunThatReadsRotatedFramesAsStored() throws {
