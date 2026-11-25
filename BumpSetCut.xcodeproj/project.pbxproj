@@ -146,6 +146,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				App/AppSettings.swift,
+				Core/Calibration/NetQuad.swift,
 				Core/ML/HeatmapBallDetector.swift,
 				Core/ML/NetDetector.swift,
 				Core/ML/YOLODetector.swift,
@@ -154,6 +155,7 @@
 				Core/Storage/MetadataStore.swift,
 				Core/Storage/StorageManager.swift,
 				"Core/Utilities/CMTime+Helpers.swift",
+				Core/Utilities/FileFingerprint.swift,
 				Core/Utilities/QuadraticFit.swift,
 				Features/Processing/BackgroundProcessingGuard.swift,
 				Features/Processing/Classification/MovementClassifier.swift,
