@@ -1,17 +1,17 @@
 ---
 id: EXP-20261102-net-model-v2
-status: approved — not run (owner, 2026-11-02)
+status: run — results in, H1 not met; decision pending (owner)
 created: 2026-11-02T16:23:54Z
-updated: 2026-11-02T18:32:50Z
+updated: 2026-11-02T19:16:10Z
 decision: owner direction 2026-11-02 ("do a higher input resolution and more data augmentation"), after EXP-20261031-net-model-v1 missed H1; D-002, D-017, D-018 honoured
 roadmap_phase: net model replacement (licensing, 2026-10-09; plan: ../NET_MODEL_PLAN.md)
-pr: #129 exp/net-model-v2-recipe (the trainer options and this record); the results go on a follow-up branch, exp/net-model-v2-run
+pr: #129 exp/net-model-v2-recipe (the trainer options and this record, merged 6138744); results on exp/net-model-v2-run
 issue: n/a
 ---
 
 # EXP-20261102-net-model-v2 — the net detector at a higher input resolution and with stronger augmentation
 
-**Status: approved, not run.** The owner approved this record on 2026-11-02 ("Approve the v2 record and merge 129"), after the paired side-error fix for Codex's review. The hypotheses and bars are unchanged by the approval. Written before any run. The previous record, [EXP-20261031-net-model-v1](EXP-20261031-net-model-v1.md), found the net on every validation frame but missed the bars: median top error 0.043 H (bar 0.02) and side errors 0.080 / 0.092 W (bar 0.05). With the Roboflow boxes added the figures were 0.033 H and 0.058 / 0.065 W. The owner chose to change the recipe: "do a higher input resolution and more data augmentation". This record tests those two changes, separately and together, on the same data and the same validation frames as v1. The runs start once PR #129 is merged, at the merged code SHA.
+**Status: run 2026-11-02, H1 not met, decision pending.** All three arms and the control re-score ran without a deviation from the procedure. `net_v2` misses the top-edge and side bars, and no H2 difference is told apart from zero (Results). The owner approved this record on 2026-11-02 ("Approve the v2 record and merge 129"), after the paired side-error fix for Codex's review. The hypotheses and bars are unchanged by the approval. Written before any run. The previous record, [EXP-20261031-net-model-v1](EXP-20261031-net-model-v1.md), found the net on every validation frame but missed the bars: median top error 0.043 H (bar 0.02) and side errors 0.080 / 0.092 W (bar 0.05). With the Roboflow boxes added the figures were 0.033 H and 0.058 / 0.065 W. The owner chose to change the recipe: "do a higher input resolution and more data augmentation". This record tests those two changes, separately and together, on the same data and the same validation frames as v1. The runs start once PR #129 is merged, at the merged code SHA.
 
 ## What changes in the trainer
 
@@ -39,7 +39,7 @@ Both changes are options; their defaults reproduce v1. The basic augmentation wa
 
 | Input | Value |
 |---|---|
-| Code SHA | to be filled on approval: the merged head that holds the `--input` / `--aug` trainer (this PR) |
+| Code SHA | `6138744` (PR #129 merged). On the desktop, before the runs, `train_net_model.py` SHA-256 `5dd8ef37258f5c9fa66fa6907edfd2a83095bd62e9ae39a0ee6b57d92c2e56dd` and `paired_compare.py` `5d13097912dedc279231f0c526528a52c5bb875c921112d4614e48d3e1916531` were checked equal to the files at that SHA |
 | Dataset | **the v1 dataset, unchanged:** `D:\RallyLabStaging\Scratch-net-20261102-0140`, `net-dataset.json` SHA-256 `67d60f666397237dd59bf6fbf7e702db732574a931e204da636d17386c98eedc`, 129 labeled frames from 74 recording groups. No re-export, so no new ledger rows; the 129 `training_package` rows of `-0140` already record this use |
 | Dataset manifest SHA-256 | `493dd89ff8e18479d68667a4d62582d5cd1d7fb32711d15d963cd40f78b3abb9` (the copy beside the dataset; the trainer refuses entries against it again) |
 | Split | v1's `runs\net\net_v1\split.json` (SHA-256 `d5b665502d6f8330b69e63f7b99bff6eba0991971d3b5c90ea1d10a866122846`), passed as `--split` to every run. Val = 36 frames, 15 groups, val digest `050294b6f5a4eb9ca49d5dfb75d1ad132b15971c5548901b468c1e521ddef65b`. A run whose val digest differs is not compared |
@@ -88,20 +88,55 @@ Outputs are copied to `~/Movies/RallyLab/Reports/net-v2/` (the bring_back folder
 
 ## Results
 
-not measured (nothing has run)
+Run 2026-11-02 on the desktop (RTX 3060) as the Procedure gives it: one detached queue (`run_v2.cmd`, SHA-256 `04c68ce3…d614`), started 11:35 MST, every step exit 0, finished 12:13 MST. Each arm trained on 640 frames (93 of ours + 547 Roboflow) and was scored on v1's 36 validation frames from 15 groups. All validation digests are `050294b6…ef65b`, and all split files are `c7be716f…4f13`.
 
-| | detect rate | top error median / p90 (H) | left / right median (W) | corner error median | IoU | 90% range of the median top error |
-|---|---|---|---|---|---|---|
-| bar (H1) | ≥ 0.95 | ≤ 0.02 | ≤ 0.05 / ≤ 0.05 | — | — | — |
-| net_v1_extra (control, from v1) | 1.00 | 0.0330 / 0.078 | 0.058 / 0.065 | 0.093 | 0.47 | 0.026–0.043 |
-| net_v2_res | not measured | not measured | not measured | not measured | not measured | not measured |
-| net_v2_aug | not measured | not measured | not measured | not measured | not measured | not measured |
-| net_v2 | not measured | not measured | not measured | not measured | not measured | not measured |
+| | detect rate | top error median / p90 (H) | left / right median (W) | corner error median | IoU | 90% range of the median top error | best epoch | train time |
+|---|---|---|---|---|---|---|---|---|
+| bar (H1) | ≥ 0.95 | ≤ 0.02 | ≤ 0.05 / ≤ 0.05 | — | — | — | | |
+| net_v1_extra (control, from v1) | 1.00 | 0.0330 / 0.078 | 0.058 / 0.065 | 0.093 | 0.47 | 0.026–0.043 | 26 | 545 s |
+| net_v2_res (640×360, basic) | 1.00 | 0.0425 / 0.097 | 0.049 / 0.057 | 0.068 | 0.44 | 0.021–0.049 | 36 | 564 s |
+| net_v2_aug (384×216, strong) | 1.00 | 0.0328 / 0.071 | 0.054 / 0.062 | 0.089 | 0.44 | 0.027–0.060 | 18 | 849 s |
+| **net_v2** (640×360, strong) | **1.00** | **0.0308 / 0.073** | **0.061 / 0.064** | 0.075 | 0.47 | 0.025–0.047 | 40 | 877 s |
+
+By surface, median top / left / right:
+
+| | beach (13 frames) | grass (16) | indoor (7) |
+|---|---|---|---|
+| net_v1_extra | 0.028 / 0.085 / 0.073 | 0.034 / 0.039 / 0.057 | 0.043 / 0.055 / 0.038 |
+| net_v2_res | 0.039 / 0.059 / 0.037 | 0.047 / 0.032 / 0.068 | 0.022 / 0.062 / 0.062 |
+| net_v2_aug | 0.060 / 0.056 / 0.069 | 0.029 / 0.058 / 0.062 | 0.027 / 0.043 / 0.046 |
+| net_v2 | 0.029 / 0.065 / 0.042 | 0.035 / 0.047 / 0.080 | 0.028 / 0.043 / 0.070 |
+
+**H1 (`net_v2`): not met.** Detection passes (36/36). The median top error is 0.031 H against a 0.02 bar, and its 90% range (0.025–0.047) lies wholly above the bar. The side errors are 0.061 / 0.064 W against 0.05.
+
+**Control re-score.** `net_v1_extra/best.pt` was scored with `--score-only`; its validation digest and weights SHA-256 (`eb75eaa4…`) match, and its 36 per-frame tops equal v1's stored values exactly (max difference 0.0). All three checks hold, so it is the control. Its recomputed medians are 0.0330 / 0.0581 / 0.0646, the same as v1's reported values.
+
+**H2 (exploratory), paired against the control on all 36 frames (every run detected every frame).** Each cell gives the difference in median (run − control; negative is better), its 90% range from 10,000 resamples of the 15 groups with seed 0, and how many frames the run beat the control on:
+
+| | top (H) | left (W) | right (W) |
+|---|---|---|---|
+| net_v2_res | +0.0095 [−0.008, +0.017], 16/36 | −0.0094 [−0.043, +0.025], 20/36 | −0.0079 [−0.035, +0.014], 21/36 |
+| net_v2_aug | −0.0002 [−0.010, +0.023], 20/36 | −0.0042 [−0.027, +0.026], 19/36 | −0.0026 [−0.027, +0.016], 19/36 |
+| net_v2 | −0.0022 [−0.012, +0.011], 17/36 | +0.0029 [−0.033, +0.030], 16/36 | −0.0004 [−0.023, +0.022], 16/36 |
+
+Every range includes zero, so on these 15 groups neither change, alone or together, is told apart from the control. The point estimates are small next to the 0.013 H gap between the control and the top bar. The per-frame errors recomputed from `per_frame` against `net-dataset.json` reproduce every run's reported top, left and right medians (within 0.0001). The analysis script is kept with the outputs (`net_pairs.py`, SHA-256 `46d24778…85b6`); it also reproduces v1's H2 exactly (−0.0096, [−0.019, +0.013], 22/36).
+
+**Stated limitation that applied.** `net_v2` kept its last epoch: its validation top error was still falling (0.034 at epoch 36, 0.031 at epoch 38 and at epoch 40). As the record says, this is reported and not acted on here. `net_v2_aug` peaked at epoch 18.
+
+**Outputs** are in `~/Movies/RallyLab/Reports/net-v2/`: the bring_back folders, the logs, `run_v2.cmd` and `net_pairs.py`, plus Core ML conversions made with `net_to_coreml.py` at the code SHA. Core ML vs PyTorch max difference: net_v2_res 0.0006, net_v2_aug 0.0007, net_v2 0.0008.
+
+| run | best.pt | best.onnx | metrics.json |
+|---|---|---|---|
+| net_v2_res | `dbdc204230904b2259552fdf6e00da21a00985a25439ab78e9aa69b32adb1167` | `e51a3adf262e91bc1afd8a5a59bcbcd2f02f4c95698ef2fe5fcc5a15b9c11586` | `6e2a3874b2d857d9fb6b3c3d569133a46eac69d6ca0c9f5630c4beb59b69ef69` |
+| net_v2_aug | `54f21b21c0670d51ba9598352d995ac18e341edfaff9d0e18b06b92cf894948b` | `ead5a358ad9c89a237168c0576e7894ddf9f364062de6683500f28d17013e2ca` | `bb11ee28ee5641181b414bc9be0009e743319451b64a3cd2a0949cfd17897b5e` |
+| net_v2 | `ebf0e8aba5d48ef1c9df9858a1ddd7455410bff3c535a570c062c0a99b04b95c` | `a66cb38020bd8db75c5ea1f2076eed01e2cd1dbb707b8b83bde9471f7a61f66a` | `22ec4b56c8617c464112771009ed32568c0f3db98756d8097cef78d27a05e281` |
+| net_v1_extra_rescored | — (scores `eb75eaa4…`) | — | `fbdec1b5271dd12d060c0aca2f4f3039e2b270633cdc294fbd63dd3d7ffb182a` |
+
+No deviations from the procedure.
 
 ## Decision
 
-none yet (planned). Possible outcomes:
-- **keep:** `net_v2` meets H1 and goes to the replacement PR's diagnostic.
+pending (owner). H1 is not met, so **keep** is not available. Possible outcomes:
 - **revert:** a new recipe under a new record.
 - **need data:** more labeled recordings.
 
