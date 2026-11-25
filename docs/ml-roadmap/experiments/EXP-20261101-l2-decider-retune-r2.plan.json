@@ -1,0 +1,25 @@
+{
+  "id": "EXP-20261101-l2-decider-retune-r2",
+  "baselineModel": "Scratch-scratch_768_1014-20261014-2002",
+  "candidateModel": "Scratch-l2_scratch_768_color_s20261021-20261030-1514",
+  "tune": [
+    "bch_onl_ovc_land_onl_02", "bch_onl_ovc_land_onl_02_v2", "bch_onl_ovc_land_onl_02_v4",
+    "grs_hnd_shade_port_self_02", "grs_onl_shade_land_onl_02", "grs_onl_sun_land_onl_01",
+    "ind_ele_bright_land_self_01", "ind_ele_dim_land_self_02", "ind_ele_dim_land_self_02_v2"
+  ],
+  "eval": [
+    "bch_ele_ovc_land_self_02", "bch_ele_ovc_land_self_02_v2", "bch_ele_ovc_land_self_02_v3", "bch_ele_ovc_land_self_02_v4", "bch_ele_ovc_land_self_02_v5",
+    "bch_ele_sun_land_self_01", "bch_ele_sun_port_self_03", "bch_gnd_ovc_land_self_01",
+    "grs_ele_dusk_port_self_03_v2", "grs_ele_shade_land_self_02", "grs_ele_sun_land_self_01_v2", "grs_ele_sun_land_self_01_v3",
+    "ind_ele_dim_land_self_04", "ind_gnd_bright_land_self_01_v2", "ind_gnd_bright_land_self_01_v4", "ind_gnd_bright_port_self_03", "ind_onl_bright_land_onl_01_v2"
+  ],
+  "grid": {
+    "preroll": [0.5, 1.0, 1.5, 2.0],
+    "postroll": [0.25, 0.5, 1.0],
+    "minGapToMerge": [0.0, 0.25, 0.5, 0.75, 1.0, 1.3513],
+    "minSegmentLength": [1.5, 2.6131]
+  },
+  "objective": { "mergedRallyCost": 0.5, "falseClipCost": 1.0, "deadTimeCost": 0.25 },
+  "preservedShare": 0.95,
+  "minRallySec": 1.1653
+}
