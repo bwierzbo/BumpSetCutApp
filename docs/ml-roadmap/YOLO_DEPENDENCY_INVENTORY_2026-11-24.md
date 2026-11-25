@@ -65,7 +65,7 @@ No net is never read as "in the court" or "above the net": a rule with no net do
 
 **This is a degradation for a video with no confirmed net**: balls on a neighbouring court can form tracks, a ball rolled under the net can pass the physics gate, and a background rally that never clears the net is kept. It is what already happened on any video where the detector found no net.
 
-**Not verified:** how rally output with a person's box compares with the detector's box on the same recordings. The rules are the same code given a box in the same space (checked by unit test: the box is the corners' bounds, upright, Vision-normalised); the person's corners in RallyLab's net labels were mostly the detector's box, confirmed or adjusted. A comparison on beach, grass and indoor recordings needs the footage and is the owner's device check and a RallyLab run.
+**Measured since ([validation record](COURT_NET_VALIDATION_2026-11-24.md), nine recordings, 163 rallies):** the person's box against the detector's — 88 rallies found against 87, 2 missed outright against 6, 12 false clips each, 21 merged clips against 17, 6% more dead time; not identical, and different on the recordings where the two boxes disagree. No net at all: 61 found, 23 false clips, 37% more dead time. The rules are the same code given a box in the same space (the corners' bounds, upright, Vision-normalised).
 
 ## 5. The Labeler's assisted tracking
 
@@ -75,4 +75,4 @@ Candidates now come from the multi-frame model alone, at its own threshold; "loo
 
 Nothing in `RallyLab/RallyClassifierExporter.swift`, `EvidenceReplayer.swift`, `scripts/rally_classifier/` or any stored dataset, fold, baseline or audit record is touched. `ProcessorConfig` has the same stored fields with the same defaults in RallyLab (`heatmapOnly` was already true there unless a debug default the Mac never sets said otherwise), so `canonicalSHA256` of a default configuration is what it was. RallyLab's pipeline gets the same YOLO detector (same model choice, thresholds and letterboxing, kept across runs as before) and the same net box (the sampling code moved, not rewritten). One behaviour differs in RallyLab too: a heat-only run whose model fails to load now throws instead of running YOLO — the case the exporter already refused.
 
-**Not run:** `RallyLabTests` and a headless RallyLab comparison, both of which launch RallyLab and need the owner's go-ahead; `ScoringExposureTests`, `RallyClassifierExporterTests` and `NetLabelsTests` are the ones that bear on this.
+**Run since ([validation record](COURT_NET_VALIDATION_2026-11-24.md)):** `RallyLabTests` — 716 tests, one failing, the same one that fails on `main`; the pipeline built from `main` and from this change gives byte-identical evidence on nine recordings (and on three through the YOLO-only path), a net box identical to the one stored in `rc-v1-20261112`, and the same `canonicalSHA256` as that dataset.
