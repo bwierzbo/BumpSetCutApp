@@ -65,6 +65,39 @@ final class CourtLayoutTests: XCTestCase {
         }
     }
 
+    func testAFarHalfTaperingToHalfItsWidthMaps() throws {
+        // Far end line half as wide as the net line: fitted about the court's corner, this half's map has a zero
+        // free coefficient and could not be solved at all.
+        var half = court
+        half.farLeft = point(0.375, 0.65)
+        half.farRight = point(0.625, 0.65)
+        XCTAssertEqual(half.problems, [])
+        XCTAssertNotNil(half.map(near: false))
+        for role in CourtLayout.Role.allCases {
+            let image = try XCTUnwrap(half.image(u: role.court.u, v: role.court.v), role.rawValue)
+            XCTAssertEqual(image.x, half[role].x, accuracy: 1e-9, role.rawValue)
+            XCTAssertEqual(image.y, half[role].y, accuracy: 1e-9, role.rawValue)
+        }
+        let farLeft = try XCTUnwrap(half.courtCoordinates(0.375, 0.65))
+        XCTAssertEqual(farLeft.u, 0, accuracy: 1e-7)
+        XCTAssertEqual(farLeft.v, 1, accuracy: 1e-7)
+    }
+
+    func testTapersOfEveryWidthMapTheirFarCorners() throws {
+        // From a far line as wide as the net line down to a tenth of it, in fine steps: no width is a gap.
+        for step in 10...100 {
+            let halfWidth = 0.25 * Double(step) / 100
+            var g = court
+            g.farLeft = point(0.5 - halfWidth, 0.65)
+            g.farRight = point(0.5 + halfWidth, 0.65)
+            let image = try XCTUnwrap(g.image(u: 0, v: 1), "half-width \(halfWidth)")
+            XCTAssertEqual(image.x, 0.5 - halfWidth, accuracy: 1e-9, "half-width \(halfWidth)")
+            XCTAssertEqual(image.y, 0.65, accuracy: 1e-9, "half-width \(halfWidth)")
+            let map = try XCTUnwrap(g.map(near: false))
+            XCTAssertGreaterThan(map.apply(0.5, 0.75).w, 0)
+        }
+    }
+
     func testOutlineFollowsTheBoundaryThroughBothHalves() {
         let outline = court.outline([(0, 0), (1, 0), (1, 1), (0, 1)], steps: 4)
         XCTAssertEqual(outline.count, 16)

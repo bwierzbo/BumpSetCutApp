@@ -366,8 +366,10 @@ struct CourtNetCalibrationFile: Codable, Equatable, Sendable {
     }
 
     /// The camera changed at t: the segment holding t becomes two. The second starts with nothing confirmed; with
-    /// reuse, the first's confirmed (or drafted) court and net are its drafts — a starting point for the new view,
-    /// never a confirmation. False when t is within the tolerance of the segment's ends.
+    /// reuse, the first's court and net as they stand — its draft where it has one (what the person is looking
+    /// at), else its confirmation — are the second's drafts: a starting point for the new view, never a
+    /// confirmation. The first keeps its own draft and confirmation. False when t is within the tolerance of the
+    /// segment's ends.
     mutating func split(at t: Double, reuse: Bool) -> Bool {
         guard let i = segments.firstIndex(where: { $0.contains(t) }), t - segments[i].validFromSec > Self.timeTolerance,
               segments[i].validToSec - t > Self.timeTolerance else { return false }
@@ -383,7 +385,7 @@ struct CourtNetCalibrationFile: Codable, Equatable, Sendable {
     }
 
     private static func reused<G>(_ part: CalibrationPart<G>, from id: Int) -> CalibrationPart<G> {
-        guard let geometry = part.confirmation?.geometry ?? part.draft else { return CalibrationPart() }
+        guard let geometry = part.draft ?? part.confirmation?.geometry else { return CalibrationPart() }
         return CalibrationPart(draft: geometry, draftStartedFrom: "segment \(id)", draftBaseline: geometry)
     }
 
