@@ -264,8 +264,14 @@ enum RallyClassifierExporter {
         // The committed config and its detector: one detector per dataset, the multi-frame model.
         let config = ProcessorConfig()
         guard config.heatmapOnly, let model = config.heatmapModel else { throw Failure.detectorUnknown("the committed config does not run the multi-frame model alone") }
-        guard let modelDigest = DatasetSplitManifest.canonicalDigest(ofDirectory: model) else { throw Failure.detectorUnknown("\(model.path) can't be read") }
-        let detector = Detector(name: model.deletingPathExtension().lastPathComponent, canonicalDigest: String(modelDigest.prefix(16)))
+        // The detector is the model package the build compiled, not the compiled model in the app: the compiler writes
+        // other bytes on every build, so a digest of those named the build and no rebuilt RallyLab could reuse a
+        // dataset's evidence.
+        let modelName = model.deletingPathExtension().lastPathComponent
+        guard let modelDigest = modelSourceDigest(named: modelName) else {
+            throw Failure.detectorUnknown("this RallyLab build records no digest of the model package \(modelName) was compiled from (model-source-digests.txt): rebuild it from a git checkout")
+        }
+        let detector = Detector(name: modelName, canonicalDigest: String(modelDigest.prefix(16)))
         let configSha = config.canonicalSHA256
         let variantDTOs = variants.map { VariantDTO(name: $0.name, configSha256: $0.config.canonicalSHA256, settings: Settings($0.config)) }
 
@@ -1496,6 +1502,24 @@ enum RallyClassifierExporter {
         let hex = sha.hasSuffix("-dirty") ? String(sha.dropLast(6)) : sha
         guard hex.count == 40, hex.allSatisfy(\.isHexDigit) else { return nil }
         return sha
+    }
+
+    /// The canonical directory digest (`DatasetSplitManifest.canonicalDigest`, `.DS_Store` aside) of the model package
+    /// this build compiled `name` from — `BumpSetCut/Resources/ML/<name>.mlpackage` as it was at build time, written
+    /// by the Record Source Revision build phase to `model-source-digests.txt`. nil when the build recorded none.
+    static func modelSourceDigest(named name: String, in bundle: Bundle = .main) -> String? {
+        guard let url = bundle.url(forResource: "model-source-digests", withExtension: "txt"),
+              let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        return modelSourceDigest(named: name, in: text)
+    }
+
+    /// `name`'s digest in the build's record: one `<name> <64 hex>` line per model package. nil when it has no such
+    /// line, more than one, or one that is not a digest.
+    static func modelSourceDigest(named name: String, in record: String) -> String? {
+        let lines = record.split(separator: "\n").map { $0.split(separator: " ", omittingEmptySubsequences: false) }.filter { $0.first.map(String.init) == name }
+        guard lines.count == 1, lines[0].count == 2 else { return nil }
+        let digest = String(lines[0][1])
+        return digest.count == 64 && digest.allSatisfy { $0.isHexDigit && !$0.isUppercase } ? digest : nil
     }
 
     /// SHA-256 of the running executable: the binary itself, so two builds of one dirty tree are told apart.
