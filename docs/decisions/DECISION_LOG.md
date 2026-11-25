@@ -49,6 +49,7 @@ The authoritative record of product, architecture, data and process decisions fo
 | [D-036](#d-036) | 2026-11-10 | accepted | Three train recordings that are copies of lineage-holdout recordings are withheld with them through a shared confirmed `sourceId` (Option A; nothing deleted, the holdout is not un-reserved); a card's stored fingerprint is not its video's content, so the plan, the preflight and the audit compare both; a lineage holdout in a training package is said on every audit; amends D-017 and D-018 |
 | [D-037](#d-037) | 2026-11-12 | accepted | D-036 completed: the correction is applied to live Scratch (nine pairs, 24 withheld); L2 is kept, marked exposed, and its D-017 lineage-isolation claim is void; routine model runs refuse the whole withheld closure, the legacy holdout included; one bounded, logged content audit of the protected recordings; no exception for `rc-v1-20261108`'s older record — a new export; amends D-017 and D-036 |
 | [D-038](#d-038) | 2026-11-14 | accepted | The seven follow-up PRs (#179, #176, #177, #180, #181, #178, #182) are merged; the classifier preregistration's amendments A1–A13 are accepted with reporting requirements; negative-label verification is **not** waived — gate G7 is adopted (only reviewed-clean intervals or eligible Stage 1 coverage supply negatives) and the coverage audit starts with a frozen 12-recording pilot; both existing exports are preserved; no training |
+| [D-042](#d-042) | 2026-11-24 | accepted | Court & Net Calibration ships manual-first in the iPhone app on one shared, versioned format (`court_net_calibration_v1`); YOLO leaves the shipping baseline, the Labeler included, with an explicit net-geometry source in place of the net detector; automatic proposals are optional and later |
 
 ---
 
@@ -595,3 +596,20 @@ The authoritative record of product, architecture, data and process decisions fo
 **Source.** Owner instruction 2026-11-20 (verbatim note above); [RALLY_CLASSIFIER_COVERAGE_AUDIT_PROTOCOL.md](../ml-roadmap/RALLY_CLASSIFIER_COVERAGE_AUDIT_PROTOCOL.md) and amendment 1 (both unchanged); D-038, D-039, D-040.
 
 **Status 2026-11-23.** Correction of fact, no change to the decision: amendment 2 states that no blind-repeat verdict had been given when the repeat was removed, and that the pilot's count of second looks is zero. Six had been given, in two recordings, about a minute before the owner's instruction; all six are `clean` and agree with their first looks, and they stay on record. The pilot's result is evaluated on first looks and is unchanged. The frozen amendment is not edited; the correction is [2026-11-23-audit-amendment-2-correction.md](2026-11-23-audit-amendment-2-correction.md).
+
+### D-042
+
+**Court & Net Calibration ships manual-first in the iPhone app; YOLO leaves the shipping baseline** — 2026-11-24 — accepted — owner ([verbatim](2026-11-24-court-net-calibration-yolo-removal-authorization.md)).
+
+**Decision.**
+1. **Manual first.** The iPhone app gets a Court & Net Calibration screen that a person can complete with no model and no proposal: the court as the six ground points of `court_geometry_v1`, the physical net as four free corners, kept as separate shapes. Release 1 is not held for an automatic detector; none is trained under this decision.
+2. **One format.** A recording's calibration is one versioned file (`court_net_calibration_v1`, [format](../ml-roadmap/COURT_NET_CALIBRATION_FORMAT.md)) bound to the video's fingerprint, frame and length, with camera segments, proposals kept as made, and confirmations only a person makes. A proposal never replaces a confirmation; a file for another video or frame is stale and never used.
+3. **YOLO out of what ships.** No YOLO ball or net detector, no YOLO fallback, no YOLO or hybrid setting and no Ultralytics-derived package in the BumpSetCut app or the Labeler's assisted tracking. The multi-frame heatmap model stays the ball finder; its absence is reported, never covered by another model. Research code and stored evidence stay, isolated from the shipping pipeline. Extends D-012 from the public app to every shipping and TestFlight path.
+4. **Net geometry is explicit.** The pipeline reads the net from a source that says what it is — person-confirmed, proposed, or unavailable — and records which spatial checks ran. No net is never read as "above the net" or "in court"; no net position is invented. Unvalidated geometry makes no hard rally decision in Release 1.
+5. **Gates.** Focused PRs, Codex review, owner merge. Internal TestFlight needs the owner's confirmation; external TestFlight and the App Store are separate. The classifier workstream (G6/G7, audit records, datasets, folds, preregistration, R0/R0′) is not touched; no migration or backend change.
+
+**Context.** PR #166 (D-034, research) built the court geometry, proposals and person-confirmed calibration on the Mac; RallyLab's Net labels tab has the net as four corners. Draft PR #108 (D-012) took the YOLO packages out of the app target but left the net rules silently skipped and the detector code in place.
+
+**Consequences.** PR 1: the shared format and store (`BumpSetCut/Core/Calibration/`), `NetQuad` and the file fingerprint moved to shared files. Then the iPhone editor, the YOLO removal with the net-geometry source (supersedes PR #108), and optional proposals. PR #166 takes the shared `CourtLayout` when it is next rebased.
+
+**Source.** Owner authorisation 2026-11-24 (verbatim note above); D-012, D-013, D-034 (proposed, PR #166).
