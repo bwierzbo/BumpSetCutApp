@@ -199,6 +199,26 @@ final class CalibrationEditorViewModelTests: XCTestCase {
         XCTAssertEqual(try onFile().segments.count, 2, "too close to the start to split")
     }
 
+    func testACameraChangeStartsTheNewViewFromTheMarksOnScreenNotTheEarlierConfirmation() async throws {
+        let model = await open()
+        place(courtTaps, in: model)
+        model.confirm()
+        // A corner moved after confirming, not confirmed again.
+        model.drag(.handle(.court(.farRight)), from: model.shapes, dx: 0.03, dy: 0.01)
+        XCTAssertEqual(model.shapes.court.farRight.x, 0.70, accuracy: 1e-9)
+        model.seek(to: 2)
+        model.cameraChangedHere(reuse: true)
+
+        XCTAssertEqual(model.segmentNumber, 2)
+        XCTAssertEqual(model.shapes.court.farRight.x, 0.70, accuracy: 1e-9, "the new view starts from what was on screen")
+        let file = try onFile()
+        XCTAssertEqual(file.segments[1].court.draft?.farRight.x ?? 0, 0.70, accuracy: 1e-9)
+        // The first view's confirmation is untouched and still in force there; its edit is its draft.
+        XCTAssertEqual(file.confirmed(\.court, at: 1)?.geometry, CalibrationFixtures.court)
+        XCTAssertEqual(file.segments[0].court.draft?.farRight.x ?? 0, 0.70, accuracy: 1e-9)
+        XCTAssertNil(file.confirmed(\.court, at: 3))
+    }
+
     func testAViewThatIsNotStableTakesNoMarks() async throws {
         let model = await open()
         place(courtTaps, in: model)
