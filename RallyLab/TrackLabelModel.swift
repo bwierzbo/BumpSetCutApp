@@ -88,9 +88,11 @@ final class TrackLabelModel {
     var rally: TrackedRally? { rallies.first { $0.id == selectedId } }
     var point: TrackPoint? { rally.flatMap { index < $0.points.count ? $0.points[index] : nil } }
 
-    /// Sessions whose video is on this Mac — the frames come from it.
+    /// Sessions whose video is on this Mac — the frames come from it. The Track tab lists them on every redraw:
+    /// `FootagePresence` answers (opening one reads its file, and says so when it is gone).
     var trackableSessions: [VideoSession] {
-        sampler.sessions.filter { FileManager.default.fileExists(atPath: $0.sourcePath) }
+        let here = FootagePresence.shared.here(sampler.sessions.map(\.sourcePath))
+        return sampler.sessions.filter { here.contains($0.sourcePath) }
     }
 
     // MARK: - Opening from another tab
