@@ -474,16 +474,33 @@ final class VideoProcessor: @unchecked Sendable {
         }
         let configHash = ProcessingCheckpoint.hash(of: config)
         urgentCheckpoint.withLock { $0 = false }
+
+        // The net, asked of the run's source once, before anything else of the
+        // run is decided: one box for the whole video, or none — and then the
+        // rules that need it are skipped, never answered as if the ball were in
+        // the court or above the net. Asked on a resume too: what a checkpoint
+        // holds was decided against the net it was written with.
+        detectedNet = nil
+        netGeometry = .unavailable(reason: "no net-dependent rule is on")
+        if config.enableUnderNetRejection || config.enableOffCourtRejection || config.enableAboveNetRequirement {
+            let netStart = CFAbsoluteTimeGetCurrent()
+            netGeometry = await netSource.netGeometry(forVideoAt: url, asset: asset, durationSec: lastVideoDurationSec, config: config)
+            timing.net = CFAbsoluteTimeGetCurrent() - netStart
+            detectedNet = netGeometry.net
+        }
+
         var restored: ProcessingCheckpoint?
         if let checkpointURL, let candidate = ProcessingCheckpoint.load(from: checkpointURL) {
             if candidate.isValid(for: videoId, configHash: configHash,
                                  durationSec: lastVideoDurationSec,
-                                 collectEvidence: collectFrameEvidence) {
+                                 collectEvidence: collectFrameEvidence),
+               candidate.wasWritten(with: detectedNet, origin: netGeometry.origin) {
                 restored = candidate
                 eventLog.log(.processingStarted,
                              detail: String(format: "resuming from checkpoint at %.1fs", candidate.resumeTime))
             } else {
-                // Different config or source — a stale checkpoint must not leak in.
+                // Different config, source or net (a calibration confirmed, corrected or withdrawn since) —
+                // a stale checkpoint must not leak in: the run starts from the first frame.
                 ProcessingCheckpoint.delete(at: checkpointURL)
             }
         }
@@ -517,24 +534,8 @@ final class VideoProcessor: @unchecked Sendable {
             }
         }
 
-        // The net, asked of the run's source once, BEFORE the main loop, so the
-        // off-court / under-net rules have it from the first frame: one box for
-        // the whole video, or none — and then those rules are skipped, never
-        // answered as if the ball were in the court or above the net. A resumed
-        // run reuses the net its checkpoint froze.
-        detectedNet = nil
-        netGeometry = .unavailable(reason: "no net-dependent rule is on")
-        if config.enableUnderNetRejection || config.enableOffCourtRejection || config.enableAboveNetRequirement {
-            if let restoredNet = restored?.net {
-                netGeometry = NetGeometry(net: restoredNet.detectedNet, origin: restoredNet.origin ?? "unrecorded")
-            } else {
-                let netStart = CFAbsoluteTimeGetCurrent()
-                netGeometry = await netSource.netGeometry(forVideoAt: url, asset: asset, durationSec: lastVideoDurationSec, config: config)
-                timing.net = CFAbsoluteTimeGetCurrent() - netStart
-            }
-            detectedNet = netGeometry.net
-            gate.net = detectedNet
-        }
+        // The run's net, from before its first frame, for the under-net rule.
+        gate.net = detectedNet
         let spatialChecks = SpatialChecks(config: config, net: netGeometry)
         lastSpatialChecks = spatialChecks
         if let line = spatialChecks.skippedLine { print("ℹ️ \(line)") }

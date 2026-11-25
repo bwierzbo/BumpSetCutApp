@@ -55,11 +55,6 @@ enum NetGeometry {
         if case .unavailable(let reason) = self { return reason }
         return nil
     }
-
-    /// A net kept with its origin (a resume checkpoint).
-    init(net: DetectedNet, origin: String) {
-        self = origin == Self.personConfirmed ? .confirmed(net) : .detected(net, method: origin)
-    }
 }
 
 /// Where a run's net comes from.

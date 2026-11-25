@@ -32,17 +32,6 @@ final class ShippingBaselineTests: XCTestCase {
         do { _ = try await processor.analyzeVideo(video) } catch ProcessingError.noRalliesDetected {}
     }
 
-    /// A net source that answers what it is told to, and counts how often it is asked.
-    private final class FixedNet: NetGeometrySource {
-        let answer: NetGeometry
-        private(set) var asked = 0
-        init(_ answer: NetGeometry) { self.answer = answer }
-        func netGeometry(forVideoAt url: URL, asset: AVAsset, durationSec: Double, config: ProcessorConfig) async -> NetGeometry {
-            asked += 1
-            return answer
-        }
-    }
-
     // MARK: The bundle
 
     func testTheOnlyModelInTheAppIsTheMultiFrameBallModel() throws {
@@ -120,7 +109,7 @@ final class ShippingBaselineTests: XCTestCase {
         let processor = VideoProcessor()
         processor.collectFrameEvidence = true
         let box = CGRect(x: 0.24, y: 0.49, width: 0.52, height: 0.12)
-        let source = FixedNet(.confirmed(DetectedNet(box: box, confidence: 1)))
+        let source = FixedNetSource(.confirmed(DetectedNet(box: box, confidence: 1)))
         processor.netSource = source
         try await run(processor)
         XCTAssertEqual(source.asked, 1)
@@ -138,7 +127,7 @@ final class ShippingBaselineTests: XCTestCase {
         processor.config.enableUnderNetRejection = false
         processor.config.enableOffCourtRejection = false
         processor.config.enableAboveNetRequirement = false
-        let source = FixedNet(.confirmed(DetectedNet(box: CGRect(x: 0.2, y: 0.5, width: 0.6, height: 0.1), confidence: 1)))
+        let source = FixedNetSource(.confirmed(DetectedNet(box: CGRect(x: 0.2, y: 0.5, width: 0.6, height: 0.1), confidence: 1)))
         processor.netSource = source
         try await run(processor)
         let checks = try XCTUnwrap(processor.lastSpatialChecks)
@@ -158,8 +147,8 @@ final class ShippingBaselineTests: XCTestCase {
 
     func testTheNetsOriginIsKeptAndReadBack() throws {
         let net = DetectedNet(box: CGRect(x: 0.2, y: 0.5, width: 0.6, height: 0.1), confidence: 0.8)
-        XCTAssertEqual(NetGeometry(net: net, origin: NetGeometry.personConfirmed).origin, NetGeometry.personConfirmed)
-        XCTAssertEqual(NetGeometry(net: net, origin: "some_method_v1").origin, "some_method_v1")
+        XCTAssertEqual(NetGeometry.confirmed(net).origin, NetGeometry.personConfirmed)
+        XCTAssertEqual(NetGeometry.detected(net, method: "some_method_v1").origin, "some_method_v1")
         XCTAssertNil(NetGeometry.unavailable(reason: "x").net)
         let checks = SpatialChecks(config: ProcessorConfig(), net: .detected(net, method: "some_method_v1"))
         let decoded = try JSONDecoder().decode(SpatialChecks.self, from: JSONEncoder().encode(checks))

@@ -37,6 +37,16 @@ final class ProcessingCheckpointTests: XCTestCase {
         )
     }
 
+    func testACheckpointBelongsToTheNetItWasWrittenWith() {
+        let box = CGRect(x: 0.2, y: 0.4, width: 0.6, height: 0.1)
+        let checkpoint = makeCheckpoint()
+        XCTAssertTrue(checkpoint.wasWritten(with: DetectedNet(box: box, confidence: 1), origin: NetGeometry.personConfirmed))
+        // The same box from another origin, a corrected box, or no net now: another run's.
+        XCTAssertFalse(checkpoint.wasWritten(with: DetectedNet(box: box, confidence: 1), origin: "some_method_v1"))
+        XCTAssertFalse(checkpoint.wasWritten(with: DetectedNet(box: box.offsetBy(dx: 0.01, dy: 0), confidence: 1), origin: NetGeometry.personConfirmed))
+        XCTAssertFalse(checkpoint.wasWritten(with: nil, origin: NetGeometry.unavailable))
+    }
+
     func testCheckpointRoundTripsThroughDisk() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cp_\(UUID().uuidString).json")
