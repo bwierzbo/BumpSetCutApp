@@ -316,7 +316,7 @@ enum NetAIPilot {
             }
             switch s.outcome {
             case .proposed:
-                guard let q = s.corners, q.isUsable, q.points.allSatisfy({ (0...1).contains($0.x) && (0...1).contains($0.y) }),
+                guard let q = s.corners, q.isUsable, q.isInFrame,
                       q.topLeft.y > q.bottomLeft.y, q.topRight.y > q.bottomRight.y, q.topLeft.x < q.topRight.x,
                       s.confidence != nil else { throw PilotError.badCorners(s.video) }
             case .needsManualReview:

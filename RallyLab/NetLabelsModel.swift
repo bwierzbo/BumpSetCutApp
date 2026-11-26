@@ -216,7 +216,7 @@ final class NetLabelsModel {
     /// The frame on screen is the one `time` names and nothing is still decoding.
     var frameIsCurrent: Bool { !loading && frame != nil && frameTime == time }
     var canConfirm: Bool {
-        guard let item = selectedItem, item.skip == nil, frameIsCurrent, let quad, quad.isUsable, let frameTime else { return false }
+        guard let item = selectedItem, item.skip == nil, frameIsCurrent, let quad, quad.isUsable, quad.isInFrame, let frameTime else { return false }
         // A frame inside a cut range is not footage (D-030): never a label.
         return blocked == nil && !item.cuts.contains(frameTime)
     }
@@ -499,7 +499,7 @@ final class NetLabelsModel {
         if item.labeled || item.boxOnly, let label = labels[item.video] {
             time = label.time
             // A box-only label's box seeds the corners; the person places them and confirms.
-            quad = label.corners ?? NetQuad(rect: label.box.rect)
+            quad = label.corners ?? NetLabels.inFrame(label.box.rect).map(NetQuad.init(rect:))
             proposed = label.proposed
             adjusted = label.adjusted
             labelSource = label.proposalSource
@@ -586,9 +586,9 @@ final class NetLabelsModel {
         do { try recordProposal(item.video, time) } catch {
             return "\(item.video): the model's proposal was not made because its use could not be recorded (\(error.localizedDescription)) — \(byHand)"
         }
-        guard let best = footage.proposal(on: frame) else { return "\(item.video): no proposal — \(byHand)" }
-        proposal = best.rect
-        quad = NetQuad(rect: best.rect)
+        guard let best = footage.proposal(on: frame), let box = NetLabels.inFrame(best.rect) else { return "\(item.video): no proposal — \(byHand)" }
+        proposal = box
+        quad = NetQuad(rect: box)
         proposed = true
         return "\(item.video): the old model's box, \(String(format: "%.2f", best.confidence)) — drag its corners onto the net's corners and confirm, or draw your own."
     }

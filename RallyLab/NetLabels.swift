@@ -113,7 +113,20 @@ struct NetExclusionStore {
     }
 }
 
+extension NetQuad {
+    /// Every corner lies in the frame. A corner outside it is not a place in the picture: never a label.
+    var isInFrame: Bool { points.allSatisfy { (0...1).contains($0.x) && (0...1).contains($0.y) } }
+}
+
 enum NetLabels {
+    /// The part of a model's or an old label's box that lies in the frame — a detector's box can run past the
+    /// picture's edge; nil when no usable part of it is in the picture.
+    static func inFrame(_ rect: CGRect) -> CGRect? {
+        let part = rect.standardized.intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
+        guard !part.isNull, NetQuad(rect: part).isUsable else { return nil }
+        return part
+    }
+
     enum Skip: String, Codable { case withheld, handheld, unidentified, sideView = "side_view", noSession = "no_session" }
 
     /// `NetLabel.proposalSource` of a label that started as the old net model's box.

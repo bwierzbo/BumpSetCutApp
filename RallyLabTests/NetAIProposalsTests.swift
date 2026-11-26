@@ -290,7 +290,7 @@ extension NetLabelsTests {
                        "the read-ahead leaves the frames on this Mac alone")
 
         model.select("a_saved")
-        await settle()
+        await settle { model.frame != nil && model.duration > 0 }
         XCTAssertEqual(footage.frameCalls.count, 2, "shown from this Mac: the video is not decoded")
         XCTAssertEqual(model.frameTime, 42)
         XCTAssertEqual(model.frame?.width, 64)
@@ -305,7 +305,7 @@ extension NetLabelsTests {
         // Changed on disk since the run wrote it: read from the video, the proposal still shown on that frame.
         XCTAssertNil(NetAIPilot.savedFrame(at: run.appendingPathComponent("frames/b_changed.jpg"), for: try XCTUnwrap(proposals["b_changed"])))
         model.select("b_changed")
-        await settle()
+        await settle { model.frame != nil }
         XCTAssertEqual(footage.frameCalls.filter { $0.0 == "b_changed.mp4" }.count, 1, "its hash no longer matches: decoded from the video")
         XCTAssertEqual(model.frameTime, 42)
         XCTAssertEqual(model.quad, Self.aiCorners)
