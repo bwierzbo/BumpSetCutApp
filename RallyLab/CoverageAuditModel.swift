@@ -406,7 +406,7 @@ final class CoverageAuditModel {
 
     /// Whether the pass on screen has work left in a recording, by its status.
     private func hasWork(_ s: CoverageAudit.RecordingStatus) -> Bool {
-        guard s.problem == nil else { return false }
+        guard s.problem == nil, s.setAside == nil else { return false }
         switch pass {
         case .first: return s.firstLeft > 0
         case .repeatLook: return false

@@ -267,6 +267,8 @@ final class NetLabelsTests: XCTestCase {
         /// Every call in order, so a test can see the ledger row land before the model runs.
         private(set) var events: [String] = []
         var modelAvailable = true
+        /// The old model's box on any frame.
+        var box = CGRect(x: 0.1, y: 0.5, width: 0.8, height: 0.1)
         /// Held reads, oldest first; `release()` lets them all go, `releaseFirst()` the oldest.
         var gates: [CheckedContinuation<Void, Never>] = []
         var holdFrames = false
@@ -299,7 +301,7 @@ final class NetLabelsTests: XCTestCase {
 
         func proposal(on frame: CGImage) -> (rect: CGRect, confidence: Float)? {
             lock.withLock { proposalCalls += 1; events.append("proposal") }
-            return (CGRect(x: 0.1, y: 0.5, width: 0.8, height: 0.1), 0.9)
+            return (box, 0.9)
         }
 
         func noteExposure(_ video: String) { lock.withLock { events.append("exposure \(video)") } }
@@ -332,6 +334,15 @@ final class NetLabelsTests: XCTestCase {
     @MainActor
     func settle() async {
         for _ in 0..<50 { await Task.yield() }
+    }
+
+    /// Until `done` (ten seconds at most), then the yields: a read that leaves the main actor — a saved frame is
+    /// hashed and decoded off it — is not finished by yields alone.
+    @MainActor
+    func settle(until done: @escaping @MainActor () -> Bool) async {
+        let deadline = Date().addingTimeInterval(10)
+        while !done(), Date() < deadline { try? await Task.sleep(nanoseconds: 2_000_000) }
+        await settle()
     }
 
     @MainActor
@@ -697,6 +708,39 @@ final class NetLabelsTests: XCTestCase {
         // Rows survive a round trip through the file with their kind spelled out.
         let text = try String(contentsOf: ExposureLog.url(in: dir), encoding: .utf8)
         XCTAssertTrue(text.contains("\"net_proposal\""))
+    }
+
+    /// A detector's box can run past the picture's edge. Only its part in the picture is proposed, a box wholly
+    /// outside it is no proposal, and corners outside the picture are never saved as a label.
+    @MainActor
+    func testABoxPastTheFramesEdgeIsProposedInsideItAndCornersOutsideAreNeverConfirmed() async throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let footage = ScriptedFootage()
+        footage.box = CGRect(x: -0.1, y: 0.5, width: 0.6, height: 0.7)
+        let store = NetLabelStore(projectDir: dir)
+        let model = NetLabelsModel(items: [try item("c_ok", in: dir), try item("d_next", in: dir)], labels: [:], store: store, footage: footage) { _, _ in }
+        model.select("c_ok")
+        await settle()
+        let inside = CGRect(x: 0, y: 0.5, width: 0.5, height: 0.5)
+        XCTAssertEqual(model.proposal, inside)
+        XCTAssertEqual(model.quad, NetQuad(rect: inside))
+
+        // Corners outside the picture (however they got there) are refused.
+        model.setQuad(NetQuad(rect: footage.box))
+        XCTAssertFalse(model.canConfirm)
+        XCTAssertFalse(model.confirm())
+        XCTAssertEqual(try store.load(), [:])
+        model.useProposal()
+        XCTAssertTrue(model.confirm())
+        XCTAssertEqual(try store.load()["c_ok"]?.corners, NetQuad(rect: inside))
+
+        // Wholly outside the picture: nothing is proposed, the person draws it.
+        footage.box = CGRect(x: 1.2, y: 0.5, width: 0.3, height: 0.2)
+        await settle()
+        XCTAssertEqual(model.selected, "d_next")
+        XCTAssertNil(model.proposal); XCTAssertNil(model.quad)
+        XCTAssertTrue(model.status.contains("no proposal"), model.status)
     }
 
     @MainActor

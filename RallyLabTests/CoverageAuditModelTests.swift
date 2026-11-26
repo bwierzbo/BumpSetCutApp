@@ -254,6 +254,25 @@ final class CoverageAuditModelTests: XCTestCase {
 
     /// A Mac with a labeling session records the labeler's id, never a typed name — and nothing while the account
     /// is not confirmed, so one person is not recorded under two names.
+    /// Typed edited in another tab while this one was away: coming back does not reopen it (the type is read at the
+    /// open, not from the list the tab last drew), and the list then names it as set aside.
+    func testARecordingTypedOtherwiseWhileTheTabWasAwayIsNotReopened() async throws {
+        let model = try await model()
+        try await wait("the recordings' status") { model.statuses.count == 2 }
+        await model.open("v")
+        XCTAssertEqual(model.recordingId, "v")
+        model.deactivate()
+        try FootageProperties.Store(root: root).save(FootageProperties.File(video: "v", recordingType: .edited, updatedAt: EventReview.stamp(now)))
+        model.activate()
+        try await wait("the reopen to be refused") { model.status.contains("typed edited since the draw") }
+        XCTAssertTrue(model.lastRefused)
+        XCTAssertNil(model.recordingId); XCTAssertNil(model.player)
+        try await wait("the list to name it") { model.statuses.first { $0.recordingId == "v" }?.setAside != nil }
+        XCTAssertNil(try onDisk("v"))
+        await model.nextToReview()
+        XCTAssertEqual(model.recordingId, "w", "Return goes to the recording that is still audited")
+    }
+
     func testNoVerdictIsTakenUntilTheSignedInLabelerIsConfirmed() async throws {
         final class Account: @unchecked Sendable {
             private let lock = NSLock()

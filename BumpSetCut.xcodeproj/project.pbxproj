@@ -129,14 +129,14 @@
 				Shared/LabelingModels.swift,
 				Shared/LabelQueue.swift,
 				Shared/LiveTagger.swift,
-				Shared/RallyTruth.swift,
 				Shared/MarkingProgress.swift,
 				Shared/PipelineVideo.swift,
 				Shared/RallyEvents.swift,
 				Shared/RallyEventsSync.swift,
 				Shared/RallyTimesBar.swift,
-				Shared/RecordingTypeClaims.swift,
 				Shared/RallyTrack.swift,
+				Shared/RallyTruth.swift,
+				Shared/RecordingTypeClaims.swift,
 				Shared/ReviewCanvas.swift,
 				Shared/ReviewViews.swift,
 				Shared/TrackFinder.swift,
@@ -989,6 +989,7 @@
 				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 8UHLPBQL7Y;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -997,7 +998,6 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
-				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = app.BumpSetCut.RallyLab;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
@@ -1015,6 +1015,7 @@
 				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 8UHLPBQL7Y;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1023,7 +1024,6 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
-				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = app.BumpSetCut.RallyLab;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;

@@ -65,8 +65,12 @@ struct CoverageAuditView: View {
             List(model.statuses, selection: Binding(get: { model.recordingId }, set: { name in if let name { Task { await model.open(name) } } })) { s in
                 VStack(alignment: .leading, spacing: 3) {
                     Text(s.recordingId).font(.system(.body, design: .monospaced)).lineLimit(1)
-                    ProgressView(value: Self.progress(of: s, in: model.pass)).controlSize(.small)
-                    Text(Self.summary(of: s, in: model.pass)).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    if let why = s.setAside {
+                        Text(why).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                    } else {
+                        ProgressView(value: Self.progress(of: s, in: model.pass)).controlSize(.small)
+                        Text(Self.summary(of: s, in: model.pass)).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    }
                     if let problem = s.problem { Text(problem).font(.caption).foregroundStyle(.red).lineLimit(3) }
                     if s.movedIntervals > 0 {
                         Text("marks changed since the draw: \(s.movedIntervals) interval(s) need a new draw").font(.caption).foregroundStyle(.orange).lineLimit(2)

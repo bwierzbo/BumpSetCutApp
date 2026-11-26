@@ -161,7 +161,7 @@ struct CoverageAuditPhone: Codable, Equatable {
         case false?: break
         }
         // The draw holds only recordings typed continuous: one typed otherwise since is not audited for negatives.
-        if let type = video?.recordingType, type != "continuous" { return "typed \(type) since the draw: not audited, and no source of negatives" }
+        if let type = video?.recordingType, type != "continuous" { return CoverageAudit.setAsideReason(type: type) }
         guard published.sourceFingerprint == drawn.contentFingerprint else { return "the Mac published other footage than the draw's" }
         guard let video, video.id == published.videoId, video.sourceFingerprint == drawn.contentFingerprint else {
             return "no copy of the draw's footage is published for it"
