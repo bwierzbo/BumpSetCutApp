@@ -104,6 +104,7 @@ struct CalibrationEditorView: View {
                     .contentShape(Rectangle())
                     .gesture(dragGesture.simultaneously(with: pinchGesture))
                     .accessibilityLabel(Text("Video frame with the court and net marks"))
+                    .accessibilityIdentifier(AccessibilityID.Calibration.canvas)
                 loupe
             }
             .onChange(of: geometry.size, initial: true) { _, size in viewport.canvas = size }
@@ -250,6 +251,7 @@ struct CalibrationEditorView: View {
                 .foregroundColor(.bscTextSecondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, minHeight: 36, alignment: .topLeading)
+                .accessibilityIdentifier(AccessibilityID.Calibration.hint)
             frameRow
             HStack(spacing: BSCSpacing.sm) {
                 BSCButton(title: "Save draft", style: .secondary, size: .medium, isFullWidth: false) { model.saveDraft() }
@@ -313,6 +315,7 @@ struct CalibrationEditorView: View {
             }
         }
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(AccessibilityID.Calibration.status)
     }
 
     private var targetPicker: some View {
