@@ -91,7 +91,12 @@ struct CalibrationEditorView: View {
         } else {
             VStack(spacing: 0) {
                 canvas
-                controls.padding(BSCSpacing.md)
+                // At a large text size, or on a short phone, the controls are taller than the room under the
+                // picture: they scroll then, instead of being squeezed into each other.
+                ViewThatFits(in: .vertical) {
+                    controls.padding(BSCSpacing.md)
+                    ScrollView { controls.padding(BSCSpacing.md) }
+                }
             }
         }
     }
@@ -148,9 +153,13 @@ struct CalibrationEditorView: View {
             visibilityToggle(isOn: $model.showCourt, color: CalibrationOverlayCanvas.courtColor, label: "Show the court")
             visibilityToggle(isOn: $model.showNet, color: CalibrationOverlayCanvas.netColor, label: "Show the net")
             Toggle(isOn: $wholeShape) {
-                Label("Move all", systemImage: "arrow.up.and.down.and.arrow.left.and.right")
-                    .bscFont(size: 13, weight: .medium)
-                    .frame(minHeight: BSCTouchTarget.compact)
+                // The words go when the row is too narrow for them (landscape, large text); the label is still read out.
+                ViewThatFits(in: .horizontal) {
+                    Label("Move all", systemImage: "arrow.up.and.down.and.arrow.left.and.right").lineLimit(1)
+                    Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                }
+                .bscFont(size: 13, weight: .medium)
+                .frame(minHeight: BSCTouchTarget.compact)
             }
             .toggleStyle(.button)
             .accessibilityLabel(Text("Dragging moves the whole shape"))

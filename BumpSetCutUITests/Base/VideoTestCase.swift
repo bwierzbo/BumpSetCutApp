@@ -13,6 +13,9 @@ class VideoTestCase: BSCUITestCase {
     /// Override in subclasses to use a different test video.
     var testVideoName: String { "short" }
 
+    /// Launch arguments a subclass adds for a test (a text size, say).
+    var extraLaunchArguments: [String] { [] }
+
     override func setUpWithError() throws {
         continueAfterFailure = false
 
@@ -24,7 +27,7 @@ class VideoTestCase: BSCUITestCase {
         }
 
         app = XCUIApplication()
-        app.launchArguments = ["--uitesting", "--skip-onboarding", "--clear-library"]
+        app.launchArguments = ["--uitesting", "--skip-onboarding", "--clear-library"] + extraLaunchArguments
         app.launchEnvironment["TEST_VIDEO_PATH"] = videoURL.path
         app.launch()
     }

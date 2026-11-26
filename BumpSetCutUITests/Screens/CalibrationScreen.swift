@@ -30,6 +30,29 @@ struct CalibrationScreen {
     var showCourtButton: XCUIElement { app.buttons["Show the court"] }
     var showNetButton: XCUIElement { app.buttons["Show the net"] }
     var hiddenToggle: XCUIElement { app.switches["Hidden — my best guess"] }
+    var positionSlider: XCUIElement { app.sliders["Position in the video"] }
+    /// The frame's time, "m:ss.hh".
+    var clock: XCUIElement { app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", #"\d+:\d{2}\.\d{2}"#)).firstMatch }
+    var notStableBanner: XCUIElement {
+        app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "This part of the video is marked as not a stable court view")).firstMatch
+    }
+
+    /// The frame's time in seconds, read off the screen.
+    var seconds: Double {
+        let parts = clock.label.split(separator: ":")
+        guard parts.count == 2, let minutes = Double(parts[0]), let rest = Double(parts[1]) else { return .nan }
+        return minutes * 60 + rest
+    }
+
+    /// Picks an item of the ⋯ menu, through a submenu when `path` has more than one name.
+    func more(_ path: String...) {
+        moreButton.tap()
+        for name in path {
+            let item = app.buttons[name].firstMatch
+            _ = item.waitForExistence(timeout: 3)
+            item.tap()
+        }
+    }
 
     func chip(_ name: String) -> XCUIElement { app.buttons[name] }
 
@@ -58,10 +81,10 @@ struct CalibrationScreen {
     mutating func zoomIn() { app.buttons["Zoom in"].tap(); scale *= Self.zoomStep }
     mutating func fit() { app.buttons["Fit the picture"].tap(); scale = 1 }
 
-    /// Closes the editor, keeping what was changed as a draft if it asks.
-    func close() {
+    /// Closes the editor. If it asks, what was changed is kept as a draft, or dropped when `saving` is false.
+    func close(saving: Bool = true) {
         closeButton.tap()
-        let save = app.buttons["Save draft and close"]
-        if save.waitForExistence(timeout: 1.5) { save.tap() }
+        let answer = app.buttons[saving ? "Save draft and close" : "Close without saving"]
+        if answer.waitForExistence(timeout: 1.5) { answer.tap() }
     }
 }

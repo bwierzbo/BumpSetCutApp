@@ -196,10 +196,9 @@ struct ProcessVideoView: View {
 // MARK: - Background
 private extension ProcessVideoView {
     var backgroundGradient: some View {
-        ZStack {
-            Color.bscBackground
-                .ignoresSafeArea()
-
+        // The orbs are wider than a phone: drawn over the colour, not beside it, so they can't widen the screen's
+        // content past its edges.
+        Color.bscBackground.ignoresSafeArea().overlay {
             // Animated gradient orbs
             Circle()
                 .fill(
