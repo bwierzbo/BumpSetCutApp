@@ -26,6 +26,9 @@ extension CoverageAudit {
         var rallyMarks = 0
         /// Why the recording is not read, or its record does not count; nil when nothing is wrong.
         var problem: String?
+        /// Why the recording is no longer part of the audit, though the draw lists it: a person typed it other than
+        /// continuous since the draw. Nothing of it is counted, it owes no look, and it does not hold the stage open.
+        var setAside: String?
 
         subscript<T>(dynamicMember path: KeyPath<Tally, T>) -> T { tally[keyPath: path] }
     }
@@ -76,6 +79,17 @@ extension CoverageAudit {
                 status.problem = "withheld (\(why)) — not read"
                 return status
             }
+            // The draw holds only recordings typed continuous: one typed otherwise since is not audited for negatives
+            // (the phone's rule, `CoverageAuditPhone.unavailable`, and the report's).
+            do {
+                if let type = try FootageProperties.Store(root: root).load(recording.recordingId)?.recordingType, type != .continuous {
+                    status.setAside = "typed \(type.rawValue) since the draw: not audited, and no source of negatives"
+                    return status
+                }
+            } catch {
+                status.problem = "its footage type can't be read (\(error.localizedDescription))"
+                return status
+            }
             var problems: [String] = []
             var current: Set<Span> = []
             var marksRead = false
@@ -116,6 +130,10 @@ extension CoverageAudit {
         var lines = ["Coverage audit — draw \(draw.drawId) (\(draw.datasetName)): \(statuses.count) recording(s), \(statuses.reduce(0) { $0 + $1.total }) interval(s)"]
         let width = statuses.map(\.recordingId.count).max() ?? 0
         for s in statuses {
+            if let why = s.setAside {
+                lines.append("  " + s.recordingId.padding(toLength: width, withPad: " ", startingAt: 0) + "  \(why)")
+                continue
+            }
             var line = "  " + s.recordingId.padding(toLength: width, withPad: " ", startingAt: 0)
                 + "  \(s.reviewed)/\(s.total) reviewed · \(s.state.text)"
             if s.unresolved > 0 { line += " · \(s.unresolved) disagreement(s) unresolved" }
@@ -125,13 +143,14 @@ extension CoverageAudit {
             if let problem = s.problem { line += " · ⚠️ \(problem)" }
             lines.append(line)
         }
+        let counted = statuses.filter { $0.setAside == nil }
         var totals: [FindingKind: Int] = [:]
-        for s in statuses { for (kind, n) in s.findings { totals[kind, default: 0] += n } }
-        let byState = Dictionary(grouping: statuses, by: \.state.name).mapValues(\.count)
-        lines.append("Total: \(statuses.reduce(0) { $0 + $1.reviewed })/\(statuses.reduce(0) { $0 + $1.total }) intervals reviewed · "
+        for s in counted { for (kind, n) in s.findings { totals[kind, default: 0] += n } }
+        let byState = Dictionary(grouping: counted, by: \.state.name).mapValues(\.count)
+        lines.append("Total: \(counted.reduce(0) { $0 + $1.reviewed })/\(counted.reduce(0) { $0 + $1.total }) intervals reviewed · "
             + ["audited_clean", "partial", "contaminated"].map { "\($0) \(byState[$0] ?? 0)" }.joined(separator: " · "))
         lines.append("Findings: \(countsText(totals)) · missed rallies + missed serves \((totals[.missedRally] ?? 0) + (totals[.missedServe] ?? 0)) "
-            + "against \(statuses.reduce(0) { $0 + $1.rallyMarks }) rally mark(s)")
+            + "against \(counted.reduce(0) { $0 + $1.rallyMarks }) rally mark(s)")
         return lines
     }
 

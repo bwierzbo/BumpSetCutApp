@@ -569,6 +569,36 @@ final class CoverageAuditRecordingTests: XCTestCase {
         XCTAssertNil(try onDisk("c"))
     }
 
+    /// The draw holds only recordings typed continuous. One a person typed otherwise since is named with the reason,
+    /// counted nowhere, and does not hold the stage open; a type that can't be read is a problem, and does.
+    func testARecordingTypedOtherwiseSinceTheDrawIsSetAsideAndCountsNowhere() throws {
+        try recording("a"); try recording("b")
+        let d = try draw(["a", "b"], repeatSet: [])
+        for i in 0...2 { try A.record(request("a", i, .clean, played: all), draw: d, root: root, tool: "t", now: now) }
+        try A.record(request("b", 0, .clean, played: all), draw: d, root: root, tool: "t", now: now)
+        let properties = FootageProperties.Store(root: root)
+        try properties.save(FootageProperties.File(video: "a", recordingType: .continuous, updatedAt: EventReview.stamp(now)))
+        XCTAssertEqual(try A.status(draw: d, root: root).compactMap(\.setAside), [], "typed continuous: audited as before")
+        XCTAssertNotNil(A.incompleteness(of: try A.status(draw: d, root: root)), "b owes two looks")
+
+        try properties.save(FootageProperties.File(video: "b", recordingType: .edited, updatedAt: EventReview.stamp(now)))
+        let statuses = try A.status(draw: d, root: root)
+        XCTAssertEqual(statuses.map(\.setAside), [nil, "typed edited since the draw: not audited, and no source of negatives"])
+        XCTAssertEqual(statuses.map(\.reviewed), [3, 0], "nothing of its record is counted")
+        XCTAssertNil(statuses[1].problem)
+        XCTAssertNil(A.incompleteness(of: statuses), "a set-aside recording owes no look")
+        let lines = A.statusLines(statuses, draw: d.draw)
+        XCTAssertTrue(lines[2].hasSuffix("typed edited since the draw: not audited, and no source of negatives"), lines[2])
+        XCTAssertTrue(lines[3].contains("3/3 intervals reviewed · audited_clean 1 · partial 0 · contaminated 0"), lines[3])
+        XCTAssertTrue(lines[4].contains("against 2 rally mark(s)"), lines[4])
+
+        try Data("not json".utf8).write(to: FootageProperties.url(in: root, video: "b"))
+        let unread = try A.status(draw: d, root: root)
+        XCTAssertNil(unread[1].setAside)
+        XCTAssertTrue(unread[1].problem?.contains("footage type can't be read") == true, unread[1].problem ?? "nil")
+        XCTAssertNotNil(A.incompleteness(of: unread))
+    }
+
     func testTheFindingsListIsWhatCountsAndIsNeverOverwritten() throws {
         try recording("a"); try recording("b")
         let d = try draw(["a", "b"], repeatSet: [1])
