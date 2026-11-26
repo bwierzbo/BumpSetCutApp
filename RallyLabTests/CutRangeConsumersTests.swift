@@ -231,7 +231,7 @@ final class CutRangeConsumersTests: XCTestCase {
         session.tracks = [begun]
         XCTAssertEqual(LabelQueue.Video.nextRally(in: session), begun.bounds, "the begun track first")
         session.cuts = [cut(35, 52)]
-        let queued = LabelQueue.Video(session: session, access: .open)
+        let queued = LabelQueue.Video(session: session, access: .open, marks: RallyMarkModel.marks(in: session))
         XCTAssertEqual(queued.nextRally?.start, 10, "the begun track and the found rally touch the cut; the 10–20 rally is the task")
         XCTAssertEqual(session.tracks?.count, 1, "the track itself stays")
         session.cuts = [cut(0, 60)]

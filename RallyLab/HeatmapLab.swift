@@ -239,9 +239,11 @@ final class HeatmapLab {
         status = run.lines.last { $0.hasPrefix("Saved") } ?? "Added \(name)."
     }
 
-    /// Every tracked rally whose video is on this Mac, for the video menu.
+    /// Every tracked rally whose video is on this Mac, for the video menu. The Models tab asks on every
+    /// redraw: `FootagePresence` answers (rendering reads the file, and says so when it is gone).
     var trackedRallies: [(session: String, rally: TrackedRally)] {
-        sampler.sessions.filter { FileManager.default.fileExists(atPath: $0.sourcePath) }
+        let here = FootagePresence.shared.here(sampler.sessions.map(\.sourcePath))
+        return sampler.sessions.filter { here.contains($0.sourcePath) }
             .flatMap { s in (s.tracks ?? []).map { (s.name, $0) } }
     }
 

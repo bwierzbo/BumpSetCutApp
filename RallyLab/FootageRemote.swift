@@ -26,30 +26,32 @@ extension VideoSession {
     }
 }
 
-/// Whether a footage file is here, for lists that are rebuilt on every redraw (the Track tab's videos, the
-/// coverage table). The footage may sit on a network share, where one file check is a round trip: a hundred
-/// and more per redraw froze the window on a slow link. A list asks here: the first answer for a path is
-/// checked — a batch in parallel — and later ones are the last answer, checked again in the background once
-/// it is `maxAge` old. Anything that is about to read a file, or that decides what may be used, asks the
-/// file system itself (`VideoSession.isOnMac`), never this.
-final class FootagePresence: @unchecked Sendable {
-    static let shared = FootagePresence()
-    /// How old an answer may be before it is checked again.
-    static let maxAge: TimeInterval = 30
+/// Answers about files for what is drawn on every redraw: whether a footage file is here (the Track tab's
+/// videos, the coverage table, the Models tab's video menu), the rally marks beside a video (the Label tab's
+/// queue, the coverage table's buttons). The footage and its sidecars may sit on a network share, where one
+/// file check is a round trip: a hundred and more per redraw froze the window on a slow link. A list asks
+/// here: the first answer for a path is read — a batch in parallel — and later ones are the last answer, read
+/// again in the background once it is `maxAge` old. A writer in this app that changes the file says so
+/// (`remember`), so its own change is drawn at once. Anything that is about to read a file, or that decides
+/// what may be used, asks the file system itself (`VideoSession.isOnMac`, `RallyMarkModel.marks(in:)`), never
+/// this.
+final class FileAnswers<Value>: @unchecked Sendable {
+    /// How old an answer may be before it is read again.
+    static var maxAge: TimeInterval { 30 }
 
-    private let check: @Sendable (String) -> Bool
+    private let read: @Sendable (String) -> Value
     private let now: @Sendable () -> Date
     private let lock = NSLock()
-    private var known: [String: (here: Bool, at: Date)] = [:]
+    private var known: [String: (value: Value, at: Date)] = [:]
     private var refreshing: Set<String> = []
 
-    init(check: @escaping @Sendable (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }, now: @escaping @Sendable () -> Date = { Date() }) {
-        self.check = check
+    init(read: @escaping @Sendable (String) -> Value, now: @escaping @Sendable () -> Date = { Date() }) {
+        self.read = read
         self.now = now
     }
 
-    /// The paths among `paths` whose file is here.
-    func here(_ paths: [String]) -> Set<String> {
+    /// The answer for each of `paths`.
+    func answers(_ paths: [String]) -> [String: Value] {
         let time = now()
         lock.lock()
         let unknown = Array(Set(paths.filter { known[$0] == nil }))
@@ -67,24 +69,52 @@ final class FootagePresence: @unchecked Sendable {
         }
         lock.lock()
         defer { lock.unlock() }
-        return Set(paths.filter { known[$0]?.here == true })
+        var out: [String: Value] = [:]
+        for path in paths { if let answer = known[path] { out[path] = answer.value } }
+        return out
     }
 
-    /// Checks `paths` in parallel and keeps the answers.
+    /// The answer for `path` is now `value`: a writer in this app has just changed the file.
+    func remember(_ value: Value, for path: String) {
+        let time = now()
+        lock.lock()
+        known[path] = (value, time)
+        lock.unlock()
+    }
+
+    /// Reads `paths` in parallel and keeps the answers.
     private func record(_ paths: [String], at time: Date) {
-        var found = [Bool](repeating: false, count: paths.count)
+        var found = [Value?](repeating: nil, count: paths.count)
         found.withUnsafeMutableBufferPointer { buffer in
             let answers = UncheckedSendableBuffer(buffer)
-            DispatchQueue.concurrentPerform(iterations: paths.count) { i in answers.base[i] = check(paths[i]) }
+            DispatchQueue.concurrentPerform(iterations: paths.count) { i in answers.base[i] = read(paths[i]) }
         }
         lock.lock()
-        for (i, path) in paths.enumerated() { known[path] = (found[i], time) }
+        for (i, path) in paths.enumerated() {
+            // A writer's word that came in while these were read is newer than what was read.
+            guard let value = found[i], (known[path]?.at).map({ $0 <= time }) ?? true else { continue }
+            known[path] = (value, time)
+        }
         lock.unlock()
     }
 
     private struct UncheckedSendableBuffer: @unchecked Sendable {
-        let base: UnsafeMutableBufferPointer<Bool>
-        init(_ base: UnsafeMutableBufferPointer<Bool>) { self.base = base }
+        let base: UnsafeMutableBufferPointer<Value?>
+        init(_ base: UnsafeMutableBufferPointer<Value?>) { self.base = base }
+    }
+}
+
+/// Whether a file is here, for what is drawn on every redraw (`FileAnswers`).
+typealias FootagePresence = FileAnswers<Bool>
+
+private let sharedFootagePresence = FootagePresence(read: { FileManager.default.fileExists(atPath: $0) })
+
+extension FileAnswers where Value == Bool {
+    static var shared: FootagePresence { sharedFootagePresence }
+
+    /// The paths among `paths` whose file is here.
+    func here(_ paths: [String]) -> Set<String> {
+        Set(answers(paths).filter { $0.value }.keys)
     }
 }
 

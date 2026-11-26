@@ -29,6 +29,9 @@ struct FootageTypeSheet: View {
     @State private var choice: FootageProperties.RecordingType = .unknown
     @State private var problem: String?
     @State private var player = AVPlayer()
+    /// Whether the video is here, checked once as the sheet opens (off the main thread, not on every redraw:
+    /// the footage may be on a network share).
+    @State private var videoHere: Bool?
 
     private static let types: [FootageProperties.RecordingType] = [.continuous, .edited, .unknown]
 
@@ -36,11 +39,11 @@ struct FootageTypeSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Footage type · \(recording.name)").font(.title3.weight(.semibold))
             // Watch it first: replays, slow motion, zooms and jumps in time make it edited.
-            if FileManager.default.fileExists(atPath: recording.sourcePath) {
+            if videoHere == true {
                 VideoPlayer(player: player).frame(height: 300)
                     .onAppear { if player.currentItem == nil { player.replaceCurrentItem(with: AVPlayerItem(url: URL(fileURLWithPath: recording.sourcePath))) } }
                     .onDisappear { player.pause(); player.replaceCurrentItem(with: nil) }
-            } else {
+            } else if videoHere == false {
                 Label("The video isn't on this Mac — watch it on the phone's footage-type step, or bring the footage back.", systemImage: "externaldrive.badge.xmark")
                     .font(.callout).foregroundStyle(.secondary)
             }
@@ -176,6 +179,8 @@ struct FootageTypeSheet: View {
     private func load() async {
         let fingerprint = FootageTypeConfirmation.sourceFingerprint(of: recording.name, in: projects.project)
         let root = opening.root, recording = recording, duration = duration
+        let path = recording.sourcePath
+        videoHere = await Task.detached(priority: .userInitiated) { FileManager.default.fileExists(atPath: path) }.value
         let (f, a) = await Task.detached(priority: .userInitiated) { () -> (FootageTypeConfirmation.Facts, Result<SourceRegistry.Admission?, Error>) in
             let f = FootageTypeConfirmation.facts(recording, sourceFingerprint: fingerprint, duration: duration, in: root)
             let a = Result { try FootageTypeConfirmation.prospectiveAdmission(for: f, in: root, at: EventReview.stamp(Date())) }

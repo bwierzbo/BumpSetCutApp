@@ -852,6 +852,7 @@ final class RallyLabModel {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             try encoder.encode(payload).write(to: url, options: .atomic)
+            RallyMarkModel.wrote(payload, to: url)
             labelsProblem = nil
         } catch {
             status = "Failed to save labels: \(error.localizedDescription)"

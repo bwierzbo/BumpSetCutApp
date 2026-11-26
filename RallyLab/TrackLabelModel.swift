@@ -213,7 +213,12 @@ final class TrackLabelModel {
     /// found (less ones you said aren't rallies, and ones a marked rally
     /// covers).
     static func markedAndFound(_ s: VideoSession) -> (marked: [LabelRally], found: [LabelRally]) {
-        let marked = RallyMarkModel.marks(in: s).map { LabelRally(start: $0.start, end: $0.end) }
+        markedAndFound(s, marks: RallyMarkModel.marks(in: s))
+    }
+
+    /// The same, from marks already read (a list drawn on every redraw passes `RallyMarkModel.listedMarks`).
+    static func markedAndFound(_ s: VideoSession, marks: [RallyMarkModel.Mark]) -> (marked: [LabelRally], found: [LabelRally]) {
+        let marked = marks.map { LabelRally(start: $0.start, end: $0.end) }
         let notRallies = s.notRallies ?? []
         let found = suggestions(from: s, excluding: [])
             .filter { f in !notRallies.contains { abs($0 - f.start) < 0.05 } }

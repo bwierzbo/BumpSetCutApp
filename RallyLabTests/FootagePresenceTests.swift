@@ -24,7 +24,7 @@ final class FootagePresenceTests: XCTestCase {
     }
 
     private func presence(_ disk: Disk) -> FootagePresence {
-        FootagePresence(check: { disk.check($0) }, now: { disk.now() })
+        FootagePresence(read: { disk.check($0) }, now: { disk.now() })
     }
 
     func testEachPathIsCheckedOnceHoweverOftenTheListIsBuilt() {
@@ -68,5 +68,33 @@ final class FootagePresenceTests: XCTestCase {
         let disk = Disk(["/a.mp4"])
         XCTAssertEqual(presence(disk).here(["/a.mp4", "/a.mp4"]), ["/a.mp4"])
         XCTAssertEqual(disk.checks, 1)
+    }
+
+    func testARememberedAnswerIsDrawnWithoutACheck() {
+        let disk = Disk([])
+        let presence = presence(disk)
+        XCTAssertEqual(presence.here(["/a.rallylabels.json"]), [])
+        presence.remember(true, for: "/a.rallylabels.json")
+        XCTAssertEqual(presence.here(["/a.rallylabels.json"]), ["/a.rallylabels.json"])
+        XCTAssertEqual(disk.checks, 1, "the writer's word, not another check")
+    }
+
+    /// The Label tab's queue and the coverage table's buttons draw the marks from the last answers: a save in
+    /// this app shows at once, and a file changed elsewhere is read once, not on every redraw.
+    @MainActor
+    func testListedMarksFollowTheAppsOwnSave() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lm-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let video = dir.appendingPathComponent("v.mp4")
+        let session = VideoSession(name: "v", sourcePath: video.path, split: "train", addedAt: Date(), frames: [])
+        XCTAssertEqual(RallyMarkModel.listedMarks(in: session).count, 0, "no file: no marks")
+        let sidecar = RallyMarkModel.labelsURL(for: video)
+        try RallyMarkModel.write([RallyMarkRecord(startTime: 10, endTime: 20, kind: .rally, contacts: nil)], to: sidecar)
+        XCTAssertEqual(RallyMarkModel.listedMarks(in: session).map(\.start), [10], "the app's own save is drawn at once")
+        XCTAssertTrue(FootagePresence.shared.here([sidecar.path]).contains(sidecar.path))
+        try "[]".write(to: sidecar, atomically: true, encoding: .utf8)
+        XCTAssertEqual(RallyMarkModel.listedMarks(in: session).map(\.start), [10], "a change from elsewhere waits for the next check")
+        XCTAssertEqual(RallyMarkModel.marks(in: session).count, 0, "what acts on the marks reads the file")
     }
 }

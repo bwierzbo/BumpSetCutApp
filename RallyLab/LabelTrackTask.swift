@@ -28,15 +28,19 @@ struct LabelTrackTask: View {
     @State private var trimmed: LabelRally?
     /// The footage was fetched back to this Mac while this task was open.
     @State private var fetched = false
+    /// Whether the footage file is here, checked off the main thread when the task opens (not on every redraw:
+    /// the file may be on a network share).
+    @State private var onMac: Bool?
 
     /// A track of this rally you didn't finish.
     private var unfinished: TrackedRally? {
         session.tracks?.first { $0.isOpen && $0.bounds == rally }
     }
 
-    /// The Sampler found this rally (rather than you marking it).
+    /// The Sampler found this rally (rather than you marking it). Drawn on every redraw: the marks are
+    /// `RallyMarkModel.listedMarks`.
     private var isFound: Bool {
-        !RallyMarkModel.marks(in: session).contains { abs($0.start - rally.start) < 0.05 && abs($0.end - rally.end) < 0.05 }
+        !RallyMarkModel.listedMarks(in: session).contains { abs($0.start - rally.start) < 0.05 && abs($0.end - rally.end) < 0.05 }
     }
 
     var body: some View {
@@ -47,7 +51,9 @@ struct LabelTrackTask: View {
                 StepDots(step: trimmed == nil ? 0 : 1)
             }
             Divider()
-            if !fetched && !session.isOnMac {
+            if !fetched && onMac == nil {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if !fetched && onMac == false {
                 // Trimming and tracking read full-size frames from the file.
                 FootageMissingView(session: session, datasetRoot: tracker.sampler.datasetRoot) { fetched = true }
             } else if let trimmed {
@@ -61,6 +67,11 @@ struct LabelTrackTask: View {
                                   onDone()
                               } : nil)
             }
+        }
+        .task(id: session.sourcePath) {
+            onMac = nil
+            let path = session.sourcePath
+            onMac = await Task.detached(priority: .userInitiated) { FileManager.default.fileExists(atPath: path) }.value
         }
     }
 }

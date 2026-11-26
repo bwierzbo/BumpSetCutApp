@@ -157,7 +157,12 @@ struct LabelTabView: View {
         active = jobs.first { $0 != finished }
     }
 
-    private var queueVideos: [LabelQueue.Video] { sampler.sessions.map { LabelQueue.Video(session: $0, access: access(of: $0)) } }
+    /// Built on every redraw of the Next page: the marks are `RallyMarkModel.listedMarks` (opening a job reads
+    /// the file again).
+    private var queueVideos: [LabelQueue.Video] {
+        let marks = RallyMarkModel.listedMarks(sampler.sessions)
+        return sampler.sessions.map { LabelQueue.Video(session: $0, access: access(of: $0), marks: marks[$0.sourcePath] ?? []) }
+    }
 
     private var jobs: [LabelQueue.Job] { LabelQueue.jobs(queueVideos, round: plan.currentRound) }
 }
@@ -171,16 +176,17 @@ extension LabelQueue.Video {
     /// withheld closure leaves open for it (the queue offers no track job
     /// otherwise).
     @MainActor
-    init(session s: VideoSession, access: LabelAccess) {
-        let (marked, found) = TrackLabelModel.markedAndFound(s)
+    init(session s: VideoSession, access: LabelAccess, marks: [RallyMarkModel.Mark]) {
+        let (marked, found) = TrackLabelModel.markedAndFound(s, marks: marks)
         self.init(plan: PlanVideo(session: s), nextRally: Self.nextRally(in: s, marked: marked, found: found), found: found.count,
                   marked: marked.count, complete: s.ralliesMarked ?? false, backlog: s.backlogAt != nil, access: access)
     }
 
-    /// The rally of a Mac video to track next, if any.
+    /// The rally of a Mac video to track next, if any. Asked by buttons drawn on every redraw (the coverage
+    /// table's rows): the marks are `RallyMarkModel.listedMarks`.
     @MainActor
     static func nextRally(in s: VideoSession) -> LabelRally? {
-        let (marked, found) = TrackLabelModel.markedAndFound(s)
+        let (marked, found) = TrackLabelModel.markedAndFound(s, marks: RallyMarkModel.listedMarks(in: s))
         return nextRally(in: s, marked: marked, found: found)
     }
 

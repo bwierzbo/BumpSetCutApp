@@ -201,9 +201,33 @@ final class RallyMarkModel {
     nonisolated static func load(_ url: URL) -> [Mark] {
         guard let data = try? Data(contentsOf: url),
               let labels = try? JSONDecoder().decode([RallyMarkRecord].self, from: data) else { return [] }
-        return labels.map { Mark(start: $0.startTime, end: $0.endTime, kind: $0.kind ?? .rally, contacts: $0.contacts ?? []) }
+        return marks(labels)
+    }
+
+    nonisolated private static func marks(_ labels: [RallyMarkRecord]) -> [Mark] {
+        labels.map { Mark(start: $0.startTime, end: $0.endTime, kind: $0.kind ?? .rally, contacts: $0.contacts ?? []) }
             .sorted { $0.start < $1.start }
     }
+
+    /// The marks beside each video, by video path, for what is drawn on every redraw (the Label tab's queue,
+    /// the coverage table's buttons, the track task's header): the sidecars sit beside the footage, maybe on a
+    /// network share, so these are the last answers (`FileAnswers`). Anything that acts on the marks — the
+    /// pre-tracker, an export, a scorer — reads the file (`marks(in:)`).
+    static func listedMarks(_ sessions: [VideoSession]) -> [String: [Mark]] {
+        let sidecars = sessions.map { ($0.sourcePath, labelsURL(for: URL(fileURLWithPath: $0.sourcePath)).path) }
+        let answers = listed.answers(sidecars.map { $0.1 })
+        var out: [String: [Mark]] = [:]
+        for (video, sidecar) in sidecars { out[video] = answers[sidecar] }
+        return out
+    }
+
+    /// The marks beside one video, as `listedMarks` answers.
+    static func listedMarks(in session: VideoSession) -> [Mark] {
+        listedMarks([session])[session.sourcePath] ?? []
+    }
+
+    /// Keyed by the sidecar's path.
+    nonisolated private static let listed = FileAnswers<[Mark]>(read: { load(URL(fileURLWithPath: $0)) })
 
     /// Where the Sampler found rallies (its burst frames), and your tracked
     /// rallies (where the ball was in play), merged where they overlap.
@@ -408,10 +432,19 @@ final class RallyMarkModel {
         }
     }
 
-    /// The sidecar's rows as they are stored. Every writer of rally marks goes through here.
+    /// The sidecar's rows as they are stored. Every writer of rally marks goes through here (the Pipeline tab's
+    /// own save tells `wrote` too), so the lists drawn from the last answers (`listedMarks`, `FootagePresence`)
+    /// are told at once.
     nonisolated static func write(_ labels: [RallyMarkRecord], to url: URL) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted]
         try encoder.encode(labels).write(to: url, options: .atomic)
+        wrote(labels, to: url)
+    }
+
+    /// `labels` were just written to `url` in this app: what is drawn from the last answers shows them now.
+    nonisolated static func wrote(_ labels: [RallyMarkRecord], to url: URL) {
+        listed.remember(marks(labels), for: url.path)
+        FootagePresence.shared.remember(true, for: url.path)
     }
 }

@@ -947,10 +947,10 @@ final class LabelingWithheldModelTasksTests: XCTestCase {
         withRally.tracks = [begun]
         XCTAssertEqual(LabelQueue.Video.nextRally(in: withRally), begun.bounds, "there is a rally to track")
         let round = TrainingPlan.rounds.first
-        let open = LabelQueue.jobs([LabelQueue.Video(session: withRally, access: .open)], round: round)
+        let open = LabelQueue.jobs([LabelQueue.Video(session: withRally, access: .open, marks: RallyMarkModel.marks(in: withRally))], round: round)
         XCTAssertTrue(open.contains(.track(copy, begun.bounds)), "\(open)")
         for access in [LabelAccess(withheld: true, byHand: true), LabelAccess(withheld: nil, byHand: true)] {
-            let jobs = LabelQueue.jobs([LabelQueue.Video(session: withRally, access: access)], round: round)
+            let jobs = LabelQueue.jobs([LabelQueue.Video(session: withRally, access: access, marks: RallyMarkModel.marks(in: withRally))], round: round)
             XCTAssertEqual(jobs, [.review(copy)], "marked by hand, not tracked: \(access)")
         }
     }

@@ -1463,15 +1463,23 @@ final class SamplerModel {
 
     // MARK: - Context loop
 
-    /// The video behind the open session, when it came from one.
-    private var contextVideo: URL? {
-        guard let session = currentSession, let sample = selected,
-              sample.source != .file else { return nil }
-        let url = URL(fileURLWithPath: session.sourcePath)
-        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    /// The path of the video behind the open session's frame, when it came from one (not checked).
+    private var contextPath: String? {
+        guard let session = currentSession, let sample = selected, sample.source != .file else { return nil }
+        return session.sourcePath
     }
 
-    var canShowContext: Bool { contextVideo != nil }
+    /// The video behind the open session, when it came from one and is here.
+    private var contextVideo: URL? {
+        guard let path = contextPath, FileManager.default.fileExists(atPath: path) else { return nil }
+        return URL(fileURLWithPath: path)
+    }
+
+    /// For the button, drawn on every redraw of the review: `FootagePresence` answers (playing checks the file).
+    var canShowContext: Bool {
+        guard let path = contextPath else { return false }
+        return FootagePresence.shared.here([path]).contains(path)
+    }
 
     /// Loop the second and a half around the frame at half speed, muted.
     func toggleContext() {

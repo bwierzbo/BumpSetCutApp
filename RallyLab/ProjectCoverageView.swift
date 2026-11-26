@@ -161,8 +161,11 @@ struct Coverage {
     }
 
     init(sessions: [VideoSession]) {
-        // Built on every redraw of the coverage table: `FootagePresence` answers.
-        let here = FootagePresence.shared.here(sessions.map(\.sourcePath))
+        // Built on every redraw of the coverage table: `FootagePresence` answers, for the footage and for the
+        // rally-times file beside it (asked only where the session doesn't already say).
+        let labelsPath = { (s: VideoSession) in RallyMarkModel.labelsURL(for: URL(fileURLWithPath: s.sourcePath)).path }
+        let here = FootagePresence.shared.here(sessions.map(\.sourcePath)
+            + sessions.filter { $0.backlogAt == nil && !($0.ralliesMarked ?? false) }.map(labelsPath))
         for s in sessions {
             let env = Self.environment(s.name)
             let onMac = here.contains(s.sourcePath)
@@ -170,8 +173,7 @@ struct Coverage {
             let done = tracks.filter(\.isReady)
             let sampled = s.frames.filter { $0.keep && $0.reviewed }.count
             let guesses = TrackLabelModel.suggestions(from: s, excluding: tracks).count
-            let labels = RallyMarkModel.labelsURL(for: URL(fileURLWithPath: s.sourcePath))
-            let rallyTimes = s.backlogAt != nil ? "backlog" : (s.ralliesMarked ?? false) ? "marked" : FileManager.default.fileExists(atPath: labels.path) ? "partial" : "—"
+            let rallyTimes = s.backlogAt != nil ? "backlog" : (s.ralliesMarked ?? false) ? "marked" : here.contains(labelsPath(s)) ? "partial" : "—"
             var row = rows[env] ?? Row()
             if s.split == "val" {
                 row.valRallies += done.count
