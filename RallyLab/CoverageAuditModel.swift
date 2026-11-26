@@ -281,7 +281,6 @@ final class CoverageAuditModel {
     func open(_ name: String, at index: Int? = nil, play: Bool = true) async {
         guard let draw, name != recordingId || index != nil else { return }
         if name == recordingId, let index { select(index, play: play); return }
-        if let why = statuses.first(where: { $0.recordingId == name })?.setAside { refuse("\(name): \(why)."); return }
         close()
         let mine = generation
         let root = self.root

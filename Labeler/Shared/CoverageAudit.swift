@@ -36,6 +36,10 @@ import Foundation
 
 enum CoverageAudit {
     static let annotationVersion = "coverage_audit_v2"
+
+    /// Why a drawn recording a person has typed other than continuous since the draw is left out, on the phone
+    /// and on the Mac alike: the draw holds only recordings typed continuous.
+    static func setAsideReason(type: String) -> String { "typed \(type) since the draw: not audited, and no source of negatives" }
     static let drawVersion = "coverage_audit_draw_v2"
     /// The classifier dataset's clock (RallyClassifierExporter reads it from here, so both count the same ticks).
     static let timescale = 600
@@ -481,6 +485,7 @@ enum CoverageAudit {
         case intervalNotInDraw(recording: String, index: Int)
         case noSession(String)
         case notComplete(String)
+        case typedOtherwise(recording: String, type: String)
         case videoMissing(String)
         case sourceChanged(recording: String, draw: String, current: String)
         case marksUnreadable(String)
@@ -514,6 +519,7 @@ enum CoverageAudit {
             case .intervalNotInDraw(let recording, let index): return "\(recording) has no interval \(index) in the draw."
             case .noSession(let name): return "\(name) is not a recording of this project."
             case .notComplete(let name): return "\(name)'s pass is not declared complete (not every rally marked): the audit is for declared-complete recordings."
+            case .typedOtherwise(let name, let type): return "\(name) is \(CoverageAudit.setAsideReason(type: type))."
             case .videoMissing(let path): return "The original video is not here (\(path)); the audit needs it, not a review copy."
             case .sourceChanged(let recording, let draw, let current):
                 return "\(recording)'s file is not the one the draw was made from (\(draw.prefix(21))… → \(current.prefix(21))…): nothing is recorded against another file."

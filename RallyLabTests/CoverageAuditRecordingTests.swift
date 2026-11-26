@@ -592,7 +592,15 @@ final class CoverageAuditRecordingTests: XCTestCase {
         XCTAssertTrue(lines[3].contains("3/3 intervals reviewed · audited_clean 1 · partial 0 · contaminated 0"), lines[3])
         XCTAssertTrue(lines[4].contains("against 2 rally mark(s)"), lines[4])
 
+        // Asked again at every open and verdict, whatever a list read earlier said: nothing opened, nothing recorded.
+        let ledger = try Data(contentsOf: ExposureLog.url(in: root)), before = try onDisk("b")
+        refused(.typedOtherwise(recording: "b", type: "edited")) { _ = try A.open("b", draw: d, root: root, now: now) }
+        refused(.typedOtherwise(recording: "b", type: "edited")) { try A.record(request("b", 1, .clean, played: all), draw: d, root: root, tool: "t", now: now) }
+        XCTAssertEqual(try onDisk("b"), before); XCTAssertEqual(try Data(contentsOf: ExposureLog.url(in: root)), ledger)
+        XCTAssertNoThrow(try A.open("a", draw: d, root: root, now: now))
+
         try Data("not json".utf8).write(to: FootageProperties.url(in: root, video: "b"))
+        XCTAssertThrowsError(try A.open("b", draw: d, root: root, now: now), "a type that can't be read opens nothing")
         let unread = try A.status(draw: d, root: root)
         XCTAssertNil(unread[1].setAside)
         XCTAssertTrue(unread[1].problem?.contains("footage type can't be read") == true, unread[1].problem ?? "nil")

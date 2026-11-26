@@ -79,11 +79,10 @@ extension CoverageAudit {
                 status.problem = "withheld (\(why)) — not read"
                 return status
             }
-            // The draw holds only recordings typed continuous: one typed otherwise since is not audited for negatives
-            // (the phone's rule, `CoverageAuditPhone.unavailable`, and the report's).
+            // Typed other than continuous since the draw: `admit` refuses it, and nothing of it is counted here.
             do {
-                if let type = try FootageProperties.Store(root: root).load(recording.recordingId)?.recordingType, type != .continuous {
-                    status.setAside = "typed \(type.rawValue) since the draw: not audited, and no source of negatives"
+                if let type = try typedOtherwise(recording.recordingId, root: root) {
+                    status.setAside = setAsideReason(type: type.rawValue)
                     return status
                 }
             } catch {

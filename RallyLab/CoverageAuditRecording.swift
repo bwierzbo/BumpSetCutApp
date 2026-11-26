@@ -103,6 +103,14 @@ extension CoverageAudit {
     /// Admits one recording of the draw to the audit, or throws why not (see the file header). Reads the reservations,
     /// the project's identities and every session strictly: anything unreadable throws, and nothing is admitted.
     /// Writes nothing.
+    /// The type a person has given the recording since the draw, when it is no longer continuous; nil when it still
+    /// is (or has no record). The draw holds only recordings typed continuous: one typed otherwise since is not
+    /// audited and supplies no negative (the phone's and the report's rule, #204). A record that can't be read throws.
+    static func typedOtherwise(_ recordingId: String, root: URL) throws -> FootageProperties.RecordingType? {
+        guard let type = try FootageProperties.Store(root: root).load(recordingId)?.recordingType, type != .continuous else { return nil }
+        return type
+    }
+
     static func admit(_ recordingId: String, draw: LoadedDraw, root: URL) throws -> Admission {
         guard let recording = draw.draw.recording(recordingId) else { throw Failure.notInDraw(recordingId) }
         let closures = try ScoringExposure.Closures.current(in: root)
@@ -114,6 +122,8 @@ extension CoverageAudit {
         guard let session = sessions.first(where: { $0.name == recordingId }) else { throw Failure.noSession(recordingId) }
         if let why = try EventReview.refusal(of: session, root: root, sessions: sessions) { throw Failure.withheld(name: recordingId, reason: why) }
         guard session.ralliesMarked == true else { throw Failure.notComplete(recordingId) }
+        // Asked at every open, verdict and adoption, as the project says now: never from a list read earlier.
+        if let type = try typedOtherwise(recordingId, root: root) { throw Failure.typedOtherwise(recording: recordingId, type: type.rawValue) }
         guard session.isOnMac, let content = ProjectsModel.fileFingerprint(atPath: session.sourcePath) else { throw Failure.videoMissing(session.sourcePath) }
         guard content == recording.contentFingerprint else {
             throw Failure.sourceChanged(recording: recordingId, draw: recording.contentFingerprint, current: content)
