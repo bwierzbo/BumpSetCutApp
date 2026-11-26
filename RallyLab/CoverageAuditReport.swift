@@ -185,6 +185,11 @@ extension CoverageAudit {
             if let why = listedRefusal(of: recording, closures: project.closures, sources: project.sources) { list.notListed.append("\(name): withheld (\(why))"); continue }
             guard let session = project.sessions[name] else { list.notListed.append("\(name): not a recording of this project"); continue }
             if let why = project.liveRefusal(of: session) { list.notListed.append("\(name): withheld (\(why))"); continue }
+            // Set aside (typed other than continuous since the draw): its findings are no longer the audit's, so
+            // nothing is listed for the marking pass and no boundary correction is proposed from them.
+            do {
+                if let type = try typedOtherwise(name, root: root) { list.notListed.append("\(name): \(setAsideReason(type: type.rawValue))"); continue }
+            } catch { list.notListed.append("\(name): its footage type can't be read (\(error.localizedDescription))"); continue }
             // The findings' times describe the footage that was reviewed: not listed when the file is another now.
             guard session.isOnMac else { list.notListed.append("\(name): the original is not on this Mac, so its file can't be checked"); continue }
             guard ProjectsModel.fileFingerprint(atPath: session.sourcePath) == recording.contentFingerprint else {

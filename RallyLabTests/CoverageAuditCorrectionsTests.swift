@@ -96,6 +96,26 @@ final class CoverageAuditCorrectionsTests: XCTestCase {
         XCTAssertEqual(try A.correctionEntries(in: root, drawId: d.draw.drawId), [], "and nothing on the ledger")
     }
 
+    /// Typing a partly reviewed recording as edited takes its missing looks out of the stage — and its findings
+    /// with them: the correction its unfinished review was holding back is not proposed and can't be applied.
+    func testRetypingAPartlyReviewedRecordingDoesNotFreeItsCorrection() throws {
+        let d = try draw()
+        try give(1, boundary(.leading, 4, 5.5), draw: d)
+        let proposal = A.Correction(recordingId: "a", intervalIndex: 1, edge: .leading, markStartSec: 2, markEndSec: 4, fromSec: 4, toSec: 5.5)
+        XCTAssertEqual(try A.corrections(draw: d, root: root).proposals, [proposal])
+        try FootageProperties.Store(root: root).save(FootageProperties.File(video: "a", recordingType: .edited, updatedAt: EventReview.stamp(now)))
+        let after = try A.corrections(draw: d, root: root)
+        XCTAssertNil(after.blocked, "nothing audited is left owing a look")
+        XCTAssertEqual(after.proposals, [])
+        let list = try A.findingsList(draw: d, root: root, now: now)
+        XCTAssertEqual(list.findings, []); XCTAssertEqual(list.notListed, ["a: typed edited since the draw: not audited, and no source of negatives"])
+        XCTAssertThrowsError(try A.decide(proposal, .applied, draw: d, root: root, now: now)) {
+            guard case A.CorrectionFailure.stale = $0 else { return XCTFail("\($0)") }
+        }
+        XCTAssertEqual(try marks(), [[2, 4], [6, 8]], "no mark moved")
+        XCTAssertEqual(try A.correctionEntries(in: root, drawId: d.draw.drawId), [], "and nothing on the ledger")
+    }
+
     func testApplyingMovesTheMarkAfterTheLedgerAndDecliningMovesNothing() throws {
         let d = try draw()
         try give(0, .clean, draw: d)
