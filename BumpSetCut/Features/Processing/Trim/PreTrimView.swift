@@ -2,8 +2,8 @@
 //  PreTrimView.swift
 //  BumpSetCut
 //
-//  Full-screen trim UI presented before AI processing.
-//  Users can set start/end boundaries or skip to process the entire video.
+//  The trim page of the setup before AI processing (ProcessingSetupFlowView).
+//  Users can set start/end boundaries or skip to keep the entire video.
 //
 
 import SwiftUI
@@ -11,17 +11,21 @@ import AVFoundation
 
 struct PreTrimView: View {
     let videoURL: URL
+    let progress: SetupProgress
     let onSkip: () -> Void
     let onTrimmed: (URL) -> Void
+    let onCancel: () -> Void
 
     @State private var viewModel: PreTrimViewModel
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
-    init(videoURL: URL, onSkip: @escaping () -> Void, onTrimmed: @escaping (URL) -> Void) {
+    init(videoURL: URL, progress: SetupProgress, onSkip: @escaping () -> Void, onTrimmed: @escaping (URL) -> Void,
+         onCancel: @escaping () -> Void) {
         self.videoURL = videoURL
+        self.progress = progress
         self.onSkip = onSkip
         self.onTrimmed = onTrimmed
+        self.onCancel = onCancel
         self._viewModel = State(wrappedValue: PreTrimViewModel(videoURL: videoURL))
     }
 
@@ -146,14 +150,11 @@ struct PreTrimView: View {
 
             Spacer()
 
-            Text("Trim Video")
-                .bscFont(size: 17, weight: .semibold)
-                .foregroundColor(.bscOnMedia)
-                .accessibilityAddTraits(.isHeader)
+            SetupStepTitle(title: "Trim", progress: progress, onMedia: true)
 
             Spacer()
 
-            BSCMediaCloseButton { dismiss() }
+            BSCMediaCloseButton(action: onCancel)
         }
     }
 
@@ -400,8 +401,9 @@ struct PreTrimView: View {
                 BSCButton(title: "Skip", icon: "forward.fill", style: .ghost, size: .large) {
                     onSkip()
                 }
+                .accessibilityIdentifier(AccessibilityID.Process.setupSkip)
 
-                BSCButton(title: "Trim & Process", icon: "scissors", style: .primary, size: .large) {
+                BSCButton(title: "Trim", icon: "scissors", style: .primary, size: .large) {
                     performTrim()
                 }
                 .disabled(!viewModel.canTrim)
@@ -430,7 +432,9 @@ struct PreTrimView: View {
 #Preview {
     PreTrimView(
         videoURL: URL(fileURLWithPath: "/dev/null"),
+        progress: SetupProgress(number: 1, count: 4),
         onSkip: {},
-        onTrimmed: { _ in }
+        onTrimmed: { _ in },
+        onCancel: {}
     )
 }

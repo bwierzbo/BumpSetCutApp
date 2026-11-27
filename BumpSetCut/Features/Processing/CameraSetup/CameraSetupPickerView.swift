@@ -2,7 +2,7 @@
 //  CameraSetupPickerView.swift
 //  BumpSetCut
 //
-//  Before processing: where was the video filmed from? A top-down court with
+//  The camera page of the setup before processing: where was the video filmed from? A top-down court with
 //  a camera pin to drag anywhere around it, the recommended spot marked, and
 //  what to expect from the chosen angle. The pick sets the angle-dependent
 //  rules (see ProcessorConfig.applyCamera) and is kept with the video.
@@ -11,13 +11,18 @@
 import SwiftUI
 
 struct CameraSetupPickerView: View {
+    let progress: SetupProgress
     let onContinue: (CameraSetup) -> Void
+    let onSkip: () -> Void
     let onCancel: () -> Void
 
     @State private var setup: CameraSetup
 
-    init(initial: CameraSetup?, onContinue: @escaping (CameraSetup) -> Void, onCancel: @escaping () -> Void) {
+    init(initial: CameraSetup?, progress: SetupProgress, onContinue: @escaping (CameraSetup) -> Void, onSkip: @escaping () -> Void,
+         onCancel: @escaping () -> Void) {
+        self.progress = progress
         self.onContinue = onContinue
+        self.onSkip = onSkip
         self.onCancel = onCancel
         _setup = State(initialValue: initial ?? .recommended)
     }
@@ -43,19 +48,24 @@ struct CameraSetupPickerView: View {
                 .padding(BSCSpacing.lg)
             }
             .background(Color.bscBackground.ignoresSafeArea())
-            .navigationTitle("Where did you film from?")
+            .navigationTitle("Camera position")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", action: onCancel)
                 }
+                ToolbarItem(placement: .principal) { SetupStepTitle(title: "Camera position", progress: progress) }
             }
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: BSCSpacing.sm) {
-                    BSCButton(title: "Continue", style: .primary, size: .large, isFullWidth: true) {
-                        onContinue(setup)
+                    HStack(spacing: BSCSpacing.md) {
+                        BSCButton(title: "Skip", icon: "forward.fill", style: .ghost, size: .large, action: onSkip)
+                            .accessibilityIdentifier(AccessibilityID.Process.setupSkip)
+                        BSCButton(title: "Continue", style: .primary, size: .large, isFullWidth: true) {
+                            onContinue(setup)
+                        }
+                        .accessibilityIdentifier(AccessibilityID.Process.cameraSetupContinue)
                     }
-                    .accessibilityIdentifier(AccessibilityID.Process.cameraSetupContinue)
                     if setup != .recommended {
                         BSCButton(title: "Use recommended setup", style: .secondary, size: .medium, isFullWidth: true) {
                             withAnimation(.bscSnappy) { setup = .recommended }
@@ -296,5 +306,5 @@ extension CameraZone {
 }
 
 #Preview {
-    CameraSetupPickerView(initial: nil, onContinue: { _ in }, onCancel: {})
+    CameraSetupPickerView(initial: nil, progress: SetupProgress(number: 2, count: 4), onContinue: { _ in }, onSkip: {}, onCancel: {})
 }

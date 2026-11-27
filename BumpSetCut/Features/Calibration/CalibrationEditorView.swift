@@ -39,8 +39,25 @@ struct CalibrationEditorView: View {
         var ignored = false
     }
 
-    init(videoId: UUID, videoURL: URL, reviewer: String) {
-        _model = State(wrappedValue: CalibrationEditorViewModel(videoId: videoId, url: videoURL, store: .app, reviewer: reviewer))
+    /// The editor as one page of the setup before processing: one shape, a Skip beside its Confirm.
+    struct Step {
+        let target: CalibrationTarget
+        let progress: SetupProgress
+        /// The shape is confirmed, or the page skipped.
+        let onDone: () -> Void
+        let onCancel: () -> Void
+    }
+    private let step: Step?
+
+    init(videoId: UUID, videoURL: URL, reviewer: String, step: Step? = nil) {
+        self.step = step
+        _model = State(wrappedValue: CalibrationEditorViewModel(videoId: videoId, url: videoURL, store: .app, reviewer: reviewer,
+                                                                target: step?.target ?? .court))
+    }
+
+    /// Leaves the editor: the setup is given up, or the editor opened on its own closes.
+    private func leave() {
+        if let step { step.onCancel() } else { dismiss() }
     }
 
     var body: some View {
@@ -61,16 +78,19 @@ struct CalibrationEditorView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { if model.hasUnsavedChanges { askBeforeClosing = true } else { dismiss() } }
+                    Button(step == nil ? "Close" : "Cancel") { if model.hasUnsavedChanges { askBeforeClosing = true } else { leave() } }
                         .accessibilityIdentifier(AccessibilityID.Calibration.close)
+                }
+                if let step {
+                    ToolbarItem(placement: .principal) { SetupStepTitle(title: step.target == .court ? "Court" : "Net", progress: step.progress) }
                 }
                 if model.phase == .ready {
                     ToolbarItem(placement: .primaryAction) { moreMenu }
                 }
             }
             .confirmationDialog("Save your changes?", isPresented: $askBeforeClosing, titleVisibility: .visible) {
-                Button("Save draft and close") { model.saveDraft(); if !model.hasUnsavedChanges { dismiss() } }
-                Button("Close without saving", role: .destructive) { dismiss() }
+                Button("Save draft and close") { model.saveDraft(); if !model.hasUnsavedChanges { leave() } }
+                Button("Close without saving", role: .destructive) { leave() }
                 Button("Cancel", role: .cancel) {}
             }
         }
@@ -253,7 +273,7 @@ struct CalibrationEditorView: View {
             banners
             statusLine
             viewRow
-            targetPicker
+            if step == nil { targetPicker }
             pointChips
             Text(hint)
                 .bscFont(size: 14)
@@ -263,9 +283,20 @@ struct CalibrationEditorView: View {
                 .accessibilityIdentifier(AccessibilityID.Calibration.hint)
             frameRow
             HStack(spacing: BSCSpacing.sm) {
-                BSCButton(title: "Save draft", style: .secondary, size: .medium, isFullWidth: false) { model.saveDraft() }
-                    .accessibilityIdentifier(AccessibilityID.Calibration.saveDraft)
-                BSCButton(title: model.target == .court ? "Confirm court" : "Confirm net", style: .primary, size: .medium) { model.confirm() }
+                if let step {
+                    // What is on the picture is kept as a draft; the run goes on without it.
+                    BSCButton(title: "Skip", icon: "forward.fill", style: .ghost, size: .medium, isFullWidth: false) {
+                        if model.hasUnsavedChanges { model.saveDraft() }
+                        step.onDone()
+                    }
+                    .accessibilityIdentifier(AccessibilityID.Process.setupSkip)
+                } else {
+                    BSCButton(title: "Save draft", style: .secondary, size: .medium, isFullWidth: false) { model.saveDraft() }
+                        .accessibilityIdentifier(AccessibilityID.Calibration.saveDraft)
+                }
+                BSCButton(title: model.target == .court ? "Confirm court" : "Confirm net", style: .primary, size: .medium) {
+                    if model.confirm() { step?.onDone() }
+                }
                     .accessibilityIdentifier(AccessibilityID.Calibration.confirm)
                     .disabled(!model.isStableView)
                     .opacity(model.isStableView ? 1 : 0.5)

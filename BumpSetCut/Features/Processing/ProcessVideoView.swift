@@ -159,38 +159,20 @@ struct ProcessVideoView: View {
         .fullScreenCover(isPresented: $showCalibration, onDismiss: { Task { await loadCalibrationStatus() } }) {
             if let videoId = viewModel.currentVideoMetadata?.id {
                 CalibrationEditorView(videoId: videoId, videoURL: viewModel.videoURL,
-                                      reviewer: authService?.currentUser.map { "user:\($0.id)" } ?? "device")
+                                      reviewer: reviewer)
             }
         }
         .task(id: viewModel.currentVideoMetadata?.id) { await loadCalibrationStatus() }
-        .fullScreenCover(isPresented: $viewModel.showCameraSetup, onDismiss: viewModel.cameraSetupDismissed) {
-            CameraSetupPickerView(
-                initial: viewModel.initialCameraSetup,
-                onContinue: { viewModel.confirmCameraSetup($0) },
-                onCancel: { viewModel.cancelCameraSetup() }
-            )
-        }
-        .fullScreenCover(isPresented: $viewModel.showPreTrim) {
-            PreTrimView(
-                videoURL: viewModel.videoURL,
-                onSkip: {
-                    viewModel.showPreTrim = false
-                    viewModel.startProcessing(isDebugMode: viewModel.pendingDebugModeForTrim)
-                },
-                onTrimmed: { trimmedURL in
-                    viewModel.showPreTrim = false
-                    // Replace the original file on disk with the trimmed version
-                    if let videoId = viewModel.currentVideoMetadata?.id {
-                        let replaced = viewModel.mediaStore.replaceVideoFile(id: videoId, withFileAt: trimmedURL)
-                        if replaced {
-                            viewModel.loadCurrentVideoMetadata()
-                        }
-                    }
-                    viewModel.startProcessing(isDebugMode: viewModel.pendingDebugModeForTrim)
-                }
-            )
+        .fullScreenCover(isPresented: $viewModel.showSetup, onDismiss: {
+            viewModel.setupDismissed()
+            Task { await loadCalibrationStatus() }
+        }) {
+            ProcessingSetupFlowView(viewModel: viewModel, reviewer: reviewer)
         }
     }
+
+    /// Who confirms a court or net marked from this screen.
+    private var reviewer: String { authService?.currentUser.map { "user:\($0.id)" } ?? "device" }
 }
 
 // MARK: - Background
@@ -641,10 +623,9 @@ private extension ProcessVideoView {
                 .foregroundColor(.bscTextSecondary)
             }
 
-            // AI Processing - Primary (shows trim screen first)
+            // AI Processing - Primary (the setup pages come first)
             BSCButton(title: "Start AI Processing", icon: "brain.head.profile", style: .primary, size: .large) {
-                viewModel.pendingDebugModeForTrim = false
-                viewModel.askCameraSetup(then: .trim)
+                viewModel.beginSetup(for: .process(debug: false))
             }
             .accessibilityIdentifier(AccessibilityID.Process.startButton)
             .disabled(viewModel.isAnotherVideoProcessing)
@@ -653,8 +634,7 @@ private extension ProcessVideoView {
             if appSettings.enableDebugFeatures {
                 // Debug Processing - Secondary (only when debug features enabled in Settings)
                 BSCButton(title: "Debug Processing", icon: "ladybug", style: .secondary, size: .medium) {
-                    viewModel.pendingDebugModeForTrim = true
-                    viewModel.askCameraSetup(then: .trim)
+                    viewModel.beginSetup(for: .process(debug: true))
                 }
                 .disabled(viewModel.isAnotherVideoProcessing)
                 .opacity(viewModel.isAnotherVideoProcessing ? 0.5 : 1.0)
@@ -736,7 +716,7 @@ private extension ProcessVideoView {
                     showReprocessConfirm = true
                 }
                 .confirmationDialog("Reprocess this video?", isPresented: $showReprocessConfirm, titleVisibility: .visible) {
-                    Button("Delete rallies & reprocess", role: .destructive) { viewModel.askCameraSetup(then: .reprocess) }
+                    Button("Delete rallies & reprocess", role: .destructive) { viewModel.beginSetup(for: .reprocess) }
                     Button("Cancel", role: .cancel) {}
                 } message: {
                     Text("This deletes the current rallies and runs detection again on the full video.")

@@ -446,4 +446,47 @@ final class CourtNetAcceptanceTests: VideoTestCase {
         }
         XCTAssertTrue(outOfReach.isEmpty, "F3: not reachable at the largest text size: \(outOfReach.joined(separator: ", "))")
     }
+
+    // MARK: - The setup pages before a run: trim, camera position, court, net
+
+    func testSetupPagesBeforeProcessing() {
+        openVideoScreen()
+        process.startButton.tap()
+        let step = process.setupProgress
+
+        XCTAssertTrue(process.setupSkipButton.waitForExistence(timeout: 10), "Start opens the setup pages")
+        XCTAssertEqual(step.label, "Trim, Step 1 of 4")
+        checkpoint("P1", "trim page")
+        process.setupSkipButton.tap()
+
+        let continueButton = app.buttons["process.cameraSetupContinue"]
+        XCTAssertTrue(continueButton.waitForExistence(timeout: 5), "The camera page follows the trim page")
+        XCTAssertEqual(step.label, "Camera position, Step 2 of 4")
+        checkpoint("P2", "camera position page")
+        continueButton.tap()
+
+        var editor = CalibrationScreen(app: app, frameAspect: 16.0 / 9.0)
+        XCTAssertTrue(editor.canvas.waitForExistence(timeout: 15), "The court page follows the camera page")
+        XCTAssertEqual(step.label, "Court, Step 3 of 4")
+        XCTAssertFalse(editor.tab("Net").exists, "The court page is about the court alone")
+        checkpoint("P3a", "court page, nothing marked")
+        placeCourt(&editor)
+        checkpoint("P3b", "court page, court marked")
+        editor.confirmButton.tap()
+
+        let onNetPage = NSPredicate(format: "label == %@", "Net, Step 4 of 4")
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: onNetPage, object: step)], timeout: 10), .completed,
+                       "Confirming the court leads to the net page (the heading reads \"\(step.label)\")")
+        editor = CalibrationScreen(app: app, frameAspect: 16.0 / 9.0)
+        XCTAssertTrue(editor.canvas.waitForExistence(timeout: 15))
+        XCTAssertTrue(editor.chip("Top L").waitForExistence(timeout: 5), "The net page offers the net's corners")
+        checkpoint("P4a", "net page, the confirmed court dimmed behind")
+        placeNet(editor)
+        checkpoint("P4b", "net page, net marked")
+        editor.confirmButton.tap()
+
+        XCTAssertTrue(process.cancelButton.waitForExistence(timeout: 15), "Confirming the net starts the run")
+        checkpoint("P5", "processing started after the last page")
+        process.cancelButton.tap()
+    }
 }
