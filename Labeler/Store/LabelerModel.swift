@@ -677,12 +677,27 @@ final class LabelerModel: ReviewStore {
 
     /// Every video as the queue sees it (LabelQueue — the same rules as the Mac).
     private var queueVideos: [LabelQueue.Video] {
-        videos.map { v in
+        let facts = projectState?.work?.byName ?? [:]
+        return videos.map { v in
             let times = rallyTimes(for: v)
             return LabelQueue.Video(plan: planVideo(v), nextRally: nextRally(in: v),
                                     found: found(in: v).count, marked: times.rallies.count, complete: times.complete, backlog: v.isBacklogged,
-                                    access: access(for: v))
+                                    access: access(for: v), group: facts[v.name]?.group, seconds: v.duration > 0 ? v.duration : nil)
         }
+    }
+
+    /// What is left to do to each recording before it can teach the rally classifier (WorkPlan — the same rules as
+    /// the Mac): the footage type as this phone knows it, the camera group and audit state as the Mac published them.
+    var workPlan: WorkPlan.Plan {
+        let facts = projectState?.work?.byName ?? [:]
+        let owed = Set(footageTypeToConfirm.map(\.id))
+        let byName = Dictionary(videos.map { ($0.name, $0) }) { a, _ in a }
+        return WorkPlan.plan(queueVideos.map { q in
+            let v = byName[q.plan.name]
+            // Said on the Mac, or chosen here and on its way there; nil while it is still owed.
+            let type = v.flatMap { v in v.recordingTypeAt != nil ? (v.recordingType ?? "unknown") : (q.complete && !owed.contains(v.id) ? "submitted" : nil) }
+            return WorkPlan.Recording(video: q, type: type, audit: facts[q.plan.name]?.audit)
+        })
     }
 
     /// How far marking the rallies has got, with each video's real length less

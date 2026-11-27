@@ -3,11 +3,14 @@
 //  RallyLab (iPhone)
 //
 //  Where the app opens: what needs you, first — the most useful video to
-//  mark or rally to track (from the training plan), the labels waiting for
-//  a check, the coverage audit's intervals (the lead's), the recordings
-//  whose footage type nobody has said — each a card that opens its tool.
-//  Then how far the marking and the round are, the tasks after the first,
-//  and keeping their clips on the phone for when there's no signal.
+//  mark (a new camera group before more of a covered one; WorkPlan) or
+//  rally to track, the labels waiting for a check, the coverage audit's
+//  intervals (the lead's), the recordings whose footage type nobody has
+//  said, the ones whose marks an audit finding says to fix — each a card
+//  that opens its tool. Then what is left in all and what waits on the
+//  Mac, the camera groups marked and audited per surface, how far the
+//  marking and the round are, the tasks after the first, and keeping
+//  their clips on the phone for when there's no signal.
 //
 
 import SwiftUI
@@ -25,24 +28,29 @@ struct HomeView: View {
     var body: some View {
         let tasks = model.tasks
         let progress = model.progress
+        let work = model.workPlan
+        let opensGroup = Set(work.items(.mark).filter(\.newGroup).map(\.name))
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 if let first = tasks.first {
-                    NavigationLink(value: first) { taskCard(first, big: true) }.buttonStyle(.plain)
+                    NavigationLink(value: first) { taskCard(first, big: true, opensGroup: opensGroup) }.buttonStyle(.plain)
                     Button { skipping = first.video } label: { Label("Skip this video…", systemImage: "arrow.uturn.forward") }
                         .font(.callout).padding(.horizontal, 4)
                 } else {
                     ContentUnavailableView("Nothing to do", systemImage: "checkmark.seal",
                                            description: Text("Every video's rallies are marked and the round has its frames. Sync from RallyLab on the Mac for more."))
                 }
-                tools
+                tools(work)
+                Text("What's left").font(.headline)
+                workCard(work)
+                groupsCard(work)
                 Text("Progress").font(.headline)
                 markingCard(model.marking)
                 roundCard(progress)
                 if tasks.count > 1 {
                     Text("Up next").font(.headline)
                     ForEach(tasks.dropFirst().prefix(5)) { task in
-                        NavigationLink(value: task) { taskCard(task, big: false) }.buttonStyle(.plain)
+                        NavigationLink(value: task) { taskCard(task, big: false, opensGroup: opensGroup) }.buttonStyle(.plain)
                     }
                 }
                 offlineCard(tasks)
@@ -64,9 +72,11 @@ struct HomeView: View {
         }
     }
 
-    /// The other tools, each with what it has waiting: the checks, the audit (a lead's), the footage types to say.
+    /// The other tools, each with what it has waiting: the checks, the audit (a lead's), the footage types to say,
+    /// the marks an audit finding says to fix.
     @ViewBuilder
-    private var tools: some View {
+    private func tools(_ work: WorkPlan.Plan) -> some View {
+        let fix = work.items(.fix).count
         let checks = model.rallyChecks().count + model.reviewItems([.crop, .noBall]).count
         let footage = model.footageTypeToConfirm.count
         VStack(spacing: 10) {
@@ -79,7 +89,80 @@ struct HomeView: View {
             if footage > 0 {
                 toolCard("Footage type", "Marked through; say whether each is continuous or edited", icon: "film.stack", waiting: footage) { show(.videos) }
             }
+            if fix > 0 {
+                toolCard("Fix marks", "The audit found something in their unmarked time: Videos → the recording → Edit rally times (a boundary trim: the Mac's Audit tab)",
+                         icon: "pencil.and.outline", waiting: fix) { show(.videos) }
+            }
         }
+    }
+
+    /// Everything left, in numbers: the marking that can train, the marking for scoring only, and what waits on
+    /// the Mac rather than on you.
+    private func workCard(_ work: WorkPlan.Plan) -> some View {
+        let mark = work.items(.mark), held = work.items(.mark, held: true), draw = work.items(.draw)
+        return VStack(alignment: .leading, spacing: 8) {
+            workRow("flag", "\(mark.count) to mark",
+                    mark.isEmpty ? "Every recording that can train is marked through."
+                    : "\(work.markingSeconds > 0 ? "About \(MarkingProgress.clock(work.markingSeconds)) of footage · " : "")\(work.newGroups) open a new camera group")
+            if !held.isEmpty {
+                workRow("lock", "\(held.count) to mark for scoring", "Withheld from every model: marked by hand, after the others, never training data.")
+            }
+            if work.auditKnown, !draw.isEmpty {
+                workRow("desktopcomputer", "\(draw.count) wait on the Mac", "Marked and continuous: they join the next coverage-audit draw.")
+            }
+            if work.backlog > 0 {
+                workRow("tray", "\(work.backlog) set aside", "The backlog: Videos → Backlog puts one back.")
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func workRow(_ icon: String, _ title: String, _ detail: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon).foregroundStyle(Color.accentColor).frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.callout.monospacedDigit().weight(.semibold))
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// Camera groups per surface, of the recordings that can train: in all, with a recording marked through, and
+    /// with one audited clean (once the Mac has published where the audits stand).
+    private func groupsCard(_ work: WorkPlan.Plan) -> some View {
+        let published = model.projectState?.work
+        let t = work.total
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("Camera groups").font(.headline)
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
+                GridRow {
+                    Text("")
+                    Text("Groups").gridColumnAlignment(.trailing)
+                    Text("Marked").gridColumnAlignment(.trailing)
+                    if work.auditKnown { Text("Audited clean").gridColumnAlignment(.trailing) }
+                }
+                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                ForEach(work.surfaces, id: \.surface) { s in
+                    GridRow {
+                        Label(s.surface, systemImage: LabelSurface(rawValue: s.surface)?.icon ?? "film").font(.callout)
+                        Text("\(s.groups)")
+                        Text("\(s.groupsMarked)").foregroundStyle(s.groupsMarked == 0 ? Color.red : .primary)
+                        if work.auditKnown { Text("\(s.groupsClean)").foregroundStyle(s.groupsClean == 0 ? Color.red : .primary) }
+                    }
+                    .font(.callout.monospacedDigit())
+                }
+            }
+            Text("\(t.marked) of \(t.recordings) recordings marked · \(t.continuous) continuous" + (work.auditKnown ? " · \(t.clean) audited clean" : ""))
+                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            Text(published == nil ? "The Mac has not published the camera groups yet: each recording counts as its own group, and the audit is not counted, until RallyLab on the Mac next syncs."
+                 : "Groups and audit states as RallyLab on the Mac last published them; marking and footage types as this phone has them now.")
+                .font(.caption2).foregroundStyle(.secondary)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 16))
     }
 
     /// Where the audit stands on this phone, in the pass it is in, and the intervals that pass still owes a look.
@@ -179,7 +262,7 @@ struct HomeView: View {
         .background(.background.secondary, in: RoundedRectangle(cornerRadius: 16))
     }
 
-    private func taskCard(_ task: LabelerModel.LabelTask, big: Bool) -> some View {
+    private func taskCard(_ task: LabelerModel.LabelTask, big: Bool, opensGroup: Set<String>) -> some View {
         let (title, detail, icon): (String, String, String) = {
             switch task {
             case .review(let v):
@@ -205,6 +288,7 @@ struct HomeView: View {
                 HStack(spacing: 6) {
                     Label(task.video.surface.rawValue, systemImage: task.video.surface.icon)
                     if task.video.split == "val" { Text("val").foregroundStyle(.purple) }
+                    if case .review = task, opensGroup.contains(task.video.name) { Label("new camera group", systemImage: "sparkles").foregroundStyle(.orange) }
                     if LocalStore.hasClip(task.video) {
                         Label("on phone", systemImage: "arrow.down.circle.fill").foregroundStyle(.green)
                     } else if let p = model.downloads[task.video.id] {

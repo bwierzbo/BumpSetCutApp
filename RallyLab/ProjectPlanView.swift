@@ -2,7 +2,9 @@
 //  ProjectPlanView.swift
 //  RallyLab
 //
-//  The training plan as a timeline (see TrainingPlan): rounds already
+//  First, the work to do (WorkPlanView): what each recording still needs
+//  before it can teach the rally classifier, and what to mark next. Under
+//  it, folded away, the ball model's training plan as a timeline (see TrainingPlan): rounds already
 //  trained with what each run scored per surface, the round you're on with
 //  its frames per surface against an even share, what still blocks it and
 //  the videos to track next — one rally each, spread over many videos —
@@ -14,19 +16,41 @@ import SwiftUI
 
 struct ProjectPlanView: View {
     let projects: ProjectsModel
+    /// The project's recordings as the queue sees them, and its work-plan facts (groups, audits, footage types).
+    let videos: [LabelQueue.Video]
+    let work: WorkPlanModel
+    /// Opens a recording's marking pass.
+    let mark: (String) -> Void
     /// Opens a video in the Track tab.
     let track: (VideoSession) -> Void
+    @State private var showRounds = false
     @State private var plan: TrainingPlanModel
     let phone: LabelingSync
     @State private var email = ""
     @State private var password = ""
     @State private var facet = VideoType.Facet.camera
 
-    init(projects: ProjectsModel, library: ModelLibrary, phone: LabelingSync, track: @escaping (VideoSession) -> Void) {
+    init(projects: ProjectsModel, library: ModelLibrary, phone: LabelingSync, videos: [LabelQueue.Video], work: WorkPlanModel,
+         mark: @escaping (String) -> Void, track: @escaping (VideoSession) -> Void) {
         self.projects = projects
         self.phone = phone
+        self.videos = videos
+        self.work = work
+        self.mark = mark
         self.track = track
         _plan = State(initialValue: TrainingPlanModel(library: library))
+    }
+
+    /// The plan over the project's recordings. Which of them are withheld is taken here from the project's listed
+    /// closure when the queue does not know (its own read checks every withheld original's content, which fails
+    /// while the footage is off this Mac): this page only counts and orders — a task it opens asks again.
+    private var workPlan: WorkPlan.Plan {
+        let facts = work.facts?.published.byName ?? [:], types = work.facts?.types ?? [:], listed = work.facts?.withheld
+        return WorkPlan.plan(videos.map { queued in
+            var v = queued
+            if case .byHandOnly(.unknown) = v.access, let listed { v.access = LabelAccess(withheld: listed.contains(v.plan.name), byHand: true) }
+            return WorkPlan.Recording(video: v, type: types[v.plan.name], audit: facts[v.plan.name]?.audit)
+        })
     }
 
     var body: some View {
@@ -34,10 +58,13 @@ struct ProjectPlanView: View {
         let progress = PlanProgress(videos: projects.sampler.sessions.map(PlanVideo.init(session:)), round: current)
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                intro(progress)
-                    .padding(.bottom, 12)
+                WorkPlanView(plan: workPlan, factsRead: work.facts != nil, open: mark)
+                    .padding(.bottom, 22)
                 phoneBox
                     .padding(.bottom, 18)
+                DisclosureGroup(isExpanded: $showRounds) { VStack(alignment: .leading, spacing: 0) {
+                intro(progress)
+                    .padding(.vertical, 12)
                 ForEach(TrainingPlan.rounds, id: \.number) { round in
                     let record = plan.history.first { $0.round == round.number }
                     let isLast = round.number == TrainingPlan.rounds.last?.number
@@ -58,6 +85,9 @@ struct ProjectPlanView: View {
                 }
                 breakdown(progress)
                     .padding(.top, 26)
+                } } label: {
+                    Text("Ball model training rounds").font(.title3.weight(.bold))
+                }
             }
             .padding(20)
             .frame(maxWidth: 900, alignment: .leading)
@@ -67,8 +97,12 @@ struct ProjectPlanView: View {
             // Videos imported in the background (RallyLab --get) since the project opened.
             projects.sampler.reloadSessions()
             plan.reload()
+            work.refresh(root: projects.projectDir, recordings: projects.sampler.sessions.map(\.name))
         }
-        .onChange(of: projects.projectDir) { plan.reload() }
+        .onChange(of: projects.projectDir) {
+            plan.reload()
+            work.refresh(root: projects.projectDir, recordings: projects.sampler.sessions.map(\.name))
+        }
     }
 
     // MARK: - Intro

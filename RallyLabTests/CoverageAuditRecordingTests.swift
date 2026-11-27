@@ -607,6 +607,33 @@ final class CoverageAuditRecordingTests: XCTestCase {
         XCTAssertNotNil(A.incompleteness(of: unread))
     }
 
+    /// With the withheld originals off this Mac the per-file content check can't be made: the status, an open and
+    /// the findings list refuse as ever. The counts for the work plan (`live: false`) are still read — by the listed
+    /// closure and the identities the draw froze — and a listed withheld recording is still named and not read.
+    func testTheCountsForThePlanAreReadWhileTheWithheldFootageIsAway() throws {
+        try recording("a"); try recording("b")
+        let d = try draw(["a", "b", "held"], repeatSet: [])
+        for i in 0...2 { try A.record(request("a", i, .clean, played: all), draw: d, root: root, tool: "t", now: now) }
+        try FileManager.default.removeItem(at: video("held"))
+        try FileManager.default.removeItem(at: video("b"))
+        XCTAssertThrowsError(try A.status(draw: d, root: root))
+        XCTAssertThrowsError(try A.open("a", draw: d, root: root, now: now))
+        XCTAssertThrowsError(try A.findingsList(draw: d, root: root, now: now))
+        let ledger = try Data(contentsOf: ExposureLog.url(in: root))
+        let statuses = try A.status(draw: d, root: root, live: false)
+        XCTAssertEqual(statuses.map(\.state.name), ["audited_clean", "partial", "partial"])
+        XCTAssertEqual(statuses.map(\.reviewed), [3, 0, 0])
+        XCTAssertNil(statuses[0].problem)
+        XCTAssertEqual(statuses[1].problem, "the original is not on this Mac")
+        XCTAssertTrue(statuses[2].problem?.hasPrefix("withheld") == true, statuses[2].problem ?? "nil")
+        XCTAssertEqual(try Data(contentsOf: ExposureLog.url(in: root)), ledger, "the status writes nothing")
+
+        let facts = WorkPlanFacts.read(root: root, recordings: ["a", "b", "c", "held"], now: now)
+        XCTAssertEqual(facts.published.recordings.map(\.audit), [.clean, .open, .notDrawn, .notDrawn], "c is in no draw; the withheld one is not read, so nothing is said of it")
+        XCTAssertEqual(statuses.map(\.notRead), [false, false, true])
+        XCTAssertEqual(facts.withheld, ["held"])
+    }
+
     func testTheFindingsListIsWhatCountsAndIsNeverOverwritten() throws {
         try recording("a"); try recording("b")
         let d = try draw(["a", "b"], repeatSet: [1])

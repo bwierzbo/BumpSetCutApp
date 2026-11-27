@@ -265,4 +265,7 @@ struct LabelProjectState: Codable, Hashable {
     var plan: [TrainedRound]
     var scores: [String: [String: Double]]
     var updatedAt: Date?
+    /// Each recording's camera group and audit state, as only the project's files say them (WorkPlan; migration
+    /// 055). nil from a Mac build before it, and left out of a row then, so the column keeps what it has.
+    var work: WorkPlan.Published? = nil
 }

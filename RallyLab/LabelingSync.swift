@@ -1277,6 +1277,11 @@ final class LabelingSync {
         a.done == b.done && a.isRally == b.isRally && abs(a.start - b.start) < 0.001 && abs(a.end - b.end) < 0.001 && a.points == b.points.points
     }
 
+    /// The work-plan facts last read, for which opening and when (`workFacts`).
+    private var lastWorkFacts: (opening: ProjectsModel.Opening, read: Date, published: WorkPlan.Published)?
+    /// The facts are read from the project's files at most this often (seconds) while its recordings stay the same.
+    static let workFactsInterval: TimeInterval = 300
+
     // MARK: - 5. The plan, for the phone's Plan tab
 
     /// The captured project's plan and scores (`opening.root`). Returns a note for the status when the plan file
@@ -1297,9 +1302,27 @@ final class LabelingSync {
             guard let s = (try? Data(contentsOf: url)).flatMap({ try? JSONDecoder().decode(RunScores.self, from: $0) }) else { continue }
             scores[name] = Dictionary(uniqueKeysWithValues: ["tracked", "indoor", "grass", "beach"].compactMap { k in s.f1(k).map { (k, $0) } })
         }
+        let work = await workFacts(for: opening)
         try projects.require(opening)
-        try await client.save(LabelProjectState(project: opening.name, plan: plan, scores: scores, updatedAt: nil))
+        try await client.save(LabelProjectState(project: opening.name, plan: plan, scores: scores, updatedAt: nil, work: work))
         return nil
+    }
+
+    /// What only the project's files say of each recording — its camera group, where its audit stands — for the
+    /// phone's work plan (WorkPlan). Read off the main actor, and again only when the project's recordings changed
+    /// or `workFactsInterval` has passed: the read looks at every drawn original on this Mac, and this runs with
+    /// every sync. Facts that say the same as the last ones keep their date.
+    private func workFacts(for opening: ProjectsModel.Opening) async -> WorkPlan.Published {
+        let recordings = projects.sampler.sessions.map(\.name).sorted()
+        if let last = lastWorkFacts, last.opening == opening, last.published.recordings.map(\.name) == recordings,
+           Date().timeIntervalSince(last.read) < Self.workFactsInterval {
+            return last.published
+        }
+        let root = opening.root
+        var read = await Task.detached(priority: .utility) { WorkPlanFacts.read(root: root, recordings: recordings).published }.value
+        if let last = lastWorkFacts, last.opening == opening, last.published.recordings == read.recordings { read.publishedAt = last.published.publishedAt }
+        lastWorkFacts = (opening, Date(), read)
+        return read
     }
 
     /// The server's rally times written beside the captured project's recording, and its session marked: only
