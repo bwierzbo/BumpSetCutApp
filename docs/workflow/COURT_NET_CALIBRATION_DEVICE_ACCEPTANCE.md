@@ -61,7 +61,7 @@ Nothing is uploaded or distributed by these steps. Both schemes archive for a de
 |---|---|---|
 | C1 | On the **Net** page, tap its four corners | A four-sided shape that follows the net's tilt — not a level rectangle. The court dims but stays visible. |
 | C2 | Hide the court (orange eye), then the net (green eye) | Each overlay hides and shows on its own. |
-| C3 | With only three corners placed, Cancel → **Save draft and close** | "Saved. The net needs all four corners…"; the three stay on screen and the page stays. |
+| C3 | With only three corners placed, Cancel → **Save draft and close**; then **Skip** | "Saved. The net needs all four corners…"; the three stay on screen and the page stays. Skip asks "Go on without saving these marks?" before dropping them. |
 | C4 | **Confirm net** | The run starts. Cancel it and start again: the Court page reads "Court and net confirmed" and its button reads **Continue**. |
 
 ## D. Later edits

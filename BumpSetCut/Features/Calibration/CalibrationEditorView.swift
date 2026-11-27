@@ -19,7 +19,7 @@ struct CalibrationEditorView: View {
     @State private var pinchBaseScale: CGFloat?
     @State private var wholeShape = false
     @State private var askBeforeClosing = false
-    @State private var askBeforeSkipping = false
+    @State private var askBeforeLeaving = false
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     /// How near a touch must be to a point, and to a line, to take hold of it.
@@ -103,8 +103,8 @@ struct CalibrationEditorView: View {
                 Button("Close without saving", role: .destructive) { step.onCancel() }
                 Button("Cancel", role: .cancel) {}
             }
-            .confirmationDialog("Skip without saving these marks?", isPresented: $askBeforeSkipping, titleVisibility: .visible) {
-                Button("Skip without them", role: .destructive) { step.onDone() }
+            .confirmationDialog("Go on without saving these marks?", isPresented: $askBeforeLeaving, titleVisibility: .visible) {
+                Button("Go on without them", role: .destructive) { step.onDone() }
                 Button("Keep editing", role: .cancel) {}
             } message: {
                 Text(model.notice ?? String(localized: "What is on the picture could not be saved as a draft."))
@@ -309,13 +309,11 @@ struct CalibrationEditorView: View {
                 // What is on the picture is kept as a draft; the run goes on without it.
                 BSCButton(title: "Skip", icon: "forward.fill", style: .ghost, size: .medium, isFullWidth: false) {
                     if model.hasUnsavedChanges { model.saveDraft() }
-                    // What could not be saved (a net short of four corners, a file that would not write) is not
-                    // dropped without a word: the page stays until the person says to go on without it.
-                    if model.hasUnsavedChanges { askBeforeSkipping = true } else { step.onDone() }
+                    moveOn()
                 }
                 .accessibilityIdentifier(AccessibilityID.Process.setupSkip)
                 BSCButton(title: confirmTitle, style: .primary, size: .medium) {
-                    if model.confirm() { step.onDone() }
+                    if model.confirm() { moveOn() }
                 }
                     .accessibilityIdentifier(AccessibilityID.Calibration.confirm)
                     .disabled(!model.isStableView)
@@ -376,6 +374,13 @@ struct CalibrationEditorView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(AccessibilityID.Calibration.status)
+    }
+
+    /// Leaves the page for the next one. Marks that could not be saved — a net short of four corners, in this
+    /// camera view or another, or a file that would not write — are not dropped without a word: the page stays
+    /// until the person says to go on without them.
+    private func moveOn() {
+        if model.hasUnsavedChanges { askBeforeLeaving = true } else { step.onDone() }
     }
 
     /// What skipping this page costs, said beside the Skip: only the net is read by a run, and only while no
