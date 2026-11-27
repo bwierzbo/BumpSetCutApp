@@ -5,7 +5,10 @@
 //  What to label next, the same on the Mac and the phone. Marking leads:
 //  every video not marked all the way through is a job, the ones started
 //  and left first, then round-robin over the surfaces (the one with the
-//  fewest marked videos first) so the decision model's labels stay mixed.
+//  fewest marked videos first) so the decision model's labels stay mixed —
+//  a recording of a camera group with nothing marked yet before another of
+//  a group already covered, clips under a minute after the longer ones, and
+//  recordings withheld from the models (marked for scoring only) last.
 //  Between them, rallies to track from the videos the plan wants frames
 //  from (one each, so they spread over many videos). A video set aside
 //  (the backlog: it won't be good to mark) is no job of either kind until
@@ -168,6 +171,15 @@ enum LabelQueue {
         var backlog: Bool = false
         /// What the project's withheld list leaves open for it.
         var access: LabelAccess = .open
+        /// Its camera group (the exporter's grouping, published by the Mac); nil when not known here.
+        var group: String? = nil
+        /// Seconds of footage, when known.
+        var seconds: Double? = nil
+
+        /// The group it counts toward: its own when none is known.
+        var groupKey: String { group ?? plan.name }
+        /// Too short to hold much unmarked time: marked after the longer recordings.
+        var isShort: Bool { seconds.map { $0 < LabelQueue.shortClip } ?? false }
 
         /// A rally of it may be a track job: not set aside, and no model is kept from it.
         var offersTracking: Bool { !backlog && access == .open }
@@ -175,6 +187,8 @@ enum LabelQueue {
 
     /// Track jobs between marking jobs.
     static let tracksPerReview = 3
+    /// A recording shorter than this (seconds) is a short clip.
+    static let shortClip = 60.0
 
     static func jobs(_ videos: [Video], round: TrainingPlan.Round?) -> [Job] {
         // A recording set aside, or one no model may run over, is no candidate for the plan either (its slot goes
@@ -203,24 +217,46 @@ enum LabelQueue {
         }
     }
 
-    /// Every available video not marked through: started ones first, then
-    /// one surface at a time, the surface with the fewest marked videos
-    /// leading, within a surface the most found rallies first. Marking is by
-    /// hand, so a withheld recording stays a job wherever marking is offered.
+    /// The marking jobs, in `markingOrder`.
     static func markingJobs(_ videos: [Video]) -> [Job] {
-        let open = videos.filter { $0.plan.available && !$0.complete && !$0.backlog && $0.access.offersMarking }
+        markingOrder(videos).map { .review($0.plan.name) }
+    }
+
+    /// Every video not marked through, in the order to mark them: started ones first; then the recordings no
+    /// model is kept from, the ones of a minute or more before the short clips; then the withheld ones (marking
+    /// is by hand, so they stay jobs wherever marking is offered — they are scored on, never trained on). Within
+    /// each of those, one surface at a time, the surface with the fewest marked videos leading, and in a surface
+    /// a recording whose camera group has nothing marked or begun before one whose group has, then the most
+    /// found rallies, then the longest. `playableOnly`: leave out the ones whose footage can't be played here.
+    static func markingOrder(_ videos: [Video], playableOnly: Bool = true) -> [Video] {
+        let open = videos.filter { (!playableOnly || $0.plan.available) && !$0.complete && !$0.backlog && $0.access.offersMarking }
         let started = open.filter { $0.marked > 0 }.sorted { ($0.marked, $0.found) > ($1.marked, $1.found) }
-        var fresh: [String: [Video]] = [:]
-        for v in open where v.marked == 0 { fresh[v.plan.surface, default: []].append(v) }
-        for k in fresh.keys { fresh[k]!.sort { $0.found > $1.found } }
+        let fresh = open.filter { $0.marked == 0 }
         var done = Dictionary(grouping: videos.filter(\.complete), by: \.plan.surface).mapValues(\.count)
+        var covered = Set(videos.filter { $0.access == .open && ($0.complete || $0.marked > 0) }.map(\.groupKey))
         var ordered: [Video] = []
-        while fresh.values.contains(where: { !$0.isEmpty }) {
-            // The surface with the fewest marked videos, ties by name.
-            let surface = fresh.filter { !$0.value.isEmpty }.keys.min { (done[$0, default: 0], $0) < (done[$1, default: 0], $1) }!
-            ordered.append(fresh[surface]!.removeFirst())
-            done[surface, default: 0] += 1
+
+        func take(_ tier: [Video]) {
+            var pool: [String: [Video]] = [:]
+            for v in tier { pool[v.plan.surface, default: []].append(v) }
+            for k in pool.keys { pool[k]!.sort { ($0.found, $0.seconds ?? 0) > ($1.found, $1.seconds ?? 0) } }
+            // New camera groups first, then whatever is left.
+            for newGroupsOnly in [true, false] {
+                while true {
+                    let ready = pool.filter { _, list in list.contains { !newGroupsOnly || !covered.contains($0.groupKey) } }
+                    // The surface with the fewest marked videos, ties by name.
+                    guard let surface = ready.keys.min(by: { (done[$0, default: 0], $0) < (done[$1, default: 0], $1) }) else { break }
+                    let i = pool[surface]!.firstIndex { !newGroupsOnly || !covered.contains($0.groupKey) }!
+                    let v = pool[surface]!.remove(at: i)
+                    ordered.append(v)
+                    covered.insert(v.groupKey)
+                    done[surface, default: 0] += 1
+                }
+            }
         }
-        return (started + ordered).map { .review($0.plan.name) }
+        take(fresh.filter { $0.access == .open && !$0.isShort })
+        take(fresh.filter { $0.access == .open && $0.isShort })
+        take(fresh.filter { $0.access != .open })
+        return started + ordered
     }
 }

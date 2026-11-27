@@ -28,6 +28,8 @@ struct LabelTabView: View {
     @State private var paths: BallPathBuilder
     /// The task on screen, if any.
     @State private var active: LabelQueue.Job?
+    /// The project's camera groups, audit states and footage types (WorkPlanFacts): the queue's order and the Plan page.
+    @State private var work = WorkPlanModel()
     /// The withheld closure of an opening as last read (the one the sync publishes, LabelingSync.withheldClosure);
     /// `names` nil when it could not be read. Until it is read for the project open now, no recording is known not
     /// to be withheld.
@@ -74,6 +76,7 @@ struct LabelTabView: View {
         .onChange(of: active) { _, _ in checkedTrack = nil }
         .task(id: WithheldRead(opening: projects.opening, front: isActive)) {
             guard isActive, let opening = projects.opening else { return }
+            work.refresh(root: opening.root, recordings: sampler.sessions.map(\.name))
             withheld = (opening, await LabelingSync.withheldClosure(root: opening.root))
         }
     }
@@ -109,7 +112,8 @@ struct LabelTabView: View {
                                     putBack: { name in Task { await phone.setBacklog(session: name, reason: nil) } },
                                     check: { claim, accept in await phone.checkClaim(claim, accept: accept) })
             case .plan:
-                ProjectPlanView(projects: projects, library: library, phone: phone) { session in
+                ProjectPlanView(projects: projects, library: library, phone: phone, videos: queueVideos, work: work,
+                                mark: { active = .review($0) }) { session in
                     active = jobs.first { $0.video == session.name }
                         ?? LabelQueue.Video.nextRally(in: session).map { .track(session.name, $0) }
                 }
@@ -157,7 +161,16 @@ struct LabelTabView: View {
         active = jobs.first { $0 != finished }
     }
 
-    private var queueVideos: [LabelQueue.Video] { sampler.sessions.map { LabelQueue.Video(session: $0, access: access(of: $0)) } }
+    private var queueVideos: [LabelQueue.Video] {
+        let groups = work.facts?.published.byName ?? [:]
+        return sampler.sessions.map { s in
+            var v = LabelQueue.Video(session: s, access: access(of: s))
+            v.group = groups[s.name]?.group
+            // How long it runs: sessions don't keep it, but the Sampler's random frames reach nearly to the end.
+            v.seconds = s.frames.map(\.time).max()
+            return v
+        }
+    }
 
     private var jobs: [LabelQueue.Job] { LabelQueue.jobs(queueVideos, round: plan.currentRound) }
 }

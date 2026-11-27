@@ -49,20 +49,26 @@ extension CoverageAudit {
         }
     }
 
-    private static func projectAsRead(_ root: URL) throws -> ProjectAsRead {
+    /// `live`: also read the withheld context the per-file content check needs — every withheld original must be
+    /// readable for that, so it throws while the footage is away. Without it a recording is refused by the listed
+    /// closure and the identities the draw froze only: enough for counts that open nothing (`status(…, live: false)`),
+    /// never for an open, a verdict or a list of findings.
+    private static func projectAsRead(_ root: URL, live: Bool = true) throws -> ProjectAsRead {
         let closures = try ScoringExposure.Closures.current(in: root)
         guard !closures.withheld.isEmpty else { throw Failure.emptyClosure }
         let all = try sessions(in: root)
         return ProjectAsRead(closures: closures, sources: try ReservedVideos.sources(in: root),
                              sessions: Dictionary(all.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a }),
-                             context: try EventReview.withheldContext(root: root, sessions: all))
+                             context: live ? try EventReview.withheldContext(root: root, sessions: all) : nil)
     }
 
     /// Every recording of the draw, in the draw's order. Reads the reservations, the project's identities and the
     /// sessions strictly (anything unreadable throws); a recording's own trouble — withheld, no session, a record
     /// that can't be read or belongs to another draw or file — is its `problem`, and nothing of it is counted.
-    static func status(draw: LoadedDraw, root: URL) throws -> [RecordingStatus] {
-        let project = try projectAsRead(root)
+    /// `live: false` is for a planning display only (the work plan's counts): it skips the check of each session's
+    /// file as it is today, which cannot be made while the withheld originals are off this Mac.
+    static func status(draw: LoadedDraw, root: URL, live: Bool = true) throws -> [RecordingStatus] {
+        let project = try projectAsRead(root, live: live)
         return draw.draw.recordings.map { recording in
             var status = RecordingStatus(recordingId: recording.recordingId, surface: recording.surface,
                                          tally: Tally(total: recording.intervals.count,

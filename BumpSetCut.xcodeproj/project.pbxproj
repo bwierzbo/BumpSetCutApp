@@ -141,6 +141,7 @@
 				Shared/ReviewViews.swift,
 				Shared/TrackFinder.swift,
 				Shared/TrainingPlan.swift,
+				Shared/WorkPlan.swift,
 			);
 			target = RA11AB012E1C86F400000001 /* RallyLab */;
 		};
