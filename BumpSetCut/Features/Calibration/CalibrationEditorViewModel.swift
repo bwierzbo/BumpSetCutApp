@@ -23,6 +23,8 @@ final class CalibrationEditorViewModel {
     }
 
     private(set) var phase: Phase = .loading
+    /// The page failed to open because the calibration on file can't be read, which `startFresh` gets past.
+    private(set) var canStartFresh = false
     private(set) var file: CourtNetCalibrationFile?
     private(set) var video: CalibrationVideo?
     /// A calibration on file for another video or frame: shown as the reason, offered as a starting point, never used.
@@ -65,7 +67,8 @@ final class CalibrationEditorViewModel {
 
     static let tool = "bumpsetcut_ios \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0")"
 
-    init(videoId: UUID, url: URL, store: CourtNetCalibrationStore, reviewer: String) {
+    init(videoId: UUID, url: URL, store: CourtNetCalibrationStore, reviewer: String, target: CalibrationTarget = .court) {
+        self.target = target
         self.videoId = videoId
         self.url = url
         self.store = store
@@ -92,12 +95,26 @@ final class CalibrationEditorViewModel {
                 file = .new(for: video.binding)
                 (staleFile, staleReason) = (old, reason)
             case .unreadable(let why):
+                canStartFresh = true
                 phase = .failed(why)
                 return
             }
             let start = file?.segments.first?.frameTimeSec ?? min(1, video.binding.durationSec / 2)
             phase = .ready
             seek(to: start)
+        } catch {
+            phase = .failed(error.localizedDescription)
+        }
+    }
+
+    /// The calibration on file can't be read: it is set aside (kept, under another name) and the page opens
+    /// with nothing marked.
+    func startFresh() async {
+        do {
+            try store.setAsideUnreadable(videoId.uuidString)
+            canStartFresh = false
+            phase = .loading
+            await load()
         } catch {
             phase = .failed(error.localizedDescription)
         }
@@ -274,17 +291,19 @@ final class CalibrationEditorViewModel {
 
     func saveDraft() { commit(String(localized: "Draft saved.")) }
 
-    /// The person's Confirm for the part being edited, in the camera view at the current time.
-    func confirm() {
-        guard let id = segmentId else { return }
+    /// The person's Confirm for the part being edited, in the camera view at the current time. False when it
+    /// could not be confirmed (the reason is the notice).
+    @discardableResult
+    func confirm() -> Bool {
+        guard let id = segmentId else { return false }
         let target = target
         if target == .net, shapes.netQuad == nil {
             notice = String(localized: "Place all four corners of the net first.")
-            return
+            return false
         }
         if target == .court, !shapes.hasCourtPoints {
             notice = String(localized: "Place the court's corners first.")
-            return
+            return false
         }
         let done = commit(target == .court ? String(localized: "Court confirmed.") : String(localized: "Net confirmed.")) { next in
             let segment = next.segments.first { $0.id == id }
@@ -300,14 +319,15 @@ final class CalibrationEditorViewModel {
             // What was placed is kept as a draft; the reason it couldn't be confirmed stays on screen.
             let why = notice
             if commit("") { notice = why }
-            return
+            return false
         }
-        guard let segment = file?.segments.first(where: { $0.id == id }) else { return }
+        guard let segment = file?.segments.first(where: { $0.id == id }) else { return true }
         // The confirmation is now what the next edit starts from.
         switch target {
         case .court: working[id]?.court = Origin(startedFrom: CourtNetCalibrationV1.confirmation, baseline: segment.court.confirmation?.geometry)
         case .net: working[id]?.net = Origin(startedFrom: CourtNetCalibrationV1.confirmation, baseline: segment.net.confirmation?.geometry)
         }
+        return true
     }
 
     /// Start over on the part being edited: every point goes and so does its draft. A confirmation stays in force

@@ -2,7 +2,7 @@
 //  CalibrationScreen.swift
 //  BumpSetCutUITests
 //
-//  Page object for the Court & Net editor. Points are given the way the editor stores them: fractions of the
+//  Page object for the court page and the net page of the setup before processing. Points are given the way the editor stores them: fractions of the
 //  upright frame, origin bottom-left, outside 0…1 for a corner that is out of the picture.
 //
 
@@ -21,7 +21,6 @@ struct CalibrationScreen {
     var status: XCUIElement { app.descendants(matching: .any)["calibration.status"] }
     var hint: XCUIElement { app.staticTexts["calibration.hint"] }
     var closeButton: XCUIElement { app.buttons["calibration.close"] }
-    var saveDraftButton: XCUIElement { app.buttons["calibration.saveDraft"] }
     var confirmButton: XCUIElement { app.buttons["calibration.confirm"] }
     var moreButton: XCUIElement { app.buttons["More"] }
     var moveAllToggle: XCUIElement {
@@ -56,11 +55,6 @@ struct CalibrationScreen {
 
     func chip(_ name: String) -> XCUIElement { app.buttons[name] }
 
-    /// The Court / Net tab, whatever mark its title carries ("Court ✓", "Net ✓ edited").
-    func tab(_ name: String) -> XCUIElement {
-        app.segmentedControls.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", name)).firstMatch
-    }
-
     /// Where a frame point is on the screen at the current zoom.
     func coordinate(x: CGFloat, y: CGFloat) -> XCUICoordinate {
         let size = canvas.frame.size
@@ -81,7 +75,7 @@ struct CalibrationScreen {
     mutating func zoomIn() { app.buttons["Zoom in"].tap(); scale *= Self.zoomStep }
     mutating func fit() { app.buttons["Fit the picture"].tap(); scale = 1 }
 
-    /// Closes the editor. If it asks, what was changed is kept as a draft, or dropped when `saving` is false.
+    /// Cancels the setup from this page. If it asks, what was changed is kept as a draft, or dropped when `saving` is false.
     func close(saving: Bool = true) {
         closeButton.tap()
         let answer = app.buttons[saving ? "Save draft and close" : "Close without saving"]

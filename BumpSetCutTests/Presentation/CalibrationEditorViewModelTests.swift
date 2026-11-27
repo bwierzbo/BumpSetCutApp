@@ -43,6 +43,30 @@ final class CalibrationEditorViewModelTests: XCTestCase {
 
     private func onFile() throws -> CourtNetCalibrationFile { try XCTUnwrap(try store.load(videoId.uuidString)) }
 
+    func testAnUnreadableCalibrationFailsToOpenAndStartingFreshSetsItAside() async throws {
+        let sidecars = dir.appendingPathComponent("sidecars")
+        try FileManager.default.createDirectory(at: sidecars, withIntermediateDirectories: true)
+        let garbage = Data("{ not json".utf8)
+        try garbage.write(to: store.url(videoId.uuidString))
+
+        let model = await open()
+        guard case .failed = model.phase else { return XCTFail("\(model.phase)") }
+        XCTAssertTrue(model.canStartFresh)
+
+        await model.startFresh()
+        XCTAssertEqual(model.phase, .ready)
+        XCTAssertFalse(model.canStartFresh)
+        XCTAssertEqual(model.status, .notCalibrated)
+        let names = try FileManager.default.contentsOfDirectory(atPath: sidecars.path)
+        XCTAssertEqual(names.count, 1)
+        XCTAssertTrue(names[0].contains("_calibration.unreadable-"), names[0])
+        XCTAssertEqual(try Data(contentsOf: sidecars.appendingPathComponent(names[0])), garbage)
+
+        place(courtTaps, in: model)
+        XCTAssertTrue(model.confirm())
+        XCTAssertEqual(try onFile().segments[0].court.confirmation?.geometry, CalibrationFixtures.court)
+    }
+
     func testAVideoWithNothingOnFileOpensEmptyAndBoundToTheFile() async throws {
         let model = await open()
         XCTAssertEqual(model.phase, .ready)

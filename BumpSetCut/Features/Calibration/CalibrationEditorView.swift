@@ -2,7 +2,8 @@
 //  CalibrationEditorView.swift
 //  BumpSetCut
 //
-//  Court & Net: a person marks the court's six ground points and the net's four corners
+//  The court page and the net page of the setup before processing (ProcessingSetupFlowView):
+//  a person marks the court's six ground points, or the net's four corners,
 //  on a frame of their video, adjusts them, and confirms. Tap to place, drag a point or a
 //  line, pinch to zoom, pan with one finger off the shape, step frame by frame. While a
 //  point is dragged a loupe above the finger shows what is under it. Nothing here waits
@@ -18,7 +19,7 @@ struct CalibrationEditorView: View {
     @State private var pinchBaseScale: CGFloat?
     @State private var wholeShape = false
     @State private var askBeforeClosing = false
-    @Environment(\.dismiss) private var dismiss
+    @State private var askBeforeLeaving = false
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     /// How near a touch must be to a point, and to a line, to take hold of it.
@@ -39,8 +40,20 @@ struct CalibrationEditorView: View {
         var ignored = false
     }
 
-    init(videoId: UUID, videoURL: URL, reviewer: String) {
-        _model = State(wrappedValue: CalibrationEditorViewModel(videoId: videoId, url: videoURL, store: .app, reviewer: reviewer))
+    /// The page the editor is in the setup before processing: one shape, a Skip beside its Confirm.
+    struct Step {
+        let target: CalibrationTarget
+        let progress: SetupProgress
+        /// The shape is confirmed, or the page skipped.
+        let onDone: () -> Void
+        let onCancel: () -> Void
+    }
+    private let step: Step
+
+    init(videoId: UUID, videoURL: URL, reviewer: String, step: Step) {
+        self.step = step
+        _model = State(wrappedValue: CalibrationEditorViewModel(videoId: videoId, url: videoURL, store: .app, reviewer: reviewer,
+                                                                target: step.target))
     }
 
     var body: some View {
@@ -50,8 +63,24 @@ struct CalibrationEditorView: View {
                 case .loading:
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .failed(let why):
-                    BSCEmptyState(icon: "exclamationmark.triangle", title: "Court & Net can't open", message: LocalizedStringResource(stringLiteral: why))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // A calibration that can't be opened must not hold up the run: the page can be skipped, and marks
+                    // that can't be read can be set aside for new ones.
+                    VStack(spacing: BSCSpacing.lg) {
+                        BSCEmptyState(icon: "exclamationmark.triangle", title: "Court & Net can't open", message: LocalizedStringResource(stringLiteral: why))
+                        if model.canStartFresh {
+                            Text("The marks saved for this video can't be read. Start fresh to mark it again; the old file is kept aside, not deleted.")
+                                .bscFont(size: 13)
+                                .foregroundColor(.bscTextSecondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, BSCSpacing.lg)
+                            BSCButton(title: "Start fresh", icon: "arrow.counterclockwise", style: .primary, size: .medium, isFullWidth: false) {
+                                Task { await model.startFresh() }
+                            }
+                        }
+                        BSCButton(title: "Skip", icon: "forward.fill", style: .secondary, size: .medium, isFullWidth: false, action: step.onDone)
+                            .accessibilityIdentifier(AccessibilityID.Process.setupSkip)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .ready:
                     editor
                 }
@@ -61,17 +90,24 @@ struct CalibrationEditorView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { if model.hasUnsavedChanges { askBeforeClosing = true } else { dismiss() } }
+                    Button("Cancel") { if model.hasUnsavedChanges { askBeforeClosing = true } else { step.onCancel() } }
                         .accessibilityIdentifier(AccessibilityID.Calibration.close)
                 }
+                ToolbarItem(placement: .principal) { SetupStepTitle(title: step.target == .court ? "Court" : "Net", progress: step.progress) }
                 if model.phase == .ready {
                     ToolbarItem(placement: .primaryAction) { moreMenu }
                 }
             }
             .confirmationDialog("Save your changes?", isPresented: $askBeforeClosing, titleVisibility: .visible) {
-                Button("Save draft and close") { model.saveDraft(); if !model.hasUnsavedChanges { dismiss() } }
-                Button("Close without saving", role: .destructive) { dismiss() }
+                Button("Save draft and close") { model.saveDraft(); if !model.hasUnsavedChanges { step.onCancel() } }
+                Button("Close without saving", role: .destructive) { step.onCancel() }
                 Button("Cancel", role: .cancel) {}
+            }
+            .confirmationDialog("Go on without saving these marks?", isPresented: $askBeforeLeaving, titleVisibility: .visible) {
+                Button("Go on without them", role: .destructive) { step.onDone() }
+                Button("Keep editing", role: .cancel) {}
+            } message: {
+                Text(model.notice ?? String(localized: "What is on the picture could not be saved as a draft."))
             }
         }
         .task { await model.load() }
@@ -253,7 +289,6 @@ struct CalibrationEditorView: View {
             banners
             statusLine
             viewRow
-            targetPicker
             pointChips
             Text(hint)
                 .bscFont(size: 14)
@@ -262,10 +297,24 @@ struct CalibrationEditorView: View {
                 .frame(maxWidth: .infinity, minHeight: 36, alignment: .topLeading)
                 .accessibilityIdentifier(AccessibilityID.Calibration.hint)
             frameRow
+            if let skipRisk {
+                Label(skipRisk, systemImage: "exclamationmark.triangle")
+                    .bscFont(size: 12)
+                    .foregroundColor(.bscWarningText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier(AccessibilityID.Process.setupSkipRisk)
+            }
             HStack(spacing: BSCSpacing.sm) {
-                BSCButton(title: "Save draft", style: .secondary, size: .medium, isFullWidth: false) { model.saveDraft() }
-                    .accessibilityIdentifier(AccessibilityID.Calibration.saveDraft)
-                BSCButton(title: model.target == .court ? "Confirm court" : "Confirm net", style: .primary, size: .medium) { model.confirm() }
+                // What is on the picture is kept as a draft; the run goes on without it.
+                BSCButton(title: "Skip", icon: "forward.fill", style: .ghost, size: .medium, isFullWidth: false) {
+                    if model.hasUnsavedChanges { model.saveDraft() }
+                    moveOn()
+                }
+                .accessibilityIdentifier(AccessibilityID.Process.setupSkip)
+                BSCButton(title: confirmTitle, style: .primary, size: .medium) {
+                    if model.confirm() { moveOn() }
+                }
                     .accessibilityIdentifier(AccessibilityID.Calibration.confirm)
                     .disabled(!model.isStableView)
                     .opacity(model.isStableView ? 1 : 0.5)
@@ -327,21 +376,28 @@ struct CalibrationEditorView: View {
         .accessibilityIdentifier(AccessibilityID.Calibration.status)
     }
 
-    private var targetPicker: some View {
-        Picker("Shape", selection: $model.target) {
-            Text(partTitle(.court)).tag(CalibrationTarget.court)
-            Text(partTitle(.net)).tag(CalibrationTarget.net)
-        }
-        .pickerStyle(.segmented)
+    /// Leaves the page for the next one. Marks that could not be saved — a net short of four corners, in this
+    /// camera view or another, or a file that would not write — are not dropped without a word: the page stays
+    /// until the person says to go on without them.
+    private func moveOn() {
+        if model.hasUnsavedChanges { askBeforeLeaving = true } else { step.onDone() }
     }
 
-    private func partTitle(_ target: CalibrationTarget) -> String {
-        let name = target == .court ? String(localized: "Court") : String(localized: "Net")
-        switch model.partState(target) {
-        case .confirmed: return String(localized: "\(name) ✓")
-        case .editedSinceConfirmed: return String(localized: "\(name) ✓ edited")
-        case .nothing, .placing: return name
+    /// What skipping this page costs, said beside the Skip: only the net is read by a run, and only while no
+    /// net is confirmed for this camera view (a confirmed one stays in force when the page is skipped).
+    private var skipRisk: String? {
+        guard model.target == .net else { return nil }
+        switch model.partState(.net) {
+        case .confirmed, .editedSinceConfirmed: return nil
+        case .nothing, .placing:
+            return String(localized: "Skip at your own risk: without a confirmed net, accuracy drops — a ball on the next court or rolling under the net can be cut as a rally.")
         }
+    }
+
+    /// A shape confirmed earlier and not touched since needs no second confirming: the button moves on.
+    private var confirmTitle: LocalizedStringResource {
+        if model.partState(model.target) == .confirmed { return "Continue" }
+        return model.target == .court ? "Confirm court" : "Confirm net"
     }
 
     private func visibilityToggle(isOn: Binding<Bool>, color: Color, label: LocalizedStringResource) -> some View {

@@ -26,15 +26,25 @@ final class ProcessVideoViewModel {
     // Review navigation
     var showRallyPlayer: Bool = false
 
-    // Pre-trim state
-    var showPreTrim: Bool = false
-    var pendingDebugModeForTrim: Bool = false
+    // The pages before a run: trim, camera position, court, net. Each is its own page and each can be skipped.
+    enum SetupStep: CaseIterable { case trim, camera, court, net }
+    /// What the pages lead to.
+    enum SetupGoal: Equatable { case process(debug: Bool), reprocess }
+    struct Setup: Equatable {
+        let steps: [SetupStep]
+        let goal: SetupGoal
+        var index = 0
+        var step: SetupStep { steps[index] }
+        var progress: SetupProgress { SetupProgress(number: index + 1, count: steps.count) }
+    }
+    private(set) var setup: Setup?
+    /// The goal of the pages that were just finished, until they have gone from the screen.
+    private var finishedSetupGoal: SetupGoal?
 
-    // Camera position picker, shown before every run.
-    var showCameraSetup: Bool = false
-    /// What runs once the picker is confirmed and dismissed.
-    enum AfterCameraSetup { case trim, reprocess }
-    private var afterCameraSetup: AfterCameraSetup?
+    var showSetup: Bool {
+        get { setup != nil }
+        set { if !newValue { setup = nil } }
+    }
 
     /// This video's camera position if it has one, else the last one picked —
     /// most people film the same way every time.
@@ -42,10 +52,41 @@ final class ProcessVideoViewModel {
         currentVideoMetadata?.cameraSetup ?? AppSettings.shared.lastCameraSetup
     }
 
-    /// Ask where the video was filmed from, then do `next`.
-    func askCameraSetup(then next: AfterCameraSetup) {
-        afterCameraSetup = next
-        showCameraSetup = true
+    /// Opens the pages that lead to `goal`. A reprocess keeps the video as it is, so it has no trim page; the
+    /// court and net belong to a video in the library.
+    func beginSetup(for goal: SetupGoal) {
+        let steps = SetupStep.allCases.filter { step in
+            switch step {
+            case .trim: return goal != .reprocess
+            case .camera: return true
+            case .court, .net: return currentVideoMetadata != nil
+            }
+        }
+        setup = Setup(steps: steps, goal: goal)
+    }
+
+    /// The page is done or skipped: the next one, or the run after the last.
+    func advanceSetup() {
+        guard var current = setup else { return }
+        if current.index + 1 < current.steps.count {
+            current.index += 1
+            setup = current
+        } else {
+            finishedSetupGoal = current.goal
+            setup = nil
+        }
+    }
+
+    func cancelSetup() {
+        setup = nil
+    }
+
+    /// The trim page wrote a shorter video: it takes the original's place.
+    func useTrimmedVideo(at url: URL) {
+        if let videoId = currentVideoMetadata?.id, mediaStore.replaceVideoFile(id: videoId, withFileAt: url) {
+            loadCurrentVideoMetadata()
+        }
+        advanceSetup()
     }
 
     /// Keep the pick with the video (the coordinator applies it to the run) and
@@ -56,21 +97,15 @@ final class ProcessVideoViewModel {
             loadCurrentVideoMetadata()
         }
         AppSettings.shared.lastCameraSetup = setup
-        showCameraSetup = false
+        advanceSetup()
     }
 
-    func cancelCameraSetup() {
-        afterCameraSetup = nil
-        showCameraSetup = false
-    }
-
-    /// Called when the picker has gone (a full-screen cover can't present the
-    /// trim screen until then).
-    func cameraSetupDismissed() {
-        let next = afterCameraSetup
-        afterCameraSetup = nil
-        switch next {
-        case .trim: showPreTrim = true
+    /// Called when the pages have gone from the screen: the run they led to starts.
+    func setupDismissed() {
+        let goal = finishedSetupGoal
+        finishedSetupGoal = nil
+        switch goal {
+        case .process(let debug): startProcessing(isDebugMode: debug)
         case .reprocess: reprocess()
         case nil: break
         }

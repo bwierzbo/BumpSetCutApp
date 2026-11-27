@@ -51,6 +51,7 @@ The authoritative record of product, architecture, data and process decisions fo
 | [D-037](#d-037) | 2026-11-12 | accepted | D-036 completed: the correction is applied to live Scratch (nine pairs, 24 withheld); L2 is kept, marked exposed, and its D-017 lineage-isolation claim is void; routine model runs refuse the whole withheld closure, the legacy holdout included; one bounded, logged content audit of the protected recordings; no exception for `rc-v1-20261108`'s older record — a new export; amends D-017 and D-036 |
 | [D-038](#d-038) | 2026-11-14 | accepted | The seven follow-up PRs (#179, #176, #177, #180, #181, #178, #182) are merged; the classifier preregistration's amendments A1–A13 are accepted with reporting requirements; negative-label verification is **not** waived — gate G7 is adopted (only reviewed-clean intervals or eligible Stage 1 coverage supply negatives) and the coverage audit starts with a frozen 12-recording pilot; both existing exports are preserved; no training |
 | [D-042](#d-042) | 2026-11-24 | accepted | Court & Net Calibration ships manual-first in the iPhone app on one shared, versioned format (`court_net_calibration_v1`); YOLO leaves the shipping baseline, the Labeler included, with an explicit net-geometry source in place of the net detector; automatic proposals are optional and later |
+| [D-043](#d-043) | 2026-11-27 | accepted | Before a run the app asks on four pages — trim, camera position, court, net — each skippable; the court and net are marked there and nowhere else |
 
 ---
 
@@ -644,3 +645,20 @@ Three of five bars were met and two were not, at both false-clip prices tried; b
 **Consequences.** PR 1: the shared format and store (`BumpSetCut/Core/Calibration/`), `NetQuad` and the file fingerprint moved to shared files. Then the iPhone editor, the YOLO removal with the net-geometry source (supersedes PR #108), and optional proposals. PR #166 takes the shared `CourtLayout` when it is next rebased.
 
 **Source.** Owner authorisation 2026-11-24 (verbatim note above); D-012, D-013, D-034 (proposed, PR #166).
+
+### D-043
+
+**Before a run the app asks on four pages — trim, camera position, court, net — each skippable; the court and net are marked there and nowhere else** — 2026-11-27 — accepted — owner ([verbatim](2026-11-27-setup-pages-authorization.md)).
+
+**Context.** D-042 put Court & Net behind a row on the video's screen that a person had to find and open, beside a camera-position picker and a trim screen that each came up by themselves before a run. Trying the editor on the simulator on 2026-11-27, the owner asked for the calibration to come up by itself after the camera position, as separate but similar pages that can each be skipped; then for the row to go; then, told that changing a processed video's marks changes nothing until it is processed again, for the marks to be made before processing only.
+
+**Decision.**
+1. **Four pages, in this order: trim, camera position, court, net.** Start AI Processing opens them; each has the same heading (its name and "Step n of 4"), a Skip, and a way to cancel that starts nothing. Trim is first because the court and net are marked on the video as trimmed. The run starts after the last page.
+2. **The court page and the net page are the editor**, one shape each. Confirming moves on; Skip keeps what was placed as a draft and moves on. Camera views, "not a stable court view", the court's type and "start over" stay in the page's ⋯ menu.
+3. **The Court & Net row leaves the video's screen**, before and after a run, with its status and its warning line. The editor is not opened on its own.
+4. **A processed video's marks change only through a reprocess**, which goes through the camera, court and net pages. Recalibrating a processed video without finding the ball again is wanted and is a separate piece of work.
+
+**Consequences.** `ProcessingSetupFlowView` and one `Setup` state in `ProcessVideoViewModel` replace the camera picker's and the trim screen's separate presentations; `CalibrationEditorView` is always a page (`Step`), without the Court/Net tabs and Save draft. The camera position page can be skipped, which it could not before. The Net page says, while no net is confirmed, that skipping it lowers accuracy ("Skip at your own risk…"), and the Camera position page that a run then assumes an end-line camera; the run's log and its metadata record which net rules ran (`SpatialChecks`). A page whose saved calibration can't be read offers Start fresh — the file is set aside and kept, never written over — as well as Skip. The format, the store, what a confirmation is and the net-geometry source of D-042 are unchanged. The device acceptance list is rewritten where its steps went through the row.
+
+**Source.** Owner instructions 2026-11-27 (verbatim note above); D-042.
+

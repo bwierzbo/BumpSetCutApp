@@ -78,6 +78,32 @@ final class CourtNetCalibrationStoreTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: url), garbage)
     }
 
+    func testAnUnreadableFileCanBeSetAsideAndIsKept() throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let garbage = Data("{ not json".utf8)
+        try garbage.write(to: store.url(F.binding.recordingId))
+        try store.setAsideUnreadable(F.binding.recordingId)
+        XCTAssertNil(try store.load(F.binding.recordingId))
+        let kept = try names()
+        XCTAssertEqual(kept.count, 1)
+        XCTAssertTrue(kept[0].hasPrefix("\(F.binding.recordingId)_calibration.unreadable-"), kept[0])
+        XCTAssertEqual(try Data(contentsOf: dir.appendingPathComponent(kept[0])), garbage)
+        // A new calibration can be saved now.
+        let f = try confirmed()
+        try store.save(f)
+        XCTAssertEqual(try store.load(F.binding.recordingId), f)
+    }
+
+    func testAFileThatReadsIsNotSetAside() throws {
+        let f = try confirmed()
+        try store.save(f)
+        try store.setAsideUnreadable(F.binding.recordingId)
+        XCTAssertEqual(try store.load(F.binding.recordingId), f)
+        XCTAssertEqual(try names(), ["\(F.binding.recordingId)_calibration.json"])
+        // And with no file there is nothing to do.
+        try store.setAsideUnreadable("another-recording")
+    }
+
     func testAMalformedFileOnDiskIsRefused() throws {
         var f = try confirmed()
         try store.save(f)
