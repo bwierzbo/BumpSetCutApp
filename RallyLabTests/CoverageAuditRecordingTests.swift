@@ -629,7 +629,8 @@ final class CoverageAuditRecordingTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: ExposureLog.url(in: root)), ledger, "the status writes nothing")
 
         let facts = WorkPlanFacts.read(root: root, recordings: ["a", "b", "c", "held"], now: now)
-        XCTAssertEqual(facts.published.recordings.map(\.audit), [.clean, .open, .notDrawn, .open], "c is in no draw")
+        XCTAssertEqual(facts.published.recordings.map(\.audit), [.clean, .open, .notDrawn, .notDrawn], "c is in no draw; the withheld one is not read, so nothing is said of it")
+        XCTAssertEqual(statuses.map(\.notRead), [false, false, true])
         XCTAssertEqual(facts.withheld, ["held"])
     }
 

@@ -54,12 +54,16 @@ enum WorkPlanFacts {
     }
 
     /// A drawn recording's audit as the plan reads it; nil for one set aside from its draw (typed other than
-    /// continuous since). Findings whose recording's marks have changed since the draw are taken as dealt
-    /// with: the recording waits for the next draw.
+    /// continuous since) or not read (withheld, not of the project). Open while a look is owed (a first look, or a disagreement to resolve — the Audit tab's
+    /// own measure of work left). With every look given: clean when nothing was found; otherwise there are
+    /// findings to settle — a boundary error or an uncertain interval as much as a missed rally — unless the
+    /// recording's marks have changed since the draw, when they are taken as dealt with and it waits for the
+    /// next draw.
     static func audit(of status: CoverageAudit.RecordingStatus) -> WorkPlan.Audit? {
-        guard status.setAside == nil else { return nil }
-        if status.state.contaminated { return status.movedIntervals > 0 ? .notDrawn : .findings }
-        return status.state.partial ? .open : .clean
+        guard status.setAside == nil, !status.notRead else { return nil }
+        if status.firstLeft + status.resolveLeft > 0 { return .open }
+        if !status.state.partial, !status.state.contaminated { return .clean }
+        return status.movedIntervals > 0 ? .notDrawn : .findings
     }
 
     /// The footage type of each recording a person confirmed one for; a record that can't be read says nothing.

@@ -154,18 +154,68 @@ final class WorkPlanTests: XCTestCase {
     }
 
     func testADrawnRecordingsAuditIsReadFromItsStatus() {
-        func status(contaminated: Bool, partial: Bool, moved: Int = 0, setAside: String? = nil) -> CoverageAudit.RecordingStatus {
+        func status(contaminated: Bool, partial: Bool, looksLeft: Int = 0, toResolve: Int = 0, moved: Int = 0, setAside: String? = nil) -> CoverageAudit.RecordingStatus {
             var tally = CoverageAudit.Tally(total: 4, state: CoverageAudit.RecordingState(contaminated: contaminated, partial: partial))
-            tally.movedIntervals = moved
+            tally.movedIntervals = moved; tally.firstLeft = looksLeft; tally.resolveLeft = toResolve
             var s = CoverageAudit.RecordingStatus(recordingId: "v", surface: nil, tally: tally)
             s.setAside = setAside
             return s
         }
         XCTAssertEqual(WorkPlanFacts.audit(of: status(contaminated: false, partial: false)), .clean)
-        XCTAssertEqual(WorkPlanFacts.audit(of: status(contaminated: false, partial: true)), .open)
-        XCTAssertEqual(WorkPlanFacts.audit(of: status(contaminated: true, partial: true)), .findings)
+        XCTAssertEqual(WorkPlanFacts.audit(of: status(contaminated: false, partial: true, looksLeft: 2)), .open)
+        XCTAssertEqual(WorkPlanFacts.audit(of: status(contaminated: true, partial: true, looksLeft: 1)), .open, "the looks are finished first")
+        XCTAssertEqual(WorkPlanFacts.audit(of: status(contaminated: false, partial: false, toResolve: 1)), .open)
+        XCTAssertEqual(WorkPlanFacts.audit(of: status(contaminated: true, partial: false)), .findings)
+        XCTAssertEqual(WorkPlanFacts.audit(of: status(contaminated: false, partial: true)), .findings,
+                       "every interval watched and a boundary error (or an uncertain one) on record: no look is owed, the finding is")
         XCTAssertEqual(WorkPlanFacts.audit(of: status(contaminated: true, partial: false, moved: 1)), .notDrawn, "its marks changed since the draw: the findings are taken as dealt with")
-        XCTAssertNil(WorkPlanFacts.audit(of: status(contaminated: false, partial: true, setAside: "typed edited")))
+        XCTAssertEqual(WorkPlanFacts.audit(of: status(contaminated: false, partial: true, moved: 2)), .notDrawn)
+        XCTAssertNil(WorkPlanFacts.audit(of: status(contaminated: false, partial: true, looksLeft: 3, setAside: "typed edited")))
+    }
+
+    /// The same through the records: a recording watched whole with a boundary error on file is a finding to settle,
+    /// not an audit still open.
+    func testAFullyWatchedRecordingWithABoundaryErrorIsAFindingToSettle() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("workplan-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("pipeline_tuning"), withIntermediateDirectories: true)
+        try DatasetStore(root: root).prepare()
+        let now = ISO8601DateFormatter().date(from: "2026-11-26T18:00:00Z")!
+        func video(_ name: String) -> URL { root.appendingPathComponent("footage/\(name).mp4") }
+        for name in ["a", "held"] {
+            try FileManager.default.createDirectory(at: video(name).deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("the footage of \(name)".utf8).write(to: video(name))
+            try #"[{"startTime":2,"endTime":4,"kind":"rally"},{"startTime":6,"endTime":8,"kind":"rally"}]"#
+                .write(to: RallyMarkModel.labelsURL(for: video(name)), atomically: true, encoding: .utf8)
+            var s = VideoSession(name: name, sourcePath: video(name).path, split: "train", addedAt: now, frames: [])
+            s.ralliesMarked = true
+            try DatasetStore(root: root).save(s)
+        }
+        try #"{"tune":[],"holdout":["held"]}"#.write(to: PipelineTuner.ValidationSet.file(in: root), atomically: true, encoding: .utf8)
+        let marks = try XCTUnwrap(RallyTruth.records(inSidecarOf: video("a")))
+        let intervals = CoverageAudit.unmarkedIntervals(marks: marks, cuts: [], durationTicks: 6000)
+        let entry: [String: Any] = ["recordingId": "a", "groupId": "a", "contentFingerprint": ProjectsModel.fileFingerprint(atPath: video("a").path) ?? "",
+                                    "marksSha256": DatasetSplitManifest.sha256(of: RallyMarkModel.labelsURL(for: video("a"))) ?? "", "durationTicks": 6000,
+                                    "intervals": intervals.map { ["index": $0.index, "startTick": $0.startTick, "endTick": $0.endTick] }, "repeatIndices": [Int]()]
+        let json: [String: Any] = ["schemaVersion": CoverageAudit.drawVersion, "stage": "pilot", "drawId": "20261114-120000",
+                                   "dataset": ["name": "rc-test", "timescale": 600, "manifestSha256": "aa"], "seed": 1, "recordings": [entry]]
+        let url = CoverageAudit.drawsDirectory(in: root).appendingPathComponent("20261114-120000-draw.json")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys]).write(to: url)
+        let draw = try CoverageAudit.loadDraw(url)
+        var played = CoverageAudit.PlayedCoverage()
+        played.credit(fromTick: 0, toTick: 6000, rate: 2)
+        func give(_ index: Int, _ entry: CoverageAudit.Entry) throws {
+            try CoverageAudit.record(CoverageAudit.Request(recordingId: "a", index: index, pass: .first, entry: entry, reviewer: "bw", played: played, note: nil),
+                                     draw: draw, root: root, tool: "t", now: now)
+        }
+        try give(0, .clean)
+        XCTAssertEqual(WorkPlanFacts.audits(root: root)?["a"], .open, "two intervals not looked at yet")
+        try give(1, .finding(CoverageAudit.Finding(kind: .boundaryError, approxStartSec: 4, approxEndSec: 5.5, edge: .leading, note: nil)))
+        try give(2, .clean)
+        let status = try XCTUnwrap(try CoverageAudit.status(draw: draw, root: root).first)
+        XCTAssertEqual(status.firstLeft, 0); XCTAssertFalse(status.state.contaminated)
+        XCTAssertEqual(WorkPlanFacts.audits(root: root)?["a"], .findings)
     }
 
     func testTheFactsAreReadFromTheProjectsFilesAndARecordingTheyDoNotNameIsItsOwnGroup() throws {

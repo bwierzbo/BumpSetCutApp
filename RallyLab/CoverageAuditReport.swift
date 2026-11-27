@@ -26,6 +26,9 @@ extension CoverageAudit {
         var rallyMarks = 0
         /// Why the recording is not read, or its record does not count; nil when nothing is wrong.
         var problem: String?
+        /// Its record was not read at all (withheld, not of this project, or its footage type unreadable): the
+        /// tally says nothing of it.
+        var notRead = false
         /// Why the recording is no longer part of the audit, though the draw lists it: a person typed it other than
         /// continuous since the draw. Nothing of it is counted, it owes no look, and it does not hold the stage open.
         var setAside: String?
@@ -75,14 +78,17 @@ extension CoverageAudit {
                                                       state: state(of: nil, intervals: recording.intervals)))
             if let why = listedRefusal(of: recording, closures: project.closures, sources: project.sources) {
                 status.problem = "withheld (\(why)) — not read"
+                status.notRead = true
                 return status
             }
             guard let session = project.sessions[recording.recordingId] else {
                 status.problem = "not a recording of this project"
+                status.notRead = true
                 return status
             }
             if let why = project.liveRefusal(of: session) {
                 status.problem = "withheld (\(why)) — not read"
+                status.notRead = true
                 return status
             }
             // Typed other than continuous since the draw: `admit` refuses it, and nothing of it is counted here.
@@ -93,6 +99,7 @@ extension CoverageAudit {
                 }
             } catch {
                 status.problem = "its footage type can't be read (\(error.localizedDescription))"
+                status.notRead = true
                 return status
             }
             var problems: [String] = []

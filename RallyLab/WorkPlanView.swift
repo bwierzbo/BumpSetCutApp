@@ -45,7 +45,7 @@ struct WorkPlanView: View {
             names("Footage type to say", plan.items(.type, held: nil))
             if plan.auditKnown {
                 names("In the coverage audit", plan.items(.audit))
-                names("Findings to settle (Edit rally times, then a new draw)", plan.items(.fix))
+                names("Findings to settle (Edit rally times, or Audit → Boundary corrections; then a new draw)", plan.items(.fix))
                 names("Waiting for the next audit draw", plan.items(.draw))
             }
             VStack(alignment: .leading, spacing: 8) {

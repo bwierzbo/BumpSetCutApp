@@ -90,7 +90,7 @@ struct HomeView: View {
                 toolCard("Footage type", "Marked through; say whether each is continuous or edited", icon: "film.stack", waiting: footage) { show(.videos) }
             }
             if fix > 0 {
-                toolCard("Fix marks", "The audit found something in their unmarked time: Videos → the recording → Edit rally times",
+                toolCard("Fix marks", "The audit found something in their unmarked time: Videos → the recording → Edit rally times (a boundary trim: the Mac's Audit tab)",
                          icon: "pencil.and.outline", waiting: fix) { show(.videos) }
             }
         }
