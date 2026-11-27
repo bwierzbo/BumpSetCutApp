@@ -192,6 +192,9 @@ enum AccessibilityID {
         static let close = "calibration.close"
         static let saveDraft = "calibration.saveDraft"
         static let confirm = "calibration.confirm"
+        static let canvas = "calibration.canvas"
+        static let status = "calibration.status"
+        static let hint = "calibration.hint"
     }
 
     enum Upload {

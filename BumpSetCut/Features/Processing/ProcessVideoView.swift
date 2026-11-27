@@ -196,10 +196,9 @@ struct ProcessVideoView: View {
 // MARK: - Background
 private extension ProcessVideoView {
     var backgroundGradient: some View {
-        ZStack {
-            Color.bscBackground
-                .ignoresSafeArea()
-
+        // The orbs are wider than a phone: drawn over the colour, not beside it, so they can't widen the screen's
+        // content past its edges.
+        Color.bscBackground.ignoresSafeArea().overlay {
             // Animated gradient orbs
             Circle()
                 .fill(
@@ -316,15 +315,15 @@ private extension ProcessVideoView {
         let consequence = String(localized: "a ball on the next court or rolling under the net isn't ruled out.")
         switch why {
         case .severalViews:
-            return String(localized: "This video has more than one camera view, so rallies aren't checked against the net yet — even with the net confirmed in each view: (consequence)")
+            return String(localized: "This video has more than one camera view, so rallies aren't checked against the net yet — even with the net confirmed in each view: \(consequence)")
         case .notStableView:
-            return String(localized: "This video is marked as not a stable court view, so rallies aren't checked against the net: (consequence)")
+            return String(localized: "This video is marked as not a stable court view, so rallies aren't checked against the net: \(consequence)")
         case .stale:
-            return String(localized: "The court and net marks are for a different version of this video, so rallies aren't checked against the net: (consequence)")
+            return String(localized: "The court and net marks are for a different version of this video, so rallies aren't checked against the net: \(consequence)")
         case .unreadable, .videoUnreadable, .storedFrames:
-            return String(localized: "The net marks for this video can't be used, so rallies aren't checked against the net: (consequence)")
+            return String(localized: "The net marks for this video can't be used, so rallies aren't checked against the net: \(consequence)")
         case .noCalibration, .netNotConfirmed:
-            return String(localized: "Until the net is confirmed here, rallies aren't checked against it: (consequence)")
+            return String(localized: "Until the net is confirmed here, rallies aren't checked against it: \(consequence)")
         }
     }
 }
