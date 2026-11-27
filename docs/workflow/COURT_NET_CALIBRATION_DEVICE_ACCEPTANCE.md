@@ -99,7 +99,7 @@ Run on the build that has the YOLO removal. For each of one beach, one grass and
 
 | # | Do | Expect |
 |---|---|---|
-| G1 | Start AI Processing and Skip the Court and Net pages | The run starts with no net. Known gap since D-043: nothing on screen says that rallies aren't checked against a net that is not confirmed; G2's log line does. |
+| G1 | Start AI Processing and Skip the Court and Net pages | The Net page says "Skip at your own risk: without a confirmed net, accuracy drops…" while no net is confirmed. The run starts with no net. |
 | G2 | Let it run | It completes. The console has one "ℹ️ No net geometry (no court and net calibration): the under-net, off-court, above-net rules were skipped." line and a "⏱ [timing] multi-frame only (ball_heat)" line with **YOLO 0.0 s (0 frames, none)**. Note the rally count, the processing time and whether the phone warmed. |
 | G3 | Reprocess (Debug Features → Reprocess Video): its pages are Camera position, Court and Net; confirm the net on its page | It completes; no "No net geometry" line. Compare the rallies with G2: a rally on a neighbouring court or a ball rolled under the net that G2 kept should be gone; no real rally should be lost. Write down any that is. |
 | G4 | Debug Features on → Debug Processing on a short video | A full-length video with the balls boxed, the track's trail, and the HUD (det, proj, rally, R²). It is made in two passes: the progress bar runs twice. |
