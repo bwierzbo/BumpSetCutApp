@@ -52,6 +52,7 @@ The authoritative record of product, architecture, data and process decisions fo
 | [D-038](#d-038) | 2026-11-14 | accepted | The seven follow-up PRs (#179, #176, #177, #180, #181, #178, #182) are merged; the classifier preregistration's amendments A1–A13 are accepted with reporting requirements; negative-label verification is **not** waived — gate G7 is adopted (only reviewed-clean intervals or eligible Stage 1 coverage supply negatives) and the coverage audit starts with a frozen 12-recording pilot; both existing exports are preserved; no training |
 | [D-042](#d-042) | 2026-11-24 | accepted | Court & Net Calibration ships manual-first in the iPhone app on one shared, versioned format (`court_net_calibration_v1`); YOLO leaves the shipping baseline, the Labeler included, with an explicit net-geometry source in place of the net detector; automatic proposals are optional and later |
 | [D-043](#d-043) | 2026-11-27 | accepted | Before a run the app asks on four pages — trim, camera position, court, net — each skippable; the court and net are marked there and nowhere else |
+| [D-044](#d-044) | 2026-11-27 | accepted | A processed video can be recalibrated — camera position, court, net — and its rallies redone from the balls already found; the pipeline's tracking, rules and decision become one stage first |
 
 ---
 
@@ -661,4 +662,21 @@ Three of five bars were met and two were not, at both false-clip prices tried; b
 **Consequences.** `ProcessingSetupFlowView` and one `Setup` state in `ProcessVideoViewModel` replace the camera picker's and the trim screen's separate presentations; `CalibrationEditorView` is always a page (`Step`), without the Court/Net tabs and Save draft. The camera position page can be skipped, which it could not before. The Net page says, while no net is confirmed, that skipping it lowers accuracy ("Skip at your own risk…"), and the Camera position page that a run then assumes an end-line camera; the run's log and its metadata record which net rules ran (`SpatialChecks`). A page whose saved calibration can't be read offers Start fresh — the file is set aside and kept, never written over — as well as Skip. The format, the store, what a confirmation is and the net-geometry source of D-042 are unchanged. The device acceptance list is rewritten where its steps went through the row.
 
 **Source.** Owner instructions 2026-11-27 (verbatim note above); D-042.
+
+### D-044
+
+**A processed video can be recalibrated — camera position, court, net — and its rallies redone from the balls already found; the pipeline's tracking, rules and decision become one stage first** — 2026-11-27 — accepted — owner ([verbatim](2026-11-27-recalibrate-pipeline-split-authorization.md)).
+
+**Context.** Since D-043 the court and net are marked before a run. The net and the camera position are read only while a video is processed, so correcting them afterwards meant processing the whole video again — the ball model over every frame — though they change nothing about where the ball is. The owner asked for a recalibration that redoes "the rally math not finding the ball". A read-only check found that an ordinary run saves no per-frame ball data, that what footage sharing saves covers only the kept rallies, and that RallyLab's replay (`EvidenceReplayer`) reruns the final decision but not the tracking in which the off-court and under-net rules and the camera's settings act.
+
+**Decision.**
+1. **Recalibrate.** A processed video's camera position, court and net can be marked again and its rallies decided again from the ball detections its run saved, without running the ball model. It applies to videos processed after the detections are saved; an older one is reprocessed.
+2. **One stage, called by both.** What the pipeline does with a frame's ball detections — the off-court filter, tracker, physics gate and trajectory selection, serve watch, rally decision, segments, the above-net rule and each rally's numbers — is one unit (`RallyDecisionStage`) that a run which finds the ball and a run which reads saved balls both go through. No second copy of a rule. The owner noted it also serves tuning.
+3. **The split changes nothing by itself.** It is accepted on the pipeline's whole answer — rallies, counts and every frame's evidence — being reproduced exactly on a recording, with and without a net and with a camera off the end line.
+4. **Still to build, each in its own reviewed PR:** every run saves every processed frame's ball detections for the whole video (a compact file kept with the video, estimated at 1–3 MB an hour, to be measured); the replay; trims, saved and removed rallies, favourites and scores carried to the new rallies by overlap in time; the Recalibrate action.
+5. **After Free Up Space** a video can be neither reprocessed nor recalibrated; the app says why.
+
+**Consequences.** `RallyDecisionStage` is a shared file (RallyLab's `membershipExceptions`); `VideoProcessor` keeps decoding, the ball model, checkpoints, progress and the metadata. `PipelineGoldenTests` keeps a recording's whole answer as a file and compares later runs with it; it runs only when told where the recording is. Nothing a user sees changes with the split. RallyLab's `EvidenceReplayer` is unchanged and still reruns only what it did.
+
+**Source.** Owner instructions 2026-11-27 (verbatim note above); D-043, D-042.
 
