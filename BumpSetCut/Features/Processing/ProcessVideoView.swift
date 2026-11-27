@@ -65,7 +65,9 @@ struct ProcessVideoView: View {
                                 .offset(y: hasAppeared ? 0 : 20)
                                 .animation(.bscSpring.delay(0.3), value: hasAppeared)
 
-                            if viewModel.currentVideoMetadata != nil {
+                            // Before the first run the setup pages ask for the court and net; afterwards this row
+                            // is the way back to them.
+                            if viewModel.currentVideoMetadata != nil, viewModel.processingState != .ready {
                                 courtNetRow
                                     .opacity(hasAppeared ? 1 : 0)
                                     .animation(.bscSpring.delay(0.35), value: hasAppeared)
