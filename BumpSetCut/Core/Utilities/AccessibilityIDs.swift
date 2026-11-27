@@ -187,12 +187,10 @@ enum AccessibilityID {
         static let cameraSetupContinue = "process.cameraSetupContinue"
         static let setupSkip = "process.setupSkip"
         static let setupProgress = "process.setupProgress"
-        static let courtNet = "process.courtNet"
     }
 
     enum Calibration {
         static let close = "calibration.close"
-        static let saveDraft = "calibration.saveDraft"
         static let confirm = "calibration.confirm"
         static let canvas = "calibration.canvas"
         static let status = "calibration.status"

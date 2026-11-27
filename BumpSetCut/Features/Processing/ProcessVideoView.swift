@@ -14,12 +14,6 @@ struct ProcessVideoView: View {
     @State private var hasAppeared = false
     @State private var showReprocessConfirm = false
     @State private var showTimelineEditor = false
-    @State private var showCalibration = false
-    /// Where this video's court and net calibration stands; nil until read.
-    @State private var calibrationStatus: CalibrationStatus?
-    /// Why a run over this video would have no net for its rules, asked of the source the run uses; nil when
-    /// it would have one, and until read.
-    @State private var netUnavailable: CalibrationNetSource.Unavailable?
     @Environment(AuthenticationService.self) private var authService: AuthenticationService?
     @Environment(\.dismiss) private var dismiss
     @Environment(AppSettings.self) private var appSettings
@@ -64,14 +58,6 @@ struct ProcessVideoView: View {
                                 .opacity(hasAppeared ? 1 : 0)
                                 .offset(y: hasAppeared ? 0 : 20)
                                 .animation(.bscSpring.delay(0.3), value: hasAppeared)
-
-                            // Before the first run the setup pages ask for the court and net; afterwards this row
-                            // is the way back to them.
-                            if viewModel.currentVideoMetadata != nil, viewModel.processingState != .ready {
-                                courtNetRow
-                                    .opacity(hasAppeared ? 1 : 0)
-                                    .animation(.bscSpring.delay(0.35), value: hasAppeared)
-                            }
                         }
                     }
                     .padding(BSCSpacing.xl)
@@ -158,17 +144,7 @@ struct ProcessVideoView: View {
                 dismiss()
             }
         }
-        .fullScreenCover(isPresented: $showCalibration, onDismiss: { Task { await loadCalibrationStatus() } }) {
-            if let videoId = viewModel.currentVideoMetadata?.id {
-                CalibrationEditorView(videoId: videoId, videoURL: viewModel.videoURL,
-                                      reviewer: reviewer)
-            }
-        }
-        .task(id: viewModel.currentVideoMetadata?.id) { await loadCalibrationStatus() }
-        .fullScreenCover(isPresented: $viewModel.showSetup, onDismiss: {
-            viewModel.setupDismissed()
-            Task { await loadCalibrationStatus() }
-        }) {
+        .fullScreenCover(isPresented: $viewModel.showSetup, onDismiss: viewModel.setupDismissed) {
             ProcessingSetupFlowView(viewModel: viewModel, reviewer: reviewer)
         }
     }
@@ -230,84 +206,6 @@ private extension ProcessVideoView {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
-        }
-    }
-}
-
-// MARK: - Court & Net
-private extension ProcessVideoView {
-    /// The way into Court & Net, and what processing does without it: with no confirmed net the rules that
-    /// need one are skipped, and the video's screen says so before the run rather than after.
-    var courtNetRow: some View {
-        VStack(alignment: .leading, spacing: BSCSpacing.xs) {
-            courtNetButton
-            if let netUnavailable {
-                Text(Self.netWarning(netUnavailable))
-                    .bscFont(size: 12)
-                    .foregroundColor(.bscTextTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    /// Opens the Court & Net editor. Optional: nothing about viewing or processing a video waits for it.
-    var courtNetButton: some View {
-        Button { showCalibration = true } label: {
-            HStack(spacing: BSCSpacing.md) {
-                Image(systemName: "sportscourt")
-                    .bscFont(size: 20)
-                    .foregroundColor(.bscPrimaryText)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: BSCSpacing.xxs) {
-                    Text("Court & Net")
-                        .bscFont(size: 16, weight: .semibold)
-                        .foregroundColor(.bscTextPrimary)
-                    Text(calibrationStatus?.title ?? "Mark the court and net on this video")
-                        .bscFont(size: 13)
-                        .foregroundColor(calibrationStatus == .needsReview ? .bscWarningText : .bscTextSecondary)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.forward")
-                    .bscFont(size: 13, weight: .semibold)
-                    .foregroundColor(.bscTextTertiary)
-                    .accessibilityHidden(true)
-            }
-            .padding(BSCSpacing.md)
-            .frame(maxWidth: .infinity, minHeight: BSCTouchTarget.standard)
-            .background(RoundedRectangle(cornerRadius: BSCRadius.md, style: .continuous).fill(Color.bscSurfaceGlass))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier(AccessibilityID.Process.courtNet)
-    }
-
-    func loadCalibrationStatus() async {
-        guard let videoId = viewModel.currentVideoMetadata?.id else { return }
-        calibrationStatus = await CourtNetCalibrationStore.app.status(videoId: videoId, url: viewModel.videoURL)
-        // The same source, and the same configuration's frame space, as a run started from this screen.
-        let source = CalibrationNetSource(store: .app, videoId: videoId)
-        if case .failure(let why) = await source.usableNet(forVideoAt: viewModel.videoURL, config: ProcessorConfig()) {
-            netUnavailable = why
-        } else {
-            netUnavailable = nil
-        }
-    }
-
-    /// What a run without a net does, and why this video has none.
-    static func netWarning(_ why: CalibrationNetSource.Unavailable) -> String {
-        let consequence = String(localized: "a ball on the next court or rolling under the net isn't ruled out.")
-        switch why {
-        case .severalViews:
-            return String(localized: "This video has more than one camera view, so rallies aren't checked against the net yet — even with the net confirmed in each view: \(consequence)")
-        case .notStableView:
-            return String(localized: "This video is marked as not a stable court view, so rallies aren't checked against the net: \(consequence)")
-        case .stale:
-            return String(localized: "The court and net marks are for a different version of this video, so rallies aren't checked against the net: \(consequence)")
-        case .unreadable, .videoUnreadable, .storedFrames:
-            return String(localized: "The net marks for this video can't be used, so rallies aren't checked against the net: \(consequence)")
-        case .noCalibration, .netNotConfirmed:
-            return String(localized: "Until the net is confirmed here, rallies aren't checked against it: \(consequence)")
         }
     }
 }

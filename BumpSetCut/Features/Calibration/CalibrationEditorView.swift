@@ -2,7 +2,8 @@
 //  CalibrationEditorView.swift
 //  BumpSetCut
 //
-//  Court & Net: a person marks the court's six ground points and the net's four corners
+//  The court page and the net page of the setup before processing (ProcessingSetupFlowView):
+//  a person marks the court's six ground points, or the net's four corners,
 //  on a frame of their video, adjusts them, and confirms. Tap to place, drag a point or a
 //  line, pinch to zoom, pan with one finger off the shape, step frame by frame. While a
 //  point is dragged a loupe above the finger shows what is under it. Nothing here waits
@@ -18,7 +19,6 @@ struct CalibrationEditorView: View {
     @State private var pinchBaseScale: CGFloat?
     @State private var wholeShape = false
     @State private var askBeforeClosing = false
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     /// How near a touch must be to a point, and to a line, to take hold of it.
@@ -39,7 +39,7 @@ struct CalibrationEditorView: View {
         var ignored = false
     }
 
-    /// The editor as one page of the setup before processing: one shape, a Skip beside its Confirm.
+    /// The page the editor is in the setup before processing: one shape, a Skip beside its Confirm.
     struct Step {
         let target: CalibrationTarget
         let progress: SetupProgress
@@ -47,17 +47,12 @@ struct CalibrationEditorView: View {
         let onDone: () -> Void
         let onCancel: () -> Void
     }
-    private let step: Step?
+    private let step: Step
 
-    init(videoId: UUID, videoURL: URL, reviewer: String, step: Step? = nil) {
+    init(videoId: UUID, videoURL: URL, reviewer: String, step: Step) {
         self.step = step
         _model = State(wrappedValue: CalibrationEditorViewModel(videoId: videoId, url: videoURL, store: .app, reviewer: reviewer,
-                                                                target: step?.target ?? .court))
-    }
-
-    /// Leaves the editor: the setup is given up, or the editor opened on its own closes.
-    private func leave() {
-        if let step { step.onCancel() } else { dismiss() }
+                                                                target: step.target))
     }
 
     var body: some View {
@@ -78,19 +73,17 @@ struct CalibrationEditorView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(step == nil ? "Close" : "Cancel") { if model.hasUnsavedChanges { askBeforeClosing = true } else { leave() } }
+                    Button("Cancel") { if model.hasUnsavedChanges { askBeforeClosing = true } else { step.onCancel() } }
                         .accessibilityIdentifier(AccessibilityID.Calibration.close)
                 }
-                if let step {
-                    ToolbarItem(placement: .principal) { SetupStepTitle(title: step.target == .court ? "Court" : "Net", progress: step.progress) }
-                }
+                ToolbarItem(placement: .principal) { SetupStepTitle(title: step.target == .court ? "Court" : "Net", progress: step.progress) }
                 if model.phase == .ready {
                     ToolbarItem(placement: .primaryAction) { moreMenu }
                 }
             }
             .confirmationDialog("Save your changes?", isPresented: $askBeforeClosing, titleVisibility: .visible) {
-                Button("Save draft and close") { model.saveDraft(); if !model.hasUnsavedChanges { leave() } }
-                Button("Close without saving", role: .destructive) { leave() }
+                Button("Save draft and close") { model.saveDraft(); if !model.hasUnsavedChanges { step.onCancel() } }
+                Button("Close without saving", role: .destructive) { step.onCancel() }
                 Button("Cancel", role: .cancel) {}
             }
         }
@@ -273,7 +266,6 @@ struct CalibrationEditorView: View {
             banners
             statusLine
             viewRow
-            if step == nil { targetPicker }
             pointChips
             Text(hint)
                 .bscFont(size: 14)
@@ -283,19 +275,14 @@ struct CalibrationEditorView: View {
                 .accessibilityIdentifier(AccessibilityID.Calibration.hint)
             frameRow
             HStack(spacing: BSCSpacing.sm) {
-                if let step {
-                    // What is on the picture is kept as a draft; the run goes on without it.
-                    BSCButton(title: "Skip", icon: "forward.fill", style: .ghost, size: .medium, isFullWidth: false) {
-                        if model.hasUnsavedChanges { model.saveDraft() }
-                        step.onDone()
-                    }
-                    .accessibilityIdentifier(AccessibilityID.Process.setupSkip)
-                } else {
-                    BSCButton(title: "Save draft", style: .secondary, size: .medium, isFullWidth: false) { model.saveDraft() }
-                        .accessibilityIdentifier(AccessibilityID.Calibration.saveDraft)
+                // What is on the picture is kept as a draft; the run goes on without it.
+                BSCButton(title: "Skip", icon: "forward.fill", style: .ghost, size: .medium, isFullWidth: false) {
+                    if model.hasUnsavedChanges { model.saveDraft() }
+                    step.onDone()
                 }
-                BSCButton(title: model.target == .court ? "Confirm court" : "Confirm net", style: .primary, size: .medium) {
-                    if model.confirm() { step?.onDone() }
+                .accessibilityIdentifier(AccessibilityID.Process.setupSkip)
+                BSCButton(title: confirmTitle, style: .primary, size: .medium) {
+                    if model.confirm() { step.onDone() }
                 }
                     .accessibilityIdentifier(AccessibilityID.Calibration.confirm)
                     .disabled(!model.isStableView)
@@ -358,21 +345,10 @@ struct CalibrationEditorView: View {
         .accessibilityIdentifier(AccessibilityID.Calibration.status)
     }
 
-    private var targetPicker: some View {
-        Picker("Shape", selection: $model.target) {
-            Text(partTitle(.court)).tag(CalibrationTarget.court)
-            Text(partTitle(.net)).tag(CalibrationTarget.net)
-        }
-        .pickerStyle(.segmented)
-    }
-
-    private func partTitle(_ target: CalibrationTarget) -> String {
-        let name = target == .court ? String(localized: "Court") : String(localized: "Net")
-        switch model.partState(target) {
-        case .confirmed: return String(localized: "\(name) ✓")
-        case .editedSinceConfirmed: return String(localized: "\(name) ✓ edited")
-        case .nothing, .placing: return name
-        }
+    /// A shape confirmed earlier and not touched since needs no second confirming: the button moves on.
+    private var confirmTitle: LocalizedStringResource {
+        if model.partState(model.target) == .confirmed { return "Continue" }
+        return model.target == .court ? "Confirm court" : "Confirm net"
     }
 
     private func visibilityToggle(isOn: Binding<Bool>, color: Color, label: LocalizedStringResource) -> some View {

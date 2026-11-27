@@ -3,7 +3,8 @@
 //  BumpSetCutUITests
 //
 //  The Court & Net device acceptance list (docs/workflow/COURT_NET_CALIBRATION_DEVICE_ACCEPTANCE.md) as
-//  scripts. Each step asserts what a script can tell, and attaches a screenshot named by the step's id for a
+//  scripts. The court and the net are marked on their pages of the setup before a run (trim, camera position,
+//  court, net). Each step asserts what a script can tell, and attaches a screenshot named by the step's id for a
 //  person to look at: the picture, where the marks landed and how the screen reads are theirs to judge.
 //
 //  Fixture (local, gitignored): TestData/acceptance_beach.mov — a landscape 16:9 recording filmed from behind
@@ -27,7 +28,6 @@ final class CourtNetAcceptanceTests: VideoTestCase {
     }
 
     private var process: ProcessScreen { ProcessScreen(app: app) }
-    private var courtNetRow: XCUIElement { app.buttons["process.courtNet"] }
 
     /// A screenshot for a person to check, named by the acceptance step.
     private func checkpoint(_ step: String, _ what: String) {
@@ -37,18 +37,42 @@ final class CourtNetAcceptanceTests: VideoTestCase {
         add(shot)
     }
 
+    /// The video's screen, before a run.
     private func openVideoScreen() {
         navigateToLibrary()
         tapFirstVideoCard()
-        XCTAssertTrue(courtNetRow.waitForExistence(timeout: 10), "The video's screen has a Court & Net row")
+        XCTAssertTrue(process.startButton.waitForExistence(timeout: 10), "The video's screen offers Start AI Processing")
     }
 
-    private func openEditor() -> CalibrationScreen {
-        courtNetRow.tap()
+    /// The court or net page once it is showing.
+    private func page(_ name: String, file: StaticString = #file, line: UInt = #line) -> CalibrationScreen {
+        let heading = NSPredicate(format: "label BEGINSWITH %@", name + ",")
+        let shown = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: heading, object: process.setupProgress)], timeout: 10)
+        XCTAssertEqual(shown, .completed, "The \(name) page is showing", file: file, line: line)
         let editor = CalibrationScreen(app: app, frameAspect: 16.0 / 9.0)
-        XCTAssertTrue(editor.canvas.waitForExistence(timeout: 15), "The editor opens on a frame of the video")
-        XCTAssertTrue(editor.confirmButton.waitForExistence(timeout: 15))
+        XCTAssertTrue(editor.canvas.waitForExistence(timeout: 15), "The \(name) page opens on a frame of the video", file: file, line: line)
+        XCTAssertTrue(editor.confirmButton.waitForExistence(timeout: 15), file: file, line: line)
         return editor
+    }
+
+    /// From the video's screen: Start, past the trim and camera pages, to the court page.
+    private func openCourtPage() -> CalibrationScreen {
+        XCTAssertTrue(process.startButton.waitForExistence(timeout: 10))
+        process.startButton.tap()
+        XCTAssertTrue(process.setupSkipButton.waitForExistence(timeout: 10), "Start opens the setup pages")
+        process.setupSkipButton.tap()
+        let cameraContinue = app.buttons["process.cameraSetupContinue"]
+        XCTAssertTrue(cameraContinue.waitForExistence(timeout: 5), "The camera page follows the trim page")
+        cameraContinue.tap()
+        return page("Court")
+    }
+
+    /// The run the last page started is stopped (which goes back to the library), and the video's screen opened again.
+    private func stopRun() {
+        XCTAssertTrue(process.cancelButton.waitForExistence(timeout: 15), "The last page starts the run")
+        process.cancelButton.tap()
+        tapFirstVideoCard()
+        XCTAssertTrue(process.startButton.waitForExistence(timeout: 15), "A stopped run leaves the video ready to start again")
     }
 
     private func assertStatus(_ editor: CalibrationScreen, contains text: String, file: StaticString = #file, line: UInt = #line) {
@@ -86,18 +110,18 @@ final class CourtNetAcceptanceTests: VideoTestCase {
         for mark in Marks.net { assertChip(editor, mark.name, placed: true) }
     }
 
-    /// A video whose court and net are confirmed, editor open on the Court tab.
-    private func openEditorWithConfirmedCourtAndNet() -> CalibrationScreen {
+    /// A video whose court and net are confirmed, on its court page again.
+    private func openCourtPageWithConfirmedCourtAndNet() -> CalibrationScreen {
         openVideoScreen()
-        var editor = openEditor()
+        var editor = openCourtPage()
         placeCourt(&editor)
         editor.confirmButton.tap()
-        assertStatus(editor, contains: "Court confirmed")
-        editor.tab("Net").tap()
+        editor = page("Net")
         placeNet(editor)
         editor.confirmButton.tap()
+        stopRun()
+        editor = openCourtPage()
         assertStatus(editor, contains: "Court and net confirmed")
-        editor.tab("Court").tap()
         return editor
     }
 
@@ -138,20 +162,16 @@ final class CourtNetAcceptanceTests: VideoTestCase {
 
     func testA_Opening() throws {
         openVideoScreen()
-        XCTAssertTrue(courtNetRow.label.contains("Mark the court and net on this video") || courtNetRow.label.contains("Not calibrated"),
-                      "A1: the row reads \"\(courtNetRow.label)\"")
-        XCTAssertTrue(process.startButton.exists, "A1: processing can be started without calibrating")
-        // G1: what a run does without a confirmed net is said before the run.
-        let warning = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Until the net is confirmed here")).firstMatch
-        XCTAssertTrue(warning.waitForExistence(timeout: 5), "G1: the screen says rallies aren't checked against the net")
-        XCTAssertTrue(warning.label.hasSuffix("isn't ruled out."), "G1: the warning reads \"\(warning.label)\"")
-        checkpoint("A1", "video screen with the Court & Net row")
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Court & Net")).firstMatch.exists,
+                       "A1: the video's screen has no Court & Net row; the setup pages ask")
+        checkpoint("A1", "video screen before a run")
         try report("A1")
 
-        let editor = openEditor()
+        let editor = openCourtPage()
         assertStatus(editor, contains: "Not calibrated")
         XCTAssertTrue(editor.hint.label.contains("near-left corner"), "A2: the hint reads \"\(editor.hint.label)\"")
-        checkpoint("A2", "editor just opened")
+        XCTAssertFalse(editor.chip("Top L").exists, "A2: the court page is about the court alone")
+        checkpoint("A2", "court page just opened")
         try report("A2")
     }
 
@@ -159,7 +179,7 @@ final class CourtNetAcceptanceTests: VideoTestCase {
 
     func testBC_CourtAndNetByHand() {
         openVideoScreen()
-        var editor = openEditor()
+        var editor = openCourtPage()
 
         // B6 comes first on this recording: its near corners are out of the picture.
         placeCourt(&editor) { checkpoint("B6", "zoomed out, near corners placed outside the frame") }
@@ -202,33 +222,32 @@ final class CourtNetAcceptanceTests: VideoTestCase {
         assertChip(editor, "Far R", placed: true)
         checkpoint("B8b", "far-right placed again")
 
-        // B9: a draft survives closing.
-        editor.saveDraftButton.tap()
-        assertStatus(editor, contains: "Draft")
-        checkpoint("B9a", "draft saved")
+        // B9: skipping the page keeps what was placed as a draft.
+        process.setupSkipButton.tap()
+        editor = page("Net")
+        checkpoint("B9a", "court page skipped, net page showing")
         editor.close()
-        XCTAssertTrue(courtNetRow.waitForExistence(timeout: 5))
-        XCTAssertTrue(courtNetRow.label.contains("Draft"), "B9: the row reads \"\(courtNetRow.label)\"")
-        checkpoint("B9b", "video screen row reads Draft")
-        editor = openEditor()
+        editor = openCourtPage()
         for mark in Marks.court { assertChip(editor, mark.name, placed: true) }
+        assertStatus(editor, contains: "Draft")
         editor.zoomOut()
-        checkpoint("B9c", "reopened, everything where it was")
+        checkpoint("B9b", "setup started again, the draft court where it was")
         editor.fit()
 
         // B10
+        XCTAssertEqual(editor.confirmButton.label, "Confirm court")
         editor.confirmButton.tap()
+        editor = page("Net")
         assertStatus(editor, contains: "Court confirmed")
-        XCTAssertTrue(editor.tab("Court").label.contains("✓"), "B10: the Court tab reads \"\(editor.tab("Court").label)\"")
-        checkpoint("B10", "court confirmed")
+        checkpoint("B10", "court confirmed, net page showing")
 
         // C1
-        editor.tab("Net").tap()
         placeNet(editor) {
             // C3: three corners are kept on screen but the net is not saved.
-            editor.saveDraftButton.tap()
+            editor.closeButton.tap()
+            app.buttons["Save draft and close"].tap()
             assertStatus(editor, contains: "The net needs all four corners")
-            checkpoint("C3", "saved with three net corners")
+            checkpoint("C3", "cancelled with three net corners: not saved, the page stays")
         }
         checkpoint("C1", "net's four corners placed, court dimmed")
 
@@ -240,21 +259,22 @@ final class CourtNetAcceptanceTests: VideoTestCase {
         checkpoint("C2b", "net hidden")
         editor.showNetButton.tap()
 
-        // C4
+        // C4: the last page done, the run starts; the marks are there the next time.
         editor.confirmButton.tap()
+        XCTAssertTrue(process.cancelButton.waitForExistence(timeout: 15), "C4: confirming the net starts the run")
+        checkpoint("C4a", "net confirmed, the run started")
+        stopRun()
+        editor = openCourtPage()
         assertStatus(editor, contains: "Court and net confirmed")
-        checkpoint("C4a", "court and net confirmed")
-        editor.close()
-        XCTAssertTrue(courtNetRow.waitForExistence(timeout: 5))
-        XCTAssertTrue(courtNetRow.label.contains("Court and net confirmed"), "C4: the row reads \"\(courtNetRow.label)\"")
-        checkpoint("C4b", "video screen row reads Court and net confirmed")
+        XCTAssertEqual(editor.confirmButton.label, "Continue", "C4: a court confirmed and untouched only needs Continue")
+        checkpoint("C4b", "setup started again: court and net confirmed, Continue")
     }
 
     // MARK: - B11. A court that can't be one
 
     func testB11_PointsOnTopOfEachOther() {
         openVideoScreen()
-        let editor = openEditor()
+        let editor = openCourtPage()
         // A tap on a point takes hold of it, so three points are put apart and two dragged onto the first.
         editor.tapFrame(x: 0.3, y: 0.3)
         editor.tapFrame(x: 0.6, y: 0.3)
@@ -263,55 +283,51 @@ final class CourtNetAcceptanceTests: VideoTestCase {
         editor.drag(fromX: 0.3, y: 0.7, toX: 0.3, y: 0.3)
         checkpoint("B11a", "three points on top of each other")
         editor.confirmButton.tap()
-        XCTAssertFalse(editor.tab("Court").label.contains("✓"), "B11: the Court tab reads \"\(editor.tab("Court").label)\"")
         assertStatus(editor, contains: "Draft")
+        XCTAssertTrue(process.setupProgress.label.hasPrefix("Court,"), "B11: a court that can't be confirmed stays on its page")
         checkpoint("B11b", "confirm refused with the reason, kept as a draft")
     }
 
     // MARK: - D. Later edits
 
     func testD_LaterEdits() {
-        var editor = openEditorWithConfirmedCourtAndNet()
-        editor.close()
-        XCTAssertTrue(courtNetRow.waitForExistence(timeout: 5))
-        editor = openEditor()
+        var editor = openCourtPageWithConfirmedCourtAndNet()
         let farLeft = Marks.court[4]
 
-        // D1: an edit after confirming, dropped on closing.
+        // D1: an edit after confirming, dropped on cancelling.
         editor.drag(fromX: farLeft.x, y: farLeft.y, toX: farLeft.x - 0.04, y: farLeft.y + 0.02)
-        XCTAssertTrue(editor.tab("Court").label.contains("✓ edited"), "D1: the Court tab reads \"\(editor.tab("Court").label)\"")
+        assertStatus(editor, contains: "Not saved")
         assertStatus(editor, contains: "Court and net confirmed")
-        checkpoint("D1a", "far-left moved, tab reads edited, status still confirmed")
+        XCTAssertEqual(editor.confirmButton.label, "Confirm court", "D1: an edited court asks to be confirmed again")
+        checkpoint("D1a", "far-left moved: not saved, status still confirmed")
         editor.close(saving: false)
-        XCTAssertTrue(courtNetRow.waitForExistence(timeout: 5))
-        editor = openEditor()
-        XCTAssertFalse(editor.tab("Court").label.contains("edited"), "D1: reopened, the Court tab reads \"\(editor.tab("Court").label)\"")
-        checkpoint("D1b", "closed without saving and reopened, the confirmed court unchanged")
+        editor = openCourtPage()
+        XCTAssertEqual(editor.confirmButton.label, "Continue", "D1: cancelled without saving, the confirmed court is untouched")
+        checkpoint("D1b", "cancelled without saving and started again, the confirmed court unchanged")
 
         // D2: the same edit, confirmed.
         editor.drag(fromX: farLeft.x, y: farLeft.y, toX: farLeft.x - 0.04, y: farLeft.y + 0.02)
         editor.confirmButton.tap()
-        assertStatus(editor, contains: "Court confirmed.")
-        XCTAssertFalse(editor.tab("Court").label.contains("edited"), "D2: the Court tab reads \"\(editor.tab("Court").label)\"")
-        checkpoint("D2", "far-left moved and the court confirmed again")
+        editor = page("Net")
+        assertStatus(editor, contains: "Court and net confirmed")
+        checkpoint("D2", "far-left moved and the court confirmed again, net page showing")
+        editor.close()
 
         // D3: starting over keeps the confirmed court until another is confirmed.
+        editor = openCourtPage()
         editor.more("Start the court over")
         for mark in Marks.court { assertChip(editor, mark.name, placed: false) }
         checkpoint("D3a", "court started over, points gone")
         editor.close()
-        XCTAssertTrue(courtNetRow.waitForExistence(timeout: 5))
-        checkpoint("D3b", "video screen after starting the court over")
-        editor = openEditor()
+        editor = openCourtPage()
         for mark in Marks.court { assertChip(editor, mark.name, placed: true) }
-        checkpoint("D3c", "reopened, the earlier confirmed court is shown")
+        checkpoint("D3b", "started again, the earlier confirmed court is shown")
 
         // D4: the court's type is kept.
         editor.more("Surface", "Beach")
         editor.more("Players a side", "2 v 2")
         editor.close()
-        XCTAssertTrue(courtNetRow.waitForExistence(timeout: 5))
-        editor = openEditor()
+        editor = openCourtPage()
         // The menu's first level doesn't show what is chosen; each submenu ticks it. Picking the ticked item
         // again closes the menu and changes nothing.
         for (picker, kept, step) in [("Surface", "Beach", "D4a"), ("Players a side", "2 v 2", "D4b")] {
@@ -319,16 +335,16 @@ final class CourtNetAcceptanceTests: VideoTestCase {
             app.buttons[picker].firstMatch.tap()
             let item = app.buttons[kept].firstMatch
             XCTAssertTrue(item.waitForExistence(timeout: 3), "D4: \(picker) offers \(kept)")
-            checkpoint(step, "reopened, \(picker) has \(kept) ticked")
-            XCTAssertTrue(item.isSelected, "D4: \(kept) is still chosen for \(picker) after closing and reopening")
+            checkpoint(step, "started again, \(picker) has \(kept) ticked")
+            XCTAssertTrue(item.isSelected, "D4: \(kept) is still chosen for \(picker) after cancelling and starting again")
             item.tap()
         }
     }
 
-    // MARK: - E. Frames and camera views (and G9's line on the video's screen)
+    // MARK: - E. Frames and camera views
 
     func testE_FramesAndCameraViews() {
-        var editor = openEditorWithConfirmedCourtAndNet()
+        var editor = openCourtPageWithConfirmedCourtAndNet()
 
         // E1
         let start = editor.seconds
@@ -349,20 +365,18 @@ final class CourtNetAcceptanceTests: VideoTestCase {
         // E2: the camera moved here.
         editor.more("Camera changed here", "Start from these marks")
         assertStatus(editor, contains: "Camera view 2 of 2")
+        assertStatus(editor, contains: "Needs review")
         for mark in Marks.court { assertChip(editor, mark.name, placed: true) }
-        checkpoint("E2a", "camera view 2 of 2, marks carried over but not confirmed")
+        checkpoint("E2", "camera view 2 of 2, marks carried over but not confirmed")
         editor.close()
-        XCTAssertTrue(courtNetRow.waitForExistence(timeout: 5))
-        XCTAssertTrue(courtNetRow.label.contains("Needs review"), "E2: the row reads \"\(courtNetRow.label)\"")
-        checkpoint("E2b", "video screen row reads Needs review")
 
         // E3: before the split is view 1, still confirmed.
-        editor = openEditor()
+        editor = openCourtPage()
         editor.positionSlider.adjust(toNormalizedSliderPosition: 0.8)
         assertStatus(editor, contains: "Camera view 2 of 2")
         editor.positionSlider.adjust(toNormalizedSliderPosition: 0.15)
         assertStatus(editor, contains: "Camera view 1 of 2")
-        XCTAssertTrue(editor.tab("Court").label.contains("✓"), "E3: view 1's Court tab reads \"\(editor.tab("Court").label)\"")
+        XCTAssertEqual(editor.confirmButton.label, "Continue", "E3: view 1's court is still confirmed")
         checkpoint("E3", "scrubbed back before the split, view 1 of 2 with its confirmed marks")
 
         // E4: a part of the video that is not a stable court view takes no marks.
@@ -383,23 +397,12 @@ final class CourtNetAcceptanceTests: VideoTestCase {
         editor.tapFrame(x: farRight.x, y: farRight.y)
         assertChip(editor, farRight.name, placed: true)
         checkpoint("E4b", "stable again, the tap places the corner")
-
-        // G9: the net confirmed in both views is still not used, and the video's screen says so.
-        editor.confirmButton.tap()
-        editor.tab("Net").tap()
-        editor.confirmButton.tap()
-        assertStatus(editor, contains: "Court and net confirmed")
-        editor.close()
-        XCTAssertTrue(courtNetRow.waitForExistence(timeout: 5))
-        let line = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "This video has more than one camera view")).firstMatch
-        XCTAssertTrue(line.waitForExistence(timeout: 5), "G9: the screen says the video has more than one camera view")
-        checkpoint("G9", "two camera views confirmed, the line under Court & Net")
     }
 
     // MARK: - F. Orientation and size
 
     func testF2_Landscape() {
-        let editor = openEditorWithConfirmedCourtAndNet()
+        let editor = openCourtPageWithConfirmedCourtAndNet()
         checkpoint("F2a", "upright, before turning")
         XCUIDevice.shared.orientation = .landscapeLeft
         XCTAssertTrue(editor.confirmButton.waitForExistence(timeout: 5))
@@ -407,7 +410,7 @@ final class CourtNetAcceptanceTests: VideoTestCase {
         checkpoint("F2b", "turned to landscape, picture left and controls right")
         let farLeft = Marks.court[4]
         editor.drag(fromX: farLeft.x, y: farLeft.y, toX: farLeft.x - 0.04, y: farLeft.y + 0.02)
-        XCTAssertTrue(editor.tab("Court").label.contains("✓ edited"), "F2: a drag in landscape moves the point (the Court tab reads \"\(editor.tab("Court").label)\")")
+        assertStatus(editor, contains: "Not saved")
         checkpoint("F2c", "far-left dragged in landscape")
         XCUIDevice.shared.orientation = .portrait
         XCTAssertTrue(editor.confirmButton.waitForExistence(timeout: 5))
@@ -418,21 +421,21 @@ final class CourtNetAcceptanceTests: VideoTestCase {
         openVideoScreen()
         checkpoint("F3a", "video screen at the largest text size")
         try report("F3 video screen")
-        let editor = openEditor()
-        checkpoint("F3b", "editor at the largest text size")
-        try report("F3 editor")
+        let editor = openCourtPage()
+        checkpoint("F3b", "court page at the largest text size")
+        try report("F3 court page")
         let controls: [(String, XCUIElement)] = [
-            ("Close", editor.closeButton), ("More", editor.moreButton), ("Court tab", editor.tab("Court")), ("Net tab", editor.tab("Net")),
+            ("Cancel", editor.closeButton), ("More", editor.moreButton),
             ("Show the court", editor.showCourtButton), ("Show the net", editor.showNetButton), ("Move all", editor.moveAllToggle),
             ("Zoom out", app.buttons["Zoom out"]), ("Fit the picture", app.buttons["Fit the picture"]), ("Zoom in", app.buttons["Zoom in"]),
             ("Near L chip", editor.chip("Near L")), ("Back one frame", app.buttons["Back one frame"]),
             ("Forward one frame", app.buttons["Forward one frame"]), ("Position slider", editor.positionSlider),
-            ("Save draft", editor.saveDraftButton), ("Confirm", editor.confirmButton)
+            ("Skip", process.setupSkipButton), ("Confirm", editor.confirmButton)
         ]
         // Nothing is drawn over anything else.
         let stacked: [(String, XCUIElement)] = [
             ("the point chips", editor.chip("Near L")), ("the hint", editor.hint), ("the frame's time", editor.clock),
-            ("the position slider", editor.positionSlider), ("Save draft", editor.saveDraftButton)
+            ("the position slider", editor.positionSlider), ("Skip", process.setupSkipButton)
         ]
         for (above, below) in zip(stacked, stacked.dropFirst()) {
             XCTAssertLessThanOrEqual(above.1.frame.maxY, below.1.frame.minY + 1, "F3: \(above.0) runs into \(below.0)")
@@ -441,7 +444,7 @@ final class CourtNetAcceptanceTests: VideoTestCase {
         if !outOfReach.isEmpty {
             // The controls scroll under the picture.
             editor.hint.swipeUp()
-            checkpoint("F3c", "editor controls scrolled up")
+            checkpoint("F3c", "court page controls scrolled up")
             outOfReach = controls.filter { outOfReach.contains($0.0) && !$0.1.isHittable }.map(\.0)
         }
         XCTAssertTrue(outOfReach.isEmpty, "F3: not reachable at the largest text size: \(outOfReach.joined(separator: ", "))")
@@ -465,20 +468,15 @@ final class CourtNetAcceptanceTests: VideoTestCase {
         checkpoint("P2", "camera position page")
         continueButton.tap()
 
-        var editor = CalibrationScreen(app: app, frameAspect: 16.0 / 9.0)
-        XCTAssertTrue(editor.canvas.waitForExistence(timeout: 15), "The court page follows the camera page")
+        var editor = page("Court")
         XCTAssertEqual(step.label, "Court, Step 3 of 4")
-        XCTAssertFalse(editor.tab("Net").exists, "The court page is about the court alone")
         checkpoint("P3a", "court page, nothing marked")
         placeCourt(&editor)
         checkpoint("P3b", "court page, court marked")
         editor.confirmButton.tap()
 
-        let onNetPage = NSPredicate(format: "label == %@", "Net, Step 4 of 4")
-        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: onNetPage, object: step)], timeout: 10), .completed,
-                       "Confirming the court leads to the net page (the heading reads \"\(step.label)\")")
-        editor = CalibrationScreen(app: app, frameAspect: 16.0 / 9.0)
-        XCTAssertTrue(editor.canvas.waitForExistence(timeout: 15))
+        editor = page("Net")
+        XCTAssertEqual(step.label, "Net, Step 4 of 4")
         XCTAssertTrue(editor.chip("Top L").waitForExistence(timeout: 5), "The net page offers the net's corners")
         checkpoint("P4a", "net page, the confirmed court dimmed behind")
         placeNet(editor)
@@ -487,6 +485,6 @@ final class CourtNetAcceptanceTests: VideoTestCase {
 
         XCTAssertTrue(process.cancelButton.waitForExistence(timeout: 15), "Confirming the net starts the run")
         checkpoint("P5", "processing started after the last page")
-        process.cancelButton.tap()
+        stopRun()
     }
 }
