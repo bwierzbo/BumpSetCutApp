@@ -6,7 +6,8 @@
 //  caller names. Read whole, checked, written atomically. A file that exists but can't be
 //  read or is malformed is an error, never an empty calibration, and is never written
 //  over. A save that would lose a confirmation already on file is refused; a file made for
-//  another video under the same id is set aside, not replaced.
+//  another video under the same id is set aside, not replaced. A file that can't be read can
+//  be set aside too, when a person asks to start again: it is kept, under another name.
 //
 
 import Foundation
@@ -55,7 +56,7 @@ struct CourtNetCalibrationStore {
         var setAside: URL?
         if let onFile = try load(file.recordingId) {
             if onFile.staleReason(for: file.binding) != nil {
-                let aside = supersededURL(file.recordingId)
+                let aside = asideURL(file.recordingId, as: "superseded")
                 try FileManager.default.moveItem(at: live, to: aside)
                 setAside = aside
             } else if !Self.keepsConfirmations(of: onFile, in: file) {
@@ -72,12 +73,24 @@ struct CourtNetCalibrationStore {
         }
     }
 
-    /// Where a file made for another video is set aside: beside the live one, under the recording's id.
-    private func supersededURL(_ recordingId: String) -> URL {
+    /// Sets the recording's file aside if it can't be read or is malformed, so that a new calibration can be
+    /// made for it. The file is kept, beside where it was; one that reads is left alone.
+    func setAsideUnreadable(_ recordingId: String) throws {
+        guard CourtNetCalibrationFile.isSafeId(recordingId) else { throw CourtNetCalibrationError.invalid(["the recording id can't name a file"]) }
+        do {
+            _ = try load(recordingId)
+        } catch {
+            try FileManager.default.moveItem(at: url(recordingId), to: asideURL(recordingId, as: "unreadable"))
+        }
+    }
+
+    /// Where a file is set aside (`kind`: made for another video, or unreadable): beside the live one, under the
+    /// recording's id.
+    private func asideURL(_ recordingId: String, as kind: String) -> URL {
         let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
         var n = 0
         while true {
-            let u = directory.appendingPathComponent("\(recordingId)_calibration.superseded-\(stamp)\(n == 0 ? "" : "-\(n)").json")
+            let u = directory.appendingPathComponent("\(recordingId)_calibration.\(kind)-\(stamp)\(n == 0 ? "" : "-\(n)").json")
             if !FileManager.default.fileExists(atPath: u.path) { return u }
             n += 1
         }

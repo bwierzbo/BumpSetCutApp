@@ -23,6 +23,8 @@ final class CalibrationEditorViewModel {
     }
 
     private(set) var phase: Phase = .loading
+    /// The page failed to open because the calibration on file can't be read, which `startFresh` gets past.
+    private(set) var canStartFresh = false
     private(set) var file: CourtNetCalibrationFile?
     private(set) var video: CalibrationVideo?
     /// A calibration on file for another video or frame: shown as the reason, offered as a starting point, never used.
@@ -93,12 +95,26 @@ final class CalibrationEditorViewModel {
                 file = .new(for: video.binding)
                 (staleFile, staleReason) = (old, reason)
             case .unreadable(let why):
+                canStartFresh = true
                 phase = .failed(why)
                 return
             }
             let start = file?.segments.first?.frameTimeSec ?? min(1, video.binding.durationSec / 2)
             phase = .ready
             seek(to: start)
+        } catch {
+            phase = .failed(error.localizedDescription)
+        }
+    }
+
+    /// The calibration on file can't be read: it is set aside (kept, under another name) and the page opens
+    /// with nothing marked.
+    func startFresh() async {
+        do {
+            try store.setAsideUnreadable(videoId.uuidString)
+            canStartFresh = false
+            phase = .loading
+            await load()
         } catch {
             phase = .failed(error.localizedDescription)
         }

@@ -475,11 +475,13 @@ final class CourtNetAcceptanceTests: VideoTestCase {
         let continueButton = app.buttons["process.cameraSetupContinue"]
         XCTAssertTrue(continueButton.waitForExistence(timeout: 5), "The camera page follows the trim page")
         XCTAssertEqual(step.label, "Camera position, Step 2 of 4")
+        XCTAssertTrue(app.descendants(matching: .any)["process.setupSkipRisk"].label.hasPrefix("Skip at your own risk"), "The camera page says what skipping costs")
         checkpoint("P2", "camera position page")
         continueButton.tap()
 
         var editor = page("Court")
         XCTAssertEqual(step.label, "Court, Step 3 of 4")
+        XCTAssertFalse(app.descendants(matching: .any)["process.setupSkipRisk"].exists, "The court page makes no claim: a run does not read the court")
         checkpoint("P3a", "court page, nothing marked")
         placeCourt(&editor)
         checkpoint("P3b", "court page, court marked")
@@ -488,6 +490,8 @@ final class CourtNetAcceptanceTests: VideoTestCase {
         editor = page("Net")
         XCTAssertEqual(step.label, "Net, Step 4 of 4")
         XCTAssertTrue(editor.chip("Top L").waitForExistence(timeout: 5), "The net page offers the net's corners")
+        let risk = app.descendants(matching: .any)["process.setupSkipRisk"]
+        XCTAssertTrue(risk.exists && risk.label.contains("accuracy drops"), "The net page says what skipping costs while no net is confirmed")
         checkpoint("P4a", "net page, the confirmed court dimmed behind")
         placeNet(editor)
         checkpoint("P4b", "net page, net marked")

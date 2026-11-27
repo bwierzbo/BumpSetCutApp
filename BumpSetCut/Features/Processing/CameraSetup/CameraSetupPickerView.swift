@@ -71,6 +71,12 @@ struct CameraSetupPickerView: View {
                             withAnimation(.bscSnappy) { setup = .recommended }
                         }
                     }
+                    Label("Skip at your own risk: a run then assumes the camera was behind an end line, which costs accuracy from a corner or the side.", systemImage: "exclamationmark.triangle")
+                        .bscFont(size: 12)
+                        .foregroundColor(.bscWarningText)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier(AccessibilityID.Process.setupSkipRisk)
                 }
                 .padding(BSCSpacing.lg)
                 .background(Color.bscBackground)

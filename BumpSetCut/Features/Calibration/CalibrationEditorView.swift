@@ -63,9 +63,20 @@ struct CalibrationEditorView: View {
                 case .loading:
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .failed(let why):
-                    // A calibration that can't be opened must not hold up the run: the page can still be skipped.
+                    // A calibration that can't be opened must not hold up the run: the page can be skipped, and marks
+                    // that can't be read can be set aside for new ones.
                     VStack(spacing: BSCSpacing.lg) {
                         BSCEmptyState(icon: "exclamationmark.triangle", title: "Court & Net can't open", message: LocalizedStringResource(stringLiteral: why))
+                        if model.canStartFresh {
+                            Text("The marks saved for this video can't be read. Start fresh to mark it again; the old file is kept aside, not deleted.")
+                                .bscFont(size: 13)
+                                .foregroundColor(.bscTextSecondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, BSCSpacing.lg)
+                            BSCButton(title: "Start fresh", icon: "arrow.counterclockwise", style: .primary, size: .medium, isFullWidth: false) {
+                                Task { await model.startFresh() }
+                            }
+                        }
                         BSCButton(title: "Skip", icon: "forward.fill", style: .secondary, size: .medium, isFullWidth: false, action: step.onDone)
                             .accessibilityIdentifier(AccessibilityID.Process.setupSkip)
                     }
@@ -286,6 +297,14 @@ struct CalibrationEditorView: View {
                 .frame(maxWidth: .infinity, minHeight: 36, alignment: .topLeading)
                 .accessibilityIdentifier(AccessibilityID.Calibration.hint)
             frameRow
+            if let skipRisk {
+                Label(skipRisk, systemImage: "exclamationmark.triangle")
+                    .bscFont(size: 12)
+                    .foregroundColor(.bscWarningText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier(AccessibilityID.Process.setupSkipRisk)
+            }
             HStack(spacing: BSCSpacing.sm) {
                 // What is on the picture is kept as a draft; the run goes on without it.
                 BSCButton(title: "Skip", icon: "forward.fill", style: .ghost, size: .medium, isFullWidth: false) {
@@ -357,6 +376,17 @@ struct CalibrationEditorView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(AccessibilityID.Calibration.status)
+    }
+
+    /// What skipping this page costs, said beside the Skip: only the net is read by a run, and only while no
+    /// net is confirmed for this camera view (a confirmed one stays in force when the page is skipped).
+    private var skipRisk: String? {
+        guard model.target == .net else { return nil }
+        switch model.partState(.net) {
+        case .confirmed, .editedSinceConfirmed: return nil
+        case .nothing, .placing:
+            return String(localized: "Skip at your own risk: without a confirmed net, accuracy drops — a ball on the next court or rolling under the net can be cut as a rally.")
+        }
     }
 
     /// A shape confirmed earlier and not touched since needs no second confirming: the button moves on.
