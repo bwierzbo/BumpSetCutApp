@@ -248,6 +248,16 @@ final class CourtNetAcceptanceTests: VideoTestCase {
             app.buttons["Save draft and close"].tap()
             assertStatus(editor, contains: "The net needs all four corners")
             checkpoint("C3", "cancelled with three net corners: not saved, the page stays")
+            // Skip does not drop them without a word either.
+            process.setupSkipButton.tap()
+            XCTAssertTrue(app.buttons["Skip without them"].waitForExistence(timeout: 3), "C3: skipping with a net that can't be saved asks first")
+            checkpoint("C3b", "skip with three net corners asks before dropping them")
+            // The system draws the dialog's way back itself (as "Cancel", or by a tap outside it).
+            let back = app.buttons.matching(NSPredicate(format: "(label == %@ OR label == %@) AND identifier != %@", "Keep editing", "Cancel", "calibration.close")).firstMatch
+            XCTAssertTrue(back.waitForExistence(timeout: 3))
+            back.tap()
+            XCTAssertTrue(app.buttons["Skip without them"].waitForNonExistence(timeout: 3))
+            XCTAssertTrue(process.setupProgress.label.hasPrefix("Net,"), "C3: keep editing stays on the Net page")
         }
         checkpoint("C1", "net's four corners placed, court dimmed")
 

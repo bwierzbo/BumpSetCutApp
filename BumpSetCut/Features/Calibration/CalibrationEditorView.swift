@@ -19,6 +19,7 @@ struct CalibrationEditorView: View {
     @State private var pinchBaseScale: CGFloat?
     @State private var wholeShape = false
     @State private var askBeforeClosing = false
+    @State private var askBeforeSkipping = false
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     /// How near a touch must be to a point, and to a line, to take hold of it.
@@ -62,8 +63,13 @@ struct CalibrationEditorView: View {
                 case .loading:
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .failed(let why):
-                    BSCEmptyState(icon: "exclamationmark.triangle", title: "Court & Net can't open", message: LocalizedStringResource(stringLiteral: why))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // A calibration that can't be opened must not hold up the run: the page can still be skipped.
+                    VStack(spacing: BSCSpacing.lg) {
+                        BSCEmptyState(icon: "exclamationmark.triangle", title: "Court & Net can't open", message: LocalizedStringResource(stringLiteral: why))
+                        BSCButton(title: "Skip", icon: "forward.fill", style: .secondary, size: .medium, isFullWidth: false, action: step.onDone)
+                            .accessibilityIdentifier(AccessibilityID.Process.setupSkip)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .ready:
                     editor
                 }
@@ -85,6 +91,12 @@ struct CalibrationEditorView: View {
                 Button("Save draft and close") { model.saveDraft(); if !model.hasUnsavedChanges { step.onCancel() } }
                 Button("Close without saving", role: .destructive) { step.onCancel() }
                 Button("Cancel", role: .cancel) {}
+            }
+            .confirmationDialog("Skip without saving these marks?", isPresented: $askBeforeSkipping, titleVisibility: .visible) {
+                Button("Skip without them", role: .destructive) { step.onDone() }
+                Button("Keep editing", role: .cancel) {}
+            } message: {
+                Text(model.notice ?? String(localized: "What is on the picture could not be saved as a draft."))
             }
         }
         .task { await model.load() }
@@ -278,7 +290,9 @@ struct CalibrationEditorView: View {
                 // What is on the picture is kept as a draft; the run goes on without it.
                 BSCButton(title: "Skip", icon: "forward.fill", style: .ghost, size: .medium, isFullWidth: false) {
                     if model.hasUnsavedChanges { model.saveDraft() }
-                    step.onDone()
+                    // What could not be saved (a net short of four corners, a file that would not write) is not
+                    // dropped without a word: the page stays until the person says to go on without it.
+                    if model.hasUnsavedChanges { askBeforeSkipping = true } else { step.onDone() }
                 }
                 .accessibilityIdentifier(AccessibilityID.Process.setupSkip)
                 BSCButton(title: confirmTitle, style: .primary, size: .medium) {
