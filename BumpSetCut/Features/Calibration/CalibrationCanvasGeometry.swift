@@ -104,6 +104,8 @@ enum CalibrationDragAction: Equatable {
     case edge(CalibrationHandle, CalibrationHandle)
     /// Every placed point of the shape.
     case shape
+    /// A point not placed yet goes down under the finger and follows it until the finger lifts.
+    case place(CalibrationHandle)
     case pan
 }
 
@@ -112,7 +114,8 @@ enum CalibrationDragAction: Equatable {
 struct CalibrationWorkingShapes: Equatable, Sendable {
     var court: CourtLayout
     var net: [NetQuad.Point?]
-    /// Court points the person said they can't place: not asked for again.
+    /// Court points a court on file was saved without (an earlier editor let a person say they couldn't place
+    /// one): not asked for again.
     var skipped: Set<CourtLayout.Role> = []
 
     /// The order a person is asked for the court's points.
@@ -133,6 +136,70 @@ struct CalibrationWorkingShapes: Equatable, Sendable {
     }
 
     var hasCourtPoints: Bool { CourtLayout.Role.allCases.contains { court[$0].status != .unknown } }
+    /// All six court points are placed: the court is an outline that moves as one (`moveOutline`).
+    var isWholeCourt: Bool { CourtLayout.Role.allCases.allSatisfy { court[$0].status != .unknown } }
+    /// A court point is off the picture, so the page has to be zoomed out for it to be reached.
+    var courtReachesOutsideFrame: Bool {
+        CourtLayout.Role.allCases.contains { court[$0].status != .unknown && !Self.inFrame(court[$0].x, court[$0].y) }
+    }
+
+    /// The outline a court page with no court starts from, for the person to drag onto the court: the far
+    /// corners in the picture, the near corners off its lower edge — where they usually are, out of frame or
+    /// hidden behind players — and the centre line three tenths of the way down each sideline.
+    static var courtOutline: CalibrationWorkingShapes {
+        var shapes = CalibrationWorkingShapes()
+        let far: [(CourtLayout.Role, Double, Double)] = [(.farLeft, 0.36, 0.42), (.farRight, 0.64, 0.42)]
+        let near: [(CourtLayout.Role, Double, Double)] = [(.nearLeft, -0.18, -0.12), (.nearRight, 1.18, -0.12)]
+        for (role, x, y) in far + near { shapes.set(.court(role), x: x, y: y) }
+        for (i, centre) in [CourtLayout.Role.netLeft, .netRight].enumerated() {
+            shapes.set(.court(centre), x: far[i].1 + 0.3 * (near[i].1 - far[i].1), y: far[i].2 + 0.3 * (near[i].2 - far[i].2))
+        }
+        return shapes
+    }
+
+    /// The court's two sidelines: near corner, centre-line point, far corner.
+    static let sidelines: [(near: CourtLayout.Role, centre: CourtLayout.Role, far: CourtLayout.Role)] =
+        [(.nearLeft, .netLeft, .farLeft), (.nearRight, .netRight, .farRight)]
+
+    /// Moves a whole court as an outline rather than as six loose points. A corner, an end line or a sideline
+    /// moves and each centre-line point keeps its place along its sideline; a centre-line point, or the centre
+    /// line, slides along the sidelines and nowhere else. Half a sideline taken hold of moves the whole sideline.
+    mutating func moveOutline(_ action: CalibrationDragAction, from start: CalibrationWorkingShapes, dx: Double, dy: Double) {
+        let centreRoles = Set(Self.sidelines.map(\.centre))
+        var corners: Set<CourtLayout.Role> = [], centres: Set<CourtLayout.Role> = []
+        switch action {
+        case .handle(.court(let role)):
+            if centreRoles.contains(role) { centres = [role] } else { corners = [role] }
+        case .edge(.court(let a), .court(let b)):
+            switch (centreRoles.contains(a), centreRoles.contains(b)) {
+            case (true, true): centres = [a, b]
+            case (false, false): corners = [a, b]
+            case (let aIsCentre, _):
+                guard let side = Self.sidelines.first(where: { $0.centre == (aIsCentre ? a : b) }) else { return }
+                corners = [side.near, side.far]
+            }
+        case .shape:
+            corners = Set(Self.sidelines.flatMap { [$0.near, $0.far] })
+        default:
+            return
+        }
+        for side in Self.sidelines {
+            let (n, c, f) = (start.court[side.near], start.court[side.centre], start.court[side.far])
+            let dn = corners.contains(side.near) ? (dx, dy) : (0, 0), df = corners.contains(side.far) ? (dx, dy) : (0, 0)
+            let (vx, vy) = (n.x - f.x, n.y - f.y)
+            let length2 = vx * vx + vy * vy
+            // How far down the sideline, far corner to near, the centre-line point is.
+            let t = length2 > 0 ? min(1, max(0, ((c.x - f.x) * vx + (c.y - f.y) * vy) / length2)) : 0.5
+            if corners.contains(side.near) { set(.court(side.near), x: n.x + dn.0, y: n.y + dn.1) }
+            if corners.contains(side.far) { set(.court(side.far), x: f.x + df.0, y: f.y + df.1) }
+            var (cx, cy) = (c.x + (1 - t) * df.0 + t * dn.0, c.y + (1 - t) * df.1 + t * dn.1)
+            if centres.contains(side.centre), length2 > 0 {
+                let slid = min(0.95, max(0.05, t + (dx * vx + dy * vy) / length2))
+                (cx, cy) = (cx + (slid - t) * vx, cy + (slid - t) * vy)
+            }
+            if cx != c.x || cy != c.y { set(.court(side.centre), x: cx, y: cy) }
+        }
+    }
     var hasNetCorners: Bool { net.contains { $0 != nil } }
 
     static func handles(of target: CalibrationTarget) -> [CalibrationHandle] {
@@ -185,16 +252,8 @@ struct CalibrationWorkingShapes: Equatable, Sendable {
         }
     }
 
-    /// Takes a point away. A court point is then one the person can't place.
-    mutating func remove(_ handle: CalibrationHandle) {
-        switch handle {
-        case .court(let role):
-            court[role] = CourtPoint(x: 0, y: 0, status: .unknown)
-            skipped.insert(role)
-        case .net(let i):
-            net[i] = nil
-        }
-    }
+    /// Takes a net corner away, to be tapped again.
+    mutating func removeNetCorner(_ index: Int) { net[index] = nil }
 
     /// A court point in the frame is `seen` or, when the person says it is hidden and judged, `estimated`.
     mutating func setEstimated(_ estimated: Bool, _ role: CourtLayout.Role) {
@@ -264,7 +323,7 @@ struct CalibrationWorkingShapes: Equatable, Sendable {
         case .handle(let h): return [h]
         case .edge(let a, let b): return [a, b]
         case .shape: return handles(of: target)
-        case .pan: return []
+        case .place, .pan: return []
         }
     }
 }

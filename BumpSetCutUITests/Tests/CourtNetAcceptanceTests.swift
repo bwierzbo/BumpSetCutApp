@@ -49,7 +49,8 @@ final class CourtNetAcceptanceTests: VideoTestCase {
         let heading = NSPredicate(format: "label BEGINSWITH %@", name + ",")
         let shown = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: heading, object: process.setupProgress)], timeout: 10)
         XCTAssertEqual(shown, .completed, "The \(name) page is showing", file: file, line: line)
-        let editor = CalibrationScreen(app: app, frameAspect: 16.0 / 9.0)
+        // The court of this recording reaches past the picture's edge, so its page opens zoomed out.
+        let editor = CalibrationScreen(app: app, frameAspect: 16.0 / 9.0, scale: name == "Court" ? CalibrationScreen.courtStartScale : 1)
         XCTAssertTrue(editor.canvas.waitForExistence(timeout: 15), "The \(name) page opens on a frame of the video", file: file, line: line)
         XCTAssertTrue(editor.confirmButton.waitForExistence(timeout: 15), file: file, line: line)
         return editor
@@ -81,40 +82,62 @@ final class CourtNetAcceptanceTests: VideoTestCase {
         XCTAssertEqual(waited, .completed, "Status reads \"\(editor.status.label)\", expected it to contain \"\(text)\"", file: file, line: line)
     }
 
-    private func assertChip(_ editor: CalibrationScreen, _ name: String, placed: Bool, file: StaticString = #file, line: UInt = #line) {
-        XCTAssertEqual(editor.chip(name).value as? String, placed ? "Placed" : "Not placed", "\(name)", file: file, line: line)
+    /// Where the court page's outline starts (CalibrationWorkingShapes.courtOutline): the far corners in the picture,
+    /// the near corners off its lower edge, each centre-line point three tenths of the way down its sideline.
+    private enum Outline {
+        static let nearLeft = CGPoint(x: -0.18, y: -0.12), nearRight = CGPoint(x: 1.18, y: -0.12)
+        static let farLeft = CGPoint(x: 0.36, y: 0.42), farRight = CGPoint(x: 0.64, y: 0.42)
+        static let centreDownSideline: CGFloat = 0.3
     }
 
-    /// The court's six points: the near corners zoomed out (they are out of this recording's picture), the rest
-    /// at the fitted size — zoomed out on a phone held upright the far corners are within a finger's reach of the
-    /// net points, and a tap there takes hold of the point already placed.
-    private func placeCourt(_ editor: inout CalibrationScreen, afterNearCorners: () -> Void = {}) {
-        editor.zoomOut()
-        for mark in Marks.court.prefix(2) { editor.tapFrame(x: mark.x, y: mark.y) }
+    private func mark(_ name: String) -> CGPoint {
+        let found = Marks.court.first { $0.name == name }!
+        return CGPoint(x: found.x, y: found.y)
+    }
+
+    private func assertHint(_ editor: CalibrationScreen, contains text: String, file: StaticString = #file, line: UInt = #line) {
+        let found = NSPredicate(format: "label CONTAINS %@", text)
+        let waited = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: found, object: editor.hint)], timeout: 5)
+        XCTAssertEqual(waited, .completed, "The instruction reads \"\(editor.hint.label)\", expected it to contain \"\(text)\"", file: file, line: line)
+    }
+
+    /// The court page opens zoomed out with an outline on the picture. Its corners are dragged onto the court's
+    /// corners — the near ones are out of this recording's picture — and then each centre-line point is slid along
+    /// its sideline to where the line under the net meets it.
+    private func fitCourt(_ editor: CalibrationScreen, afterNearCorners: () -> Void = {}) {
+        assertHint(editor, contains: "Drag the outline")
+        for (from, name) in [(Outline.nearLeft, "Near L"), (Outline.nearRight, "Near R")] {
+            editor.drag(fromX: from.x, y: from.y, toX: mark(name).x, y: mark(name).y)
+        }
         afterNearCorners()
-        editor.fit()
-        for mark in Marks.court.dropFirst(2) { editor.tapFrame(x: mark.x, y: mark.y) }
-        for mark in Marks.court { assertChip(editor, mark.name, placed: true) }
+        for (from, name) in [(Outline.farLeft, "Far L"), (Outline.farRight, "Far R")] {
+            editor.drag(fromX: from.x, y: from.y, toX: mark(name).x, y: mark(name).y)
+        }
+        for (far, near, centre) in [("Far L", "Near L", "Net L"), ("Far R", "Near R", "Net R")] {
+            let (f, n, t) = (mark(far), mark(near), Outline.centreDownSideline)
+            editor.drag(fromX: f.x + t * (n.x - f.x), y: f.y + t * (n.y - f.y), toX: mark(centre).x, y: mark(centre).y)
+        }
+        assertHint(editor, contains: "Drag a corner or a line")
     }
 
-    /// The net's four corners. On a phone held upright this net is shorter than a finger's reach, so a tap on a
-    /// bottom corner would take hold of the top one above it: each bottom corner is put down lower, then dragged up.
+    /// The net's four corners, one tap each in the order asked: a tap always puts the next corner down, so the
+    /// bottom corners go straight under the top ones though they are within a finger's reach of them.
     private func placeNet(_ editor: CalibrationScreen, afterThreeCorners: () -> Void = {}) {
-        for mark in Marks.net.prefix(2) { editor.tapFrame(x: mark.x, y: mark.y) }
-        let below: CGFloat = 0.07
-        for (index, mark) in Marks.net.enumerated().dropFirst(2) {
-            editor.tapFrame(x: mark.x, y: mark.y - below)
-            editor.drag(fromX: mark.x, y: mark.y - below, toX: mark.x, y: mark.y)
+        let asked = ["top-left", "top-right", "bottom-right", "bottom-left"]
+        for (index, mark) in Marks.net.enumerated() {
+            assertHint(editor, contains: asked[index])
+            editor.tapFrame(x: mark.x, y: mark.y)
             if index == 2 { afterThreeCorners() }
         }
-        for mark in Marks.net { assertChip(editor, mark.name, placed: true) }
+        assertHint(editor, contains: "Is this the net?")
+        XCTAssertTrue(editor.backButton.exists, "Back is offered once a corner is down")
     }
 
     /// A video whose court and net are confirmed, on its court page again.
     private func openCourtPageWithConfirmedCourtAndNet() -> CalibrationScreen {
         openVideoScreen()
         var editor = openCourtPage()
-        placeCourt(&editor)
+        fitCourt(editor)
         editor.confirmButton.tap()
         editor = page("Net")
         placeNet(editor)
@@ -169,8 +192,8 @@ final class CourtNetAcceptanceTests: VideoTestCase {
 
         let editor = openCourtPage()
         assertStatus(editor, contains: "Not calibrated")
-        XCTAssertTrue(editor.hint.label.contains("near-left corner"), "A2: the hint reads \"\(editor.hint.label)\"")
-        XCTAssertFalse(editor.chip("Top L").exists, "A2: the court page is about the court alone")
+        assertHint(editor, contains: "Drag the outline")
+        XCTAssertFalse(editor.backButton.exists, "A2: the court page is about the court alone")
         checkpoint("A2", "court page just opened")
         try report("A2")
     }
@@ -181,13 +204,16 @@ final class CourtNetAcceptanceTests: VideoTestCase {
         openVideoScreen()
         var editor = openCourtPage()
 
+        checkpoint("B0", "court page opened: zoomed out, the outline on the picture")
         // B6 comes first on this recording: its near corners are out of the picture.
-        placeCourt(&editor) { checkpoint("B6", "zoomed out, near corners placed outside the frame") }
-        checkpoint("B1", "six court points placed")
+        fitCourt(editor) { checkpoint("B6", "near corners dragged to where the court's are, outside the frame") }
+        assertStatus(editor, contains: "Not saved")
+        checkpoint("B1", "the outline fitted to the court")
 
         // B2: drag a point (the loupe shows only while a finger is down — a person checks that on a phone).
-        editor.drag(fromX: Marks.court[4].x, y: Marks.court[4].y, toX: Marks.court[4].x - 0.02, y: Marks.court[4].y + 0.01)
+        editor.drag(fromX: Marks.court[4].x, y: Marks.court[4].y, toX: Marks.court[4].x - 0.03, y: Marks.court[4].y + 0.03)
         checkpoint("B2", "far-left corner dragged a little left and up")
+        editor.drag(fromX: Marks.court[4].x - 0.03, y: Marks.court[4].y + 0.03, toX: Marks.court[4].x, y: Marks.court[4].y)
 
         // B3: drag the near end line by its middle.
         editor.drag(fromX: 0.545, y: 0.07, toX: 0.545, y: 0.10)
@@ -206,21 +232,15 @@ final class CourtNetAcceptanceTests: VideoTestCase {
         checkpoint("B5", "pinched in, marks stay on the picture")
         editor.fit()
 
-        // B7: a hidden corner is a best guess.
-        editor.chip("Far L").tap()
-        XCTAssertTrue(editor.hiddenToggle.waitForExistence(timeout: 3), "B7: the selected point offers Hidden — my best guess")
+        // B7: a hidden corner is a best guess. A tap on a corner selects it.
+        editor.tapFrame(x: Marks.court[4].x, y: Marks.court[4].y)
+        XCTAssertTrue(editor.hiddenToggle.waitForExistence(timeout: 3), "B7: the selected corner offers Hidden — my best guess")
         editor.hiddenToggle.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
         checkpoint("B7", "far-left marked hidden, dashed ring")
 
-        // B8: a corner that can't be placed, then placed after all.
-        editor.chip("Far R").tap()
-        app.buttons["Can't place it"].tap()
-        assertChip(editor, "Far R", placed: false)
-        checkpoint("B8a", "far-right removed, chip greyed")
-        editor.chip("Far R").tap()
-        editor.tapFrame(x: Marks.court[5].x, y: Marks.court[5].y)
-        assertChip(editor, "Far R", placed: true)
-        checkpoint("B8b", "far-right placed again")
+        // B8: a centre-line point slides along its sideline, wherever the finger goes.
+        editor.drag(fromX: Marks.court[2].x, y: Marks.court[2].y, toX: Marks.court[2].x - 0.06, y: Marks.court[2].y - 0.12)
+        checkpoint("B8", "left centre-line point dragged straight down and a little left: it slid down its sideline")
 
         // B9: skipping the page keeps what was placed as a draft.
         process.setupSkipButton.tap()
@@ -228,11 +248,9 @@ final class CourtNetAcceptanceTests: VideoTestCase {
         checkpoint("B9a", "court page skipped, net page showing")
         editor.close()
         editor = openCourtPage()
-        for mark in Marks.court { assertChip(editor, mark.name, placed: true) }
+        assertHint(editor, contains: "Drag a corner or a line")
         assertStatus(editor, contains: "Draft")
-        editor.zoomOut()
         checkpoint("B9b", "setup started again, the draft court where it was")
-        editor.fit()
 
         // B10
         XCTAssertEqual(editor.confirmButton.label, "Confirm court")
@@ -259,7 +277,14 @@ final class CourtNetAcceptanceTests: VideoTestCase {
             XCTAssertTrue(app.buttons["Go on without them"].waitForNonExistence(timeout: 3))
             XCTAssertTrue(process.setupProgress.label.hasPrefix("Net,"), "C3: keep editing stays on the Net page")
         }
-        checkpoint("C1", "net's four corners placed, court dimmed")
+        checkpoint("C1", "net's four corners tapped, court dimmed")
+
+        // C5: Back takes the last corner away and asks for it again.
+        editor.backButton.tap()
+        assertHint(editor, contains: "bottom-left")
+        checkpoint("C5", "Back: the fourth corner is asked for again")
+        editor.tapFrame(x: Marks.net[3].x, y: Marks.net[3].y)
+        assertHint(editor, contains: "Is this the net?")
 
         // C2
         editor.showCourtButton.tap()
@@ -282,16 +307,12 @@ final class CourtNetAcceptanceTests: VideoTestCase {
 
     // MARK: - B11. A court that can't be one
 
-    func testB11_PointsOnTopOfEachOther() {
+    func testB11_AnOutlineThatCrossesItself() {
         openVideoScreen()
         let editor = openCourtPage()
-        // A tap on a point takes hold of it, so three points are put apart and two dragged onto the first.
-        editor.tapFrame(x: 0.3, y: 0.3)
-        editor.tapFrame(x: 0.6, y: 0.3)
-        editor.tapFrame(x: 0.3, y: 0.7)
-        editor.drag(fromX: 0.6, y: 0.3, toX: 0.3, y: 0.3)
-        editor.drag(fromX: 0.3, y: 0.7, toX: 0.3, y: 0.3)
-        checkpoint("B11a", "three points on top of each other")
+        // The far-left corner is dragged across to the right of the far-right one: the outline crosses itself.
+        editor.drag(fromX: Outline.farLeft.x, y: Outline.farLeft.y, toX: 0.85, y: Outline.farLeft.y)
+        checkpoint("B11a", "the far-left corner dragged past the far-right one")
         editor.confirmButton.tap()
         assertStatus(editor, contains: "Draft")
         XCTAssertTrue(process.setupProgress.label.hasPrefix("Court,"), "B11: a court that can't be confirmed stays on its page")
@@ -326,11 +347,12 @@ final class CourtNetAcceptanceTests: VideoTestCase {
         // D3: starting over keeps the confirmed court until another is confirmed.
         editor = openCourtPage()
         editor.more("Start the court over")
-        for mark in Marks.court { assertChip(editor, mark.name, placed: false) }
-        checkpoint("D3a", "court started over, points gone")
+        assertHint(editor, contains: "Drag the outline")
+        checkpoint("D3a", "court started over: the outline again")
         editor.close()
         editor = openCourtPage()
-        for mark in Marks.court { assertChip(editor, mark.name, placed: true) }
+        assertHint(editor, contains: "Drag a corner or a line")
+        XCTAssertEqual(editor.confirmButton.label, "Continue", "D3: the earlier confirmed court stands")
         checkpoint("D3b", "started again, the earlier confirmed court is shown")
 
         // D4: the court's type is kept.
@@ -369,14 +391,14 @@ final class CourtNetAcceptanceTests: VideoTestCase {
         app.buttons["Back 5 seconds"].tap()
         editor.positionSlider.adjust(toNormalizedSliderPosition: 0.5)
         XCTAssertTrue(editor.seconds > 20 && editor.seconds < 55, "E1: the slider's middle reads \(editor.clock.label)")
-        for mark in Marks.court { assertChip(editor, mark.name, placed: true) }
+        assertHint(editor, contains: "Drag a corner or a line")
         checkpoint("E1b", "slider dragged to the middle of the video")
 
         // E2: the camera moved here.
         editor.more("Camera changed here", "Start from these marks")
         assertStatus(editor, contains: "Camera view 2 of 2")
         assertStatus(editor, contains: "Needs review")
-        for mark in Marks.court { assertChip(editor, mark.name, placed: true) }
+        assertHint(editor, contains: "Drag a corner or a line")
         checkpoint("E2", "camera view 2 of 2, marks carried over but not confirmed")
         editor.close()
 
@@ -393,20 +415,17 @@ final class CourtNetAcceptanceTests: VideoTestCase {
         editor.positionSlider.adjust(toNormalizedSliderPosition: 0.8)
         assertStatus(editor, contains: "Camera view 2 of 2")
         let farRight = Marks.court[5]
-        editor.chip(farRight.name).tap()
-        app.buttons["Can't place it"].tap()
-        assertChip(editor, farRight.name, placed: false)
         editor.more("Not a stable court view")
         XCTAssertTrue(editor.notStableBanner.waitForExistence(timeout: 3), "E4: a banner says this is not a stable court view")
-        editor.tapFrame(x: farRight.x, y: farRight.y)
-        assertChip(editor, farRight.name, placed: false)
-        checkpoint("E4a", "not a stable court view, a tap placed nothing")
+        assertHint(editor, contains: "Nothing is marked")
+        editor.drag(fromX: farRight.x, y: farRight.y, toX: farRight.x + 0.05, y: farRight.y + 0.04)
+        XCTAssertFalse(editor.status.label.contains("Not saved"), "E4: a drag moved nothing: \(editor.status.label)")
+        checkpoint("E4a", "not a stable court view, a drag moved nothing")
         app.buttons["It is a stable view"].tap()
         XCTAssertTrue(editor.notStableBanner.waitForNonExistence(timeout: 3), "E4: the banner goes")
-        editor.chip(farRight.name).tap()
-        editor.tapFrame(x: farRight.x, y: farRight.y)
-        assertChip(editor, farRight.name, placed: true)
-        checkpoint("E4b", "stable again, the tap places the corner")
+        editor.drag(fromX: farRight.x, y: farRight.y, toX: farRight.x + 0.05, y: farRight.y + 0.04)
+        assertStatus(editor, contains: "Not saved")
+        checkpoint("E4b", "stable again, the drag moves the corner")
     }
 
     // MARK: - F. Orientation and size
@@ -416,7 +435,7 @@ final class CourtNetAcceptanceTests: VideoTestCase {
         checkpoint("F2a", "upright, before turning")
         XCUIDevice.shared.orientation = .landscapeLeft
         XCTAssertTrue(editor.confirmButton.waitForExistence(timeout: 5))
-        for mark in Marks.court { assertChip(editor, mark.name, placed: true) }
+        assertHint(editor, contains: "Drag a corner or a line")
         checkpoint("F2b", "turned to landscape, picture left and controls right")
         let farLeft = Marks.court[4]
         editor.drag(fromX: farLeft.x, y: farLeft.y, toX: farLeft.x - 0.04, y: farLeft.y + 0.02)
@@ -438,13 +457,13 @@ final class CourtNetAcceptanceTests: VideoTestCase {
             ("Cancel", editor.closeButton), ("More", editor.moreButton),
             ("Show the court", editor.showCourtButton), ("Show the net", editor.showNetButton), ("Move all", editor.moveAllToggle),
             ("Zoom out", app.buttons["Zoom out"]), ("Fit the picture", app.buttons["Fit the picture"]), ("Zoom in", app.buttons["Zoom in"]),
-            ("Near L chip", editor.chip("Near L")), ("Back one frame", app.buttons["Back one frame"]),
+            ("Back one frame", app.buttons["Back one frame"]),
             ("Forward one frame", app.buttons["Forward one frame"]), ("Position slider", editor.positionSlider),
             ("Skip", process.setupSkipButton), ("Confirm", editor.confirmButton)
         ]
         // Nothing is drawn over anything else.
         let stacked: [(String, XCUIElement)] = [
-            ("the point chips", editor.chip("Near L")), ("the hint", editor.hint), ("the frame's time", editor.clock),
+            ("the instruction", editor.hint), ("the frame's time", editor.clock),
             ("the position slider", editor.positionSlider), ("Skip", process.setupSkipButton)
         ]
         for (above, below) in zip(stacked, stacked.dropFirst()) {
@@ -483,13 +502,13 @@ final class CourtNetAcceptanceTests: VideoTestCase {
         XCTAssertEqual(step.label, "Court, Step 3 of 4")
         XCTAssertFalse(app.descendants(matching: .any)["process.setupSkipRisk"].exists, "The court page makes no claim: a run does not read the court")
         checkpoint("P3a", "court page, nothing marked")
-        placeCourt(&editor)
+        fitCourt(editor)
         checkpoint("P3b", "court page, court marked")
         editor.confirmButton.tap()
 
         editor = page("Net")
         XCTAssertEqual(step.label, "Net, Step 4 of 4")
-        XCTAssertTrue(editor.chip("Top L").waitForExistence(timeout: 5), "The net page offers the net's corners")
+        assertHint(editor, contains: "top-left")
         let risk = app.descendants(matching: .any)["process.setupSkipRisk"]
         XCTAssertTrue(risk.exists && risk.label.contains("accuracy drops"), "The net page says what skipping costs while no net is confirmed")
         checkpoint("P4a", "net page, the confirmed court dimmed behind")
@@ -539,7 +558,7 @@ final class CourtNetAcceptanceTests: VideoTestCase {
 
         var editor = page("Court")
         XCTAssertEqual(step.label, "Court, Step 2 of 3")
-        placeCourt(&editor)
+        fitCourt(editor)
         editor.confirmButton.tap()
 
         editor = page("Net")

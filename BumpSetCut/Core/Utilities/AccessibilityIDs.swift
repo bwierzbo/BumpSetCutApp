@@ -200,6 +200,7 @@ enum AccessibilityID {
     enum Calibration {
         static let close = "calibration.close"
         static let confirm = "calibration.confirm"
+        static let back = "calibration.back"
         static let canvas = "calibration.canvas"
         static let status = "calibration.status"
         static let hint = "calibration.hint"

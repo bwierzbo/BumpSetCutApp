@@ -112,18 +112,15 @@ final class CalibrationCanvasGeometryTests: XCTestCase {
         XCTAssertEqual(s.court.nearLeft.y, CourtLayout.placeableRange.lowerBound)
     }
 
-    func testAPointThePersonCannotPlaceIsUnknownAndNotAskedForAgain() {
-        var s = CalibrationWorkingShapes(court: F.court, net: nil)
-        s.remove(.court(.farLeft))
-        XCTAssertEqual(s.court.farLeft.status, .unknown)
+    func testACourtSavedWithoutAPointIsNotAskedForItAndIsNoWholeCourt() {
+        var s = CalibrationWorkingShapes(court: { var c = F.court; c.farLeft = F.point(0, 0, .unknown); return c }(), net: nil)
         XCTAssertNil(s.position(.court(.farLeft)))
         XCTAssertNil(s.nextToPlace(.court))
+        XCTAssertFalse(s.isWholeCourt)
         XCTAssertTrue(s.court.isUsable, "the near half still maps")
         s.set(.court(.farLeft), x: 0.33, y: 0.62)
         XCTAssertEqual(s.court, F.court)
-
-        let reopened = CalibrationWorkingShapes(court: { var c = F.court; c.farRight = F.point(0, 0, .unknown); return c }(), net: nil)
-        XCTAssertNil(reopened.nextToPlace(.court))
+        XCTAssertTrue(s.isWholeCourt)
     }
 
     func testTheNetIsAQuadOnlyWithFourCornersAndStaysInTheFrame() {
@@ -135,8 +132,9 @@ final class CalibrationCanvasGeometryTests: XCTestCase {
         XCTAssertEqual(s.netQuad, F.net)
         s.set(.net(1), x: 1.4, y: -0.2)
         XCTAssertEqual(s.net[1], NetQuad.Point(x: 1, y: 0))
-        s.remove(.net(1))
+        s.removeNetCorner(1)
         XCTAssertNil(s.netQuad)
+        XCTAssertEqual(s.nextToPlace(.net), .net(1))
         XCTAssertEqual(CalibrationWorkingShapes(court: nil, net: F.net).netQuad, F.net)
     }
 
@@ -204,5 +202,105 @@ final class CalibrationCanvasGeometryTests: XCTestCase {
         XCTAssertEqual(CalibrationWorkingShapes.handles(moved: .edge(.net(0), .net(1)), target: .net), [.net(0), .net(1)])
         XCTAssertEqual(CalibrationWorkingShapes.handles(moved: .shape, target: .net).count, 4)
         XCTAssertTrue(CalibrationWorkingShapes.handles(moved: .pan, target: .court).isEmpty)
+    }
+
+    // MARK: - The court as an outline
+
+    private func onSideline(_ s: CalibrationWorkingShapes, left: Bool) -> Double {
+        let (n, c, f) = left ? (s.court.nearLeft, s.court.netLeft, s.court.farLeft) : (s.court.nearRight, s.court.netRight, s.court.farRight)
+        // Twice the area of the triangle near–centre–far: zero when the centre-line point is on the sideline.
+        return abs((n.x - f.x) * (c.y - f.y) - (n.y - f.y) * (c.x - f.x))
+    }
+
+    func testTheOfferedOutlineIsAWholeCourtWithItsNearCornersOffThePicture() {
+        let outline = CalibrationWorkingShapes.courtOutline
+        XCTAssertTrue(outline.isWholeCourt)
+        XCTAssertTrue(outline.courtReachesOutsideFrame)
+        XCTAssertEqual(outline.court.nearLeft.status, .estimated)
+        XCTAssertEqual(outline.court.farRight.status, .seen)
+        XCTAssertLessThan(outline.court.nearLeft.y, 0)
+        XCTAssertEqual(onSideline(outline, left: true), 0, accuracy: 1e-12)
+        XCTAssertEqual(onSideline(outline, left: false), 0, accuracy: 1e-12)
+        XCTAssertFalse(outline.hasNetCorners)
+        XCTAssertFalse(CalibrationWorkingShapes().isWholeCourt)
+        XCTAssertFalse(CalibrationWorkingShapes().courtReachesOutsideFrame)
+    }
+
+    func testACornerMovesAloneAndItsCentreLinePointKeepsItsPlaceAlongTheSideline() {
+        let start = CalibrationWorkingShapes.courtOutline
+        var moved = start
+        moved.moveOutline(.handle(.court(.farLeft)), from: start, dx: 0.05, dy: 0.04)
+        XCTAssertEqual(moved.court.farLeft.x, start.court.farLeft.x + 0.05, accuracy: 1e-12)
+        XCTAssertEqual(moved.court.farLeft.y, start.court.farLeft.y + 0.04, accuracy: 1e-12)
+        for role in [CourtLayout.Role.nearLeft, .nearRight, .farRight, .netRight] { XCTAssertEqual(moved.court[role], start.court[role], "\(role)") }
+        XCTAssertEqual(onSideline(moved, left: true), 0, accuracy: 1e-12, "still on the sideline")
+        // Three tenths of the way down, as it was: it took seven tenths of the far corner's move.
+        XCTAssertEqual(moved.court.netLeft.x, start.court.netLeft.x + 0.7 * 0.05, accuracy: 1e-12)
+        XCTAssertEqual(moved.court.netLeft.y, start.court.netLeft.y + 0.7 * 0.04, accuracy: 1e-12)
+    }
+
+    func testACentreLinePointSlidesAlongItsSidelineAndNowhereElse() {
+        let start = CalibrationWorkingShapes.courtOutline
+        var moved = start
+        // Dragged straight across the picture: only the part of that along the sideline counts.
+        moved.moveOutline(.handle(.court(.netRight)), from: start, dx: 0.10, dy: 0)
+        XCTAssertNotEqual(moved.court.netRight.x, start.court.netRight.x)
+        XCTAssertEqual(onSideline(moved, left: false), 0, accuracy: 1e-12)
+        for role in CourtLayout.Role.allCases where role != .netRight { XCTAssertEqual(moved.court[role], start.court[role], "\(role)") }
+        // Dragged far past the near corner: it stops short of it.
+        moved.moveOutline(.handle(.court(.netRight)), from: start, dx: 5, dy: -5)
+        XCTAssertEqual(onSideline(moved, left: false), 0, accuracy: 1e-9)
+        XCTAssertGreaterThan(moved.court.netRight.y, start.court.nearRight.y)
+        XCTAssertLessThan(moved.court.netRight.x, start.court.nearRight.x)
+    }
+
+    func testLinesMoveTheOutlineAsLines() {
+        let start = CalibrationWorkingShapes.courtOutline
+        // The far end line: both far corners, and both centre-line points follow their sidelines.
+        var moved = start
+        moved.moveOutline(.edge(.court(.farLeft), .court(.farRight)), from: start, dx: 0, dy: 0.05)
+        XCTAssertEqual(moved.court.farLeft.y, start.court.farLeft.y + 0.05, accuracy: 1e-12)
+        XCTAssertEqual(moved.court.farRight.y, start.court.farRight.y + 0.05, accuracy: 1e-12)
+        XCTAssertEqual(moved.court.nearLeft, start.court.nearLeft)
+        XCTAssertEqual(onSideline(moved, left: true), 0, accuracy: 1e-12)
+        XCTAssertEqual(onSideline(moved, left: false), 0, accuracy: 1e-12)
+        // Half a sideline taken hold of: the whole sideline moves, the other one stays.
+        moved = start
+        moved.moveOutline(.edge(.court(.netLeft), .court(.farLeft)), from: start, dx: -0.04, dy: 0.01)
+        for role in [CourtLayout.Role.nearLeft, .netLeft, .farLeft] {
+            XCTAssertEqual(moved.court[role].x, start.court[role].x - 0.04, accuracy: 1e-12, "\(role)")
+            XCTAssertEqual(moved.court[role].y, start.court[role].y + 0.01, accuracy: 1e-12, "\(role)")
+        }
+        for role in [CourtLayout.Role.nearRight, .netRight, .farRight] { XCTAssertEqual(moved.court[role], start.court[role], "\(role)") }
+        // The centre line: both its points slide, each along its own sideline.
+        moved = start
+        moved.moveOutline(.edge(.court(.netLeft), .court(.netRight)), from: start, dx: 0, dy: -0.05)
+        XCTAssertLessThan(moved.court.netLeft.y, start.court.netLeft.y)
+        XCTAssertLessThan(moved.court.netRight.y, start.court.netRight.y)
+        XCTAssertEqual(onSideline(moved, left: true), 0, accuracy: 1e-12)
+        XCTAssertEqual(onSideline(moved, left: false), 0, accuracy: 1e-12)
+        for role in [CourtLayout.Role.nearLeft, .nearRight, .farLeft, .farRight] { XCTAssertEqual(moved.court[role], start.court[role], "\(role)") }
+        // The whole outline: every point by the same amount.
+        moved = start
+        moved.moveOutline(.shape, from: start, dx: 0.03, dy: 0.02)
+        for role in CourtLayout.Role.allCases {
+            XCTAssertEqual(moved.court[role].x, start.court[role].x + 0.03, accuracy: 1e-12, "\(role)")
+            XCTAssertEqual(moved.court[role].y, start.court[role].y + 0.02, accuracy: 1e-12, "\(role)")
+        }
+    }
+
+    func testACentreLinePointThatWasNotQuiteOnItsSidelineKeepsThatWhenACornerMoves() {
+        // A court marked point by point before the outline: its centre-line points are near the sidelines, not on them.
+        let start = CalibrationWorkingShapes(court: CalibrationFixtures.court)
+        let off = onSideline(start, left: false)
+        XCTAssertGreaterThan(off, 1e-4)
+        var moved = start
+        moved.moveOutline(.shape, from: start, dx: 0.02, dy: 0.01)
+        XCTAssertEqual(onSideline(moved, left: false), off, accuracy: 1e-12, "moved whole, it is as far off as it was")
+        XCTAssertEqual(moved.court.netRight.x, start.court.netRight.x + 0.02, accuracy: 1e-12)
+    }
+
+    func testANetCornerBeingPutDownIsNoPointToMoveAndThePictureIsNotPanned() {
+        XCTAssertEqual(CalibrationWorkingShapes.handles(moved: .place(.net(2)), target: .net), [])
     }
 }
