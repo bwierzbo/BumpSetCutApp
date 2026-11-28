@@ -16,6 +16,8 @@ struct CalibrationScreen {
     var scale: CGFloat = 1
 
     static let zoomStep: CGFloat = 1.5
+    /// How far out the court page starts when the court reaches past the picture's edge (the editor's courtStartScale).
+    static let courtStartScale: CGFloat = 0.6
 
     var canvas: XCUIElement { app.descendants(matching: .any)["calibration.canvas"] }
     var status: XCUIElement { app.descendants(matching: .any)["calibration.status"] }
@@ -23,6 +25,8 @@ struct CalibrationScreen {
     var closeButton: XCUIElement { app.buttons["calibration.close"] }
     var confirmButton: XCUIElement { app.buttons["calibration.confirm"] }
     var moreButton: XCUIElement { app.buttons["More"] }
+    /// "Back", on the net page once a corner is down: takes the last corner away.
+    var backButton: XCUIElement { app.buttons["calibration.back"] }
     var moveAllToggle: XCUIElement {
         app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Dragging moves the whole shape")).firstMatch
     }
@@ -52,8 +56,6 @@ struct CalibrationScreen {
             item.tap()
         }
     }
-
-    func chip(_ name: String) -> XCUIElement { app.buttons[name] }
 
     /// Where a frame point is on the screen at the current zoom.
     func coordinate(x: CGFloat, y: CGFloat) -> XCUICoordinate {

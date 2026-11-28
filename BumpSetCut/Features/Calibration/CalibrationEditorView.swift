@@ -2,12 +2,15 @@
 //  CalibrationEditorView.swift
 //  BumpSetCut
 //
-//  The court page and the net page of the setup before processing (ProcessingSetupFlowView):
-//  a person marks the court's six ground points, or the net's four corners,
-//  on a frame of their video, adjusts them, and confirms. Tap to place, drag a point or a
-//  line, pinch to zoom, pan with one finger off the shape, step frame by frame. While a
-//  point is dragged a loupe above the finger shows what is under it. Nothing here waits
-//  for, or needs, a model.
+//  The court page and the net page of the setup before processing (ProcessingSetupFlowView), on a frame of
+//  the person's video.
+//
+//  The net is asked for one corner at a time: a single instruction, a tap puts that corner down (the finger
+//  can slide before it lifts), the next instruction follows by itself, and Back takes the last corner away.
+//  The court opens zoomed out with an outline already on the picture; the person drags its corners and lines
+//  onto the court, and its centre line along the sidelines. Either can be adjusted afterwards by dragging a
+//  point or a line; pinch zooms, one finger off the shape pans, and a loupe above the finger shows what is
+//  under a point while it moves. Nothing here waits for, or needs, a model.
 //
 
 import SwiftUI
@@ -28,6 +31,8 @@ struct CalibrationEditorView: View {
     /// A touch that moves less than this is a tap.
     private static let tapSlop: CGFloat = 8
     private static let loupeSide: CGFloat = 132
+    /// How far out the court page starts when the court reaches past the picture's edge.
+    private static let courtStartScale: CGFloat = 0.6
 
     private struct ActiveDrag {
         var startLocation: CGPoint
@@ -110,7 +115,15 @@ struct CalibrationEditorView: View {
                 Text(model.notice ?? String(localized: "What is on the picture could not be saved as a draft."))
             }
         }
-        .task { await model.load() }
+        .task {
+            await model.load()
+            guard step.target == .court else { return }
+            model.offerCourtOutline()
+            if model.shapes.courtReachesOutsideFrame { viewport.scale = Self.courtStartScale }
+        }
+        // A camera view with no court, come to later (another view scrubbed to, the court started over), gets
+        // the outline too.
+        .onChange(of: model.wantsCourtOutline) { _, wanted in if wanted { model.offerCourtOutline() } }
         .onDisappear { model.close() }
         .onChange(of: model.frameAspect, initial: true) { _, aspect in viewport.frameAspect = aspect }
     }
@@ -156,7 +169,7 @@ struct CalibrationEditorView: View {
 
     @ViewBuilder
     private var loupe: some View {
-        if let drag, drag.moved, !drag.ignored, case .handle(let handle) = drag.action, let at = model.shapes.position(handle) {
+        if let drag, drag.moved, !drag.ignored, let handle = drag.action.pointUnderFinger, let at = model.shapes.position(handle) {
             let side = Self.loupeSide
             // Above the finger; below it when there is no room above.
             let above = drag.location.y - side / 2 - 56
@@ -231,15 +244,29 @@ struct CalibrationEditorView: View {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
                 if drag?.startLocation != value.startLocation {
-                    let action: CalibrationDragAction = model.isStableView
-                        ? model.shapes.dragAction(at: value.startLocation, in: viewport, target: model.target, wholeShape: wholeShape,
-                                                  handleRadius: Self.handleRadius, edgeTolerance: Self.edgeTolerance)
-                        : .pan
+                    let action: CalibrationDragAction
+                    if !model.isStableView {
+                        action = .pan
+                    } else if model.target == .net, let next = model.shapes.nextToPlace(.net) {
+                        // While the net is short of a corner a touch always puts the next one down: it never
+                        // takes hold of a corner already there, however close under the finger that is.
+                        action = .place(next)
+                    } else {
+                        action = model.shapes.dragAction(at: value.startLocation, in: viewport, target: model.target, wholeShape: wholeShape,
+                                                         handleRadius: Self.handleRadius, edgeTolerance: Self.edgeTolerance)
+                    }
                     drag = ActiveDrag(startLocation: value.startLocation, action: action, shapes: model.shapes, viewport: viewport,
                                       location: value.location, ignored: pinchBaseScale != nil)
                 }
                 guard var active = drag, !active.ignored else { return }
                 active.location = value.location
+                if case .place(let handle) = active.action {
+                    active.moved = true
+                    drag = active
+                    let at = viewport.normalized(value.location)
+                    model.place(handle, x: at.x, y: at.y)
+                    return
+                }
                 if !active.moved, hypot(value.translation.width, value.translation.height) < Self.tapSlop {
                     drag = active
                     return
@@ -288,14 +315,11 @@ struct CalibrationEditorView: View {
         VStack(alignment: .leading, spacing: BSCSpacing.sm) {
             banners
             statusLine
-            viewRow
-            pointChips
-            Text(hint)
-                .bscFont(size: 14)
-                .foregroundColor(.bscTextSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, minHeight: 36, alignment: .topLeading)
-                .accessibilityIdentifier(AccessibilityID.Calibration.hint)
+            // The net page stays plain while its corners are being tapped: the eyes, Move all and the zoom
+            // buttons come once there is a net to adjust.
+            if model.target == .court || model.shapes.netQuad != nil { viewRow }
+            instruction
+            selectedCourtPoint
             frameRow
             if let skipRisk {
                 Label(skipRisk, systemImage: "exclamationmark.triangle")
@@ -320,6 +344,48 @@ struct CalibrationEditorView: View {
                     .opacity(model.isStableView ? 1 : 0.5)
             }
         }
+    }
+
+    /// The one thing to do next. For a net short of a corner: which corner to tap, with a small picture of a
+    /// net that has that corner lit, and Back to take the last one away.
+    private var instruction: some View {
+        HStack(alignment: .center, spacing: BSCSpacing.sm) {
+            if model.isStableView, model.target == .net, case .net(let corner)? = model.shapes.nextToPlace(.net) {
+                NetCornerGlyph(corner: corner)
+                    .frame(width: 54, height: 34)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(hint)
+                        .bscFont(size: 16, weight: .semibold)
+                        .foregroundColor(.bscTextPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier(AccessibilityID.Calibration.hint)
+                    Text("Corner \(corner + 1) of 4")
+                        .bscFont(size: 12)
+                        .foregroundColor(.bscTextSecondary)
+                }
+            } else {
+                Text(hint)
+                    .bscFont(size: 14)
+                    .foregroundColor(.bscTextSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier(AccessibilityID.Calibration.hint)
+            }
+            Spacer(minLength: 0)
+            if model.isStableView, model.target == .net, model.shapes.hasNetCorners {
+                Button { model.removeLastNetCorner() } label: {
+                    Label("Back", systemImage: "arrow.uturn.backward")
+                        .bscFont(size: 14, weight: .medium)
+                        .frame(minHeight: BSCTouchTarget.standard)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(.bscPrimaryText)
+                .accessibilityLabel(Text("Back: take the last corner away"))
+                .accessibilityIdentifier(AccessibilityID.Calibration.back)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
     }
 
     @ViewBuilder
@@ -413,55 +479,36 @@ struct CalibrationEditorView: View {
         .accessibilityAddTraits(isOn.wrappedValue ? .isSelected : [])
     }
 
-    private var pointChips: some View {
-        VStack(alignment: .leading, spacing: BSCSpacing.xs) {
-            HStack(spacing: BSCSpacing.xxs) {
-                ForEach(CalibrationWorkingShapes.handles(of: model.target), id: \.self) { handle in
-                    let placed = model.shapes.position(handle) != nil
-                    Button { model.selected = handle } label: {
-                        Text(handle.shortName)
-                            .bscFont(size: 12, weight: .medium)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                            .frame(maxWidth: .infinity, minHeight: BSCTouchTarget.standard)
-                            .foregroundColor(model.selected == handle ? .bscOnPrimary : (placed ? .bscTextPrimary : .bscTextTertiary))
-                            .background(RoundedRectangle(cornerRadius: BSCRadius.sm, style: .continuous)
-                                .fill(model.selected == handle ? Color.bscPrimaryFill : Color.bscSurfaceGlass))
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityValue(Text(placed ? "Placed" : "Not placed"))
-                    .accessibilityAddTraits(model.selected == handle ? .isSelected : [])
-                }
-            }
-            if let selected = model.selected, model.shapes.position(selected) != nil {
-                HStack(spacing: BSCSpacing.md) {
-                    if case .court(let role) = selected, let at = model.shapes.position(selected), (0...1).contains(at.x), (0...1).contains(at.y) {
-                        Toggle("Hidden — my best guess", isOn: Binding(get: { model.shapes.court[role].status == .estimated },
-                                                                       set: { model.setSelectedEstimated($0) }))
-                            .bscFont(size: 13)
-                    }
-                    Spacer(minLength: 0)
-                    Button(role: .destructive) { model.removeSelected() } label: {
-                        Label(selected.target == .court ? "Can't place it" : "Remove", systemImage: "xmark.circle")
-                            .bscFont(size: 13)
-                            .frame(minHeight: BSCTouchTarget.standard)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundColor(.bscErrorText)
-                }
-            }
+    /// A court corner the person tapped, when it is in the picture: they can say it is hidden and judged.
+    @ViewBuilder
+    private var selectedCourtPoint: some View {
+        if model.target == .court, case .court(let role)? = model.selected, let at = model.shapes.position(.court(role)),
+           (0...1).contains(at.x), (0...1).contains(at.y) {
+            Toggle("Hidden — my best guess", isOn: Binding(get: { model.shapes.court[role].status == .estimated },
+                                                           set: { model.setSelectedEstimated($0) }))
+                .bscFont(size: 13)
         }
     }
 
     private var hint: String {
         guard model.isStableView else { return String(localized: "Nothing is marked on a part of the video that isn't a stable court view.") }
-        let next = model.selected.flatMap { model.shapes.position($0) == nil ? $0 : nil } ?? model.shapes.nextToPlace(model.target)
-        guard let next else { return String(localized: "Drag a point or a line to adjust it. Pinch to zoom; drag the picture to move it.") }
-        return model.target == .court
-            ? String(localized: "\(next.prompt) Out of the picture? Zoom out and tap where it would be.")
-            : next.prompt
+        switch model.target {
+        case .net:
+            if let next = model.shapes.nextToPlace(.net) { return next.prompt }
+            return String(localized: "Is this the net? Drag a corner or a line to adjust it. Back takes the last corner away.")
+        case .court:
+            if model.courtIsOfferedOutline {
+                return String(localized: "Drag the outline's corners onto the court's corners, then slide the two middle points to where the centre line runs under the net. A corner you can't see goes where its lines lead.")
+            }
+            if model.shapes.isWholeCourt {
+                return String(localized: "Drag a corner or a line until the outline sits on the court's lines. Pinch to zoom in on the far corners.")
+            }
+            // A court from before the outline, with a point never placed.
+            if let next = model.shapes.nextToPlace(.court) {
+                return String(localized: "\(next.prompt) Out of the picture? Zoom out and tap where it would be.")
+            }
+            return String(localized: "Drag a point or a line to adjust it. To fit the whole outline instead: ⋯, Start the court over.")
+        }
     }
 
     private var frameRow: some View {
@@ -546,5 +593,39 @@ struct CalibrationEditorView: View {
                 .contentShape(Rectangle())
         }
         .accessibilityLabel(Text("More"))
+    }
+}
+
+/// A small picture of a net between its posts with one corner lit: which corner to tap.
+private struct NetCornerGlyph: View {
+    /// The corner's place in NetQuad.pointNames: top-left, top-right, bottom-right, bottom-left.
+    let corner: Int
+
+    var body: some View {
+        Canvas { context, size in
+            let net = CGRect(x: size.width * 0.12, y: size.height * 0.14, width: size.width * 0.76, height: size.height * 0.5)
+            var posts = Path()
+            for x in [net.minX, net.maxX] {
+                posts.move(to: CGPoint(x: x, y: net.minY))
+                posts.addLine(to: CGPoint(x: x, y: size.height))
+            }
+            context.stroke(posts, with: .color(.bscTextSecondary), lineWidth: 2)
+            context.stroke(Path(net), with: .color(.bscTextSecondary), lineWidth: 1.5)
+            let corners = [CGPoint(x: net.minX, y: net.minY), CGPoint(x: net.maxX, y: net.minY), CGPoint(x: net.maxX, y: net.maxY), CGPoint(x: net.minX, y: net.maxY)]
+            let at = corners[min(max(corner, 0), 3)]
+            let dot = Path(ellipseIn: CGRect(x: at.x - 5.5, y: at.y - 5.5, width: 11, height: 11))
+            context.fill(dot, with: .color(CalibrationOverlayCanvas.netColor))
+            context.stroke(dot, with: .color(.white), lineWidth: 1.5)
+        }
+    }
+}
+
+private extension CalibrationDragAction {
+    /// The point the loupe follows: one being moved, or one being put down.
+    var pointUnderFinger: CalibrationHandle? {
+        switch self {
+        case .handle(let handle), .place(let handle): return handle
+        case .edge, .shape, .pan: return nil
+        }
     }
 }

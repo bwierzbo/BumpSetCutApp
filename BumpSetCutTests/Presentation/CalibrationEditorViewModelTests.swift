@@ -130,7 +130,8 @@ final class CalibrationEditorViewModelTests: XCTestCase {
         let segment = try onFile().segments[0]
         XCTAssertEqual(segment.court.confirmation?.geometry.farRight.x ?? 0, 0.70, accuracy: 1e-9)
         XCTAssertEqual(segment.court.confirmation?.startedFrom, CourtNetCalibrationV1.confirmation)
-        XCTAssertEqual(segment.court.confirmation?.adjustedPoints, ["farRight"])
+        // The far-right corner was moved; the centre-line point on that sideline kept its place along it.
+        XCTAssertEqual(Set(segment.court.confirmation?.adjustedPoints ?? []), ["farRight", "netRight"])
         XCTAssertEqual(segment.court.history.map(\.geometry), [CalibrationFixtures.court])
         XCTAssertEqual(model.partState(.court), .confirmed)
 
@@ -174,10 +175,136 @@ final class CalibrationEditorViewModelTests: XCTestCase {
         model.tap(x: 0.67, y: 0.62, on: nil)
         XCTAssertEqual(model.shapes.court.farRight.x, 0.67)
         XCTAssertEqual(model.shapes.court.netLeft.status, .unknown)
-        model.removeSelected()
-        XCTAssertEqual(model.shapes.court.farRight.status, .unknown)
         model.target = .net
         XCTAssertNil(model.selected)
+    }
+
+    // MARK: - The court's outline
+
+    func testTheOfferedOutlineIsNobodysCourtUntilItIsMoved() async throws {
+        let model = await open()
+        XCTAssertTrue(model.wantsCourtOutline)
+        model.offerCourtOutline()
+        XCTAssertTrue(model.shapes.isWholeCourt)
+        XCTAssertTrue(model.shapes.courtReachesOutsideFrame, "the near corners start off the picture")
+        XCTAssertTrue(model.courtIsOfferedOutline)
+        XCTAssertFalse(model.wantsCourtOutline)
+        XCTAssertEqual(model.partState(.court), .nothing)
+        XCTAssertFalse(model.hasUnsavedChanges)
+        XCTAssertEqual(model.status, .notCalibrated)
+
+        XCTAssertFalse(model.confirm(), "an outline nobody moved is not confirmed")
+        XCTAssertNotNil(model.notice)
+        model.saveDraft()
+        XCTAssertNil(try store.load(videoId.uuidString)?.segments[0].court.draft, "and is not saved as a draft")
+        XCTAssertNil(try store.load(videoId.uuidString)?.segments[0].court.confirmation)
+    }
+
+    func testAnOutlineThePersonMovedIsTheirCourt() async throws {
+        let model = await open()
+        model.offerCourtOutline()
+        let start = model.shapes
+        model.drag(.handle(.court(.farLeft)), from: start, dx: 0.02, dy: 0.03)
+        XCTAssertFalse(model.courtIsOfferedOutline)
+        XCTAssertEqual(model.partState(.court), .placing)
+        XCTAssertTrue(model.hasUnsavedChanges)
+        XCTAssertEqual(model.shapes.court.farLeft.x, start.court.farLeft.x + 0.02, accuracy: 1e-9)
+        XCTAssertEqual(model.shapes.court.farRight, start.court.farRight, "the other corners stay")
+        XCTAssertNotEqual(model.shapes.court.netLeft.x, start.court.netLeft.x, "the centre-line point went with its sideline")
+
+        XCTAssertTrue(model.confirm())
+        let confirmed = try XCTUnwrap(try onFile().segments[0].court.confirmation)
+        XCTAssertEqual(confirmed.geometry, model.shapes.court)
+        XCTAssertEqual(confirmed.startedFrom, CourtNetCalibrationV1.manual)
+        XCTAssertEqual(confirmed.geometry.nearLeft.status, .estimated, "a corner off the picture is judged, never seen")
+        XCTAssertEqual(confirmed.geometry.farLeft.status, .seen)
+
+        let reopened = await open()
+        XCTAssertFalse(reopened.wantsCourtOutline, "a court on file is the court; no outline is offered over it")
+        XCTAssertEqual(reopened.shapes.court, confirmed.geometry)
+    }
+
+    func testAnOutlineThatCrossesItselfIsKeptAsADraftAndNotConfirmed() async throws {
+        let model = await open()
+        model.offerCourtOutline()
+        // The far-left corner dragged past the far-right one: the far half is twisted, the near half still sound.
+        model.drag(.handle(.court(.farLeft)), from: model.shapes, dx: 0.5, dy: 0)
+        XCTAssertNotNil(model.shapes.court.map(near: true))
+        XCTAssertNil(model.shapes.court.map(near: false))
+
+        XCTAssertFalse(model.confirm())
+        XCTAssertEqual(model.notice?.contains("crosses itself"), true, model.notice ?? "no notice")
+        let segment = try onFile().segments[0]
+        XCTAssertNil(segment.court.confirmation)
+        XCTAssertEqual(segment.court.draft, model.shapes.court, "what was dragged is kept")
+        XCTAssertEqual(model.status, .draft)
+
+        // Dragged back, it is a court.
+        model.drag(.handle(.court(.farLeft)), from: model.shapes, dx: -0.5, dy: 0)
+        XCTAssertTrue(model.confirm())
+        XCTAssertEqual(model.status, .courtConfirmed)
+    }
+
+    func testStartingTheCourtOverLeavesRoomForTheOutlineAgain() async throws {
+        let model = await open()
+        model.offerCourtOutline()
+        model.drag(.shape, from: model.shapes, dx: 0.01, dy: 0)
+        model.saveDraft()
+        XCTAssertNotNil(try onFile().segments[0].court.draft)
+        model.startOver()
+        XCTAssertNil(try onFile().segments[0].court.draft)
+        XCTAssertTrue(model.wantsCourtOutline)
+        model.offerCourtOutline()
+        XCTAssertTrue(model.courtIsOfferedOutline)
+        XCTAssertFalse(model.hasUnsavedChanges)
+    }
+
+    func testNoOutlineIsOfferedOnTheNetPageOrOverACourtWithPoints() async throws {
+        let net = CalibrationEditorViewModel(videoId: videoId, url: video, store: store, reviewer: "tester", target: .net)
+        await net.load()
+        XCTAssertFalse(net.wantsCourtOutline)
+        net.offerCourtOutline()
+        XCTAssertFalse(net.shapes.hasCourtPoints, "the net page shows no court nobody marked")
+
+        let court = await open()
+        place(Array(courtTaps.prefix(2)), in: court)
+        XCTAssertFalse(court.wantsCourtOutline)
+        court.offerCourtOutline()
+        XCTAssertEqual(court.shapes.court.netLeft.status, .unknown)
+    }
+
+    // MARK: - The net, corner by corner
+
+    func testNetCornersGoDownInOrderFollowTheFingerAndBackTakesTheLastAway() async throws {
+        let model = CalibrationEditorViewModel(videoId: videoId, url: video, store: store, reviewer: "tester", target: .net)
+        await model.load()
+        XCTAssertEqual(model.shapes.nextToPlace(.net), .net(0))
+        // Down, then slid before lifting: the same corner moves, no second one is placed.
+        model.place(.net(0), x: 0.30, y: 0.70)
+        model.place(.net(0), x: netTaps[0].0, y: netTaps[0].1)
+        XCTAssertEqual(model.shapes.net.compactMap { $0 }.count, 1)
+        XCTAssertEqual(model.shapes.nextToPlace(.net), .net(1))
+        // A corner right on top of the first still goes down as the next corner.
+        model.place(.net(1), x: netTaps[0].0, y: netTaps[0].1)
+        XCTAssertEqual(model.shapes.net.compactMap { $0 }.count, 2)
+
+        model.removeLastNetCorner()
+        XCTAssertEqual(model.shapes.nextToPlace(.net), .net(1))
+        XCTAssertEqual(model.shapes.net[0]?.x, netTaps[0].0)
+
+        for i in 1..<4 { model.place(.net(i), x: netTaps[i].0, y: netTaps[i].1) }
+        XCTAssertNil(model.shapes.nextToPlace(.net))
+        XCTAssertTrue(model.confirm())
+        XCTAssertEqual(try onFile().segments[0].net.confirmation?.geometry, CalibrationFixtures.net)
+
+        // Back on a confirmed net makes it an edit: the confirmation stays in force until another is confirmed.
+        model.removeLastNetCorner()
+        XCTAssertEqual(model.shapes.nextToPlace(.net), .net(3))
+        XCTAssertEqual(model.partState(.net), .editedSinceConfirmed)
+        XCTAssertEqual(try onFile().confirmed(\.net, at: 1)?.geometry, CalibrationFixtures.net)
+        model.removeLastNetCorner(); model.removeLastNetCorner(); model.removeLastNetCorner()
+        model.removeLastNetCorner()
+        XCTAssertFalse(model.shapes.hasNetCorners, "Back with no corner left does nothing")
     }
 
     func testStartingOverClearsTheDraftAndKeepsTheConfirmation() async throws {

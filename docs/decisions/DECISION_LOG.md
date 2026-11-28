@@ -55,6 +55,7 @@ The authoritative record of product, architecture, data and process decisions fo
 | [D-044](#d-044) | 2026-11-27 | accepted (amended by D-045) | A processed video can be recalibrated — camera position, court, net — and its rallies redone from the balls already found; the pipeline's tracking, rules and decision become one stage first |
 | [D-045](#d-045) | 2026-11-27 | accepted (amends D-044) | A recalibration starts a video's edits over instead of carrying them to the new rallies; favourite clips stay as files of their own; nothing posted is touched |
 | [D-046](#d-046) | 2026-11-27 | accepted | Footage sharing for training is on by default for every user; onboarding says so and offers to turn it off; existing users who never answered are switched on |
+| [D-047](#d-047) | 2026-11-28 | accepted | The net is marked one corner at a time (one instruction, four taps, Back); the court by fitting an outline already on the picture, on a page that opens zoomed out |
 
 ---
 
@@ -713,3 +714,18 @@ Three of five bars were met and two were not, at both false-clip prices tried; b
 **Consequences.** The tester-only default is replaced by the general one; a sharing state that came from the default or from the onboarding page is recorded as `default-on-2.0`, apart from the consent sheet's `2.0`. Existing users are switched on without being shown the page (they have finished onboarding); the owner decided this knowing they are all testers. **Before a build with this reaches people outside the tester group, the App Store privacy label and the privacy policy must say that footage is shared by default, and the owner was told that in the EU and the UK uploading a user's video generally needs consent given first** — neither is done by this change, and it authorises no TestFlight or App Store distribution. UI test runs never have the default applied: they process real recordings.
 
 **Source.** Owner instructions 2026-11-27 (verbatim note above).
+
+### D-047
+
+**The net is marked one corner at a time (one instruction, four taps, Back); the court by fitting an outline already on the picture, on a page that opens zoomed out** — 2026-11-28 — accepted — owner ([verbatim](2026-11-28-guided-net-and-court-outline-direction.md)).
+
+**Context.** Since D-042 and D-043 the court and the net are marked by hand on their two setup pages: six court points and four net corners, each tapped when a hint names it, then adjusted by dragging. The owner asked for something more intuitive. Eight ways were built as working mock-ups on a frame of a real recording and tried by him; he chose one for the net and one for the court.
+
+**Decision.**
+1. **The net, one corner at a time.** The Net page shows a single instruction — top-left, top-right, bottom-right, bottom-left — with a small picture of a net that has that corner lit. A tap puts that corner down and the next instruction follows by itself. A touch always places the corner asked for; it never takes hold of one already placed, however close. Back takes the last corner away. Four free corners, as the format already stores them.
+2. **The court, by fitting an outline.** The Court page opens with a court outline already on the picture and zoomed out, "because most of the time the close corners will be occluded": the near corners start off the picture's lower edge. The person drags the corners and lines onto the court's; the two centre-line points slide along their sidelines.
+3. **The pages stay where they are** (D-043): Court, then Net, each skippable, and the same pages serve Recalibrate (D-044).
+
+**Consequences.** The offered outline is nobody's court until it is moved: it is not saved, is not a draft and cannot be confirmed. A whole outline that crosses itself or folds over is refused, where a court with only one half placed is still judged on that half. The row of point chips and "Can't place it" are gone; a corner that is hidden is still marked "Hidden — my best guess", and one off the picture is recorded as estimated, as before. The calibration file's format (`court_net_calibration_v1`) is unchanged, and courts and nets already on file open as they were. A court on file with a point never placed still asks for it by a tap. The frame controls, camera views, drafts, confirmations and their history are unchanged. The ways not chosen (two taps and a pull, tracing the tape, a suggested net, four visible court points with the near corners worked out) are not built.
+
+**Source.** Owner instructions 2026-11-28 (verbatim note above); D-042, D-043, D-044.

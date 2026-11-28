@@ -60,6 +60,9 @@ final class CalibrationEditorViewModel {
         var net: Origin<NetQuad>
         var courtEdited = false
         var netEdited = false
+        /// The court on screen is the outline the page offered, which the person has not moved yet: it is
+        /// nobody's court, and nothing of it is saved or confirmed.
+        var courtIsOfferedOutline = false
     }
     /// Working shapes by segment id, for the views the person has touched or looked at.
     private var working: [Int: Working] = [:]
@@ -162,6 +165,7 @@ final class CalibrationEditorViewModel {
 
     func partState(_ target: CalibrationTarget) -> PartState {
         guard let segment, let w = working[segment.id] else { return .nothing }
+        if target == .court, w.courtIsOfferedOutline { return .nothing }
         let (confirmed, edited, any): (Bool, Bool, Bool)
         switch target {
         case .court: (confirmed, edited, any) = (segment.court.confirmation != nil, w.courtEdited || segment.court.draft != nil, w.shapes.hasCourtPoints)
@@ -194,11 +198,44 @@ final class CalibrationEditorViewModel {
         guard shapes != working[id]?.shapes else { return }
         working[id]?.shapes = shapes
         switch target {
-        case .court: working[id]?.courtEdited = true
+        case .court: working[id]?.courtEdited = true; working[id]?.courtIsOfferedOutline = false
         case .net: working[id]?.netEdited = true
         }
         hasUnsavedChanges = true
         notice = nil
+    }
+
+    // MARK: The court's outline
+
+    /// The court page of a camera view with no court at all has nothing to drag: it wants the outline.
+    var wantsCourtOutline: Bool {
+        phase == .ready && target == .court && isStableView && !shapes.hasCourtPoints && shapes.skipped.isEmpty
+    }
+
+    /// The court on screen is the offered outline, not moved yet.
+    var courtIsOfferedOutline: Bool { segmentId.flatMap { working[$0]?.courtIsOfferedOutline } ?? false }
+
+    /// Puts the outline on the court page for the person to drag onto the court. It is not theirs until they
+    /// move it: until then it is not saved, not a draft, and can't be confirmed.
+    func offerCourtOutline() {
+        guard wantsCourtOutline, let id = segmentId else { return }
+        shapes.court = CalibrationWorkingShapes.courtOutline.court
+        working[id]?.shapes = shapes
+        working[id]?.courtIsOfferedOutline = true
+    }
+
+    // MARK: The net, corner by corner
+
+    /// A net corner not placed yet, under the finger: it follows until the finger lifts.
+    func place(_ handle: CalibrationHandle, x: Double, y: Double) {
+        edit(handle.target) { $0.set(handle, x: x, y: y) }
+    }
+
+    /// Back: the net corner placed last is taken away, to be tapped again.
+    func removeLastNetCorner() {
+        guard let last = shapes.net.lastIndex(where: { $0 != nil }) else { return }
+        edit(.net) { $0.removeNetCorner(last) }
+        selected = nil
     }
 
     /// A tap: on a point selects it; elsewhere it places the selected point if that is not placed yet, else the
@@ -214,7 +251,14 @@ final class CalibrationEditorViewModel {
     /// A drag in progress: the points `action` moves, by a frame-fraction delta from where `start` had them.
     func drag(_ action: CalibrationDragAction, from start: CalibrationWorkingShapes, dx: Double, dy: Double) {
         if case .handle(let h) = action { selected = h }
-        edit(target) { $0 = start; $0.translate(CalibrationWorkingShapes.handles(moved: action, target: target), from: start, dx: dx, dy: dy) }
+        edit(target) {
+            $0 = start
+            if target == .court, start.isWholeCourt {
+                $0.moveOutline(action, from: start, dx: dx, dy: dy)
+            } else {
+                $0.translate(CalibrationWorkingShapes.handles(moved: action, target: target), from: start, dx: dx, dy: dy)
+            }
+        }
     }
 
     /// Puts the shapes back as they were when a drag began (a pinch took over, or the touch was a tap).
@@ -222,11 +266,6 @@ final class CalibrationEditorViewModel {
         guard let id = segmentId, shapes != start else { return }
         shapes = start
         working[id]?.shapes = start
-    }
-
-    func removeSelected() {
-        guard let handle = selected else { return }
-        edit(handle.target) { $0.remove(handle) }
     }
 
     func setSelectedEstimated(_ estimated: Bool) {
@@ -305,6 +344,18 @@ final class CalibrationEditorViewModel {
             notice = String(localized: "Place the court's corners first.")
             return false
         }
+        if target == .court, courtIsOfferedOutline {
+            notice = String(localized: "Drag the outline onto the court first.")
+            return false
+        }
+        // A court with only one half placed is judged on that half. An outline has both: one that crosses
+        // itself or folds over is not a court, though one of its halves alone would pass.
+        if target == .court, shapes.isWholeCourt, shapes.court.map(near: true) == nil || shapes.court.map(near: false) == nil {
+            let why = String(localized: "The outline crosses itself or folds over. Each half of the court has to be a four-sided shape.")
+            commit("")
+            notice = why
+            return false
+        }
         let done = commit(target == .court ? String(localized: "Court confirmed.") : String(localized: "Net confirmed.")) { next in
             let segment = next.segments.first { $0.id == id }
             // Confirming what is already confirmed and untouched changes nothing.
@@ -347,7 +398,8 @@ final class CalibrationEditorViewModel {
         case .net: working[id]?.net = Origin(startedFrom: CourtNetCalibrationV1.manual, baseline: nil); working[id]?.netEdited = true
         }
         selected = nil
-        commit(String(localized: "Cleared. Tap the picture to place the points again."))
+        commit(target == .court ? String(localized: "Cleared. Drag the outline onto the court again.")
+                                : String(localized: "Cleared. Tap the net's corners again."))
     }
 
     /// The camera moved at the current time: the view splits in two here. With `reuse` the new view starts from
