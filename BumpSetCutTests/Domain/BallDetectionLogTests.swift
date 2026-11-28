@@ -32,7 +32,7 @@ final class BallDetectionLogTests: XCTestCase {
 
     private func header(checkpoint: Double? = nil, resumed: [Double] = []) -> BallDetectionLog.Header {
         .init(sourceFingerprint: FileFingerprint.read(atPath: video.path), durationSec: 4.5, upright: ProcessorConfig().applyVideoRotation,
-              finder: "test", resumedAtSec: resumed, checkpointTimeSec: checkpoint)
+              finder: "test", decodedFrameCount: 135, skippedFrameCount: 0, resumedAtSec: resumed, checkpointTimeSec: checkpoint)
     }
 
     private func sample() -> BallDetectionLog {
@@ -70,8 +70,11 @@ final class BallDetectionLogTests: XCTestCase {
 
     func testAnotherVersionIsRefused() throws {
         var data = try sample().encoded()
-        data.replaceSubrange(4..<8, with: [2, 0, 0, 0])
-        XCTAssertThrowsError(try BallDetectionLog(data: data)) { XCTAssertEqual($0 as? BallDetectionLog.ReadError, .unsupportedVersion(2)) }
+        // Version 1 had no frame counts in its header: a file of it is no log, and its video is processed again.
+        for version: UInt8 in [1, 3] {
+            data.replaceSubrange(4..<8, with: [version, 0, 0, 0])
+            XCTAssertThrowsError(try BallDetectionLog(data: data)) { XCTAssertEqual($0 as? BallDetectionLog.ReadError, .unsupportedVersion(UInt32(version))) }
+        }
     }
 
     func testAFileCutShortIsRefusedWhereverItIsCut() throws {
@@ -135,6 +138,8 @@ final class BallDetectionLogTests: XCTestCase {
         XCTAssertEqual(onFile.header.durationSec, 4.5, accuracy: 0.1)
         XCTAssertEqual(onFile.header.resumedAtSec, [])
         XCTAssertNil(onFile.header.checkpointTimeSec)
+        XCTAssertEqual(onFile.header.decodedFrameCount, 135, "4.5 s at 30 frames a second")
+        XCTAssertEqual(onFile.header.decodedFrameCount - onFile.header.skippedFrameCount, onFile.frames.count, "every frame not skipped is in the log")
         XCTAssertTrue(onFile.header.finder.contains("ball_heat"), onFile.header.finder)
         XCTAssertFalse(FileManager.default.fileExists(atPath: store.ballDetectionsPartialFileURL(for: videoId).path))
     }
