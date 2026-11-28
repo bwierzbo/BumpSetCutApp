@@ -150,6 +150,8 @@ final class ProcessVideoViewModel {
 
     /// The video's run kept the ball positions a recalibration decides from (read with the metadata).
     private(set) var canRecalibrate = false
+    /// Free Up Space cut the video down to its rallies: it can be neither reprocessed nor recalibrated.
+    private(set) var isCutToRallies = false
     /// The rallies are being decided again; they are not to be opened meanwhile.
     private(set) var isRecalibrating = false
 
@@ -283,6 +285,7 @@ final class ProcessVideoViewModel {
             rallySummary = (try? mediaStore.metadataStore.loadMetadata(for: match.id))
                 .map { ($0.rallyCount, $0.totalRallyDuration) }
             canRecalibrate = RallyRecalibration.isAvailable(for: match.id, in: mediaStore.metadataStore)
+            isCutToRallies = mediaStore.isCutToRallies(videoId: match.id)
             // Load duration from AVAsset if metadata doesn't have it
             if match.duration == nil || match.duration == 0 {
                 loadVideoDuration()
@@ -293,6 +296,7 @@ final class ProcessVideoViewModel {
         currentVideoMetadata = nil
         rallySummary = nil
         canRecalibrate = false
+        isCutToRallies = false
     }
 
     /// Load video duration from AVAsset (async) for stats computation.
@@ -349,11 +353,23 @@ final class ProcessVideoViewModel {
     /// so this run won't double-count. Favorites already exported to the
     /// library are separate files and stay.
     func reprocess() {
-        guard let videoId = currentVideoMetadata?.id else { return }
-        mediaStore.prepareForReprocess(videoId: videoId)
+        guard prepareForReprocess() else { return }
+        startProcessing(isDebugMode: false)
+    }
+
+    /// False, with the reason shown, when the video can't be processed again.
+    private func prepareForReprocess() -> Bool {
+        guard let videoId = currentVideoMetadata?.id else { return false }
+        do {
+            try mediaStore.prepareForReprocess(videoId: videoId)
+        } catch {
+            errorMessage = error.localizedDescription
+            showError = true
+            return false
+        }
         noRalliesDetected = false
         loadCurrentVideoMetadata()
-        startProcessing(isDebugMode: false)
+        return true
     }
 
     /// Recalibrate: the camera position, court and net were just set again; the rallies are decided again
@@ -379,11 +395,8 @@ final class ProcessVideoViewModel {
     /// Re-run detection with the permissive preset after a zero-rally result.
     /// One shot per session — the button hides once tried so users don't loop.
     func reprocessHighSensitivity() {
-        guard let videoId = currentVideoMetadata?.id else { return }
+        guard prepareForReprocess() else { return }
         didTrySensitiveReprocess = true
-        mediaStore.prepareForReprocess(videoId: videoId)
-        noRalliesDetected = false
-        loadCurrentVideoMetadata()
         startProcessing(isDebugMode: false, config: .highSensitivity)
     }
 

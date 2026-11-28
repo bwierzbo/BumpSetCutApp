@@ -52,7 +52,7 @@ struct SpaceSaverSheet: View {
                         Text("Keep just the rallies")
                             .bscFont(size: 20, weight: .bold)
                             .foregroundColor(.bscTextPrimary)
-                        Text("Removes \(minutesText) of footage between rallies and frees about \(savedText). Your rallies, trims, favorites and scoring are kept — the removed footage can't be recovered.")
+                        Text("Removes \(minutesText) of footage between rallies and frees about \(savedText). Your rallies, trims, favorites and scoring are kept. The removed footage can't be recovered, and the video can't be recalibrated or processed again afterwards.")
                             .bscFont(size: 15)
                             .foregroundColor(.bscTextSecondary)
                             .multilineTextAlignment(.center)

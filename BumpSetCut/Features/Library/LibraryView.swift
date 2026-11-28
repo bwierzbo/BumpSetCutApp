@@ -455,7 +455,12 @@ private extension LibraryView {
     /// source video. Progress shows in the app-wide ProcessingCoordinator.
     func reprocess(_ video: VideoMetadata) {
         let store = viewModel.folderManager.store
-        store.prepareForReprocess(videoId: video.id)
+        do {
+            try store.prepareForReprocess(videoId: video.id)
+        } catch {
+            mutationToast = BSCToastMessage(text: MediaStore.ReprocessRefusal.cutToRalliesReason, style: .error)
+            return
+        }
         ProcessingCoordinator.shared.startProcessing(
             videoURL: video.originalURL,
             mediaStore: store,
