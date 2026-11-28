@@ -1,6 +1,6 @@
 ---
 name: recalibrate-edits-start-over-direction
-status: accepted (owner instruction); amends D-044 §4
+status: accepted (owner instruction); D-045
 created: 2026-11-28T06:20:52Z
 updated: 2026-11-28T06:20:52Z
 source: owner, delivered to Claude Code on 2026-11-27, after the carrying of edits (PR #220) was merged
@@ -8,7 +8,7 @@ source: owner, delivered to Claude Code on 2026-11-27, after the carrying of edi
 
 > Verbatim record of the owner's instructions, reproduced as received, with what he had been told between them.
 > In summary: recalibrating a video does not carry its edits to the new rallies; they start over. Favourite
-> clips already saved stay as they are, and nothing posted is affected (amends D-044 §4).
+> clips already saved stay as they are, and nothing posted is affected (D-045, amending D-044 §4).
 
 **What the owner had been told (Claude Code):** that PR #220 moves a video's edits to the rallies decided again by overlap in time (a new rally is the old one when they share at least half of the longer one), and what that covers: favourites and their collections, saved and removed marks, posted marks, trims and framing, and the game's point winners.
 

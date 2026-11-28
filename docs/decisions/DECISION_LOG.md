@@ -52,7 +52,8 @@ The authoritative record of product, architecture, data and process decisions fo
 | [D-038](#d-038) | 2026-11-14 | accepted | The seven follow-up PRs (#179, #176, #177, #180, #181, #178, #182) are merged; the classifier preregistration's amendments A1–A13 are accepted with reporting requirements; negative-label verification is **not** waived — gate G7 is adopted (only reviewed-clean intervals or eligible Stage 1 coverage supply negatives) and the coverage audit starts with a frozen 12-recording pilot; both existing exports are preserved; no training |
 | [D-042](#d-042) | 2026-11-24 | accepted | Court & Net Calibration ships manual-first in the iPhone app on one shared, versioned format (`court_net_calibration_v1`); YOLO leaves the shipping baseline, the Labeler included, with an explicit net-geometry source in place of the net detector; automatic proposals are optional and later |
 | [D-043](#d-043) | 2026-11-27 | accepted | Before a run the app asks on four pages — trim, camera position, court, net — each skippable; the court and net are marked there and nowhere else |
-| [D-044](#d-044) | 2026-11-27 | accepted, amended 2026-11-27 | A processed video can be recalibrated — camera position, court, net — and its rallies redone from the balls already found; the pipeline's tracking, rules and decision become one stage first |
+| [D-044](#d-044) | 2026-11-27 | accepted (amended by D-045) | A processed video can be recalibrated — camera position, court, net — and its rallies redone from the balls already found; the pipeline's tracking, rules and decision become one stage first |
+| [D-045](#d-045) | 2026-11-27 | accepted (amends D-044) | A recalibration starts a video's edits over instead of carrying them to the new rallies; favourite clips stay as files of their own; nothing posted is touched |
 
 ---
 
@@ -680,5 +681,19 @@ Three of five bars were met and two were not, at both false-clip prices tried; b
 
 **Source.** Owner instructions 2026-11-27 (verbatim note above); D-043, D-042.
 
-**Amendment (2026-11-27, owner; [verbatim](2026-11-27-recalibrate-edits-start-over-direction.md)).** §4's "trims, saved and removed rallies, favourites and scores carried to the new rallies by overlap in time" is withdrawn. The carrying was built and merged (PR #220); told what it moved, the owner decided that a recalibration **starts those over**: the video's trims and framing, its saved, removed, favourite and posted marks and its game score are cleared, as on a reprocess, and the app says so before it starts. Favourite clips already in the library stay — each is a file of its own, cut when it was favourited — and no longer record which rally in the list they came from. Nothing posted is touched. A person's own rallies (added or re-timed on the timeline) are kept, as on a reprocess. The carrying code is removed with the Recalibrate action. §5 is implemented for recalibration (a video whose ball detections are gone — Free Up Space, or a run before they were kept — cannot be recalibrated, and the app says why); blocking a **reprocess** after Free Up Space is not built: nothing records that a video was cut down.
+### D-045
+
+**A recalibration starts a video's edits over instead of carrying them to the new rallies; favourite clips stay as files of their own; nothing posted is touched** — 2026-11-27 — accepted — owner ([verbatim](2026-11-27-recalibrate-edits-start-over-direction.md)). Amends D-044 §4.
+
+**Context.** D-044 §4 listed, as still to build, "trims, saved and removed rallies, favourites and scores carried to the new rallies by overlap in time". It was built and merged (PR #220): a new rally was taken to be the old one when the two shared at least half of the longer one's time. Told what that moved — favourites and their collections, saved, removed and posted marks, trims and framing, the game's point winners — the owner decided otherwise before anything called it.
+
+**Decision.**
+1. **A recalibration starts the edits over.** The video's trims and framing, its saved, removed, favourite and posted marks and its game score are cleared, as on a reprocess. The app says so before it starts.
+2. **Favourite clips stay.** A favourite clip already in the library is a file of its own, cut from the original when it was favourited ("saved original chunks of time"); it is kept whole and no longer records which rally in the list it came from.
+3. **Nothing posted is touched.** Posts, likes and comments are on the server; a recalibration reaches none of them.
+4. **A person's own rallies** (added or re-timed on the timeline) are kept, as on a reprocess.
+
+**Consequences.** The carrying code and its tests are removed with the Recalibrate action; the timeline editor's remap of edits by segment id, which #220 moved into shared code, stays. A reprocess now also clears a favourite clip's place in the list, which it used to leave pointing at whichever rally took that place. D-044 §5 is implemented for recalibration — a video whose ball detections are gone (Free Up Space, or a run from before they were kept) cannot be recalibrated and the app says why; refusing a **reprocess** after Free Up Space is not built, since nothing records that a video was cut down. The cost the owner was told of: correcting the net of a game already scored means scoring it again.
+
+**Source.** Owner instructions 2026-11-27 (verbatim note above); D-044.
 

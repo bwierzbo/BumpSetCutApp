@@ -5,7 +5,7 @@
 //  Recalibrate (D-044): a processed video's camera position, court and net are set again and its rallies are
 //  decided again from the balls its run found — seconds, no frame read, no model run. The rallies are new ones,
 //  so what was done to the old ones (trims and framing, saved / removed / favourite marks, the game's score)
-//  starts over (owner, 2026-11-27). A person's own rallies are kept, as on a reprocess. Favourite clips already
+//  starts over (D-045). A person's own rallies are kept, as on a reprocess. Favourite clips already
 //  in the library are files of their own and stay; nothing posted is touched.
 //
 
