@@ -54,6 +54,7 @@ The authoritative record of product, architecture, data and process decisions fo
 | [D-043](#d-043) | 2026-11-27 | accepted | Before a run the app asks on four pages — trim, camera position, court, net — each skippable; the court and net are marked there and nowhere else |
 | [D-044](#d-044) | 2026-11-27 | accepted (amended by D-045) | A processed video can be recalibrated — camera position, court, net — and its rallies redone from the balls already found; the pipeline's tracking, rules and decision become one stage first |
 | [D-045](#d-045) | 2026-11-27 | accepted (amends D-044) | A recalibration starts a video's edits over instead of carrying them to the new rallies; favourite clips stay as files of their own; nothing posted is touched |
+| [D-046](#d-046) | 2026-11-27 | accepted | Footage sharing for training is on by default for every user; onboarding says so and offers to turn it off; existing users who never answered are switched on |
 
 ---
 
@@ -697,3 +698,18 @@ Three of five bars were met and two were not, at both false-clip prices tried; b
 
 **Source.** Owner instructions 2026-11-27 (verbatim note above); D-044.
 
+### D-046
+
+**Footage sharing for training is on by default for every user; onboarding says so and offers to turn it off; existing users who never answered are switched on** — 2026-11-27 — accepted — owner ([verbatim](2026-11-27-footage-sharing-default-on-direction.md)).
+
+**Context.** Since 2026-10-11 a processed video's rallies are uploaded as clips, on Wi-Fi, for users who share footage: testers on the allowlist by a one-time default, everyone else only through the consent sheet in Settings. More footage is the long-term lever on detection. The owner asked that every user share by default, be told, and be able to opt out "in a onboarding page or something".
+
+**Decision.**
+1. **On by default.** Sharing is on for every install, applied once so that turning it off stays off.
+2. **Told in onboarding.** A page in the first-run tutorial says what is shared, when, and for what, with two answers: keep sharing, or don't. A first run's Skip stops at that page; nobody shares without having been shown it. Settings turns it off or on at any time; turning it back on there still goes through the consent sheet.
+3. **Existing users** who never answered are switched on ("existing users are all testers and it can be auto on"). A person who turned sharing off themselves — after agreeing to a consent, or as a tester under the earlier default — stays off. A person switched off only because the consent copy changed on 2026-10-11 never chose off and is switched on.
+4. **What is shared is unchanged**: the clips of the rallies a processed video's run found, with the detector's per-frame data, on Wi-Fi, tied to the account, for improving detection.
+
+**Consequences.** The tester-only default is replaced by the general one; a sharing state that came from the default or from the onboarding page is recorded as `default-on-2.0`, apart from the consent sheet's `2.0`. Existing users are switched on without being shown the page (they have finished onboarding); the owner decided this knowing they are all testers. **Before a build with this reaches people outside the tester group, the App Store privacy label and the privacy policy must say that footage is shared by default, and the owner was told that in the EU and the UK uploading a user's video generally needs consent given first** — neither is done by this change, and it authorises no TestFlight or App Store distribution. UI test runs never have the default applied: they process real recordings.
+
+**Source.** Owner instructions 2026-11-27 (verbatim note above).

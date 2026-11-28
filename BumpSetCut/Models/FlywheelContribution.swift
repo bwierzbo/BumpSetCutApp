@@ -18,9 +18,14 @@ enum FlywheelConsent {
     /// Bump when the consent copy materially changes so we can tell which
     /// version a user agreed to. Stored alongside the opt-in date.
     static let currentVersion = "2.0"
-    /// Recorded for testers, who share footage by default rather than through
-    /// the consent sheet (see `AppSettings.applyTesterFlywheelDefault`).
+    /// Recorded by earlier builds for testers, who shared footage by default
+    /// before everyone did.
     static let testerDefault = "tester-2.0"
+    /// Recorded when sharing is on by default (D-046) or kept on from the
+    /// onboarding page that says so, rather than through the consent sheet.
+    static let defaultOn = "default-on-2.0"
+    /// The versions under which footage is shared today.
+    static let inForce = [currentVersion, testerDefault, defaultOn]
 }
 
 // MARK: - Trigger

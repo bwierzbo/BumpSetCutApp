@@ -16,8 +16,12 @@ struct OnboardingPage: Identifiable {
         /// Explains notifications, then the primary button triggers the real
         /// system prompt (with a "Not Now" escape).
         case notifications
+        /// Says that rally clips are shared for training unless turned off;
+        /// the primary button keeps sharing, the other one turns it off.
+        case footageSharing
 
-        var isPermission: Bool { self != .info }
+        /// The page asks something: the footer shows its second button.
+        var isChoice: Bool { self != .info }
     }
 
     let id = UUID()
@@ -60,6 +64,13 @@ struct OnboardingPage: Identifiable {
             icon: "bell.badge.fill",
             color: .bscBlue,
             kind: .notifications
+        ),
+        OnboardingPage(
+            title: "Help the AI Improve",
+            description: "After a video is processed, clips of the rallies it found are shared with us over Wi-Fi to train rally detection. They're tied to your account and used only for that. You can stop sharing here, or anytime in Settings.",
+            icon: "wand.and.stars",
+            color: .bscPrimary,
+            kind: .footageSharing
         ),
         OnboardingPage(
             title: "You're Ready!",
