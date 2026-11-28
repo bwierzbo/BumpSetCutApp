@@ -190,11 +190,44 @@ final class RallyRecalibrationTests: XCTestCase {
         try assertNothingChanged(since: before, "another file's balls")
     }
 
+    // MARK: - After Free Up Space
+
+    /// Free Up Space leaves the metadata with the shorter file's duration and takes the saved balls with the
+    /// footage. Such a video is neither reprocessed nor recalibrated, and nothing of it is dropped by the try.
+    func testAVideoCutToItsRalliesIsNeitherReprocessedNorRecalibrated() async throws {
+        let before = try await processed(edited: true)
+        XCTAssertFalse(store.isCutToRallies(videoId: video.id))
+        try metadataStore.stageMetadata(before.withRallySegments(before.rallySegments, sourceDurationSec: 9), evidence: nil)
+        try metadataStore.commitStagedSidecars(for: video.id)
+        XCTAssertTrue(store.isCutToRallies(videoId: video.id))
+
+        XCTAssertThrowsError(try store.prepareForReprocess(videoId: video.id)) { error in
+            guard case MediaStore.ReprocessRefusal.cutToRallies = error else { return XCTFail("\(error)") }
+            XCTAssertTrue(error.localizedDescription.contains("Free Up Space"))
+        }
+        try assertNothingChanged(since: before, "a refused reprocess")
+
+        XCTAssertFalse(RallyRecalibration.isAvailable(for: video.id, in: metadataStore))
+        do {
+            _ = try await recalibrate(net: netOverTheBall)
+            XCTFail("recalibrated a video cut to its rallies")
+        } catch RallyRecalibration.Failure.noSavedBalls {}
+        try assertNothingChanged(since: before, "a refused recalibration")
+    }
+
+    func testATimelineEditKeepsAVideoKnownAsCutToItsRallies() async throws {
+        let before = try await processed()
+        try metadataStore.saveMetadata(before.withRallySegments(before.rallySegments, sourceDurationSec: 9))
+        let cut = try metadataStore.loadMetadata(for: video.id)
+        try metadataStore.saveMetadata(cut.withRallySegments(Array(cut.rallySegments.prefix(1))))
+        XCTAssertTrue(store.isCutToRallies(videoId: video.id))
+    }
+
     // MARK: - A reprocess
 
     func testAReprocessAlsoLeavesTheFavoriteClipWithoutAPlaceInTheList() async throws {
         try await processed(edited: true)
-        store.prepareForReprocess(videoId: video.id)
+        try store.prepareForReprocess(videoId: video.id)
         XCTAssertNotNil(favoriteClip)
         XCTAssertNil(favoriteClip?.sourceRallyIndex)
         XCTAssertTrue(metadataStore.loadReviewSelections(for: video.id).isEmpty)

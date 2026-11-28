@@ -489,9 +489,30 @@ extension MediaStore {
     /// and replaces when it finishes. The manifest keeps the video marked as
     /// having metadata — it still does until the new run lands. Favourite
     /// clips copied from its rallies stay; they no longer say which rally.
-    func prepareForReprocess(videoId: UUID) {
+    /// Refused, with nothing dropped, for a video Free Up Space cut down to
+    /// its rallies (D-044 §5).
+    func prepareForReprocess(videoId: UUID) throws {
+        guard !isCutToRallies(videoId: videoId) else { throw ReprocessRefusal.cutToRallies }
         metadataStore.deleteSidecarsForReprocess(videoId: videoId)
         remapFavoriteSourceIndices(sourceVideoId: videoId, oldToNew: [:])
+    }
+
+    /// Why a video can't be processed again.
+    enum ReprocessRefusal: LocalizedError {
+        case cutToRallies
+
+        /// Shown wherever a reprocess is refused or unavailable.
+        static let cutToRalliesReason: LocalizedStringResource =
+            "Free Up Space cut this video down to its rallies. The rest of the footage is gone, so it can't be processed again."
+
+        var errorDescription: String? { String(localized: Self.cutToRalliesReason) }
+    }
+
+    /// Free Up Space replaced the video's file with its rallies only: its
+    /// metadata then records the shorter file's duration, which a run never
+    /// writes. Processing such a file again could only find less.
+    func isCutToRallies(videoId: UUID) -> Bool {
+        (try? metadataStore.loadMetadata(for: videoId))?.sourceDurationSec != nil
     }
 
     /// A video's rallies are about to be replaced by others: what was done

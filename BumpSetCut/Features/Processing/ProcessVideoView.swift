@@ -622,6 +622,9 @@ private extension ProcessVideoView {
                 BSCButton(title: "Reprocess Video", icon: "arrow.clockwise", style: .secondary, size: .medium) {
                     showReprocessConfirm = true
                 }
+                .accessibilityIdentifier(AccessibilityID.Process.reprocess)
+                .disabled(viewModel.isCutToRallies)
+                .opacity(viewModel.isCutToRallies ? 0.5 : 1.0)
                 .confirmationDialog("Reprocess this video?", isPresented: $showReprocessConfirm, titleVisibility: .visible) {
                     Button("Delete rallies & reprocess", role: .destructive) { viewModel.beginSetup(for: .reprocess) }
                     Button("Cancel", role: .cancel) {}
@@ -666,8 +669,15 @@ private extension ProcessVideoView {
                 Text("Set the camera position, court and net again and the rallies are found again in a few seconds. Trims, saved and favorite marks and the score on this video start over. Favorite clips in your library and anything you posted stay.")
             }
 
-            if !viewModel.canRecalibrate {
-                Text("This video's ball positions weren't kept (it was processed before this update, or Free Up Space trimmed it), so it can't be recalibrated.")
+            if viewModel.isCutToRallies {
+                Text("Free Up Space cut this video down to its rallies. The rest of the footage is gone, so it can't be recalibrated or processed again.")
+                    .bscFont(size: 12)
+                    .foregroundColor(.bscTextSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier(AccessibilityID.Process.recalibrateUnavailable)
+            } else if !viewModel.canRecalibrate {
+                Text("This video was processed before the app kept its ball positions, so it can't be recalibrated.")
                     .bscFont(size: 12)
                     .foregroundColor(.bscTextSecondary)
                     .multilineTextAlignment(.center)
