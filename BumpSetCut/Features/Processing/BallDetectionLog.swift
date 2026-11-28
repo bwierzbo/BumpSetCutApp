@@ -55,6 +55,17 @@ struct BallDetectionLog: Equatable {
         case malformed(String)
     }
 
+    /// Adds a processed frame to a run's frames. A resumed run reads the frame at its resume point again only
+    /// when its stride lands on it: then that frame takes the place of the one kept from the interrupted run, and
+    /// otherwise the kept one stays — a processed frame is never lost and never there twice.
+    static func record(_ frame: Frame, in frames: inout [Frame]) {
+        if let last = frames.last, CMTimeCompare(last.time, frame.time) == 0 {
+            frames[frames.count - 1] = frame
+        } else {
+            frames.append(frame)
+        }
+    }
+
     // MARK: Bytes
 
     func encoded() throws -> Data {

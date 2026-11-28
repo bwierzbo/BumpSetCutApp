@@ -500,8 +500,9 @@ final class VideoProcessor: @unchecked Sendable {
             if let kept = detectionLogURLs.flatMap({ BallDetectionLog.load(from: $0.partial) }),
                kept.header.checkpointTimeSec == restored.resumeTime,
                kept.header.sourceFingerprint == detectionLogHeader.sourceFingerprint, kept.header.upright == detectionLogHeader.upright {
-                // The frame at the resume point is read again by this run.
-                detectionFrames = kept.frames.filter { CMTimeGetSeconds($0.time) < restored.resumeTime }
+                // Up to and including the checkpoint's own frame: this run replaces that one if it processes it
+                // again (BallDetectionLog.record), which a stride may or may not land on.
+                detectionFrames = kept.frames.filter { CMTimeGetSeconds($0.time) <= restored.resumeTime }
                 detectionLogHeader.resumedAtSec = kept.header.resumedAtSec + [restored.resumeTime]
             } else {
                 detectionLogIsWhole = false
@@ -615,8 +616,8 @@ final class VideoProcessor: @unchecked Sendable {
                 .flatMap { heatPeaks.removeValue(forKey: $0) }
                 .map { heatmapOnlyDetections($0, beside: yoloDets, at: pts, orientation: frameOrientation) } ?? []
             let dets = yoloDets + heatDets
-            detectionFrames.append(.init(time: pts, detections: dets.map { .init(bbox: $0.bbox, confidence: $0.confidence) },
-                                         singleFrameCount: yoloDets.count))
+            BallDetectionLog.record(.init(time: pts, detections: dets.map { .init(bbox: $0.bbox, confidence: $0.confidence) },
+                                          singleFrameCount: yoloDets.count), in: &detectionFrames)
             let decision = stage.decide(dets, singleFrameCount: yoloDets.count, at: pts)
 
             // Resume checkpoint: written only at rally-idle so no FSM/tracker

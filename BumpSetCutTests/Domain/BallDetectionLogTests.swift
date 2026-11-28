@@ -90,6 +90,30 @@ final class BallDetectionLogTests: XCTestCase {
         XCTAssertEqual(BallDetectionLog.load(from: url), sample())
     }
 
+    // MARK: A frame read again
+
+    func testAFrameOfTheSameTimeTakesThePlaceOfTheLastAndALaterOneFollowsIt() {
+        var frames = Array(keptFrames().prefix(3))
+        let checkpointFrame = frames[2]
+        // The resumed run's stride skips the checkpoint's frame: the kept one stays, the next follows.
+        let next = BallDetectionLog.Frame(time: CMTime(value: 240, timescale: 600), detections: [], singleFrameCount: 0)
+        BallDetectionLog.record(next, in: &frames)
+        XCTAssertEqual(frames.count, 4)
+        XCTAssertEqual(frames[2], checkpointFrame, "a processed frame is not lost")
+
+        // The resumed run reads the checkpoint's frame again: its reading takes the kept one's place.
+        var again = Array(keptFrames().prefix(3))
+        let reread = BallDetectionLog.Frame(time: CMTime(value: 4, timescale: 20), detections: [], singleFrameCount: 0)
+        XCTAssertEqual(CMTimeCompare(reread.time, checkpointFrame.time), 0, "the same time, written with another timescale")
+        BallDetectionLog.record(reread, in: &again)
+        XCTAssertEqual(again.count, 3, "never there twice")
+        XCTAssertEqual(again[2], reread)
+
+        var empty: [BallDetectionLog.Frame] = []
+        BallDetectionLog.record(next, in: &empty)
+        XCTAssertEqual(empty, [next])
+    }
+
     // MARK: A run
 
     private func run(_ processor: VideoProcessor = VideoProcessor(), persist: Bool = true) async throws -> VideoProcessor {
@@ -162,6 +186,8 @@ final class BallDetectionLogTests: XCTestCase {
         let times = log.frames.map { CMTimeGetSeconds($0.time) }
         XCTAssertEqual(log.header.resumedAtSec, [resumeTime])
         XCTAssertEqual(Array(log.frames.prefix(20)), Array(keptFrames().prefix(20)), "the frames before the resume point are the interrupted run's")
+        XCTAssertEqual(log.frames[20].time, keptFrames()[20].time, "the checkpoint's frame is where it was")
+        XCTAssertEqual(log.frames[20].detections, [], "and is this run's reading of it: the multi-frame model reads every frame again")
         XCTAssertEqual(times, times.sorted(), "in order")
         XCTAssertEqual(Set(times).count, times.count, "the frame at the resume point is there once, as this run read it")
         XCTAssertTrue(log.frames.dropFirst(20).allSatisfy { $0.detections.isEmpty && CMTimeGetSeconds($0.time) >= resumeTime })
