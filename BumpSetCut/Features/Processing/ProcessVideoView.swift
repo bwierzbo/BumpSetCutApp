@@ -13,6 +13,7 @@ struct ProcessVideoView: View {
     @State private var viewModel: ProcessVideoViewModel
     @State private var hasAppeared = false
     @State private var showReprocessConfirm = false
+    @State private var showRecalibrateConfirm = false
     @State private var showTimelineEditor = false
     @Environment(AuthenticationService.self) private var authService: AuthenticationService?
     @Environment(\.dismiss) private var dismiss
@@ -599,10 +600,16 @@ private extension ProcessVideoView {
                 viewModel.showRallyPlayer = true
             }
             .accessibilityIdentifier(AccessibilityID.Process.viewRallies)
+            .disabled(viewModel.isRecalibrating)
+            .opacity(viewModel.isRecalibrating ? 0.5 : 1.0)
 
             BSCButton(title: "Missed a Rally? Add It Manually", icon: "plus.circle", style: .secondary, size: .medium) {
                 showTimelineEditor = true
             }
+            .disabled(viewModel.isRecalibrating)
+            .opacity(viewModel.isRecalibrating ? 0.5 : 1.0)
+
+            recalibrateButton
 
             BSCButton(title: "Done", icon: "checkmark", style: .ghost, size: .medium) {
                 dismiss()
@@ -621,6 +628,51 @@ private extension ProcessVideoView {
                 } message: {
                     Text("This deletes the current rallies and runs detection again on the full video.")
                 }
+            }
+        }
+    }
+}
+
+// MARK: - Recalibrate
+private extension ProcessVideoView {
+    /// Set the camera position, court and net again and find the rallies again from the balls the run found.
+    /// Unavailable, with the reason, for a video whose run kept none.
+    @ViewBuilder
+    var recalibrateButton: some View {
+        if viewModel.isRecalibrating {
+            HStack(spacing: BSCSpacing.sm) {
+                ProgressView()
+                    .tint(.bscPrimary)
+                Text("Finding the rallies again...")
+                    .bscFont(size: 14, weight: .medium)
+                    .foregroundColor(.bscTextSecondary)
+            }
+            .padding(BSCSpacing.md)
+            .frame(maxWidth: .infinity)
+            .bscGlass(cornerRadius: BSCRadius.md, padding: 0)
+            .accessibilityIdentifier(AccessibilityID.Process.recalibrating)
+        } else {
+            BSCButton(title: "Recalibrate Court & Net", icon: "scope", style: .secondary, size: .medium) {
+                showRecalibrateConfirm = true
+            }
+            .accessibilityIdentifier(AccessibilityID.Process.recalibrate)
+            .disabled(!viewModel.canRecalibrate)
+            .opacity(viewModel.canRecalibrate ? 1.0 : 0.5)
+            .confirmationDialog("Recalibrate this video?", isPresented: $showRecalibrateConfirm, titleVisibility: .visible) {
+                Button("Clear edits & recalibrate", role: .destructive) { viewModel.beginSetup(for: .recalibrate) }
+                    .accessibilityIdentifier(AccessibilityID.Process.recalibrateConfirm)
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Set the camera position, court and net again and the rallies are found again in a few seconds. Trims, saved and favorite marks and the score on this video start over. Favorite clips in your library and anything you posted stay.")
+            }
+
+            if !viewModel.canRecalibrate {
+                Text("This video's ball positions weren't kept (it was processed before this update, or Free Up Space trimmed it), so it can't be recalibrated.")
+                    .bscFont(size: 12)
+                    .foregroundColor(.bscTextSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier(AccessibilityID.Process.recalibrateUnavailable)
             }
         }
     }

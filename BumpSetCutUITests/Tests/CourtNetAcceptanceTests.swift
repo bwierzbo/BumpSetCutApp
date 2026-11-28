@@ -501,4 +501,57 @@ final class CourtNetAcceptanceTests: VideoTestCase {
         checkpoint("P5", "processing started after the last page")
         stopRun()
     }
+
+    // MARK: - Recalibrate: a processed video's camera, court and net set again, its rallies found again
+
+    func testR_RecalibrateAProcessedVideo() {
+        // A real run with nothing set up, so the video has rallies and the balls its run found.
+        openVideoScreen()
+        process.startProcessing()
+        XCTAssertTrue(process.doneButton.waitForExistence(timeout: 600), "The run finishes")
+        XCTAssertFalse(app.alerts.firstMatch.exists, "The run finishes without an error")
+        process.doneButton.tap()
+
+        // From the library: the processed video's menu leads to its screen.
+        let card = app.buttons["View Processed Rallies"]
+        XCTAssertTrue(card.waitForExistence(timeout: 15), "The library shows the video as processed")
+        card.press(forDuration: 1.5)
+        let entry = app.buttons["process.recalibrateEntry"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 5), "A processed video's menu offers Recalibrate")
+        checkpoint("R0", "processed video's menu")
+        entry.tap()
+        XCTAssertTrue(process.viewRalliesButton.waitForExistence(timeout: 15), "A processed video offers its rallies")
+        XCTAssertTrue(process.recalibrateButton.isEnabled, "A video whose run kept its balls can be recalibrated")
+        XCTAssertFalse(app.descendants(matching: .any)["process.recalibrateUnavailable"].exists)
+        checkpoint("R1", "processed video, Recalibrate offered")
+
+        process.recalibrateButton.tap()
+        let confirm = app.buttons["process.recalibrateConfirm"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), "Recalibrate says what it clears before it starts")
+        checkpoint("R2", "what recalibrating clears")
+        confirm.tap()
+
+        let step = process.setupProgress
+        let continueButton = app.buttons["process.cameraSetupContinue"]
+        XCTAssertTrue(continueButton.waitForExistence(timeout: 10), "Recalibrate opens on the camera page: there is no trim page")
+        XCTAssertEqual(step.label, "Camera position, Step 1 of 3")
+        continueButton.tap()
+
+        var editor = page("Court")
+        XCTAssertEqual(step.label, "Court, Step 2 of 3")
+        placeCourt(&editor)
+        editor.confirmButton.tap()
+
+        editor = page("Net")
+        XCTAssertEqual(step.label, "Net, Step 3 of 3")
+        placeNet(editor)
+        editor.confirmButton.tap()
+
+        // No run: the rallies are found again from the saved balls, and the screen is the processed video's again.
+        XCTAssertTrue(process.recalibrateButton.waitForExistence(timeout: 120), "The rallies are found again and the video's screen is back")
+        XCTAssertFalse(process.cancelButton.exists, "Recalibrating starts no processing run")
+        XCTAssertFalse(app.alerts.firstMatch.exists, "Recalibrating ends without an error")
+        XCTAssertTrue(process.viewRalliesButton.isEnabled, "The new rallies can be opened")
+        checkpoint("R3", "after recalibrating under the confirmed net")
+    }
 }

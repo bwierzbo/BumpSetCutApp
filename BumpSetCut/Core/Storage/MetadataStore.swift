@@ -602,15 +602,21 @@ extension MetadataStore {
         }
     }
 
+    /// What a person did to the rallies, kept by a rally's place in the list (trims, selections, scoring):
+    /// removed when the list is made anew, since it would sit on other rallies.
+    func deleteRallyEdits(for videoId: UUID) {
+        for url in [trimURL(for: videoId), reviewSelectionsURL(for: videoId), gameScoringURL(for: videoId)] {
+            try? fileManager.removeItem(at: url)
+        }
+    }
+
     /// Before reprocessing: drop the rally-index-keyed and run-specific
     /// sidecars (trims, selections, scoring, evidence, checkpoint, the ball
     /// detections of the run and of an unfinished one, staged files) but KEEP `{id}.json` — the new run reads it to carry manual
     /// rallies through, then overwrites it when it finishes.
     func deleteSidecarsForReprocess(videoId: UUID) {
+        deleteRallyEdits(for: videoId)
         let urls = [
-            trimURL(for: videoId),
-            reviewSelectionsURL(for: videoId),
-            gameScoringURL(for: videoId),
             evidenceURL(for: videoId),
             processingCheckpointFileURL(for: videoId),
             ballDetectionsFileURL(for: videoId),

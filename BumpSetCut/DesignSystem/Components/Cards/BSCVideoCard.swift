@@ -437,6 +437,14 @@ struct BSCVideoCard: View {
                 }
                 .accessibilityIdentifier(AccessibilityID.SpaceSaver.entry)
             }
+
+            // Opens the processed video's screen, where Recalibrate says what it clears before it starts.
+            Button {
+                showingProcessVideo = true
+            } label: {
+                Label("Recalibrate Court & Net", systemImage: "scope")
+            }
+            .accessibilityIdentifier(AccessibilityID.Process.recalibrateEntry)
             Divider()
         }
 

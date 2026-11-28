@@ -301,7 +301,9 @@ final class VideoProcessor: @unchecked Sendable {
     // MARK: - Deciding again from saved detections (D-044)
     /// Decides a video's rallies again from the balls an earlier run found, with this processor's config and
     /// net source as they are now. The frames go through the same RallyDecisionStage as a run's and the answer
-    /// is concluded and saved as a run's is; no frame is decoded and no model runs. Refused when the log is not
+    /// is concluded and saved as a run's is; no frame is decoded and no model runs. With `persist` false the
+    /// answer is returned and not saved, a person's own rallies in the saved metadata carried into it all the
+    /// same (the log is of a library video; the caller saves it with what else has to change). Refused when the log is not
     /// of this file or its boxes were kept under the other frame rotation. A log from a run that was interrupted
     /// and resumed is decided in one go, where that run started its tracker afresh at the resume point: near
     /// one the answer can differ from that run's.
@@ -323,7 +325,7 @@ final class VideoProcessor: @unchecked Sendable {
             let startTime = Date()
             let eventLog = ProcessingEventLog()
             eventLog.log(.processingStarted, detail: "videoId=\(videoId), deciding again from \(log.frames.count) saved frames (\(log.header.finder))")
-            metadataStore = persist ? await MainActor.run { MetadataStore.shared } : nil
+            metadataStore = await MainActor.run { MetadataStore.shared }
 
             let asset = AVURLAsset(url: url)
             guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw ProcessingError.noVideoTrack }
