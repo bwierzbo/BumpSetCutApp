@@ -2,7 +2,7 @@
 # Canonical build entry point for this repo. Replaces ad-hoc xcodebuild one-liners.
 #
 # Usage:
-#   scripts/build.sh [ios|mac|labeler|both|auto] [--run]
+#   scripts/build.sh [ios|mac|labeler|both|all|auto] [--run]
 #   scripts/build.sh doctor    # print the resolved simulator destination and exit
 #   scripts/build.sh shared    # list modified files that are shared with RallyLab
 #
@@ -10,7 +10,9 @@
 #     last commit) and build the affected targets: files in RallyLab's
 #     membershipExceptions build BOTH; RallyLab/ files build mac; else ios.
 #     Labeler/ files (RallyLab on the iPhone) build labeler as well, and
-#     Labeler/Shared/ files build mac too — both apps compile them.
+#     Labeler/Shared/ files build mac too — both apps compile them. A BumpSetCut/
+#     file the Labeler compiles (its own membershipExceptions) builds labeler too.
+#   all — BumpSetCut, RallyLab and the Labeler.
 #   --run — after a successful mac build, relaunch the RallyLab.app this checkout built.
 #
 # Simulator IDs rot when Xcode updates, so the destination is always resolved
@@ -32,9 +34,9 @@ resolve_sim() {
   echo "$udid"
 }
 
-# Files the RallyLab target pulls in from the BumpSetCut/ folder (the shared pipeline).
+# Files a target pulls in from the BumpSetCut/ folder (the shared pipeline): RallyLab's, or the named target's.
 shared_files() {
-  awk '/Exceptions for "BumpSetCut" folder in "RallyLab" target \*\/ = \{/,/\);/' "$PBXPROJ" \
+  awk '/Exceptions for "BumpSetCut" folder in "'"${1:-RallyLab}"'" target \*\/ = \{/,/\);/' "$PBXPROJ" \
     | grep -v -E 'isa =|membershipExceptions|\);|\/\*' \
     | sed -e 's/^[[:space:]]*//' -e 's/,$//' -e 's/^"//' -e 's/"$//' \
     | grep -E '^[A-Za-z]' \
@@ -143,10 +145,20 @@ case "$MODE" in
     mac_hits=$(echo "$changes" | grep -c "^RallyLab/" || true)
     labeler_hits=$(echo "$changes" | grep -c "^Labeler/" || true)
     labeler_shared_hits=$(echo "$changes" | grep -c "^Labeler/Shared/" || true)
+    # The Labeler compiles its own list of BumpSetCut/ files: a shared file that names something outside
+    # that list builds in the app and RallyLab and fails here.
+    labeler_pipeline_hits=$(echo "$changes" | grep -F -f <(shared_files Labeler) || true)
     if [ -n "$shared_hits" ]; then
       echo "shared pipeline files changed → building BOTH targets:"
       echo "$shared_hits" | sed 's/^/  /'
       MODE=both
+      if [ -n "$labeler_pipeline_hits" ]; then
+        echo "the Labeler compiles some of them → building it too"
+        MODE=all
+      fi
+    elif [ -n "$labeler_pipeline_hits" ]; then
+      echo "files the Labeler compiles changed → building BumpSetCut and the Labeler"
+      MODE=ios+labeler
     elif [ "$labeler_hits" -gt 0 ] && ! echo "$changes" | grep -q "^BumpSetCut/"; then
       if [ "$labeler_shared_hits" -gt 0 ] || [ "$mac_hits" -gt 0 ]; then
         echo "Labeler/Shared or RallyLab files changed → building RallyLab and Labeler"
@@ -168,10 +180,12 @@ case "$MODE" in
   labeler) build_labeler || FAILED=1 ;;
   mac+labeler) build_mac || FAILED=1; build_labeler || FAILED=1 ;;
   both) build_ios || FAILED=1; build_mac || FAILED=1 ;;
-  *) echo "usage: scripts/build.sh [ios|mac|labeler|both|auto|doctor|shared] [--run]"; exit 2 ;;
+  ios+labeler) build_ios || FAILED=1; build_labeler || FAILED=1 ;;
+  all) build_ios || FAILED=1; build_mac || FAILED=1; build_labeler || FAILED=1 ;;
+  *) echo "usage: scripts/build.sh [ios|mac|labeler|both|all|auto|doctor|shared] [--run]"; exit 2 ;;
 esac
 
-if [ "$FAILED" -eq 0 ] && [ "$RUN_AFTER" -eq 1 ] && [[ "$MODE" == "mac" || "$MODE" == "both" || "$MODE" == "mac+labeler" ]]; then
+if [ "$FAILED" -eq 0 ] && [ "$RUN_AFTER" -eq 1 ] && [[ "$MODE" == "mac" || "$MODE" == "both" || "$MODE" == "all" || "$MODE" == "mac+labeler" ]]; then
   relaunch_rallylab
 fi
 exit $FAILED
