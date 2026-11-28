@@ -70,6 +70,7 @@
 				Core/Storage/StorageManager.swift,
 				"Core/Utilities/CMTime+Helpers.swift",
 				Core/Utilities/DisplayFormatting.swift,
+				Core/Utilities/FileFingerprint.swift,
 				Core/Utilities/QuadraticFit.swift,
 				DesignSystem/Components/Inputs/BSCStraightenControl.swift,
 				DesignSystem/Tokens/DesignTokens.swift,
