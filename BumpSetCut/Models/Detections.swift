@@ -34,6 +34,9 @@ enum ProcessingError: Error, LocalizedError {
     case compositionFailed
     case metadataStoreUnavailable
     case exportCancelled
+    /// The balls an earlier run found can't be used to decide this video's rallies again: they were found in
+    /// another file, or kept under the other frame rotation.
+    case savedDetectionsNotOfThisVideo
 
     // Legacy alias — migrate callers to specific cases
     static let exportFailed = exportSessionFailed("Unknown export failure")
@@ -58,6 +61,8 @@ enum ProcessingError: Error, LocalizedError {
             return String(localized: "Unable to save processing results.")
         case .exportCancelled:
             return String(localized: "Export was cancelled.")
+        case .savedDetectionsNotOfThisVideo:
+            return String(localized: "The ball positions saved for this video don't match it. Process the video again.")
         }
     }
 }

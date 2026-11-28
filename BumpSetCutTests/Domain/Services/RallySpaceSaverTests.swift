@@ -116,7 +116,7 @@ final class RallySpaceSaverTests: XCTestCase {
         // The whole video's ball detections, as its run left them
         let detections = metadataStore.ballDetectionsFileURL(for: video.id)
         XCTAssertTrue(BallDetectionLog(
-            header: .init(sourceFingerprint: nil, durationSec: 60, upright: true, finder: "test", resumedAtSec: []),
+            header: .init(sourceFingerprint: nil, durationSec: 60, upright: true, finder: "test", decodedFrameCount: 1, skippedFrameCount: 0, resumedAtSec: []),
             frames: [.init(time: CMTime(value: 1, timescale: 5), detections: [], singleFrameCount: 0)]
         ).write(to: detections))
 

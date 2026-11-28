@@ -4,7 +4,8 @@
 //
 //  The pipeline's whole answer on a real recording, kept as a file and compared on every later run: the
 //  rallies, the counts, and every processed frame's evidence. A change that is meant to leave the pipeline's
-//  behaviour alone (a refactor) is run against the file recorded before it.
+//  behaviour alone (a refactor) is run against the file recorded before it. Each run's saved ball detections
+//  are then decided again (D-044) and must give that run's answer to the line.
 //
 //  The recording is local and not in git, so the test runs only when told where it is:
 //    TEST_RUNNER_PIPELINE_GOLDEN_VIDEO=<video> TEST_RUNNER_PIPELINE_GOLDEN_FILE=<file> xcodebuild test …
@@ -31,20 +32,36 @@ final class PipelineGoldenTests: XCTestCase {
             ("confirmed net", .confirmed(net), nil),
             ("confirmed net, corner camera", .confirmed(net), corner)
         ]
-        var lines: [String] = []
-        for run in runs {
+        func processor(for run: (name: String, net: NetGeometry, camera: CameraSetup?)) -> VideoProcessor {
             let processor = VideoProcessor()
             var config = ProcessorConfig()
             config.applyCamera(run.camera)
             processor.config = config
             processor.netSource = FixedNetSource(run.net)
             processor.collectFrameEvidence = true
-            lines.append("=== \(run.name)")
+            return processor
+        }
+        /// A run's whole answer: its rallies and numbers, the net rules it made, its serves and every frame's evidence.
+        func answer(of processor: VideoProcessor, _ work: () async throws -> ProcessingMetadata) async throws -> [String] {
+            var answer: [String] = []
             do {
-                lines += Self.describe(try await processor.analyzeVideo(video))
+                answer += Self.describe(try await work())
             } catch ProcessingError.noRalliesDetected {
-                lines.append("no rallies")
+                answer.append("no rallies")
             }
+            answer.append("checks \(String(describing: processor.lastSpatialChecks))")
+            answer += processor.serves.map { "serve \($0)" }
+            return answer + processor.frameEvidence.map(Self.describe)
+        }
+        var lines: [String] = []
+        var answers: [[String]] = []
+        var logs: [BallDetectionLog] = []
+        for run in runs {
+            let processor = processor(for: run)
+            let ran = try await answer(of: processor) { try await processor.analyzeVideo(video) }
+            lines.append("=== \(run.name)")
+            lines += ran
+            answers.append(ran)
             // The run's detection log is what the stage was given: the same frames and boxes as the evidence, and
             // it reads back from its bytes unchanged. Its size on a real recording is printed for the record.
             let log = try XCTUnwrap(processor.detectionLog, run.name)
@@ -56,10 +73,22 @@ final class PipelineGoldenTests: XCTestCase {
             print(String(format: "PipelineGoldenTests: detection log for \"%@\": %d frames, %d detections, %d bytes = %.2f MB per hour of video",
                          run.name, log.frames.count, log.frames.reduce(0) { $0 + $1.detections.count }, bytes.count,
                          Double(bytes.count) / 1_048_576 / max(log.header.durationSec, 1) * 3600))
-            lines.append("checks \(String(describing: processor.lastSpatialChecks))")
-            lines += processor.serves.map { "serve \($0)" }
-            lines += processor.frameEvidence.map(Self.describe)
+            logs.append(log)
         }
+
+        // Deciding again from saved balls is the run without the finding: each run's log, decided under that run's
+        // net and camera, gives that run's answer to the line — and so does the log of the run that had no net,
+        // decided under each of the others' (what a net or a camera position corrected afterwards does).
+        for (index, run) in runs.enumerated() {
+            for (source, log) in [("its own", logs[index]), ("the no-net run's", logs[0])] {
+                let again = processor(for: run)
+                let decided = try await answer(of: again) { try await again.decideRalliesAgain(from: log, forVideoAt: video, videoId: UUID(), persist: false) }
+                let first = zip(answers[index], decided).enumerated().first { $0.element.0 != $0.element.1 }
+                XCTAssertTrue(decided == answers[index], "\"\(run.name)\" decided again from \(source) saved balls differs from the run (\(answers[index].count) lines, \(decided.count) again); "
+                    + "first at \(first?.offset ?? -1): ran \"\(first?.element.0 ?? "")\", again \"\(first?.element.1 ?? "")\"")
+            }
+        }
+        print("PipelineGoldenTests: \(runs.count * 2) decisions from saved balls matched their runs")
         let actual = lines.joined(separator: "\n") + "\n"
 
         guard let recorded = try? String(contentsOf: golden, encoding: .utf8) else {

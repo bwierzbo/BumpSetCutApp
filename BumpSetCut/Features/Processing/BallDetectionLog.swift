@@ -16,7 +16,7 @@ import CoreMedia
 import Foundation
 
 struct BallDetectionLog: Equatable {
-    static let formatVersion: UInt32 = 1
+    static let formatVersion: UInt32 = 2
     private static let magic = Array("BSCD".utf8)
 
     struct Detection: Equatable {
@@ -40,6 +40,10 @@ struct BallDetectionLog: Equatable {
         var upright: Bool
         /// What found the ball, as the run's timing line names it.
         var finder: String
+        /// The frames the run decoded and, of those, the ones it did not process (its stride, or frames the
+        /// multi-frame model was not fed): a run's counts that the frames here alone don't give.
+        var decodedFrameCount: Int
+        var skippedFrameCount: Int
         /// Where an interrupted run took the frames up again; empty for a run made in one go.
         var resumedAtSec: [Double]
         /// Only in the file an unfinished run keeps beside its checkpoint: the checkpoint's time.

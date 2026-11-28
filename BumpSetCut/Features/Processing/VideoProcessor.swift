@@ -298,6 +298,66 @@ final class VideoProcessor: @unchecked Sendable {
         try await processVideoMetadata(url, videoId: UUID(), persist: false)
     }
 
+    // MARK: - Deciding again from saved detections (D-044)
+    /// Decides a video's rallies again from the balls an earlier run found, with this processor's config and
+    /// net source as they are now. The frames go through the same RallyDecisionStage as a run's and the answer
+    /// is concluded and saved as a run's is; no frame is decoded and no model runs. Refused when the log is not
+    /// of this file or its boxes were kept under the other frame rotation. A log from a run that was interrupted
+    /// and resumed is decided in one go, where that run started its tracker afresh at the resume point: near
+    /// one the answer can differ from that run's.
+    func decideRalliesAgain(from log: BallDetectionLog, forVideoAt url: URL, videoId: UUID, persist: Bool = true) async throws -> ProcessingMetadata {
+        guard let fingerprint = log.header.sourceFingerprint, fingerprint == FileFingerprint.read(atPath: url.path),
+              log.header.upright == config.applyVideoRotation else {
+            throw ProcessingError.savedDetectionsNotOfThisVideo
+        }
+        await MainActor.run {
+            isProcessing = true; progress = 0; processedMetadata = nil
+            backgroundGuard.begin {
+                print("⚠️ BackgroundProcessingGuard: background time expiring — cancelling processing")
+            }
+        }
+        do {
+            stage = nil
+            detectionLog = log
+            serves.removeAll()
+            let startTime = Date()
+            let eventLog = ProcessingEventLog()
+            eventLog.log(.processingStarted, detail: "videoId=\(videoId), deciding again from \(log.frames.count) saved frames (\(log.header.finder))")
+            metadataStore = persist ? await MainActor.run { MetadataStore.shared } : nil
+
+            let asset = AVURLAsset(url: url)
+            guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw ProcessingError.noVideoTrack }
+            let duration = try await asset.load(.duration)
+            let fps = max(10, Int(try await track.load(.nominalFrameRate)))
+            lastVideoDurationSec = CMTimeGetSeconds(duration)
+            _ = await askForNet(forVideoAt: url, asset: asset)
+
+            let stage = RallyDecisionStage(config: config, net: detectedNet, collectEvidence: collectFrameEvidence, eventLog: eventLog,
+                                           debugger: trajectoryDebugger, restored: nil)
+            self.stage = stage
+            let spatialChecks = SpatialChecks(config: config, net: netGeometry)
+            lastSpatialChecks = spatialChecks
+            if let line = spatialChecks.skippedLine { print("ℹ️ \(line)") }
+
+            for (index, frame) in log.frames.enumerated() {
+                if index % 512 == 0 {
+                    try Task.checkCancellation()
+                    let done = Double(index) / Double(log.frames.count)
+                    await MainActor.run { self.progress = done }
+                }
+                let dets = frame.detections.map { DetectionResult(bbox: $0.bbox, confidence: $0.confidence, timestamp: frame.time) }
+                stage.record(stage.decide(dets, singleFrameCount: frame.singleFrameCount, at: frame.time))
+            }
+            print(String(format: "⏱ Rallies decided again from %d saved frames in %.2f s", log.frames.count, Date().timeIntervalSince(startTime)))
+            return try await conclude(stage, videoId: videoId, duration: duration, fps: fps, decodedFrames: log.header.decodedFrameCount,
+                                      skippedFrames: log.header.skippedFrameCount, startTime: startTime, eventLog: eventLog,
+                                      spatialChecks: spatialChecks, checkpointURL: nil, persist: persist)
+        } catch {
+            await MainActor.run { isProcessing = false; backgroundGuard.end() }
+            throw error
+        }
+    }
+
     #if os(iOS)
     // MARK: - Debug path (no cutting, full-length annotated video)
     /// The whole video with what the pipeline saw drawn over it. The run is the pipeline itself — the
@@ -458,19 +518,8 @@ final class VideoProcessor: @unchecked Sendable {
         let configHash = ProcessingCheckpoint.hash(of: config)
         urgentCheckpoint.withLock { $0 = false }
 
-        // The net, asked of the run's source once, before anything else of the
-        // run is decided: one box for the whole video, or none — and then the
-        // rules that need it are skipped, never answered as if the ball were in
-        // the court or above the net. Asked on a resume too: what a checkpoint
-        // holds was decided against the net it was written with.
-        detectedNet = nil
-        netGeometry = .unavailable(reason: "no net-dependent rule is on")
-        if config.enableUnderNetRejection || config.enableOffCourtRejection || config.enableAboveNetRequirement {
-            let netStart = CFAbsoluteTimeGetCurrent()
-            netGeometry = await netSource.netGeometry(forVideoAt: url, asset: asset, durationSec: lastVideoDurationSec, config: config)
-            timing.net = CFAbsoluteTimeGetCurrent() - netStart
-            detectedNet = netGeometry.net
-        }
+        // The net is asked on a resume too: what a checkpoint holds was decided against the net it was written with.
+        timing.net = await askForNet(forVideoAt: url, asset: asset)
 
         var restored: ProcessingCheckpoint?
         if let checkpointURL, let candidate = ProcessingCheckpoint.load(from: checkpointURL) {
@@ -494,7 +543,7 @@ final class VideoProcessor: @unchecked Sendable {
         // a log with a hole in it would be read as a video with no ball there.
         var detectionFrames: [BallDetectionLog.Frame] = []
         var detectionLogHeader = BallDetectionLog.Header(sourceFingerprint: FileFingerprint.read(atPath: url.path), durationSec: lastVideoDurationSec,
-                                                         upright: config.applyVideoRotation, finder: "", resumedAtSec: [])
+                                                         upright: config.applyVideoRotation, finder: "", decodedFrameCount: 0, skippedFrameCount: 0, resumedAtSec: [])
         var detectionLogIsWhole = true
         if let restored {
             if let kept = detectionLogURLs.flatMap({ BallDetectionLog.load(from: $0.partial) }),
@@ -553,6 +602,8 @@ final class VideoProcessor: @unchecked Sendable {
             if detectionLogIsWhole, let detectionLogURLs {
                 var header = detectionLogHeader
                 header.checkpointTimeSec = nowSec
+                header.decodedFrameCount = rawFrameIndex
+                header.skippedFrameCount = skippedFrames
                 BallDetectionLog(header: header, frames: detectionFrames).write(to: detectionLogURLs.partial)
             }
             ProcessingCheckpoint(
@@ -744,21 +795,45 @@ final class VideoProcessor: @unchecked Sendable {
         // The run's balls are whole now, whatever is decided of them: kept before the rallies are, so that a
         // video in which none was found can have its rallies decided again too.
         detectionLogHeader.finder = finder
+        detectionLogHeader.decodedFrameCount = rawFrameIndex
+        detectionLogHeader.skippedFrameCount = skippedFrames
         detectionLog = detectionLogIsWhole ? BallDetectionLog(header: detectionLogHeader, frames: detectionFrames) : nil
         if let detectionLogURLs {
             detectionLog?.write(to: detectionLogURLs.whole)
             BallDetectionLog.delete(at: detectionLogURLs.partial)
         }
 
+        print(timing.line(video: lastVideoDurationSec - (restored?.resumeTime ?? 0), frames: rawFrameIndex - (restored?.counters.rawFrameIndex ?? 0),
+                          total: Date().timeIntervalSince(startTime), model: finder,
+                          thermal: (thermalAtStart, ProcessInfo.processInfo.thermalState)))
+        return try await conclude(stage, videoId: videoId, duration: duration, fps: fps, decodedFrames: rawFrameIndex, skippedFrames: skippedFrames,
+                                  startTime: startTime, eventLog: eventLog, spatialChecks: spatialChecks, checkpointURL: checkpointURL, persist: persist)
+    }
+
+    /// The net, asked of the run's source once, before anything else of the run is decided: one box for the
+    /// whole video, or none — and then the rules that need it are skipped, never answered as if the ball were
+    /// in the court or above the net. Returns the seconds the asking took.
+    private func askForNet(forVideoAt url: URL, asset: AVAsset) async -> Double {
+        detectedNet = nil
+        netGeometry = .unavailable(reason: "no net-dependent rule is on")
+        guard config.enableUnderNetRejection || config.enableOffCourtRejection || config.enableAboveNetRequirement else { return 0 }
+        let start = CFAbsoluteTimeGetCurrent()
+        netGeometry = await netSource.netGeometry(forVideoAt: url, asset: asset, durationSec: lastVideoDurationSec, config: config)
+        detectedNet = netGeometry.net
+        return CFAbsoluteTimeGetCurrent() - start
+    }
+
+    /// What a run does once its frames are decided, whether it found the ball in them or read the balls an
+    /// earlier run found: the rallies kept, the run's numbers, and the metadata saved.
+    private func conclude(_ stage: RallyDecisionStage, videoId: UUID, duration: CMTime, fps: Int, decodedFrames rawFrameIndex: Int,
+                          skippedFrames: Int, startTime: Date, eventLog: ProcessingEventLog, spatialChecks: SpatialChecks,
+                          checkpointURL: URL?, persist: Bool) async throws -> ProcessingMetadata {
         let outcome = stage.finish(until: duration)
         let keep = outcome.keep
         serves = outcome.serves
 
         // Log processing statistics
         let processedFrames = rawFrameIndex - skippedFrames
-        print(timing.line(video: lastVideoDurationSec - (restored?.resumeTime ?? 0), frames: rawFrameIndex - (restored?.counters.rawFrameIndex ?? 0),
-                          total: Date().timeIntervalSince(startTime), model: finder,
-                          thermal: (thermalAtStart, ProcessInfo.processInfo.thermalState)))
         let skipRate = rawFrameIndex > 0 ? (Double(skippedFrames) / Double(rawFrameIndex)) * 100 : 0
         print("⚡ Dynamic stride statistics:")
         print("   - Total frames: \(rawFrameIndex)")
