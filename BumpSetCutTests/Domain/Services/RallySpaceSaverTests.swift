@@ -113,6 +113,13 @@ final class RallySpaceSaverTests: XCTestCase {
         let segments = [makeSegment(5, 8), makeSegment(40, 44)]
         try metadataStore.saveMetadata(makeMetadata(videoId: video.id, segments: segments))
 
+        // The whole video's ball detections, as its run left them
+        let detections = metadataStore.ballDetectionsFileURL(for: video.id)
+        XCTAssertTrue(BallDetectionLog(
+            header: .init(sourceFingerprint: nil, durationSec: 60, upright: true, finder: "test", resumedAtSec: []),
+            frames: [.init(time: CMTime(value: 1, timescale: 5), detections: [], singleFrameCount: 0)]
+        ).write(to: detections))
+
         let oldSize = StorageChecker.getFileSize(at: video.originalURL)
 
         let maybeEstimate = await RallySpaceSaver.estimate(for: video, metadataStore: metadataStore)
@@ -142,6 +149,8 @@ final class RallySpaceSaverTests: XCTestCase {
         XCTAssertEqual(remapped.sourceDurationSec ?? 0, newDuration, accuracy: 0.1,
                        "Metadata records which file it's timed against")
         XCTAssertTrue(metadataStore.videoIdsWithStagedSidecars().isEmpty, "Staged files were installed")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: detections.path),
+                       "The whole video's ball detections go with the footage they were of")
     }
 
     // MARK: - Interrupted trim recovery
