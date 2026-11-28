@@ -232,43 +232,18 @@ final class RallyTimelineViewModel {
             return (edited.start != source.startTime || edited.end != source.endTime) ? newIndex : nil
         })
 
-        let oldAdjustments = metadataStore.loadTrimAdjustments(for: videoId)
-        var newAdjustments: [Int: RallyTrimAdjustment] = [:]
-        for (oldIndex, adjustment) in oldAdjustments {
-            guard let newIndex = oldToNew[oldIndex] else { continue }
-            var remapped = adjustment
-            if retimedNewIndices.contains(newIndex) {
-                remapped.before = 0
-                remapped.after = 0
-            }
-            newAdjustments[newIndex] = remapped
-        }
-
-        let oldSelections = metadataStore.loadReviewSelections(for: videoId)
-        let newSelections = RallyReviewSelections(
-            saved: Set(oldSelections.saved.compactMap { oldToNew[$0] }),
-            removed: Set(oldSelections.removed.compactMap { oldToNew[$0] }),
-            favorited: Set(oldSelections.favorited.compactMap { oldToNew[$0] }),
-            favoriteCollections: Dictionary(uniqueKeysWithValues:
-                oldSelections.favoriteCollections.compactMap { old, name in oldToNew[old].map { ($0, name) } }),
-            posted: Set(oldSelections.posted.compactMap { oldToNew[$0] })
-        )
-
-        // Game scoring follows its rallies to their new indices too.
-        var newScoring = metadataStore.loadGameScoring(for: videoId)
-        if var scoring = newScoring {
-            scoring.pointWinners = Dictionary(uniqueKeysWithValues:
-                scoring.pointWinners.compactMap { old, winner in oldToNew[old].map { ($0, winner) } })
-            scoring.setBreaks = Set(scoring.setBreaks.compactMap { oldToNew[$0] })
-            newScoring = scoring
+        var edits = metadataStore.loadRallyEdits(for: videoId).moved(by: oldToNew)
+        for newIndex in retimedNewIndices {
+            edits.trims[newIndex]?.before = 0
+            edits.trims[newIndex]?.after = 0
         }
 
         do {
             try metadataStore.saveTimelineEdit(
                 metadata: metadata.withRallySegments(newRallySegments),
-                trims: newAdjustments,
-                selections: newSelections,
-                scoring: newScoring
+                trims: edits.trims,
+                selections: edits.selections,
+                scoring: edits.scoring
             )
         } catch {
             throw SaveError.writeFailed(error)
