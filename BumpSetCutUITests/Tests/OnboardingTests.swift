@@ -38,10 +38,11 @@ final class OnboardingTests: BSCUITestCase {
         let onboarding = OnboardingScreen(app: app)
         XCTAssertTrue(onboarding.page(0).waitForExistence(timeout: 10))
 
-        // Navigate through pages 0-4 using Next (the notifications page's
-        // "Enable Notifications" button carries the same identifier and just
-        // advances under --uitesting — no prompt).
-        for pageIndex in 0..<5 {
+        // Navigate through pages 0-5 using Next (the notifications page's
+        // "Enable Notifications" and the footage-sharing page's "Share My
+        // Rallies" carry the same identifier and just advance under
+        // --uitesting — no prompt, nothing switched on).
+        for pageIndex in 0..<6 {
             XCTAssertTrue(onboarding.page(pageIndex).exists, "Page \(pageIndex) should be visible")
             XCTAssertTrue(onboarding.nextButton.waitForExistence(timeout: 3))
             onboarding.nextButton.tap()
@@ -49,8 +50,8 @@ final class OnboardingTests: BSCUITestCase {
             sleep(1)
         }
 
-        // Page 5 (last page) should now be visible with "Get Started"
-        XCTAssertTrue(onboarding.page(5).waitForExistence(timeout: 5))
+        // Page 6 (last page) should now be visible with "Get Started"
+        XCTAssertTrue(onboarding.page(6).waitForExistence(timeout: 5))
         XCTAssertTrue(onboarding.getStartedButton.waitForExistence(timeout: 3))
     }
 
@@ -72,26 +73,37 @@ final class OnboardingTests: BSCUITestCase {
         notNow.tap()
 
         XCTAssertTrue(onboarding.page(5).waitForExistence(timeout: 5), "Not Now should advance past the notifications page")
-        XCTAssertTrue(onboarding.getStartedButton.waitForExistence(timeout: 3))
+        XCTAssertTrue(onboarding.dontShareButton.waitForExistence(timeout: 3), "The footage-sharing page follows and offers not to share")
     }
 
-    func testSkipButtonDismissesOnboarding() {
+    /// A first run's Skip stops at the page that says footage is shared: nobody shares without having been told.
+    func testSkipStopsAtTheFootageSharingPageAndItsAnswerLeadsHome() {
         let onboarding = OnboardingScreen(app: app)
         XCTAssertTrue(onboarding.skipButton.waitForExistence(timeout: 10))
 
         onboarding.skipButton.tap()
 
-        // Should now be on Home screen — tab bar should appear
-        let tabBar = app.tabBars.firstMatch
-        XCTAssertTrue(tabBar.waitForExistence(timeout: 5))
+        XCTAssertTrue(onboarding.page(5).waitForExistence(timeout: 5), "Skip goes to the footage-sharing page")
+        XCTAssertTrue(app.staticTexts["Help the AI Improve"].waitForExistence(timeout: 3))
+        XCTAssertTrue(onboarding.dontShareButton.waitForExistence(timeout: 3))
+        XCTAssertTrue(onboarding.nextButton.exists, "and offers to keep sharing")
+        sleep(1)
+        XCTAssertFalse(onboarding.skipButton.exists, "There is no skipping past it")
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = "footage sharing page"
+        shot.lifetime = .keepAlways
+        add(shot)
+
+        onboarding.finishFromFootageSharing()
+        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 5))
     }
 
     func testGetStartedDismissesToHome() {
         let onboarding = OnboardingScreen(app: app)
         XCTAssertTrue(onboarding.nextButton.waitForExistence(timeout: 10))
 
-        // Navigate to last page (6 pages total, need 5 taps)
-        for i in 0..<5 {
+        // Navigate to last page (7 pages total, need 6 taps)
+        for i in 0..<6 {
             let nextBtn = onboarding.nextButton
             XCTAssertTrue(nextBtn.waitForExistence(timeout: 5), "Next button should exist on page \(i)")
             nextBtn.tap()
@@ -116,6 +128,7 @@ final class OnboardingTests: BSCUITestCase {
 
         // Dismiss onboarding
         onboarding.skipButton.tap()
+        onboarding.finishFromFootageSharing()
 
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.waitForExistence(timeout: 5))

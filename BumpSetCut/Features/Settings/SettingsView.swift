@@ -127,9 +127,7 @@ struct SettingsView: View {
             .sheet(isPresented: $showFlywheelConsent) {
                 FlywheelConsentSheet(
                     onAccept: {
-                        appSettings.flywheelConsentVersion = FlywheelConsent.currentVersion
-                        appSettings.flywheelOptInDate = Date()
-                        appSettings.enableDataFlywheel = true
+                        appSettings.shareFootage(agreedTo: FlywheelConsent.currentVersion)
                         showFlywheelConsent = false
                     },
                     onCancel: { showFlywheelConsent = false }

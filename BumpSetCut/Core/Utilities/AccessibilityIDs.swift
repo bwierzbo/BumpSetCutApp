@@ -65,6 +65,7 @@ enum AccessibilityID {
         static let next = "onboarding.next"
         static let getStarted = "onboarding.getStarted"
         static let notNow = "onboarding.notNow"
+        static let dontShare = "onboarding.dontShare"
         static func page(_ index: Int) -> String { "onboarding.page.\(index)" }
     }
 

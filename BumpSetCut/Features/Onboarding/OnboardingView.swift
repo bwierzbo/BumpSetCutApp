@@ -31,9 +31,9 @@ struct OnboardingView: View {
                 // Skip button (top right)
                 HStack {
                     Spacer()
-                    if currentPage < pages.count - 1 {
+                    if showsSkip {
                         Button {
-                            onComplete()
+                            skip()
                         } label: {
                             Text("Skip")
                                 .bscFont(size: 16, weight: .medium)
@@ -67,10 +67,16 @@ struct OnboardingView: View {
                     onNext: {
                         switch pages[currentPage].kind {
                         case .notifications: enableNotifications()
+                        case .footageSharing: answerFootageSharing(share: true)
                         case .info: advance()
                         }
                     },
-                    onNotNow: advance
+                    onSecondary: {
+                        switch pages[currentPage].kind {
+                        case .footageSharing: answerFootageSharing(share: false)
+                        case .notifications, .info: advance()
+                        }
+                    }
                 )
                 .padding(.bottom, BSCSpacing.xl)
             }
@@ -81,6 +87,43 @@ struct OnboardingView: View {
                 hasAppeared = true
             }
         }
+    }
+
+    /// The page that says footage is shared, which a first run may not skip past.
+    private var footageSharingPage: Int? { pages.firstIndex { $0.kind == .footageSharing } }
+
+    /// A first run's Skip stops at the footage-sharing page, so nobody shares footage without having been told;
+    /// from there on there is nothing left to skip. Opened again from Help, Skip closes the tutorial.
+    private var showsSkip: Bool {
+        guard currentPage < pages.count - 1 else { return false }
+        if AppSettings.shared.hasCompletedOnboarding { return true }
+        return footageSharingPage.map { currentPage < $0 } ?? true
+    }
+
+    private func skip() {
+        if !AppSettings.shared.hasCompletedOnboarding, let page = footageSharingPage, currentPage < page {
+            withAnimation(.bscStandard) { currentPage = page }
+        } else {
+            onComplete()
+        }
+    }
+
+    /// Keep sharing (recorded as agreed to from this page) or stop, then move on. Under UI testing the answer
+    /// is not applied: those runs process real recordings, which must not be sent anywhere.
+    private func answerFootageSharing(share: Bool) {
+        #if DEBUG
+        guard !CommandLine.arguments.contains("--uitesting") else {
+            advance()
+            return
+        }
+        #endif
+        if share {
+            if !AppSettings.shared.enableDataFlywheel { AppSettings.shared.shareFootage(agreedTo: FlywheelConsent.defaultOn) }
+        } else {
+            AppSettings.shared.enableDataFlywheel = false
+            FlywheelCaptureService.shared.clearPending()
+        }
+        advance()
     }
 
     private func advance() {
@@ -155,7 +198,7 @@ private struct OnboardingFooter: View {
     let totalPages: Int
     let kind: OnboardingPage.Kind
     let onNext: () -> Void
-    let onNotNow: () -> Void
+    let onSecondary: () -> Void
 
     private var isLastPage: Bool {
         currentPage == totalPages - 1
@@ -165,14 +208,20 @@ private struct OnboardingFooter: View {
         if isLastPage { return "Get Started" }
         switch kind {
         case .notifications: return "Enable Notifications"
+        case .footageSharing: return "Share My Rallies"
         case .info: return "Next"
         }
+    }
+
+    private var secondaryTitle: LocalizedStringResource {
+        kind == .footageSharing ? "Don't Share" : "Not Now"
     }
 
     private var primaryIcon: String? {
         if isLastPage { return nil }
         switch kind {
         case .notifications: return "bell.fill"
+        case .footageSharing: return "checkmark"
         case .info: return "arrow.forward"
         }
     }
@@ -211,19 +260,20 @@ private struct OnboardingFooter: View {
             .padding(.horizontal, BSCSpacing.xl)
             .accessibilityIdentifier(isLastPage ? AccessibilityID.Onboarding.getStarted : AccessibilityID.Onboarding.next)
 
-            // "Not Now" escape for the permission pages. Always laid out so
-            // the footer height doesn't jump between pages; hidden elsewhere.
-            Button(action: onNotNow) {
-                Text("Not Now")
+            // The other answer on a page that asks something ("Not Now",
+            // "Don't Share"). Always laid out so the footer height doesn't
+            // jump between pages; hidden elsewhere.
+            Button(action: onSecondary) {
+                Text(secondaryTitle)
                     .bscFont(size: 16, weight: .medium)
                     .foregroundColor(.bscTextSecondary)
                     .frame(maxWidth: .infinity, minHeight: BSCTouchTarget.standard)
                     .contentShape(Rectangle())
             }
-            .opacity(kind.isPermission ? 1 : 0)
-            .allowsHitTesting(kind.isPermission)
-            .accessibilityHidden(!kind.isPermission)
-            .accessibilityIdentifier(AccessibilityID.Onboarding.notNow)
+            .opacity(kind.isChoice ? 1 : 0)
+            .allowsHitTesting(kind.isChoice)
+            .accessibilityHidden(!kind.isChoice)
+            .accessibilityIdentifier(kind == .footageSharing ? AccessibilityID.Onboarding.dontShare : AccessibilityID.Onboarding.notNow)
         }
     }
 }

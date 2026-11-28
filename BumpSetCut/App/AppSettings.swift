@@ -58,9 +58,10 @@ enum AppTheme: String, CaseIterable, Identifiable {
     // MARK: - Data Flywheel
 
     /// Contribute clips of every processed rally (plus the detector's
-    /// per-frame evidence) so the model can be retrained. Off by default;
-    /// flipped true when the consent sheet is accepted, or once for testers
-    /// (`applyTesterFlywheelDefault`).
+    /// per-frame evidence) so the model can be retrained. On by default
+    /// (D-046, `sharesFootageByDefault`): onboarding says so and offers to
+    /// turn it off, as Settings does at any time. Turning it back on goes
+    /// through the consent sheet.
     var enableDataFlywheel: Bool {
         didSet {
             UserDefaults.standard.set(enableDataFlywheel, forKey: "enableDataFlywheel")
@@ -81,15 +82,20 @@ enum AppTheme: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Testers share their footage by default (they agreed to as testers), with
-    /// the Settings toggle to stop. Applied once per install, so turning it off
-    /// sticks.
-    func applyTesterFlywheelDefault() {
-        let key = "flywheelTesterDefaultApplied"
-        guard !UserDefaults.standard.bool(forKey: key) else { return }
-        UserDefaults.standard.set(true, forKey: key)
-        guard !enableDataFlywheel else { return }
-        flywheelConsentVersion = FlywheelConsent.testerDefault
+    /// Whether an install that has not had the default applied yet is switched
+    /// on by it (D-046). Everyone is, except a person who turned sharing off
+    /// themselves: the stored switch is off although they once had it on — by
+    /// agreeing to a consent, or as a tester under the earlier tester default.
+    /// A person switched off only because the consent copy changed (the
+    /// stored switch still on) never chose off, and is switched on.
+    static func sharesFootageByDefault(storedSwitch: Bool, consentVersion: String, testerDefaultWasApplied: Bool) -> Bool {
+        storedSwitch || (consentVersion.isEmpty && !testerDefaultWasApplied)
+    }
+
+    /// The onboarding page's answer, or any deliberate turning on outside the
+    /// consent sheet: sharing on, recorded as agreed to under `version`.
+    func shareFootage(agreedTo version: String) {
+        flywheelConsentVersion = version
         flywheelOptInDate = Date()
         enableDataFlywheel = true
     }
@@ -156,14 +162,31 @@ enum AppTheme: String, CaseIterable, Identifiable {
         self.showPerformanceMetrics = false
         #endif
 
-        // Data flywheel (opt-in, default off)
-        let consent = UserDefaults.standard.string(forKey: "flywheelConsentVersion") ?? ""
+        // Data flywheel: on by default (D-046), applied once per install so
+        // that turning it off sticks. Not under UI tests, which process real
+        // recordings and must not send them anywhere.
+        let defaults = UserDefaults.standard
+        var consent = defaults.string(forKey: "flywheelConsentVersion") ?? ""
+        let storedSwitch = defaults.bool(forKey: "enableDataFlywheel")
         // Agreed to an earlier consent (stills of hard rallies, not clips of
-        // every rally): off until they agree to what's sent now.
-        self.enableDataFlywheel = UserDefaults.standard.bool(forKey: "enableDataFlywheel")
-            && [FlywheelConsent.currentVersion, FlywheelConsent.testerDefault].contains(consent)
+        // every rally): not on under that consent.
+        var sharing = storedSwitch && FlywheelConsent.inForce.contains(consent)
+        var optInDate = defaults.object(forKey: "flywheelOptInDate") as? Date
+        if !defaults.bool(forKey: "flywheelDefaultOnApplied"), !CommandLine.arguments.contains("--uitesting") {
+            defaults.set(true, forKey: "flywheelDefaultOnApplied")
+            if !sharing, Self.sharesFootageByDefault(storedSwitch: storedSwitch, consentVersion: consent,
+                                                     testerDefaultWasApplied: defaults.bool(forKey: "flywheelTesterDefaultApplied")) {
+                sharing = true
+                consent = FlywheelConsent.defaultOn
+                optInDate = Date()
+                defaults.set(true, forKey: "enableDataFlywheel")
+                defaults.set(consent, forKey: "flywheelConsentVersion")
+                defaults.set(optInDate, forKey: "flywheelOptInDate")
+            }
+        }
+        self.enableDataFlywheel = sharing
         self.flywheelConsentVersion = consent
-        self.flywheelOptInDate = UserDefaults.standard.object(forKey: "flywheelOptInDate") as? Date
+        self.flywheelOptInDate = optInDate
 
         // Onboarding state
         self.hasCompletedOnboarding = UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
