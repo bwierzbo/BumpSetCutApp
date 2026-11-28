@@ -145,7 +145,6 @@ enum RallySpaceSaver {
         try metadataStore.commitStagedSidecars(for: videoId)
         // Any in-flight processing checkpoint referenced the old timeline.
         ProcessingCheckpoint.delete(at: metadataStore.processingCheckpointFileURL(for: videoId))
-
         let newSize = StorageChecker.getFileSize(at: video.originalURL)
         return max(0, oldSize - newSize)
     }

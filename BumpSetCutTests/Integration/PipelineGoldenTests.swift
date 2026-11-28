@@ -45,6 +45,17 @@ final class PipelineGoldenTests: XCTestCase {
             } catch ProcessingError.noRalliesDetected {
                 lines.append("no rallies")
             }
+            // The run's detection log is what the stage was given: the same frames and boxes as the evidence, and
+            // it reads back from its bytes unchanged. Its size on a real recording is printed for the record.
+            let log = try XCTUnwrap(processor.detectionLog, run.name)
+            XCTAssertEqual(log.frames.map { CMTimeGetSeconds($0.time) }, processor.frameEvidence.map(\.time), run.name)
+            XCTAssertEqual(log.frames.map { $0.detections.map(\.bbox) }, processor.frameEvidence.map { $0.detections.map(\.bbox) }, run.name)
+            XCTAssertEqual(log.frames.map { $0.detections.map(\.confidence) }, processor.frameEvidence.map { $0.detections.map(\.confidence) }, run.name)
+            let bytes = try log.encoded()
+            XCTAssertEqual(try BallDetectionLog(data: bytes), log, run.name)
+            print(String(format: "PipelineGoldenTests: detection log for \"%@\": %d frames, %d detections, %d bytes = %.2f MB per hour of video",
+                         run.name, log.frames.count, log.frames.reduce(0) { $0 + $1.detections.count }, bytes.count,
+                         Double(bytes.count) / 1_048_576 / max(log.header.durationSec, 1) * 3600))
             lines.append("checks \(String(describing: processor.lastSpatialChecks))")
             lines += processor.serves.map { "serve \($0)" }
             lines += processor.frameEvidence.map(Self.describe)

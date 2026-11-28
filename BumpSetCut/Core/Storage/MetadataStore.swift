@@ -308,8 +308,14 @@ extension MetadataStore {
     }
 
     /// Install staged files over the live ones (the metadata's current version
-    /// becomes the backup first).
+    /// becomes the backup first). The video is the trimmed one from here on,
+    /// so the ball detections of the whole video go: they describe footage
+    /// that no longer exists, and its rallies can't be decided again (D-044).
+    /// Done first, so that an install that fails and is retried at the next
+    /// launch never leaves them beside a trimmed video.
     func commitStagedSidecars(for videoId: UUID) throws {
+        try? fileManager.removeItem(at: ballDetectionsFileURL(for: videoId))
+        try? fileManager.removeItem(at: ballDetectionsPartialFileURL(for: videoId))
         let stagedMetadata = stagedURL(for: metadataURL(for: videoId))
         if fileManager.fileExists(atPath: stagedMetadata.path) {
             try backUpCurrentMetadata(for: videoId)
@@ -569,6 +575,20 @@ extension MetadataStore {
     }
 }
 
+// MARK: - Ball detections (D-044)
+
+extension MetadataStore {
+    /// Every processed frame's ball detections from the video's last whole run (BallDetectionLog).
+    func ballDetectionsFileURL(for videoId: UUID) -> URL {
+        metadataDirectory.appendingPathComponent("\(videoId.uuidString)_detections.bsd")
+    }
+
+    /// The same for a run that has not finished, written with each resume checkpoint.
+    func ballDetectionsPartialFileURL(for videoId: UUID) -> URL {
+        metadataDirectory.appendingPathComponent("\(videoId.uuidString)_detections.partial")
+    }
+}
+
 // MARK: - Bulk Sidecar Cleanup
 
 extension MetadataStore {
@@ -583,8 +603,8 @@ extension MetadataStore {
     }
 
     /// Before reprocessing: drop the rally-index-keyed and run-specific
-    /// sidecars (trims, selections, scoring, evidence, checkpoint, staged
-    /// files) but KEEP `{id}.json` — the new run reads it to carry manual
+    /// sidecars (trims, selections, scoring, evidence, checkpoint, the ball
+    /// detections of the run and of an unfinished one, staged files) but KEEP `{id}.json` — the new run reads it to carry manual
     /// rallies through, then overwrites it when it finishes.
     func deleteSidecarsForReprocess(videoId: UUID) {
         let urls = [
@@ -593,6 +613,8 @@ extension MetadataStore {
             gameScoringURL(for: videoId),
             evidenceURL(for: videoId),
             processingCheckpointFileURL(for: videoId),
+            ballDetectionsFileURL(for: videoId),
+            ballDetectionsPartialFileURL(for: videoId),
         ]
         for url in urls {
             try? fileManager.removeItem(at: url)

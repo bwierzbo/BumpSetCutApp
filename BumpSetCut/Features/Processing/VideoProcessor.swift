@@ -182,6 +182,9 @@ final class VideoProcessor: @unchecked Sendable {
     /// only evaluation tools (RallyLab) opt in.
     @ObservationIgnored var collectFrameEvidence = false
     var frameEvidence: [FrameEvidence] { stage?.frameEvidence ?? [] }
+    /// Every processed frame of the last run with its balls, as the stage was given them; saved with a video in
+    /// the library. nil before a run, and for a resumed run whose earlier frames could not be put back.
+    @ObservationIgnored private(set) var detectionLog: BallDetectionLog?
     /// Each kept rally's serve: the one it started on (the decider's
     /// serve-primed start), else ServeDetector's search of the evidence —
     /// so only when it's collected. For the debug video; not used to cut.
@@ -410,6 +413,7 @@ final class VideoProcessor: @unchecked Sendable {
         }
 
         stage = nil
+        detectionLog = nil
         serves.removeAll()
         lastVideoDurationSec = 0
 
@@ -448,6 +452,9 @@ final class VideoProcessor: @unchecked Sendable {
         let checkpointURL = await MainActor.run { [metadataStore] in
             metadataStore?.processingCheckpointFileURL(for: videoId)
         }
+        let detectionLogURLs = await MainActor.run { [metadataStore] in
+            metadataStore.map { (whole: $0.ballDetectionsFileURL(for: videoId), partial: $0.ballDetectionsPartialFileURL(for: videoId)) }
+        }
         let configHash = ProcessingCheckpoint.hash(of: config)
         urgentCheckpoint.withLock { $0 = false }
 
@@ -479,6 +486,28 @@ final class VideoProcessor: @unchecked Sendable {
                 // a stale checkpoint must not leak in: the run starts from the first frame.
                 ProcessingCheckpoint.delete(at: checkpointURL)
             }
+        }
+
+        // Every processed frame's balls, kept for deciding the rallies again without finding the ball again. A
+        // resumed run starts with the frames the interrupted one kept beside its checkpoint; if those are not
+        // the checkpoint's, the frames before the resume point are gone and this run keeps no log at all —
+        // a log with a hole in it would be read as a video with no ball there.
+        var detectionFrames: [BallDetectionLog.Frame] = []
+        var detectionLogHeader = BallDetectionLog.Header(sourceFingerprint: FileFingerprint.read(atPath: url.path), durationSec: lastVideoDurationSec,
+                                                         upright: config.applyVideoRotation, finder: "", resumedAtSec: [])
+        var detectionLogIsWhole = true
+        if let restored {
+            if let kept = detectionLogURLs.flatMap({ BallDetectionLog.load(from: $0.partial) }),
+               kept.header.checkpointTimeSec == restored.resumeTime,
+               kept.header.sourceFingerprint == detectionLogHeader.sourceFingerprint, kept.header.upright == detectionLogHeader.upright {
+                // The frame at the resume point is read again by this run.
+                detectionFrames = kept.frames.filter { CMTimeGetSeconds($0.time) < restored.resumeTime }
+                detectionLogHeader.resumedAtSec = kept.header.resumedAtSec + [restored.resumeTime]
+            } else {
+                detectionLogIsWhole = false
+            }
+        } else if let detectionLogURLs {
+            BallDetectionLog.delete(at: detectionLogURLs.partial)
         }
 
         // Reader (resumes mid-video when a checkpoint seeded this run)
@@ -519,6 +548,12 @@ final class VideoProcessor: @unchecked Sendable {
         let writeCheckpoint: (_ nowSec: Double, _ rawFrameIndex: Int, _ skippedFrames: Int) -> Void = {
             [weak self] nowSec, rawFrameIndex, skippedFrames in
             guard let self, let checkpointURL else { return }
+            // The frames so far first: a checkpoint is never on disk with older frames than its own.
+            if detectionLogIsWhole, let detectionLogURLs {
+                var header = detectionLogHeader
+                header.checkpointTimeSec = nowSec
+                BallDetectionLog(header: header, frames: detectionFrames).write(to: detectionLogURLs.partial)
+            }
             ProcessingCheckpoint(
                 videoId: videoId,
                 configHash: configHash,
@@ -580,6 +615,8 @@ final class VideoProcessor: @unchecked Sendable {
                 .flatMap { heatPeaks.removeValue(forKey: $0) }
                 .map { heatmapOnlyDetections($0, beside: yoloDets, at: pts, orientation: frameOrientation) } ?? []
             let dets = yoloDets + heatDets
+            detectionFrames.append(.init(time: pts, detections: dets.map { .init(bbox: $0.bbox, confidence: $0.confidence) },
+                                         singleFrameCount: yoloDets.count))
             let decision = stage.decide(dets, singleFrameCount: yoloDets.count, at: pts)
 
             // Resume checkpoint: written only at rally-idle so no FSM/tracker
@@ -700,14 +737,24 @@ final class VideoProcessor: @unchecked Sendable {
         }
         pending.removeAll()
 
+        let finder = heatDetector == nil ? config.ballModel.rawValue
+            : "\(heatAlone ? "multi-frame only" : "\(config.ballModel.rawValue) + multi-frame") (\(heatModelURL?.deletingPathExtension().lastPathComponent ?? "?"))"
+
+        // The run's balls are whole now, whatever is decided of them: kept before the rallies are, so that a
+        // video in which none was found can have its rallies decided again too.
+        detectionLogHeader.finder = finder
+        detectionLog = detectionLogIsWhole ? BallDetectionLog(header: detectionLogHeader, frames: detectionFrames) : nil
+        if let detectionLogURLs {
+            detectionLog?.write(to: detectionLogURLs.whole)
+            BallDetectionLog.delete(at: detectionLogURLs.partial)
+        }
+
         let outcome = stage.finish(until: duration)
         let keep = outcome.keep
         serves = outcome.serves
 
         // Log processing statistics
         let processedFrames = rawFrameIndex - skippedFrames
-        let finder = heatDetector == nil ? config.ballModel.rawValue
-            : "\(heatAlone ? "multi-frame only" : "\(config.ballModel.rawValue) + multi-frame") (\(heatModelURL?.deletingPathExtension().lastPathComponent ?? "?"))"
         print(timing.line(video: lastVideoDurationSec - (restored?.resumeTime ?? 0), frames: rawFrameIndex - (restored?.counters.rawFrameIndex ?? 0),
                           total: Date().timeIntervalSince(startTime), model: finder,
                           thermal: (thermalAtStart, ProcessInfo.processInfo.thermalState)))
