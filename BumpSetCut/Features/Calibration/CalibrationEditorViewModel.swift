@@ -261,11 +261,33 @@ final class CalibrationEditorViewModel {
         }
     }
 
-    /// Puts the shapes back as they were when a drag began (a pinch took over, or the touch was a tap).
-    func restore(_ start: CalibrationWorkingShapes) {
-        guard let id = segmentId, shapes != start else { return }
-        shapes = start
-        working[id]?.shapes = start
+    /// The camera view's marks and whose they are, as a touch finds them: taken when a drag begins, put back if
+    /// the drag turns out to be the first finger of a pinch.
+    struct Snapshot {
+        fileprivate let segmentId: Int?
+        let shapes: CalibrationWorkingShapes
+        fileprivate let courtEdited: Bool
+        fileprivate let netEdited: Bool
+        fileprivate let courtIsOfferedOutline: Bool
+        fileprivate let hasUnsavedChanges: Bool
+    }
+
+    func snapshot() -> Snapshot {
+        let w = segmentId.flatMap { working[$0] }
+        return Snapshot(segmentId: segmentId, shapes: shapes, courtEdited: w?.courtEdited ?? false, netEdited: w?.netEdited ?? false,
+                        courtIsOfferedOutline: w?.courtIsOfferedOutline ?? false, hasUnsavedChanges: hasUnsavedChanges)
+    }
+
+    /// Undoes what a drag did since `before` was taken — the marks, and with them whether they count as edited:
+    /// an offered outline a cancelled drag moved is the offered outline again, not somebody's court.
+    func restore(_ before: Snapshot) {
+        guard let id = segmentId, id == before.segmentId else { return }
+        shapes = before.shapes
+        working[id]?.shapes = before.shapes
+        working[id]?.courtEdited = before.courtEdited
+        working[id]?.netEdited = before.netEdited
+        working[id]?.courtIsOfferedOutline = before.courtIsOfferedOutline
+        hasUnsavedChanges = before.hasUnsavedChanges
     }
 
     func setSelectedEstimated(_ estimated: Bool) {
@@ -430,7 +452,8 @@ final class CalibrationEditorViewModel {
     /// withdrawn — so they can be confirmed as they stand, without moving a point first.
     private func restageWithdrawnMarks(_ id: Int) {
         guard let segment = file?.segments.first(where: { $0.id == id }), let shapes = working[id]?.shapes else { return }
-        if segment.court.confirmation == nil, segment.court.draft == nil, shapes.hasCourtPoints {
+        // The offered outline is nobody's marks: there is nothing of it to put back.
+        if segment.court.confirmation == nil, segment.court.draft == nil, shapes.hasCourtPoints, working[id]?.courtIsOfferedOutline != true {
             working[id]?.court = Origin(startedFrom: CourtNetCalibrationV1.confirmation, baseline: segment.court.history.last?.geometry)
             working[id]?.courtEdited = true
         }

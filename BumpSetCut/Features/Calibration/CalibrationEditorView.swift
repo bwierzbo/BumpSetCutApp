@@ -37,7 +37,8 @@ struct CalibrationEditorView: View {
     private struct ActiveDrag {
         var startLocation: CGPoint
         var action: CalibrationDragAction
-        var shapes: CalibrationWorkingShapes
+        /// The marks, and whose they are, as the touch found them.
+        var before: CalibrationEditorViewModel.Snapshot
         var viewport: CalibrationViewport
         var location: CGPoint
         var moved = false
@@ -255,7 +256,7 @@ struct CalibrationEditorView: View {
                         action = model.shapes.dragAction(at: value.startLocation, in: viewport, target: model.target, wholeShape: wholeShape,
                                                          handleRadius: Self.handleRadius, edgeTolerance: Self.edgeTolerance)
                     }
-                    drag = ActiveDrag(startLocation: value.startLocation, action: action, shapes: model.shapes, viewport: viewport,
+                    drag = ActiveDrag(startLocation: value.startLocation, action: action, before: model.snapshot(), viewport: viewport,
                                       location: value.location, ignored: pinchBaseScale != nil)
                 }
                 guard var active = drag, !active.ignored else { return }
@@ -279,7 +280,7 @@ struct CalibrationEditorView: View {
                     viewport = active.viewport.panned(by: value.translation)
                 default:
                     guard frame.width > 0, frame.height > 0 else { return }
-                    model.drag(active.action, from: active.shapes, dx: Double(value.translation.width / frame.width),
+                    model.drag(active.action, from: active.before.shapes, dx: Double(value.translation.width / frame.width),
                                dy: Double(-value.translation.height / frame.height))
                 }
             }
@@ -299,7 +300,7 @@ struct CalibrationEditorView: View {
                     pinchBaseScale = viewport.scale
                     // The first finger of a pinch was a drag until now: undo what it moved.
                     if var active = drag {
-                        model.restore(active.shapes)
+                        model.restore(active.before)
                         active.ignored = true
                         drag = active
                     }

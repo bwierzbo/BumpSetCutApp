@@ -245,6 +245,61 @@ final class CalibrationEditorViewModelTests: XCTestCase {
         XCTAssertEqual(model.status, .courtConfirmed)
     }
 
+    func testAnUntouchedOutlineIsNotSavedWhenTheViewIsCalledNotStableAndThenStableAgain() async throws {
+        let model = await open()
+        model.offerCourtOutline()
+        model.setView(.unsuitable)
+        model.setView(.stable)
+        XCTAssertTrue(model.isStableView)
+        XCTAssertTrue(model.courtIsOfferedOutline, "still the offered outline")
+        let segment = try onFile().segments[0]
+        XCTAssertNil(segment.court.draft, "nobody marked it: nothing of it is on file")
+        XCTAssertNil(segment.court.confirmation)
+        XCTAssertFalse(model.hasUnsavedChanges)
+        XCTAssertFalse(model.confirm())
+
+        let reopened = await open()
+        XCTAssertFalse(reopened.shapes.hasCourtPoints, "reopened, there is no court on file to show")
+        XCTAssertTrue(reopened.wantsCourtOutline)
+    }
+
+    /// The first finger of a pinch drags a corner before the second finger lands; the pinch then undoes the drag.
+    func testADragThatAPinchCancelsLeavesTheOutlineNobodysAndAConfirmedCourtUnedited() async throws {
+        let model = await open()
+        model.offerCourtOutline()
+        var before = model.snapshot()
+        model.drag(.handle(.court(.farLeft)), from: before.shapes, dx: 0.05, dy: 0.02)
+        XCTAssertFalse(model.courtIsOfferedOutline)
+        model.restore(before)
+        XCTAssertEqual(model.shapes, before.shapes)
+        XCTAssertTrue(model.courtIsOfferedOutline, "the outline is the offered one again")
+        XCTAssertFalse(model.hasUnsavedChanges)
+        XCTAssertEqual(model.partState(.court), .nothing)
+        XCTAssertFalse(model.confirm())
+        model.saveDraft()
+        XCTAssertNil(try store.load(videoId.uuidString)?.segments[0].court.draft)
+
+        // The same for a court that is confirmed: a cancelled drag is no edit.
+        model.drag(.handle(.court(.farLeft)), from: model.shapes, dx: 0.02, dy: 0.02)
+        XCTAssertTrue(model.confirm())
+        before = model.snapshot()
+        model.drag(.shape, from: before.shapes, dx: 0.04, dy: 0)
+        XCTAssertEqual(model.partState(.court), .editedSinceConfirmed)
+        model.restore(before)
+        XCTAssertEqual(model.partState(.court), .confirmed)
+        XCTAssertFalse(model.hasUnsavedChanges)
+
+        // And for a net corner being put down.
+        let net = CalibrationEditorViewModel(videoId: videoId, url: video, store: store, reviewer: "tester", target: .net)
+        await net.load()
+        let empty = net.snapshot()
+        net.place(.net(0), x: 0.3, y: 0.6)
+        net.restore(empty)
+        XCTAssertFalse(net.shapes.hasNetCorners)
+        XCTAssertFalse(net.hasUnsavedChanges)
+        XCTAssertEqual(net.shapes.nextToPlace(.net), .net(0))
+    }
+
     func testStartingTheCourtOverLeavesRoomForTheOutlineAgain() async throws {
         let model = await open()
         model.offerCourtOutline()
