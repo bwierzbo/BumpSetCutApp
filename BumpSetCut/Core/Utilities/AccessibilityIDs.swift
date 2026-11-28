@@ -188,6 +188,11 @@ enum AccessibilityID {
         static let setupSkip = "process.setupSkip"
         static let setupProgress = "process.setupProgress"
         static let setupSkipRisk = "process.setupSkipRisk"
+        static let recalibrateEntry = "process.recalibrateEntry"
+        static let recalibrate = "process.recalibrate"
+        static let recalibrateConfirm = "process.recalibrateConfirm"
+        static let recalibrating = "process.recalibrating"
+        static let recalibrateUnavailable = "process.recalibrateUnavailable"
     }
 
     enum Calibration {

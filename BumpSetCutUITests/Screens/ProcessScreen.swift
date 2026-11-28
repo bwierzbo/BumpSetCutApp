@@ -26,6 +26,11 @@ struct ProcessScreen {
         app.buttons["process.doneButton"]
     }
 
+    /// "Recalibrate Court & Net", on a processed video.
+    var recalibrateButton: XCUIElement {
+        app.buttons["process.recalibrate"]
+    }
+
     /// "Skip" on the setup page that is showing (trim, camera position, court, net).
     var setupSkipButton: XCUIElement {
         app.buttons["process.setupSkip"]

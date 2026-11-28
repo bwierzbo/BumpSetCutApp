@@ -29,7 +29,7 @@ final class ProcessVideoViewModel {
     // The pages before a run: trim, camera position, court, net. Each is its own page and each can be skipped.
     enum SetupStep: CaseIterable { case trim, camera, court, net }
     /// What the pages lead to.
-    enum SetupGoal: Equatable { case process(debug: Bool), reprocess }
+    enum SetupGoal: Equatable { case process(debug: Bool), reprocess, recalibrate }
     struct Setup: Equatable {
         let steps: [SetupStep]
         let goal: SetupGoal
@@ -52,12 +52,14 @@ final class ProcessVideoViewModel {
         currentVideoMetadata?.cameraSetup ?? AppSettings.shared.lastCameraSetup
     }
 
-    /// Opens the pages that lead to `goal`. A reprocess keeps the video as it is, so it has no trim page; the
-    /// court and net belong to a video in the library.
+    /// Opens the pages that lead to `goal`. A reprocess and a recalibration keep the video as it is, so they
+    /// have no trim page; the court and net belong to a video in the library.
     func beginSetup(for goal: SetupGoal) {
         let steps = SetupStep.allCases.filter { step in
             switch step {
-            case .trim: return goal != .reprocess
+            case .trim:
+                if case .process = goal { return true }
+                return false
             case .camera: return true
             case .court, .net: return currentVideoMetadata != nil
             }
@@ -107,6 +109,7 @@ final class ProcessVideoViewModel {
         switch goal {
         case .process(let debug): startProcessing(isDebugMode: debug)
         case .reprocess: reprocess()
+        case .recalibrate: recalibrate()
         case nil: break
         }
     }
@@ -144,6 +147,11 @@ final class ProcessVideoViewModel {
     var hasMetadata: Bool {
         currentVideoMetadata?.hasMetadata ?? false
     }
+
+    /// The video's run kept the ball positions a recalibration decides from (read with the metadata).
+    private(set) var canRecalibrate = false
+    /// The rallies are being decided again; they are not to be opened meanwhile.
+    private(set) var isRecalibrating = false
 
     /// Rally totals of the current video's metadata, read once per metadata
     /// load instead of decoding the JSON on every body evaluation.
@@ -274,6 +282,7 @@ final class ProcessVideoViewModel {
             currentVideoMetadata = match
             rallySummary = (try? mediaStore.metadataStore.loadMetadata(for: match.id))
                 .map { ($0.rallyCount, $0.totalRallyDuration) }
+            canRecalibrate = RallyRecalibration.isAvailable(for: match.id, in: mediaStore.metadataStore)
             // Load duration from AVAsset if metadata doesn't have it
             if match.duration == nil || match.duration == 0 {
                 loadVideoDuration()
@@ -283,6 +292,7 @@ final class ProcessVideoViewModel {
 
         currentVideoMetadata = nil
         rallySummary = nil
+        canRecalibrate = false
     }
 
     /// Load video duration from AVAsset (async) for stats computation.
@@ -344,6 +354,26 @@ final class ProcessVideoViewModel {
         noRalliesDetected = false
         loadCurrentVideoMetadata()
         startProcessing(isDebugMode: false)
+    }
+
+    /// Recalibrate: the camera position, court and net were just set again; the rallies are decided again
+    /// from the balls the video's run found, and the old rallies' edits start over (RallyRecalibration).
+    func recalibrate() {
+        guard let videoId = currentVideoMetadata?.id, !isRecalibrating else { return }
+        isRecalibrating = true
+        Task {
+            defer { isRecalibrating = false }
+            do {
+                try await RallyRecalibration.run(videoId: videoId, videoURL: videoURL, mediaStore: mediaStore)
+                loadCurrentVideoMetadata()
+            } catch ProcessingError.noRalliesDetected {
+                errorMessage = String(localized: "No rallies were found with this camera position, court and net, so the rallies you had were kept.")
+                showError = true
+            } catch {
+                errorMessage = error.localizedDescription
+                showError = true
+            }
+        }
     }
 
     /// Re-run detection with the permissive preset after a zero-rally result.

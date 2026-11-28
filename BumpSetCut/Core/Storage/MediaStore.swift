@@ -487,9 +487,20 @@ extension MediaStore {
     /// invalidates (rally-index keyed state, evidence, checkpoint) but keep
     /// `{id}.json`, which the processor reads to carry manual rallies over
     /// and replaces when it finishes. The manifest keeps the video marked as
-    /// having metadata — it still does until the new run lands.
+    /// having metadata — it still does until the new run lands. Favourite
+    /// clips copied from its rallies stay; they no longer say which rally.
     func prepareForReprocess(videoId: UUID) {
         metadataStore.deleteSidecarsForReprocess(videoId: videoId)
+        remapFavoriteSourceIndices(sourceVideoId: videoId, oldToNew: [:])
+    }
+
+    /// A video's rallies are about to be replaced by others: what was done
+    /// to the old ones (trims, selections, scoring) goes, and the favourite
+    /// clips copied from them, which are files of their own and stay, no
+    /// longer point at a place in the list.
+    func clearRallyEdits(videoId: UUID) {
+        metadataStore.deleteRallyEdits(for: videoId)
+        remapFavoriteSourceIndices(sourceVideoId: videoId, oldToNew: [:])
     }
 
     /// Record that rally detection finished for a video.
