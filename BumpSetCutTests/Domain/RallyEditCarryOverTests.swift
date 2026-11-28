@@ -138,6 +138,41 @@ final class RallyEditCarryOverTests: XCTestCase {
         let trim = try XCTUnwrap(outcome.edits.trims[0])
         XCTAssertEqual(trim.before, 0)
         XCTAssertEqual(trim.after, -0.5, accuracy: 1e-9)
+        XCTAssertEqual(outcome.trimTimesDropped, [])
+    }
+
+    /// Trimmed to play 19–20 s only; the new rally is 10–15 s (half of the
+    /// old one, so it is that rally). Keeping the start at 19 would end
+    /// before it began: the times are given up and said so, the framing kept.
+    func testATrimThatWouldLeaveNothingToPlayGivesUpItsTimesAndIsReported() throws {
+        let outcome = RallyEditCarryOver.carry(
+            RallyEdits(trims: [0: RallyTrimAdjustment(before: -9, after: 0, rotation: 90, zoom: 1.5)],
+                       selections: RallyReviewSelections(favorited: [0]), scoring: nil),
+            from: [segment(10, 20)], to: [segment(10, 15)])
+        let trim = try XCTUnwrap(outcome.edits.trims[0])
+        XCTAssertEqual(trim.before, 0)
+        XCTAssertEqual(trim.after, 0)
+        XCTAssertEqual(trim.rotation, 90)
+        XCTAssertEqual(trim.zoom, 1.5)
+        XCTAssertEqual(outcome.trimTimesDropped, [0])
+        XCTAssertEqual(outcome.leftBehind, [])
+        XCTAssertEqual(outcome.edits.selections.favorited, [0])
+    }
+
+    /// Both edges trimmed and both kept at their times: start 12, end 14,
+    /// inside the new rally — and a start exactly at the end is nothing to play.
+    func testBothTrimmedEdgesKeepTheirTimesUnlessTheyMeet() throws {
+        let kept = RallyEditCarryOver.carry(
+            RallyEdits(trims: [0: RallyTrimAdjustment(before: -2, after: -6)], selections: RallyReviewSelections(), scoring: nil),
+            from: [segment(10, 20)], to: [segment(11, 17)])
+        XCTAssertEqual(try XCTUnwrap(kept.edits.trims[0]).before, -1, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(kept.edits.trims[0]).after, -3, accuracy: 1e-9)
+        XCTAssertEqual(kept.trimTimesDropped, [])
+
+        let met = RallyEditCarryOver.carry(
+            RallyEdits(trims: [0: RallyTrimAdjustment(before: -5, after: 0)], selections: RallyReviewSelections(), scoring: nil),
+            from: [segment(10, 20)], to: [segment(10, 15)])
+        XCTAssertEqual(met.trimTimesDropped, [0])
     }
 
     func testASetStartGoesToTheFirstRallyNotBeforeItThoughItsOwnRallyIsGone() {
@@ -173,9 +208,10 @@ final class RallyEditCarryOverTests: XCTestCase {
         try metadataStore.saveGameScoring(GameScoring(pointWinners: [0: .teamA, 2: .teamB], setBreaks: [2]), for: videoId)
 
         let new = [segment(10, 20.5), segment(50, 55)]
-        let leftBehind = try RallyEditCarryOver.install(metadata(new), metadataStore: metadataStore, mediaStore: nil)
+        let outcome = try RallyEditCarryOver.install(metadata(new), metadataStore: metadataStore, mediaStore: nil)
 
-        XCTAssertEqual(leftBehind, [1])
+        XCTAssertEqual(outcome.leftBehind, [1])
+        XCTAssertEqual(outcome.trimTimesDropped, [])
         XCTAssertEqual(try metadataStore.loadMetadata(for: videoId).rallySegments.map(\.id), new.map(\.id))
         XCTAssertEqual(metadataStore.loadTrimAdjustments(for: videoId)[1]?.before, 0.5)
         XCTAssertEqual(Set(metadataStore.loadTrimAdjustments(for: videoId).keys), [1])
@@ -189,7 +225,7 @@ final class RallyEditCarryOverTests: XCTestCase {
 
     func testInstallingWithNoGameLeavesNoGame() throws {
         try metadataStore.saveMetadata(metadata([segment(10, 20)]))
-        XCTAssertEqual(try RallyEditCarryOver.install(metadata([segment(10, 21)]), metadataStore: metadataStore, mediaStore: nil), [])
+        XCTAssertEqual(try RallyEditCarryOver.install(metadata([segment(10, 21)]), metadataStore: metadataStore, mediaStore: nil).leftBehind, [])
         XCTAssertNil(metadataStore.loadGameScoring(for: videoId))
         XCTAssertTrue(metadataStore.loadTrimAdjustments(for: videoId).isEmpty)
     }

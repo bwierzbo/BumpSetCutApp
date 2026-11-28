@@ -75,6 +75,10 @@ enum RallyEditCarryOver {
         let oldToNew: [Int: Int]
         /// Old positions that had an edit and were not found again, in order.
         let leftBehind: [Int]
+        /// Old positions of rallies found again whose trimmed start and end
+        /// could not be kept: at those times the new rally would play nothing.
+        /// It has its own start and end instead, and the rest of its framing.
+        let trimTimesDropped: [Int]
     }
 
     /// The part of the longer rally two rallies must share to be the same one.
@@ -107,15 +111,21 @@ enum RallyEditCarryOver {
 
         // A trimmed edge is a time the person chose: it stays at that time
         // though the rally's own edge moved. An edge they left alone follows
-        // the new rally.
+        // the new rally. If that leaves nothing to play (the kept start is
+        // at or past the end the new rally brought), neither time is kept.
+        var trimTimesDropped: [Int] = []
         for (oldIndex, trim) in edits.trims {
             guard let newIndex = oldToNew[oldIndex] else { continue }
             let was = old[oldIndex], now = new[newIndex]
-            if trim.before != 0 {
-                carried.trims[newIndex]?.before = now.startTime - (was.startTime - trim.before)
-            }
-            if trim.after != 0 {
-                carried.trims[newIndex]?.after = (was.endTime + trim.after) - now.endTime
+            let before = trim.before == 0 ? 0 : now.startTime - (was.startTime - trim.before)
+            let after = trim.after == 0 ? 0 : (was.endTime + trim.after) - now.endTime
+            if now.startTime - before < now.endTime + after {
+                carried.trims[newIndex]?.before = before
+                carried.trims[newIndex]?.after = after
+            } else {
+                carried.trims[newIndex]?.before = 0
+                carried.trims[newIndex]?.after = 0
+                trimTimesDropped.append(oldIndex)
             }
         }
 
@@ -133,18 +143,19 @@ enum RallyEditCarryOver {
 
         return Outcome(edits: carried,
                        oldToNew: oldToNew,
-                       leftBehind: edits.editedIndices.filter { oldToNew[$0] == nil }.sorted())
+                       leftBehind: edits.editedIndices.filter { oldToNew[$0] == nil }.sorted(),
+                       trimTimesDropped: trimTimesDropped.sorted())
     }
 
     /// Puts `metadata` (the rallies decided again) in place of the video's
     /// saved rallies together with its edits moved onto them, as the one
     /// multi-file save the timeline editor uses, then points the library's
-    /// favourite clips at their rallies' new positions. Returns the old
-    /// positions whose edits were left behind.
+    /// favourite clips at their rallies' new positions. The outcome says what
+    /// could not be carried.
     @MainActor
     @discardableResult
     static func install(_ metadata: ProcessingMetadata, metadataStore: MetadataStore,
-                        mediaStore: MediaStore?) throws -> [Int] {
+                        mediaStore: MediaStore?) throws -> Outcome {
         let videoId = metadata.videoId
         let previous = try metadataStore.loadMetadata(for: videoId).rallySegments
         let outcome = carry(metadataStore.loadRallyEdits(for: videoId), from: previous, to: metadata.rallySegments)
@@ -153,6 +164,6 @@ enum RallyEditCarryOver {
                                            selections: outcome.edits.selections,
                                            scoring: outcome.edits.scoring)
         mediaStore?.remapFavoriteSourceIndices(sourceVideoId: videoId, oldToNew: outcome.oldToNew)
-        return outcome.leftBehind
+        return outcome
     }
 }
